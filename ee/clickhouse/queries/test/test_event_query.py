@@ -182,6 +182,33 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
         sync_execute(query, params)
 
+    # just smoke test making sure query runs because no new functions are used here
+    def test_entity_filtered_by_cohort(self):
+        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "test"}}])
+
+        filter = Filter(
+            data={
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "order": 0,
+                        "properties": [{"key": "id", "type": "cohort", "value": cohort.pk}],
+                    },
+                ],
+            }
+        )
+
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z")
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "foo"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:01:00Z")
+
+        query, params = TrendsEventQuery(filter=filter, entity=filter.entities[0], team_id=self.team.pk).get_query()
+        sync_execute(query, params)
+
     # smoke test make sure query is formatted and runs
     def test_static_cohort_filter(self):
         cohort = _create_cohort(team=self.team, name="cohort1", groups=[], is_static=True)

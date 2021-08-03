@@ -14,7 +14,8 @@ import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -27,7 +28,7 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     median: 'Median',
 }
 
-export function InsightsTableV2({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
+export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
     const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
@@ -46,17 +47,6 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
-
-    function SeriesToggleWrapper({ children, id }: { children: JSX.Element | string; id: number }): JSX.Element {
-        return (
-            <div
-                style={{ cursor: isSingleEntity ? undefined : 'pointer' }}
-                onClick={() => !isSingleEntity && toggleVisibility(id)}
-            >
-                {children}
-            </div>
-        )
-    }
 
     const calcColumnMenu = (
         <Menu>
@@ -98,10 +88,12 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
 
     if (filters.breakdown) {
         columns.push({
-            title: <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown || 'Breakdown Value'} />,
+            title: (
+                <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
+            ),
             render: function RenderBreakdownValue({}, item: IndexedTrendResult) {
                 return (
-                    <SeriesToggleWrapper id={item.id}>
+                    <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
                         {formatBreakdownLabel(item.breakdown_value, cohorts)}
                     </SeriesToggleWrapper>
                 )
@@ -115,14 +107,14 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
         title: 'Event or Action',
         render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
             return (
-                <SeriesToggleWrapper id={item.id}>
+                <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
                     <InsightLabel
                         seriesColor={colorList[index]}
                         action={item.action}
-                        fallbackName={item.label}
+                        fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}
                         showCountedByTag={showCountedByTag}
-                        breakdownValue={item.breakdown_value?.toString()}
+                        breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                         hideBreakdown
                         hideIcon
                     />
@@ -165,9 +157,17 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
                     return average(item.data).toLocaleString()
                 } else if (calcColumnState === 'median') {
                     return median(item.data).toLocaleString()
-                } else if (calcColumnState === 'total' && filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
+                } else if (
+                    calcColumnState === 'total' &&
+                    (filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
+                        filters.display === ACTIONS_TABLE ||
+                        filters.display === ACTIONS_PIE_CHART)
+                ) {
                     // Special handling because `count` will contain the last amount, instead of the cumulative sum.
-                    return item.data.reduce((acc, val) => acc + val, 0).toLocaleString()
+                    return (
+                        item.aggregated_value?.toLocaleString() ||
+                        item.data.reduce((acc, val) => acc + val, 0).toLocaleString()
+                    )
                 }
                 return (
                     <>
@@ -201,11 +201,11 @@ export function InsightsTableV2({ isLegend = true, showTotalCount = false }: Ins
     )
 }
 
-function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
+export function formatBreakdownLabel(breakdown_value: string | number | undefined, cohorts: CohortType[]): string {
     if (breakdown_value && typeof breakdown_value == 'number') {
         return cohorts.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' ? 'Other' : breakdown_value
+        return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
     } else {
         return ''
     }

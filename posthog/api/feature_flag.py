@@ -105,7 +105,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
     def get_queryset(self) -> QuerySet:
-        queryset = FeatureFlag.objects.filter(team=self.team)
+        queryset = super().get_queryset()
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("-created_at")

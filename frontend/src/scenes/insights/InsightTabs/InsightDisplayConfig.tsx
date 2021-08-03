@@ -1,25 +1,19 @@
+import React from 'react'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import {
-    ACTIONS_BAR_CHART_VALUE,
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_PIE_CHART,
-    ACTIONS_TABLE,
-    FEATURE_FLAGS,
-    FUNNELS_TIME_TO_CONVERT,
-} from 'lib/constants'
-import React from 'react'
-import { ChartDisplayType, FilterType, ViewType } from '~/types'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
-import { useValues } from 'kea'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
+import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { useValues } from 'kea'
 
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -31,7 +25,7 @@ interface InsightDisplayConfigProps {
 const showIntervalFilter = function (activeView: ViewType, filter: FilterType): boolean {
     switch (activeView) {
         case ViewType.FUNNELS:
-            return filter.display === ACTIONS_LINE_GRAPH_LINEAR
+            return filter.funnel_viz_type === FunnelVizType.Trends
         case ViewType.RETENTION:
         case ViewType.PATHS:
             return false
@@ -103,7 +97,7 @@ export function InsightDisplayConfig({
             <div style={{ width: '100%', textAlign: 'right' }}>
                 {showChartFilter(activeView) && (
                     <ChartFilter
-                        onChange={(display: ChartDisplayType) => {
+                        onChange={(display: ChartDisplayType | FunnelVizType) => {
                             if (display === ACTIONS_TABLE || display === ACTIONS_PIE_CHART) {
                                 clearAnnotationsToCreate()
                             }
@@ -116,10 +110,16 @@ export function InsightDisplayConfig({
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
-                {showFunnelBarOptions && allFilters.display !== FUNNELS_TIME_TO_CONVERT && (
+                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <FunnelDisplayLayoutPicker />
                         <FunnelStepReferencePicker />
+                    </>
+                )}
+
+                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.TimeToConvert && (
+                    <>
+                        <FunnelBinsPicker />
                     </>
                 )}
 

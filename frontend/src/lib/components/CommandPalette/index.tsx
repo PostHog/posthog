@@ -47,13 +47,13 @@ export function CommandPalette(): JSX.Element | null {
     })
 
     useOutsideClickHandler(
-        boxRef,
+        boxRef.current,
         () => {
             if (isPaletteShown) {
                 hidePalette()
             }
         },
-        [boxRef, isPaletteShown]
+        [isPaletteShown]
     )
 
     return !user || !isPaletteShown ? null : (

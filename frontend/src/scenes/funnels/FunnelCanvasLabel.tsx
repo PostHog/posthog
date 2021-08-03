@@ -1,17 +1,17 @@
 // This file contains funnel-related components that are used in the general insights scope
 import { useActions, useValues } from 'kea'
-import { FUNNELS_TIME_TO_CONVERT, FUNNEL_VIZ } from 'lib/constants'
 import { humanFriendlyDuration } from 'lib/utils'
 import React from 'react'
-import { Button } from 'antd'
+import { Button, Tooltip } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
-import { ChartDisplayType } from '~/types'
+import { FunnelVizType } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { stepsWithCount, histogramStep, totalConversionRate } = useValues(funnelLogic)
+    const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { allFilters } = useValues(insightLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
 
@@ -21,21 +21,37 @@ export function FunnelCanvasLabel(): JSX.Element | null {
 
     return (
         <div className="funnel-canvas-label">
-            {allFilters.display === FUNNEL_VIZ && (
+            {allFilters.funnel_viz_type === FunnelVizType.Steps && (
                 <>
-                    <span className="text-muted-alt">Total conversion rate: </span>
-                    <span>{totalConversionRate}%</span>
+                    <span className="text-muted-alt">
+                        <Tooltip title="Overall conversion rate for all users on the entire funnel.">
+                            <InfoCircleOutlined className="info-indicator left" />
+                        </Tooltip>
+                        Total conversion rate:{' '}
+                    </span>
+                    <span>{conversionMetrics.totalRate}%</span>
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
-            <span className="text-muted-alt">Average time to convert: </span>
-            <Button
-                type="link"
-                disabled={allFilters.display === FUNNELS_TIME_TO_CONVERT}
-                onClick={() => setChartFilter(ChartDisplayType.FunnelsTimeToConvert)}
-            >
-                {humanFriendlyDuration(stepsWithCount[histogramStep]?.average_conversion_time)}
-            </Button>
+            {allFilters.funnel_viz_type !== FunnelVizType.Trends && (
+                <>
+                    <span className="text-muted-alt">
+                        <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
+                            <InfoCircleOutlined className="info-indicator left" />
+                        </Tooltip>
+                        Average time to convert:{' '}
+                    </span>
+                    <Button
+                        type="link"
+                        onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
+                        disabled={
+                            !clickhouseFeaturesEnabled || allFilters.funnel_viz_type === FunnelVizType.TimeToConvert
+                        }
+                    >
+                        {humanFriendlyDuration(conversionMetrics.averageTime)}
+                    </Button>
+                </>
+            )}
         </div>
     )
 }

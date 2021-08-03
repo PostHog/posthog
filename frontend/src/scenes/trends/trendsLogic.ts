@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
 import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import {
@@ -12,7 +12,6 @@ import {
     ChartDisplayType,
     EntityTypes,
     FilterType,
-    PathType,
     PersonType,
     PropertyFilter,
     TrendResult,
@@ -23,6 +22,8 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -42,6 +43,7 @@ export interface TrendPeople {
     breakdown_value?: string
     next?: string
     loadingMore?: boolean
+    funnelStep?: number
 }
 
 interface PeopleParamType {
@@ -119,16 +121,9 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     return toAPIParams({ ...params, ...restParams })
 }
 
-function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: string[]): Partial<FilterType> {
-    /* Opening /insights without any params, will set $pageview as the default event (or
-    the first random event). We load this default events when `currentTeam` is loaded (because that's when
-    `eventNames` become available) and on every view change (through the urlToAction map) */
-    if (!currentFilters.actions?.length && !currentFilters.events?.length && eventNames.length) {
-        const event = eventNames.includes(PathType.PageView)
-            ? PathType.PageView
-            : eventNames.includes(PathType.Screen)
-            ? PathType.Screen
-            : eventNames[0]
+function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterType> {
+    if (!currentFilters.actions?.length && !currentFilters.events?.length) {
+        const event = getDefaultEventName()
 
         const defaultFilters = {
             [EntityTypes.EVENTS]: [
@@ -310,8 +305,13 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
 
     selectors: () => ({
         filtersLoading: [
-            () => [eventDefinitionsModel.selectors.loaded, propertyDefinitionsModel.selectors.loaded],
-            (eventsLoaded, propertiesLoaded): boolean => !eventsLoaded || !propertiesLoaded,
+            () => [
+                featureFlagLogic.selectors.featureFlags,
+                eventDefinitionsModel.selectors.loaded,
+                propertyDefinitionsModel.selectors.loaded,
+            ],
+            (featureFlags, eventsLoaded, propertiesLoaded) =>
+                !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
         ],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
@@ -379,7 +379,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             actions.setBreakdownValuesLoading(false)
         },
         [eventDefinitionsModel.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            const newFilter = getDefaultFilters(values.filters, eventDefinitionsModel.values.eventNames)
+            const newFilter = getDefaultFilters(values.filters)
             const mergedFilter: Partial<FilterType> = {
                 ...values.filters,
                 ...newFilter,
@@ -447,10 +447,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     cleanSearchParams['compare'] = false
                 }
 
-                Object.assign(
-                    cleanSearchParams,
-                    getDefaultFilters(cleanSearchParams, eventDefinitionsModel.values.eventNames)
-                )
+                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams))
 
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams, false)

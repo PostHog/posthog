@@ -19,6 +19,7 @@ interface InsightsLabelProps {
     fallbackName?: string // Name to display for the series if it can be determined from `action`
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
+    allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
 }
 
 function MathTag({ math, mathProperty }: Record<string, string | undefined>): JSX.Element {
@@ -55,6 +56,7 @@ export function InsightLabel({
     fallbackName,
     hasMultipleSeries,
     showCountedByTag,
+    allowWrap = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || hasMultipleSeries
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
@@ -78,8 +80,10 @@ export function InsightLabel({
                         hasBreakdown={!!breakdownValue}
                     />
                 )}
-                <div className="protect-width">
-                    {showEventName && <PropertyKeyInfo disableIcon disablePopover value={eventName} />}
+                <div className={allowWrap ? '' : 'protect-width'}>
+                    {showEventName && (
+                        <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
+                    )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
                         <MathTag math={action?.math} mathProperty={action?.math_property} />

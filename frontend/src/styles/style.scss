@@ -121,16 +121,16 @@ label.disabled {
 }
 
 .ant-modal-mask {
-    z-index: 1050 !important;
+    z-index: $z_ant_modal_mask !important;
 }
 .ant-modal-wrap {
-    z-index: 1060 !important;
+    z-index: $z_ant_modal_wrap !important;
 }
 .ant-message {
-    z-index: 1070 !important;
+    z-index: $z_ant_message !important;
 }
 .ant-select-dropdown {
-    z-index: 1065 !important;
+    z-index: $z_ant_select_dropdown !important;
 }
 
 .ant-select-arrow .anticon {

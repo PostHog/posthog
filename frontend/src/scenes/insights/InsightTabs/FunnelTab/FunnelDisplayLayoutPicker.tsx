@@ -7,7 +7,7 @@ import { FunnelLayout } from 'lib/constants'
 
 export function FunnelDisplayLayoutPicker(): JSX.Element {
     const { barGraphLayout } = useValues(funnelLogic)
-    const { setBarGraphLayout } = useActions(funnelLogic)
+    const { setFilters } = useActions(funnelLogic)
     const options = [
         {
             value: FunnelLayout.vertical,
@@ -24,7 +24,7 @@ export function FunnelDisplayLayoutPicker(): JSX.Element {
         <Select
             defaultValue={FunnelLayout.vertical}
             value={barGraphLayout || FunnelLayout.vertical}
-            onChange={setBarGraphLayout}
+            onChange={(layout: FunnelLayout) => setFilters({ layout })}
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="funnel-bar-layout-selector"

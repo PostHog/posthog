@@ -16,8 +16,11 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
         super().__init__(filter, team)
         self.funnel_order = funnel_order_class(filter, team)
 
-    def _format_results(self, results: list) -> list:
-        return results
+    def _format_results(self, results: list) -> dict:
+        return {
+            "bins": [(bin_from_seconds, person_count) for bin_from_seconds, person_count, _ in results],
+            "average_conversion_time": results[0][2],
+        }
 
     def get_query(self) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_query()
@@ -53,56 +56,66 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             )
 
         steps_average_conversion_time_identifiers = [
-            f"step_{step+1}_average_conversion_time" for step in range(from_step, to_step)
+            f"step_{step+1}_average_conversion_time_inner" for step in range(from_step, to_step)
         ]
         steps_average_conversion_time_expression_sum = " + ".join(steps_average_conversion_time_identifiers)
+
+        steps_average_conditional_for_invalid_values = [
+            f"{identifier} >= 0" for identifier in steps_average_conversion_time_identifiers
+        ]
+        # :HACK: Protect against CH bug https://github.com/ClickHouse/ClickHouse/issues/26580
+        #   once the issue is resolved, stop skipping the test: test_auto_bin_count_single_step_duplicate_events
+        #   and remove this comment
 
         query = f"""
             WITH
                 step_runs AS (
-                    {steps_per_person_query}
+                    SELECT * FROM (
+                        {steps_per_person_query}
+                    ) WHERE {" AND ".join(steps_average_conditional_for_invalid_values)}
                 ),
                 histogram_params AS (
-                    -- Binning ensures that each sample belongs to a bin in results
-                    -- If bin_count is not a custom number, it's calculated in bin_count_expression
+                    /* Binning ensures that each sample belongs to a bin in results */
+                    /* If bin_count is not a custom number, it's calculated in bin_count_expression */
                     SELECT
                         floor(min({steps_average_conversion_time_expression_sum})) AS from_seconds,
                         ceil(max({steps_average_conversion_time_expression_sum})) AS to_seconds,
+                        round(avg({steps_average_conversion_time_expression_sum}), 2) AS average_conversion_time,
                         {bin_count_expression or ""}
                         ceil((to_seconds - from_seconds) / {bin_count_identifier}) AS bin_width_seconds_raw,
-                        -- Use 60 seconds as fallback bin width in case of only one sample
+                        /* Use 60 seconds as fallback bin width in case of only one sample */
                         if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds
                     FROM step_runs
                 ),
-                -- Below CTEs make histogram_params columns available to the query below as straightforward identifiers
+                /* Below CTEs make histogram_params columns available to the query below as straightforward identifiers */
                 ( SELECT bin_width_seconds FROM histogram_params ) AS bin_width_seconds,
-                -- bin_count is only made available as an identifier if it had to be calculated
+                /* bin_count is only made available as an identifier if it had to be calculated */
                 {
                     f"( SELECT {bin_count_identifier} FROM histogram_params ) AS {bin_count_identifier},"
                     if bin_count_expression else ""
                 }
                 ( SELECT from_seconds FROM histogram_params ) AS histogram_from_seconds,
-                ( SELECT to_seconds FROM histogram_params ) AS histogram_to_seconds
+                ( SELECT to_seconds FROM histogram_params ) AS histogram_to_seconds,
+                ( SELECT average_conversion_time FROM histogram_params ) AS histogram_average_conversion_time
             SELECT
-                bin_to_seconds,
-                person_count
+                bin_from_seconds,
+                person_count,
+                histogram_average_conversion_time AS average_conversion_time
             FROM (
-                -- Calculating bins from step runs
+                /* Calculating bins from step runs */
                 SELECT
-                    histogram_from_seconds + floor(({steps_average_conversion_time_expression_sum} - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_to_seconds,
+                    histogram_from_seconds + floor(({steps_average_conversion_time_expression_sum} - histogram_from_seconds) / bin_width_seconds) * bin_width_seconds AS bin_from_seconds,
                     count() AS person_count
                 FROM step_runs
-                -- We only need to check step to_step here, because it depends on all the other ones being NOT NULL too
-                WHERE step_{to_step}_average_conversion_time IS NOT NULL
-                GROUP BY bin_to_seconds
+                GROUP BY bin_from_seconds
             ) results
-            FULL OUTER JOIN (
-                -- Making sure bin_count bins are returned
-                -- Those not present in the results query due to lack of data simply get person_count 0
-                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_to_seconds FROM system.numbers LIMIT {bin_count_identifier} + 1
+            RIGHT OUTER JOIN (
+                /* Making sure bin_count bins are returned */
+                /* Those not present in the results query due to lack of data simply get person_count 0 */
+                SELECT histogram_from_seconds + number * bin_width_seconds AS bin_from_seconds FROM system.numbers LIMIT {bin_count_identifier} + 1
             ) fill
-            USING (bin_to_seconds)
-            ORDER BY bin_to_seconds
+            USING (bin_from_seconds)
+            ORDER BY bin_from_seconds
             SETTINGS allow_experimental_window_functions = 1"""
 
         return query

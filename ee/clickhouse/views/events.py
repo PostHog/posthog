@@ -17,8 +17,8 @@ from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording
 from ee.clickhouse.queries.sessions.list import ClickhouseSessionsList
 from ee.clickhouse.sql.events import (
     GET_CUSTOM_EVENTS,
-    SELECT_EVENT_WITH_ARRAY_PROPS_SQL,
-    SELECT_EVENT_WITH_PROP_SQL,
+    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
+    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
     SELECT_ONE_EVENT_SQL,
 )
 from posthog.api.event import EventViewSet
@@ -72,12 +72,14 @@ class ClickhouseEventsViewSet(EventViewSet):
 
         if prop_filters != "":
             return sync_execute(
-                SELECT_EVENT_WITH_PROP_SQL.format(conditions=conditions, limit=limit_sql, filters=prop_filters),
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+                    conditions=conditions, limit=limit_sql, filters=prop_filters
+                ),
                 {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             )
         else:
             return sync_execute(
-                SELECT_EVENT_WITH_ARRAY_PROPS_SQL.format(conditions=conditions, limit=limit_sql),
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql),
                 {"team_id": team.pk, "limit": limit, **condition_params},
             )
 

@@ -52,6 +52,7 @@ interface PluginCardProps {
     maxOrder?: number
     rearranging?: boolean
     DragColumn?: React.ComponentClass | React.FC
+    unorderedPlugin?: boolean
 }
 
 export function PluginCard({
@@ -63,6 +64,7 @@ export function PluginCard({
     maxOrder,
     rearranging,
     DragColumn = ({ children }) => <Col className="order-handle">{children}</Col>,
+    unorderedPlugin = false,
 }: PluginCardProps): JSX.Element {
     const {
         name,
@@ -117,6 +119,13 @@ export function PluginCard({
                             </div>
                         </DragColumn>
                     ) : null}
+                    {unorderedPlugin ? (
+                        <Tooltip title="This plugin does not do any processing in order." placement="topRight">
+                            <Col>
+                                <Tag color="#555">-</Tag>
+                            </Col>
+                        </Tooltip>
+                    ) : null}
                     {pluginConfig && (
                         <Col>
                             <Popconfirm
@@ -133,11 +142,7 @@ export function PluginCard({
                                 cancelText="No"
                                 disabled={rearranging}
                             >
-                                <Switch
-                                    checked={pluginConfig.enabled ?? false}
-                                    onClick={() => console.log(pluginConfig.enabled)}
-                                    disabled={rearranging}
-                                />
+                                <Switch checked={pluginConfig.enabled ?? false} disabled={rearranging} />
                             </Popconfirm>
                         </Col>
                     )}

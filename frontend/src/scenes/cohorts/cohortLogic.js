@@ -1,3 +1,4 @@
+// DEPRECATED in favor of CohortV2/cohortLogic.tsx
 import React from 'react'
 import { kea } from 'kea'
 import { toast } from 'react-toastify'
@@ -6,6 +7,34 @@ import api from 'lib/api'
 import { router } from 'kea-router'
 import { cohortsModel } from '~/models/cohortsModel'
 import { Link } from 'lib/components/Link'
+import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+
+function formatGroupPayload(group) {
+    return { ...group, id: undefined, matchType: undefined }
+}
+
+function addLocalCohortGroupId(group) {
+    return {
+        id: Math.random().toString().substr(2, 5),
+        matchType: determineMatchType(group),
+        ...group,
+    }
+}
+
+function determineMatchType(group) {
+    if (group.action_id || group.event_id) {
+        return ENTITY_MATCH_TYPE
+    } else {
+        return PROPERTY_MATCH_TYPE
+    }
+}
+
+function processCohortOnSet(cohort) {
+    if (cohort.groups) {
+        cohort.groups = cohort.groups.map((group) => addLocalCohortGroupId(group))
+    }
+    return cohort
+}
 
 export const cohortLogic = kea({
     key: (props) => props.cohort.id || 'new',
@@ -14,6 +43,7 @@ export const cohortLogic = kea({
     actions: () => ({
         saveCohort: (cohortParams = {}, filterParams = null) => ({ cohortParams, filterParams }),
         setCohort: (cohort) => ({ cohort }),
+        updateCohortGroups: (groups) => ({ groups }),
         checkIsFinished: (cohort) => ({ cohort }),
         setToastId: (toastId) => ({ toastId }),
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
@@ -28,9 +58,12 @@ export const cohortLogic = kea({
             },
         ],
         cohort: [
-            props.cohort,
+            processCohortOnSet(props.cohort),
             {
-                setCohort: (_, { cohort }) => cohort,
+                setCohort: (s, { cohort }) => processCohortOnSet(cohort),
+                updateCohortGroups: (state, { groups }) => {
+                    return processCohortOnSet({ ...state, groups })
+                },
             },
         ],
         toastId: [
@@ -47,14 +80,22 @@ export const cohortLogic = kea({
         ],
     }),
 
+    selectors: () => ({
+        isNewCohort: [
+            (selectors) => [selectors.cohort],
+            (cohort) => cohort.id === 'new' || cohort.id === 'personsModalNew',
+        ],
+    }),
+
     listeners: ({ sharedListeners, actions, values }) => ({
         saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
             let cohort = { ...values.cohort, ...cohortParams }
             const cohortFormData = new FormData()
             for (const [key, value] of Object.entries(cohort)) {
                 if (key === 'groups') {
+                    const formattedGroups = value.map((group) => formatGroupPayload(group))
                     if (!cohort.csv) {
-                        cohortFormData.append(key, JSON.stringify(value))
+                        cohortFormData.append(key, JSON.stringify(formattedGroups))
                     } else {
                         // If we have a static cohort uploaded by CSV we don't need to send groups
                         cohortFormData.append(key, '[]')
@@ -73,6 +114,7 @@ export const cohortLogic = kea({
                 )
                 cohortsModel.actions.updateCohort(cohort)
             }
+            cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
             breakpoint()
             delete cohort['csv']
             actions.setCohort(cohort)

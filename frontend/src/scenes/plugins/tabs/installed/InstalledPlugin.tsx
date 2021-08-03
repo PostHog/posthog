@@ -9,6 +9,7 @@ export function InstalledPlugin({
     maxOrder,
     rearranging,
     DragColumn,
+    unorderedPlugin = false,
 }: {
     plugin: PluginTypeWithConfig
     showUpdateButton?: boolean
@@ -16,6 +17,7 @@ export function InstalledPlugin({
     maxOrder?: number
     rearranging?: boolean
     DragColumn?: React.ComponentClass | React.FC
+    unorderedPlugin?: boolean
 }): JSX.Element {
     return (
         <PluginCard
@@ -26,6 +28,7 @@ export function InstalledPlugin({
             maxOrder={maxOrder}
             rearranging={rearranging}
             DragColumn={DragColumn}
+            unorderedPlugin={unorderedPlugin}
         />
     )
 }

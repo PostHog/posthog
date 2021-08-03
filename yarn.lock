@@ -1259,6 +1259,11 @@
     "@types/yargs" "^15.0.0"
     chalk "^4.0.0"
 
+"@juggle/resize-observer@^3.3.1":
+  version "3.3.1"
+  resolved "https://registry.yarnpkg.com/@juggle/resize-observer/-/resize-observer-3.3.1.tgz#b50a781709c81e10701004214340f25475a171a0"
+  integrity sha512-zMM9Ds+SawiUkakS7y94Ymqx+S0ORzpG3frZirN3l+UlXUmSUR7hF4wxCVqW+ei94JzV5kt0uXBcoOEAuiydrw==
+
 "@mdx-js/react@^1.0.0":
   version "1.6.22"
   resolved "https://registry.yarnpkg.com/@mdx-js/react/-/react-1.6.22.tgz#ae09b4744fddc74714ee9f9d6f17a66e77c43573"
@@ -1291,6 +1296,11 @@
     superagent "^5.3.1"
     theme-ui "^0.3.1"
     tinycolor2 "^1.4.1"
+
+"@popperjs/core@^2.9.2":
+  version "2.9.2"
+  resolved "https://registry.yarnpkg.com/@popperjs/core/-/core-2.9.2.tgz#adea7b6953cbb34651766b0548468e743c6a2353"
+  integrity sha512-VZMYa7+fXHdwIq1TDhSXoVmSPEGM/aa+6Aiq3nVVJ9bXr24zScr+NlKFKC3iPljA7ho/GAZr+d2jOf5GIRC30Q==
 
 "@posthog/chart.js@^2.9.6":
   version "2.9.6"
@@ -1330,6 +1340,35 @@
     lodash.take "^4.1.1"
     lodash.takeright "^4.1.1"
     query-selector-shadow-dom "0.8.0"
+
+"@react-hook/latest@^1.0.2":
+  version "1.0.3"
+  resolved "https://registry.yarnpkg.com/@react-hook/latest/-/latest-1.0.3.tgz#c2d1d0b0af8b69ec6e2b3a2412ba0768ac82db80"
+  integrity sha512-dy6duzl+JnAZcDbNTfmaP3xHiKtbXYOaz3G51MGVljh548Y8MWzTr+PHLOfvpypEVW9zwvl+VyKjbWKEVbV1Rg==
+
+"@react-hook/passive-layout-effect@^1.2.0":
+  version "1.2.1"
+  resolved "https://registry.yarnpkg.com/@react-hook/passive-layout-effect/-/passive-layout-effect-1.2.1.tgz#c06dac2d011f36d61259aa1c6df4f0d5e28bc55e"
+  integrity sha512-IwEphTD75liO8g+6taS+4oqz+nnroocNfWVHWz7j+N+ZO2vYrc6PV1q7GQhuahL0IOR7JccFTsFKQ/mb6iZWAg==
+
+"@react-hook/resize-observer@^1.2.1":
+  version "1.2.2"
+  resolved "https://registry.yarnpkg.com/@react-hook/resize-observer/-/resize-observer-1.2.2.tgz#7eaf3151557a68f94fdcfd4666ada9948a45e743"
+  integrity sha512-F7ciucmLrF4vZM78sUpRquvMCSVJwu3ayxapsHKKzTOvixZtcwJZocDBOasQQIbd7DtXzD/sVEJCKJUC0X1MDA==
+  dependencies:
+    "@juggle/resize-observer" "^3.3.1"
+    "@react-hook/latest" "^1.0.2"
+    "@react-hook/passive-layout-effect" "^1.2.0"
+    "@types/raf-schd" "^4.0.0"
+    raf-schd "^4.0.2"
+
+"@react-hook/size@^2.1.2":
+  version "2.1.2"
+  resolved "https://registry.yarnpkg.com/@react-hook/size/-/size-2.1.2.tgz#87ed634ffb200f65d3e823501e5559aa3d584451"
+  integrity sha512-BmE5asyRDxSuQ9p14FUKJ0iBRgV9cROjqNG9jT/EjCM+xHha1HVqbPoT+14FQg1K7xIydabClCibUY4+1tw/iw==
+  dependencies:
+    "@react-hook/passive-layout-effect" "^1.2.0"
+    "@react-hook/resize-observer" "^1.2.1"
 
 "@sentry/browser@^6.0.4":
   version "6.0.4"
@@ -1941,6 +1980,11 @@
   version "1.5.4"
   resolved "https://registry.yarnpkg.com/@types/q/-/q-1.5.4.tgz#15925414e0ad2cd765bfef58842f7e26a7accb24"
   integrity sha512-1HcDas8SEj4z1Wc696tH56G8OlRaH/sqZOynNNB+HF0WOeXPaxTtbYzJY2oEfiUxjSKjhCKr+MvR7dCHcEelug==
+
+"@types/raf-schd@^4.0.0":
+  version "4.0.1"
+  resolved "https://registry.yarnpkg.com/@types/raf-schd/-/raf-schd-4.0.1.tgz#1f9e03736f277fe9c7b82102bf18570a6ee19f82"
+  integrity sha512-Ha+EnKHFIh9EKW0/XZJPUd3EGDFisEvauaBd4VVCRPKeOqUxNEc9TodiY2Zhk33XCgzJucoFEcaoNcBAPHTQ2A==
 
 "@types/react-dom@^16.9.8":
   version "16.9.9"
@@ -3702,10 +3746,10 @@ core-js-compat@^3.6.2:
     browserslist "^4.8.5"
     semver "7.0.0"
 
-core-js@3.6.5:
-  version "3.6.5"
-  resolved "https://registry.yarnpkg.com/core-js/-/core-js-3.6.5.tgz#7395dc273af37fb2e50e9bd3d9fe841285231d1a"
-  integrity sha512-vZVEEwZoIsI+vPEuoF9Iqf5H7/M3eeQqWlQnYa8FSKKePuYTf5MWnxb5SDAzCa60b3JBRS5g9b+Dq7b1y/RCrA==
+core-js@3.15.2:
+  version "3.15.2"
+  resolved "https://registry.yarnpkg.com/core-js/-/core-js-3.15.2.tgz#740660d2ff55ef34ce664d7e2455119c5bdd3d61"
+  integrity sha512-tKs41J7NJVuaya8DxIOCnl8QuPHx5/ZVbFo1oKgVl1qHFBBrDctzQGtuLjPpRdNTWmKPH6oEvgN/MUID+l485Q==
 
 core-util-is@1.0.2, core-util-is@~1.0.0:
   version "1.0.2"
@@ -7140,10 +7184,10 @@ kea-localstorage@^1.1.1:
   resolved "https://registry.yarnpkg.com/kea-localstorage/-/kea-localstorage-1.1.1.tgz#6edf69476779e002708fb10f2360e48333707406"
   integrity sha512-YijSF33Y1QpfHAq1hGvulWWoGC9Kckd4lVa+XStHar4t7GfoaDa1aWnTeJxzz9bWnJovfk+MnG8ekP4rWIqINA==
 
-kea-router@^1.0.0:
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.0.tgz#bdd82698502ead67e4b022326423e226e7c9529d"
-  integrity sha512-9jW8Uwc3A+5YpIuiF+opT+cXUfO6pIa22DFKTcKmVJg/GkiR5RHOziGs8uSkE9AG4snptoNkpA1iPDu/aK3dnw==
+kea-router@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/kea-router/-/kea-router-1.0.2.tgz#7ba20e6e5c97ae353918e38c0ca7a3eb9ed44e00"
+  integrity sha512-PsQhfl0j3kRcggBwC02+YsKzFa8zk46BSj9DbZvy/JzVXlBO7L3BTryo6kQSpZbU6v0HJgr7Oupaj396zsr9bA==
   dependencies:
     url-pattern "^1.0.3"
 
@@ -7157,15 +7201,20 @@ kea-typegen@^1.1.5:
     prettier "^2.3.1"
     yargs "^16.2.0"
 
+kea-waitfor@^0.2.0:
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/kea-waitfor/-/kea-waitfor-0.2.0.tgz#8de370a8160f9cfddf9897598deb1aaf3aa20f9e"
+  integrity sha512-lR+q/sw+OtURQuXsiHDHJXLMUv+hJLjTNoZeAZucO+JC1ul2VbbhqFQSD8VXea3bpAaK5BL4t/QucoY00IpXMQ==
+
 kea-window-values@^0.0.1:
   version "0.0.1"
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@^2.4.5:
-  version "2.4.5"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.5.tgz#5a43a5aedf306bc7ae0a271ee5bc1ae5fedb4959"
-  integrity sha512-eo9o0AlnPVKyX2/qFAMxFksPjgHfc//NgzET7X3QbddKPDqCVgNfR8DGdrhnbrKlHF9lJtMQ4ERbVr9WaEEheg==
+kea@^2.4.6:
+  version "2.4.6"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.6.tgz#07782a79c5f036e6514d6300281416e736ed98e3"
+  integrity sha512-NuH1GOck4Dmr18Kjrto8ZsL6n7OgL2CagQeqPnFjdjyxBgNS7JDusex6G9sasW5Cp1D0Cb4izJvFVocj0fS8Jg==
 
 killable@^1.0.1:
   version "1.0.1"
@@ -8775,10 +8824,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.12.0:
-  version "1.12.0"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.12.0.tgz#8fe62f6144a1aa8f0e0c8e3a2fbba4c6c44a9987"
-  integrity sha512-ntBX0Whx7t0Twb6hi7Ebh3WvzaNJXrEDKX1t9Wo6hkl4uTXEYgXydxXqVJZbkagpDQKKisY9b+TlXsyy6pVZtg==
+posthog-js@1.12.2:
+  version "1.12.2"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.12.2.tgz#ff76e26634067e003f8af7df654d7ea0e647d946"
+  integrity sha512-I0d6c+Yu2f91PFidz65AIkkqZM219EY9Z1wlbTkW5Zqfq5oXqogBMKS8BaDBOrMc46LjLX7IH67ytCcBFRo1uw==
   dependencies:
     fflate "^0.4.1"
 
@@ -8996,6 +9045,11 @@ querystringify@^2.1.1:
   version "2.2.0"
   resolved "https://registry.yarnpkg.com/querystringify/-/querystringify-2.2.0.tgz#3345941b4153cb9d082d8eee4cda2016a9aef7f6"
   integrity sha512-FIqgj2EUvTa7R50u0rGsyTftzjYmv/a3hO345bZNrqabNqjtgiDMgmo4mkUjd+nzU5oF3dClKqFIPUKybUyqoQ==
+
+raf-schd@^4.0.2:
+  version "4.0.3"
+  resolved "https://registry.yarnpkg.com/raf-schd/-/raf-schd-4.0.3.tgz#5d6c34ef46f8b2a0e880a8fcdb743efc5bfdbc1a"
+  integrity sha512-tQkJl2GRWh83ui2DiPTJz9wEiMN20syf+5oKfB03yYP7ioZcJwsIK8FjrtLwH1m7C7e+Tt2yYBlrOpdT+dyeIQ==
 
 ramda@^0.27.1:
   version "0.27.1"
@@ -9402,6 +9456,11 @@ react-draggable@^4.0.0, react-draggable@^4.0.3, react-draggable@^4.2.0:
     classnames "^2.2.5"
     prop-types "^15.6.0"
 
+react-fast-compare@^3.0.1:
+  version "3.2.0"
+  resolved "https://registry.yarnpkg.com/react-fast-compare/-/react-fast-compare-3.2.0.tgz#641a9da81b6a6320f270e89724fb45a0b39e43bb"
+  integrity sha512-rtGImPZ0YyLrscKI9xTpV8psd6I8VAtjKCzQDlzyDvqJA8XOW78TXYQwNRNd8g8JZnDu8q9Fu/1v4HPAVwVdHA==
+
 react-grid-layout@^1.1.1:
   version "1.1.1"
   resolved "https://registry.yarnpkg.com/react-grid-layout/-/react-grid-layout-1.1.1.tgz#2643f84b95298e9c23d5e66ef86d7098a7184759"
@@ -9443,6 +9502,14 @@ react-markdown@^5.0.3:
     unified "^9.0.0"
     unist-util-visit "^2.0.0"
     xtend "^4.0.1"
+
+react-popper@^2.2.5:
+  version "2.2.5"
+  resolved "https://registry.yarnpkg.com/react-popper/-/react-popper-2.2.5.tgz#1214ef3cec86330a171671a4fbcbeeb65ee58e96"
+  integrity sha512-kxGkS80eQGtLl18+uig1UIf9MKixFSyPxglsgLBxlYnyDf65BiY9B3nZSc6C9XUNDgStROB0fMQlTEz1KxGddw==
+  dependencies:
+    react-fast-compare "^3.0.1"
+    warning "^4.0.2"
 
 react-redux@^7.2.0:
   version "7.2.2"
@@ -11553,7 +11620,7 @@ walker@^1.0.7, walker@~1.0.5:
   dependencies:
     makeerror "1.0.x"
 
-warning@^4.0.1, warning@^4.0.3:
+warning@^4.0.1, warning@^4.0.2, warning@^4.0.3:
   version "4.0.3"
   resolved "https://registry.yarnpkg.com/warning/-/warning-4.0.3.tgz#16e9e077eb8a86d6af7d64aa1e05fd85b4678ca3"
   integrity sha512-rpJyN222KWIvHJ/F53XSZv0Zl/accqHR8et1kpaMTD/fLCRxtV8iX8czMzY7sVZupTI3zcUTg8eycS2kNF9l6w==
@@ -11738,6 +11805,11 @@ whatwg-encoding@^1.0.5:
   integrity sha512-b5lim54JOPN9HtzvK9HFXvBma/rnfFeqsic0hSpjtDbVxR3dJKLc+KB4V6GgiGOvl7CY/KNh8rxSo9DKQrnUEw==
   dependencies:
     iconv-lite "0.4.24"
+
+whatwg-fetch@^3.6.2:
+  version "3.6.2"
+  resolved "https://registry.yarnpkg.com/whatwg-fetch/-/whatwg-fetch-3.6.2.tgz#dced24f37f2624ed0281725d51d0e2e3fe677f8c"
+  integrity sha512-bJlen0FcuU/0EMLrdbJ7zOnW6ITZLrZMIarMUVmdKtsGvZna8vxKYaexICWPfZ8qwf9fzNq+UEIZrnSaApt6RA==
 
 whatwg-mimetype@^2.3.0:
   version "2.3.0"

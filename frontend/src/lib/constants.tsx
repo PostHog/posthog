@@ -11,7 +11,6 @@ export const ACTIONS_BAR_CHART = 'ActionsBar'
 export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
-export const FUNNELS_TIME_TO_CONVERT = 'FunnelsTimeToConvert'
 
 export enum OrganizationMembershipLevel {
     Member = 1,
@@ -226,18 +225,22 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
     Teams: 'office.com',
 }
 
-export const FEATURE_FLAGS: Record<string, string> = {
+export const FEATURE_FLAGS = {
+    TEST_ENVIRONMENT: 'test-environment-3149',
+    PAPERCUPS_ENABLED: 'papercups-enabled',
     INGESTION_GRID: 'ingestion-grid-exp-3',
     PROJECT_HOME: 'project-home-exp-5',
+    FORMULAS: '3275-formulas',
+    TRAILING_WAU_MAU: '3638-trailing-wau-mau',
     EVENT_COLUMN_CONFIG: '4141-event-columns',
     NPS_PROMPT: '4562-nps',
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
-    NEW_TOOLTIPS: '4156-tooltips-legends',
-    FUNNEL_PERSONS_MODAL: '4819-funnel-persons-modal',
+    ENGAGEMENT_COHORTS: 'engagement-cohorts-4349',
     PLUGIN_METRICS: '4871-plugin-metrics',
-    FUNNEL_BAR_VIZ: '4535-funnel-bar-viz',
-    SESSIONS_TABLE: '4964-sessions-table',
-    PERSONS_MODAL_SEARCH: 'persons-modal-search',
+    FUNNEL_BAR_VIZ: '4535-funnel-bar-viz', // Nail Funnels #4785
+    SESSIONS_TABLE: '4964-sessions-table', // Expand/collapse all in sessions table (performance consideration)
+    TAXONOMIC_PROPERTY_FILTER: '4267-taxonomic-property-filter',
+    INGESTION_HELP_BUTTON: '112-ingestion-help-button',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
@@ -247,12 +250,21 @@ export enum Environments {
     TEST = 'test',
 }
 
+export const ENTITY_MATCH_TYPE = 'entities'
+export const PROPERTY_MATCH_TYPE = 'properties'
+
 export enum FunnelLayout {
     horizontal = 'horizontal',
     vertical = 'vertical',
 }
 
+export const BinCountAuto = 'auto'
+
 export const ERROR_MESSAGES: Record<string, string> = {
     no_new_organizations:
         'Your email address is not associated with an account. Please ask your administrator for an invite.',
 }
+
+// Cohort types
+export const COHORT_STATIC = 'static'
+export const COHORT_DYNAMIC = 'dynamic'

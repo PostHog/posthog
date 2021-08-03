@@ -11,6 +11,7 @@ interface OperatorValueSelectProps {
     operator?: PropertyOperator | null
     value?: string | number | Array<string | number> | null
     columnOptions?: ColProps | [ColProps, ColProps]
+    placeholder?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
 }
@@ -27,6 +28,7 @@ export function OperatorValueSelect({
     operator,
     value,
     columnOptions,
+    placeholder,
     onChange,
     operatorSelectProps,
 }: OperatorValueSelectProps): JSX.Element {
@@ -64,11 +66,13 @@ export function OperatorValueSelect({
                         key={propkey}
                         propertyKey={propkey}
                         operator={currentOperator || PropertyOperator.Exact}
+                        placeholder={placeholder}
                         value={value}
                         onSet={(newValue: string | number | string[] | null) => {
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
-                        autoFocus={!isMobile()}
+                        // open automatically only if new filter
+                        autoFocus={!isMobile() && value === null}
                     />
                 </Col>
             )}

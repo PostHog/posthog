@@ -4,6 +4,51 @@ from posthog.models.entity import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_E
 
 
 class TestEntity(TestCase):
+    def test_inclusion(self):
+        entity1 = Entity(
+            {
+                "id": "e1",
+                "type": TREND_FILTER_TYPE_EVENTS,
+                "properties": [
+                    {"key": "email", "value": "test@posthog.com", "type": "person"},
+                    {"key": "current_url", "value": "test@posthog.com", "type": "element"},
+                ],
+            }
+        )
+        entity2 = Entity(
+            {
+                "id": "e1",
+                "type": TREND_FILTER_TYPE_EVENTS,
+                "properties": [{"key": "current_url", "value": "test@posthog.com", "type": "element"},],
+            }
+        )
+
+        self.assertTrue(entity2.is_superset(entity1))
+        self.assertFalse(entity1.is_superset(entity2))
+
+    def test_inclusion_unordered(self):
+        entity1 = Entity(
+            {
+                "id": "e1",
+                "type": TREND_FILTER_TYPE_EVENTS,
+                "properties": [
+                    {"key": "browser", "value": "chrome", "type": "person"},
+                    {"key": "current_url", "value": "test@posthog.com", "type": "element"},
+                    {"key": "email", "value": "test@posthog.com", "type": "person"},
+                ],
+            }
+        )
+        entity2 = Entity(
+            {
+                "id": "e1",
+                "type": TREND_FILTER_TYPE_EVENTS,
+                "properties": [{"key": "current_url", "value": "test@posthog.com", "type": "element"},],
+            }
+        )
+
+        self.assertTrue(entity2.is_superset(entity1))
+        self.assertFalse(entity1.is_superset(entity2))
+
     def test_equality_with_ids(self):
 
         entity1 = Entity({"id": "e1", "type": TREND_FILTER_TYPE_ACTIONS})

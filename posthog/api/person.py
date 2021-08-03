@@ -79,7 +79,6 @@ class PersonFilter(filters.FilterSet):
 
 class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -87,7 +86,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.DjangoFilterBackend]
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
-
     lifecycle_class = LifecycleTrend
     retention_class = Retention
     stickiness_class = Stickiness
@@ -151,26 +149,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response(
             [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
         )
-
-    @action(methods=["GET"], detail=False)
-    def references(self, request: request.Request, **kwargs) -> response.Response:
-        reference_id = request.GET.get("id", None)
-        offset = request.GET.get("offset", None)
-
-        if not reference_id or not offset:
-            return response.Response({})
-
-        offset_value = int(offset)
-        cached_result = get_safe_cache(reference_id)
-        if cached_result:
-            return response.Response(
-                {
-                    "result": cached_result[offset_value : offset_value + 100],
-                    "offset": offset_value + 100 if len(cached_result) > offset_value + 100 else None,
-                }
-            )
-        else:
-            return response.Response({})
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:

@@ -1,21 +1,16 @@
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
-from django import forms
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
-from django.core.exceptions import ValidationError
 from django.http import HttpResponse
-from django.shortcuts import redirect, render
-from django.urls import URLPattern, include, path, re_path, reverse
+from django.shortcuts import redirect
+from django.urls import URLPattern, include, path, re_path
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.generic.base import TemplateView
 from loginas.utils import is_impersonated_session, restore_original_login
-from rest_framework import exceptions
-from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
-from social_django.strategy import DjangoStrategy
 
 from posthog.api import (
     api_not_found,
@@ -29,123 +24,13 @@ from posthog.api import (
 )
 from posthog.demo import demo
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_signed_up
 
-from .api.signup import SignupSerializer
-from .models import OrganizationInvite, Team, User
-from .utils import get_can_create_org, render_template
+from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, stats
 
 
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
-
-
-class TeamInviteSurrogate:
-    """This reimplements parts of OrganizationInvite that enable compatibility with the old Team.signup_token."""
-
-    def __init__(self, signup_token: str):
-        team = Team.objects.select_related("organization").get(signup_token=signup_token)
-        self.organization = team.organization
-
-    def validate(*args, **kwargs) -> bool:
-        return True
-
-    def use(self, user: Any, *args, **kwargs) -> None:
-        user.join(organization=self.organization)
-
-
-class CompanyNameForm(forms.Form):
-    companyName = forms.CharField(max_length=64)
-    emailOptIn = forms.BooleanField(required=False)
-
-
-def finish_social_signup(request):
-    """
-    TODO: DEPRECATED in favor of posthog.api.signup.SocialSignupSerializer
-    """
-    if not get_can_create_org():
-        return redirect("/login?error=no_new_organizations")
-
-    if request.method == "POST":
-        form = CompanyNameForm(request.POST)
-        if form.is_valid():
-            request.session["organization_name"] = form.cleaned_data["companyName"]
-            request.session["email_opt_in"] = bool(form.cleaned_data["emailOptIn"])
-            return redirect(reverse("social:complete", args=[request.session["backend"]]))
-    else:
-        form = CompanyNameForm()
-    return render(request, "signup_to_organization_company.html", {"user_name": request.session["user_name"]})
-
-
-@partial
-def social_create_user(strategy: DjangoStrategy, details, backend, request, user=None, *args, **kwargs):
-    if user:
-        return {"is_new": False}
-    user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
-    user_name = details["fullname"] or details["username"]
-    strategy.session_set("user_name", user_name)
-    strategy.session_set("backend", backend.name)
-    from_invite = False
-    invite_id = strategy.session_get("invite_id")
-    if not invite_id:
-        organization_name = strategy.session_get("organization_name", None)
-        email_opt_in = strategy.session_get("email_opt_in", None)
-        if not organization_name or email_opt_in is None:
-            return redirect(finish_social_signup)
-
-        serializer = SignupSerializer(
-            data={
-                "organization_name": organization_name,
-                "email_opt_in": email_opt_in,
-                "first_name": user_name,
-                "email": user_email,
-                "password": None,
-            },
-            context={"request": request},
-        )
-
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-    else:
-        from_invite = True
-        try:
-            invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
-                "organization",
-            ).get(id=invite_id)
-        except (OrganizationInvite.DoesNotExist, ValidationError):
-            try:
-                invite = TeamInviteSurrogate(invite_id)
-            except Team.DoesNotExist:
-                return redirect(f"/signup/{invite_id}?error_code=invalid_invite&source=social_create_user")
-
-        try:
-            invite.validate(user=None, email=user_email)
-        except exceptions.ValidationError as e:
-            return redirect(
-                f"/signup/{invite_id}?error_code={e.get_codes()[0]}&error_detail={e.args[0]}&source=social_create_user"
-            )
-
-        try:
-            user = strategy.create_user(email=user_email, first_name=user_name, password=None)
-        except Exception as e:
-            capture_exception(e)
-            message = "Account unable to be created. This account may already exist. Please try again"
-            " or use different credentials."
-            return redirect(f"/signup/{invite_id}?error_code=unknown&error_detail={message}&source=social_create_user")
-
-        invite.use(user, prevalidated=True)
-
-    report_user_signed_up(
-        distinct_id=user.distinct_id,
-        is_instance_first_user=User.objects.count() == 1,
-        is_organization_first_user=not from_invite,
-        new_onboarding_enabled=False,
-        backend_processor="social_create_user",
-        social_provider=backend.name,
-    )
-
-    return {"is_new": True, "user": user}
 
 
 @csrf_protect
@@ -228,7 +113,7 @@ urlpatterns = [
     opt_slash_path("s", capture.get_event),  # session recordings
     # auth
     path("logout", logout, name="login"),
-    path("signup/finish/", finish_social_signup, name="signup_finish"),
+    path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path("", include("social_django.urls", namespace="social")),
     *(
         []

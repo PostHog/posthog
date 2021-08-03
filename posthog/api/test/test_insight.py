@@ -5,14 +5,17 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.constants import RDBMS
 from posthog.ee import is_clickhouse_enabled
-from posthog.models.cohort import Cohort
-from posthog.models.dashboard_item import DashboardItem
-from posthog.models.event import Event
-from posthog.models.filters import Filter
-from posthog.models.person import Person
-from posthog.models.team import Team
+from posthog.models import (
+    Cohort,
+    Dashboard,
+    DashboardItem,
+    Event,
+    Filter,
+    Person,
+    Team,
+    User,
+)
 from posthog.test.base import APIBaseTest
 
 
@@ -128,6 +131,57 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(objects), 1)
             self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
             self.assertEqual(objects[0].filters["date_from"], "-90d")
+            self.assertEqual(len(objects[0].short_id), 8)
+
+        def test_save_new_funnel(self):
+
+            dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team)
+
+            response = self.client.post(
+                "/api/insight",
+                data={
+                    "filters": {
+                        "insight": "FUNNELS",
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": None,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [],
+                                "math_property": None,
+                            },
+                            {
+                                "id": "$rageclick",
+                                "math": None,
+                                "name": "$rageclick",
+                                "type": "events",
+                                "order": 2,
+                                "properties": [],
+                                "math_property": None,
+                            },
+                        ],
+                        "display": "FunnelViz",
+                        "interval": "day",
+                        "date_from": "-30d",
+                        "actions": [],
+                        "new_entity": [],
+                        "layout": "horizontal",
+                    },
+                    "name": "My Funnel One",
+                    "dashboard": dashboard.pk,
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+            objects = DashboardItem.objects.all()
+            self.assertEqual(len(objects), 1)
+            self.assertEqual(objects[0].filters["events"][1]["id"], "$rageclick")
+            self.assertEqual(objects[0].filters["display"], "FunnelViz")
+            self.assertEqual(objects[0].filters["interval"], "day")
+            self.assertEqual(objects[0].filters["date_from"], "-30d")
+            self.assertEqual(objects[0].filters["layout"], "horizontal")
             self.assertEqual(len(objects[0].short_id), 8)
 
         # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
@@ -285,6 +339,40 @@ def insight_test_factory(event_factory, person_factory):
             response = self.client.get("/api/insight/retention/",).json()
 
             self.assertEqual(len(response["result"]), 11)
+
+        def test_insight_with_specified_token(self):
+            _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+            assert user.team is not None
+            assert self.team is not None
+            assert self.user.team is not None
+
+            self.assertNotEqual(user.team.id, self.team.id)
+            self.client.force_login(self.user)
+
+            person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=6),
+            )
+
+            event_factory(
+                team=self.team, event="$pageview", distinct_id="person1", timestamp=timezone.now() - timedelta(days=5),
+            )
+
+            events_filter = json.dumps([{"id": "$pageview"}])
+            response_team1 = self.client.get(f"/api/insight/trend/?events={events_filter}")
+            response_team1_token = self.client.get(
+                f"/api/insight/trend/?events={events_filter}&token={self.user.team.api_token}"
+            )
+            response_team2 = self.client.get(
+                f"/api/insight/trend/?events={events_filter}", data={"token": user.team.api_token}
+            )
+
+            self.assertEqual(response_team1.json()["result"], response_team1_token.json()["result"])
+            self.assertNotEqual(len(response_team1.json()["result"]), len(response_team2.json()["result"]))
+
+            response_invalid_token = self.client.get(f"/api/insight/trend?token=invalid")
+            self.assertEqual(response_invalid_token.status_code, 401)
 
     return TestInsight
 

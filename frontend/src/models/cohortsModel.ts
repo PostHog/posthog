@@ -52,6 +52,10 @@ export const cohortsModel = kea<cohortsModelType>({
         },
     },
 
+    selectors: {
+        cohortsWithAllUsers: [(s) => [s.cohorts], (cohorts) => [{ id: 'all', name: 'All Users*' }, ...cohorts]],
+    },
+
     listeners: ({ actions }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CohortType[] }) => {
             const is_calculating = cohorts.filter((cohort) => cohort.is_calculating).length > 0

@@ -12,7 +12,7 @@ from psycopg2 import sql
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Entity, Event, Filter, Person, Team
-from posthog.models.utils import namedtuplefetchall
+from posthog.models.utils import namedtuplefetchall, sane_repr
 from posthog.queries.base import BaseQuery, properties_to_Q
 from posthog.utils import format_label_date, get_daterange
 
@@ -293,3 +293,5 @@ class Funnel(BaseQuery):
             cursor.execute(qstring)
             results = namedtuplefetchall(cursor)
         return self.data_to_return(results)
+
+    __repr__ = sane_repr("_team", "_filter")

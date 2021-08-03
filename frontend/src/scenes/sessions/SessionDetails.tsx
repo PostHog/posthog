@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Table, Tooltip } from 'antd'
-import { humanFriendlyDiff, humanFriendlyDetailedTime } from '~/lib/utils'
+import { humanFriendlyDetailedTime, colonDelimitedDiff } from '~/lib/utils'
 import { EventDetails } from 'scenes/events'
 import { Property } from 'lib/components/Property'
 import { eventToName } from 'lib/utils'
@@ -11,7 +11,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
 import { MATCHING_EVENT_ICON_SIZE } from 'scenes/sessions/SessionsView'
 import { ExpandIcon } from 'lib/components/ExpandIcon'
-import { MonitorOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, MonitorOutlined } from '@ant-design/icons'
 
 export function SessionDetails({ session }: { session: SessionType }): JSX.Element {
     const { filteredSessionEvents } = useValues(sessionsTableLogic)
@@ -55,11 +55,18 @@ export function SessionDetails({ session }: { session: SessionType }): JSX.Eleme
             },
         },
         {
-            title: 'Time Elapsed from Previous',
+            title: (
+                <span>
+                    Time Elapsed from Previous
+                    <Tooltip title="Time elapsed is formatted as HH:MM:SS.">
+                        <InfoCircleOutlined className="info-indicator" />
+                    </Tooltip>
+                </span>
+            ),
             render: function RenderElapsed({ timestamp }: EventType, _: any, index: number) {
                 const realIndex = (page - 1) * pageSize + index
                 const lastEvent = realIndex > 0 ? events?.[realIndex - 1] : null
-                return <span>{lastEvent ? humanFriendlyDiff(lastEvent.timestamp, timestamp) : 0}</span>
+                return <span>{lastEvent ? colonDelimitedDiff(lastEvent.timestamp, timestamp) : '00:00:00'}</span>
             },
         },
     ]

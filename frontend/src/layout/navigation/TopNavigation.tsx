@@ -33,37 +33,8 @@ import { CreateInviteModalWithButton } from 'scenes/organization/Settings/Create
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Environments } from 'lib/constants'
-import md5 from 'md5'
-
-export interface ProfilePictureProps {
-    name?: string
-    email?: string
-    small?: boolean
-}
-
-export function ProfilePicture({ name, email, small }: ProfilePictureProps): JSX.Element {
-    const [didImageError, setDidImageError] = useState(false)
-    const pictureClass = small ? 'profile-picture small' : 'profile-picture'
-    if (email && !didImageError) {
-        const emailHash = md5(email.trim().toLowerCase())
-        const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
-        return (
-            <img
-                className={pictureClass}
-                src={gravatarUrl}
-                onError={() => setDidImageError(true)}
-                title={`This is ${email}'s Gravatar.`}
-                alt=""
-            />
-        )
-    } else if (name) {
-        return <div className={pictureClass}>{name[0]?.toUpperCase()}</div>
-    } else if (email) {
-        return <div className={pictureClass}>{email[0]?.toUpperCase()}</div>
-    }
-    return <div className={pictureClass}>?</div>
-}
+import { Environments, FEATURE_FLAGS } from 'lib/constants'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -323,7 +294,7 @@ export function TopNavigation(): JSX.Element {
                 </div>
                 {user && (
                     <div>
-                        {featureFlags['test-environment-3149'] && (
+                        {featureFlags[FEATURE_FLAGS.TEST_ENVIRONMENT] && (
                             <div className="global-environment-switch">
                                 <label
                                     htmlFor="global-environment-switch"

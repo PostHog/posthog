@@ -1,7 +1,24 @@
 .person-modal {
+    .ant-modal-body {
+        padding: 0;
+        max-height: 60vh;
+        overflow-y: scroll;
+    }
+
     .ant-btn {
-        border-radius: 4px;
-        color: var(--primary);
+        a {
+            color: var(--primary);
+        }
+    }
+
+    .ant-modal-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ant-modal-header {
+        padding: 16px 16px;
+        width: 575px;
     }
 }
 

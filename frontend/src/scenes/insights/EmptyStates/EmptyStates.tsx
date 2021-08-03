@@ -164,8 +164,8 @@ export function ErrorMessage(): JSX.Element {
     )
 }
 
-export function FunnelEmptyState(): JSX.Element {
-    const { filters } = useValues(funnelLogic)
+export function FunnelInvalidFiltersEmptyState(): JSX.Element {
+    const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
@@ -177,8 +177,10 @@ export function FunnelEmptyState(): JSX.Element {
                 </div>
                 <h2 className="funnels-empty-state__title">Add another step!</h2>
                 <p className="funnels-empty-state__description">
-                    You’re almost there! Funnels require at least two steps before calculating. Once you have two steps
-                    defined, additional steps will automatically recalculate and update the funnel.
+                    You’re almost there! Funnels require at least two steps before calculating.
+                    {clickhouseFeaturesEnabled
+                        ? ' Once you have two steps defined, additional steps will automatically recalculate and update the funnel.'
+                        : ''}
                 </p>
                 <Button
                     size="large"
@@ -192,14 +194,22 @@ export function FunnelEmptyState(): JSX.Element {
                 <div className="funnels-empty-state__help">
                     <a
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noreferrer noopener"
+                        rel="noopener"
                     >
                         Learn more about funnels in our support documentation.
                     </a>
                 </div>
             </div>
         </div>
+    )
+}
+
+export function FunnelEmptyState(): JSX.Element {
+    return (
+        <p style={{ textAlign: 'center', paddingTop: '2rem' }}>
+            We couldn't find any matching events. Try changing dates or pick another action, event, or breakdown.
+        </p>
     )
 }

@@ -48,7 +48,7 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     ]
     labels = [
         item.strftime(
-            "%a. %-d %B{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
+            "%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
         )
         for item in stats[0]
     ]
@@ -92,11 +92,11 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
     return params
 
 
-def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
+def populate_entity_params(entity: Entity, table_name: str = "") -> Tuple[Dict, Dict]:
     params, content_sql_params = {}, {}
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
-        action_query, action_params = format_action_filter(action)
+        action_query, action_params = format_action_filter(action, table_name=table_name)
         params = {**action_params}
         content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
     else:

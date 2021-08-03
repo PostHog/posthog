@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property, Team
 
 
@@ -56,44 +57,29 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     def _get_disintct_id_query(self) -> str:
         if self._should_join_distinct_ids:
             return f"""
-            INNER JOIN (
-                SELECT
-                    person_id,
-                    distinct_id
-                FROM (
-                    SELECT *
-                    FROM person_distinct_id
-                    JOIN (
-                        SELECT distinct_id,
-                            max(_offset) as _offset
-                        FROM person_distinct_id
-                        WHERE team_id = %(team_id)s
-                        GROUP BY distinct_id
-                    ) as person_max
-                    USING (distinct_id, _offset)
-                    WHERE team_id = %(team_id)s
-                    )
-                WHERE team_id = %(team_id)s
-            ) AS {self.DISTINCT_ID_TABLE_ALIAS}
+            INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON events.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
             """
         else:
             return ""
 
     def _determine_should_join_persons(self) -> None:
-        for prop in self._filter.properties:
-            if prop.type == "person":
-                self._should_join_distinct_ids = True
-                self._should_join_persons = True
-                return
-            if prop.type == "cohort" and self._does_cohort_need_persons(prop):
-                self._should_join_distinct_ids = True
-                self._should_join_persons = True
-                return
+        if any(self._should_property_join_persons(prop) for prop in self._filter.properties):
+            self._should_join_distinct_ids = True
+            self._should_join_persons = True
+            return
+
+        if any(
+            self._should_property_join_persons(prop) for entity in self._filter.entities for prop in entity.properties
+        ):
+            self._should_join_distinct_ids = True
+            self._should_join_persons = True
+            return
 
         if self._filter.breakdown_type == "person":
             self._should_join_distinct_ids = True
             self._should_join_persons = True
+            return
 
         if self._filter.filter_test_accounts:
             test_account_filters = Team.objects.only("test_account_filters").get(id=self._team_id).test_account_filters
@@ -103,6 +89,12 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     self._should_join_distinct_ids = True
                     self._should_join_persons = True
                     return
+
+    def _should_property_join_persons(self, prop: Property) -> bool:
+        if prop.type == "person":
+            return True
+
+        return prop.type == "cohort" and self._does_cohort_need_persons(prop)
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:
@@ -132,7 +124,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     GROUP BY id
                     HAVING is_deleted = 0
                 )
-            ) {self.PERSON_TABLE_ALIAS} 
+            ) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """
         else:

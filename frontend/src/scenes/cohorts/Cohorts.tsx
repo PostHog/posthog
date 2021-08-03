@@ -7,18 +7,33 @@ import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
+import { CohortV2, CohortV2Footer } from './CohortV2'
 import { Cohort } from './Cohort'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
-import './cohorts.scss'
+import './Cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
+import { FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 dayjs.extend(relativeTime)
+
+const NEW_COHORT: CohortType = {
+    id: 'new',
+    groups: [
+        {
+            id: Math.random().toString().substr(2, 5),
+            matchType: PROPERTY_MATCH_TYPE,
+            properties: [],
+        },
+    ],
+}
 
 const cohortsUrlLogic = kea<cohortsUrlLogicType>({
     actions: {
@@ -37,9 +52,16 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
     }),
     urlToAction: ({ actions, values }) => ({
         '/cohorts(/:cohortId)': async ({ cohortId }) => {
-            if (cohortId && cohortId !== 'new' && Number(cohortId) !== values.openCohort?.id) {
+            if (
+                cohortId &&
+                cohortId !== 'new' &&
+                cohortId !== 'personsModalNew' &&
+                Number(cohortId) !== values.openCohort?.id
+            ) {
                 const cohort = await api.get('api/cohort/' + cohortId)
                 actions.setOpenCohort(cohort)
+            } else if (cohortId === 'new') {
+                actions.setOpenCohort(NEW_COHORT)
             }
         },
     }),
@@ -60,6 +82,8 @@ export function Cohorts(): JSX.Element {
     const { openCohort } = useValues(cohortsUrlLogic)
     const { setOpenCohort } = useActions(cohortsUrlLogic)
     const [searchTerm, setSearchTerm] = useState(false as string | false)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
 
     const columns = [
         {
@@ -122,7 +146,7 @@ export function Cohorts(): JSX.Element {
                                 <ExportOutlined />
                             </Tooltip>
                         </a>
-                        {cohort.id !== 'new' && (
+                        {cohort.id !== 'new' && cohort.id !== 'personsModalNew' && (
                             <DeleteWithUndo
                                 endpoint="cohort"
                                 object={{ name: cohort.name, id: cohort.id }}
@@ -148,6 +172,8 @@ export function Cohorts(): JSX.Element {
         },
     ]
 
+    const COHORT_V2 = featureFlags[FEATURE_FLAGS.ENGAGEMENT_COHORTS] && preflight?.is_clickhouse_enabled
+
     return (
         <div>
             <PageHeader
@@ -167,7 +193,7 @@ export function Cohorts(): JSX.Element {
                     <Button
                         type="primary"
                         data-attr="create-cohort"
-                        onClick={() => setOpenCohort({ id: 'new', groups: [{}] })}
+                        onClick={() => setOpenCohort(NEW_COHORT)}
                         icon={<PlusOutlined />}
                     >
                         New Cohort
@@ -193,8 +219,9 @@ export function Cohorts(): JSX.Element {
                     onClose={() => setOpenCohort(null)}
                     destroyOnClose={true}
                     visible={!!openCohort}
+                    footer={openCohort && COHORT_V2 ? <CohortV2Footer cohort={openCohort} /> : null}
                 >
-                    {openCohort && <Cohort cohort={openCohort} />}
+                    {openCohort && (COHORT_V2 ? <CohortV2 cohort={openCohort} /> : <Cohort cohort={openCohort} />)}
                 </Drawer>
             </div>
         </div>

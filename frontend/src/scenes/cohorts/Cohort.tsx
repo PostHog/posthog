@@ -5,7 +5,7 @@ import { Button, Card, Col, Divider, Input, Row } from 'antd'
 import { AimOutlined, ArrowLeftOutlined, InboxOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import { useValues, useActions, BuiltLogic } from 'kea'
 import { CohortGroupType, CohortType } from '~/types'
-import { Persons } from './Persons'
+import { Persons } from '../persons/Persons'
 import Dragger from 'antd/lib/upload/Dragger'
 
 const isSubmitDisabled = (cohort: CohortType): boolean => {
@@ -23,7 +23,7 @@ const isValidGroup = (group: CohortGroupType): boolean =>
 
 function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     const { setCohort } = useActions(logic)
-    const { cohort } = useValues(logic)
+    const { cohort, isNewCohort } = useValues(logic)
     const props = {
         name: 'file',
         multiple: false,
@@ -37,7 +37,7 @@ function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
     }
     return (
         <>
-            {cohort.id === 'new' && (
+            {isNewCohort && (
                 <>
                     <Button size="small" type="link" onClick={() => setCohort({ ...cohort, is_static: undefined })}>
                         <ArrowLeftOutlined /> Create dynamic cohort instead
@@ -53,7 +53,7 @@ function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
                 <p className="ant-upload-text">Click or drag CSV to this area to upload</p>
                 <p className="ant-upload-hint">Make sure the file has a single column with the user's distinct_id.</p>
             </Dragger>
-            {cohort.id !== 'new' && (
+            {!isNewCohort && (
                 <p style={{ marginTop: '1rem' }}>
                     This is a static cohort with <strong>{cohort.count}</strong> user{cohort.count !== 1 && 's'}. If you
                     upload another .csv file, those users will be added to this cohort.
@@ -64,11 +64,12 @@ function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
 }
 
 function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
-    const { setCohort } = useActions(logic)
-    const { cohort } = useValues(logic)
+    const { updateCohortGroups, setCohort } = useActions(logic)
+    const { cohort, isNewCohort } = useValues(logic)
+
     return (
         <>
-            {cohort.id === 'new' && (
+            {isNewCohort && (
                 <>
                     <Button size="small" type="link" onClick={() => setCohort({ ...cohort, is_static: undefined })}>
                         <ArrowLeftOutlined /> Create static cohort instead
@@ -84,12 +85,13 @@ function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
                         allowRemove={cohort.groups.length > 1}
                         index={index}
                         onRemove={() => {
-                            cohort.groups.splice(index, 1)
-                            setCohort({ ...cohort })
+                            const groups = [...cohort.groups].splice(index, 1)
+                            updateCohortGroups(groups)
                         }}
                         onChange={(_group: CohortGroupType) => {
-                            cohort.groups[index] = _group
-                            setCohort({ ...cohort })
+                            const groups = [...cohort.groups]
+                            groups[index] = _group
+                            updateCohortGroups(groups)
                         }}
                     />
                     {index < cohort.groups.length - 1 && (
@@ -148,7 +150,8 @@ function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; coho
 export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort, saveCohort } = useActions(logic)
-    const { cohort, lastSavedAt } = useValues(logic)
+
+    const { cohort, lastSavedAt, isNewCohort } = useValues(logic)
 
     return (
         <div style={{ maxWidth: 750 }} className="mb">
@@ -168,11 +171,11 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                         onChange={(e) => setCohort({ ...cohort, name: e.target.value })}
                     />
                 </div>
-                {cohort.id === 'new' && cohort.is_static === undefined && (
+                {isNewCohort && cohort.is_static === undefined && (
                     <CohortChoice cohort={cohort} setCohort={setCohort} />
                 )}
                 {cohort.is_static && <StaticCohort logic={logic} />}
-                {(cohort.is_static === false || (cohort.is_static === null && cohort.id !== 'new')) && (
+                {(cohort.is_static === false || (cohort.is_static === null && !isNewCohort)) && (
                     <DynamicCohort logic={logic} />
                 )}
 
@@ -182,22 +185,19 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                         htmlType="submit"
                         disabled={isSubmitDisabled(cohort)}
                         data-attr="save-cohort"
-                        style={{ marginTop: '1rem' }}
+                        style={{ marginRight: '1rem' }}
                     >
                         Save cohort
                     </Button>
                     {cohort.is_static === false && (
-                        <Button
-                            style={{ marginTop: '1rem', marginLeft: 12 }}
-                            onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}
-                        >
+                        <Button onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}>
                             New group
                         </Button>
                     )}
                 </div>
             </form>
             <Divider />
-            {cohort.id !== 'new' && <Persons cohort={cohort} key={lastSavedAt} />}
+            {!isNewCohort && <Persons cohort={cohort} key={lastSavedAt} />}
         </div>
     )
 }

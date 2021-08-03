@@ -58,8 +58,12 @@ export const teamLogic = kea<teamLogicType>({
                     toast.success(
                         <div>
                             <h1>
-                                {updatedAttribute ? identifierToHuman(updatedAttribute) : 'Project'} updated
-                                successfully!
+                                {updatedAttribute
+                                    ? updatedAttribute === 'slack_incoming_webhook'
+                                        ? 'Webhook'
+                                        : identifierToHuman(updatedAttribute)
+                                    : 'Project'}{' '}
+                                updated successfully!
                             </h1>
                             <p>{description}</p>
                         </div>,

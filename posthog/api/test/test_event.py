@@ -10,7 +10,16 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.constants import RDBMS
-from posthog.models import Action, ActionStep, Element, Event, Organization, Person, Team
+from posthog.models import (
+    Action,
+    ActionStep,
+    Element,
+    Event,
+    Organization,
+    Person,
+    Team,
+    User,
+)
 from posthog.queries.sessions.sessions_list import SESSIONS_LIST_DEFAULT_LIMIT
 from posthog.test.base import APIBaseTest
 from posthog.utils import relative_date_parse
@@ -500,6 +509,31 @@ def factory_test_event_api(event_factory, person_factory, _):
 
             response = self.client.get("/api/event/?limit=2").json()
             self.assertEqual(2, len(response["results"]))
+
+        def test_get_events_with_specified_token(self):
+            _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+
+            assert user.team is not None
+            assert self.team is not None
+
+            self.assertNotEqual(user.team.id, self.team.id)
+
+            event1 = event_factory(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
+            event2 = event_factory(team=user.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
+
+            response_team1 = self.client.get(f"/api/event/{event1.id}/")
+            response_team1_token = self.client.get(f"/api/event/{event1.id}/", data={"token": self.team.api_token})
+
+            response_team2_event1 = self.client.get(f"/api/event/{event1.id}/", data={"token": user.team.api_token})
+            response_team2_event2 = self.client.get(f"/api/event/{event2.id}/", data={"token": user.team.api_token})
+
+            self.assertEqual(response_team1.json(), response_team1_token.json())
+            self.assertNotEqual(response_team1.json(), response_team2_event2.json())
+            self.assertEqual(response_team2_event1.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertEqual(response_team2_event2.status_code, status.HTTP_200_OK)
+
+            response_invalid_token = self.client.get(f"/api/event?token=invalid")
+            self.assertEqual(response_invalid_token.status_code, 401)
 
     return TestEvents
 

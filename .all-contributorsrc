@@ -1392,6 +1392,51 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "jacobherrington",
+      "name": "Jacob Herrington",
+      "avatar_url": "https://avatars.githubusercontent.com/u/11466782?v=4",
+      "profile": "https://dev.to/jacobherrington",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "imhmdb",
+      "name": "Mohamad Bahamdain",
+      "avatar_url": "https://avatars.githubusercontent.com/u/34659256?v=4",
+      "profile": "https://mhmd.dev",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "alx-a",
+      "name": "alx-a",
+      "avatar_url": "https://avatars.githubusercontent.com/u/26557823?v=4",
+      "profile": "https://github.com/alx-a",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Patil2099",
+      "name": "Pankaj Patil",
+      "avatar_url": "https://avatars.githubusercontent.com/u/35653876?v=4",
+      "profile": "https://pplife.home.blog",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "purcell3a",
+      "name": "Angela Purcell ",
+      "avatar_url": "https://avatars.githubusercontent.com/u/62629855?v=4",
+      "profile": "http://purcell3a.github.io",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

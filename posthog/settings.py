@@ -63,8 +63,19 @@ if E2E_TESTING:
         ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
     )
 
+# These flags will be force-enabled on the frontend **in addition to** flags from `/decide`
+# The features here are released, but the flags are just not yet removed from the code.
+# To ignore this persisted feature flag behavior, set `PERSISTED_FEATURE_FLAGS = 0`
+env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
+PERSISTED_FEATURE_FLAGS = []
+if env_feature_flags != "0" and env_feature_flags.lower() != "false":
+    PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
+        # Add hard-coded feature flags for static releases here
+        "4267-taxonomic-property-filter",
+        "4535-funnel-bar-viz",
+    ]
+
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
-SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
@@ -152,6 +163,7 @@ CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
+CLICKHOUSE_CLUSTER = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_CA = os.getenv("CLICKHOUSE_CA", None)
 CLICKHOUSE_SECURE = get_from_env("CLICKHOUSE_SECURE", not TEST and not DEBUG, type_cast=str_to_bool)
 CLICKHOUSE_VERIFY = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_to_bool)
@@ -169,11 +181,6 @@ if CLICKHOUSE_SECURE:
     _clickhouse_http_port = "8443"
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
-
-_clickhouse_hosts = get_from_env("CLICKHOUSE_MIGRATION_HOSTS", CLICKHOUSE_HOST).split(",")
-CLICKHOUSE_MIGRATION_HOSTS_HTTP_URLS = [
-    f"{_clickhouse_http_protocol}{host}:{_clickhouse_http_port}/" for host in _clickhouse_hosts
-]
 
 IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=str_to_bool)
 
@@ -244,6 +251,7 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    "django.contrib.postgres",
     "django.contrib.staticfiles",
     "posthog.apps.PostHogConfig",
     "rest_framework",
@@ -340,7 +348,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.auth_allowed",
     "social_core.pipeline.social_auth.social_user",
     "social_core.pipeline.social_auth.associate_by_email",
-    "posthog.urls.social_create_user",
+    "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
@@ -480,6 +488,17 @@ TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached r
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
 ]
+
+# shell_plus settings
+# https://django-extensions.readthedocs.io/en/latest/shell_plus.html
+
+SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
+SHELL_PLUS_POST_IMPORTS = [
+    ("posthog.models.filters", ("Filter",)),
+]
+
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
+    SHELL_PLUS_POST_IMPORTS.append(("ee.clickhouse.client", ("sync_execute",)))
 
 
 # Internationalization

@@ -5,12 +5,7 @@ from django.db import DEFAULT_DB_ALIAS
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL, DROP_COHORTPEOPLE_TABLE_SQL
-from ee.clickhouse.sql.events import (
-    DROP_EVENTS_TABLE_SQL,
-    DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL,
-    EVENTS_TABLE_SQL,
-    EVENTS_WITH_PROPS_TABLE_SQL,
-)
+from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from ee.clickhouse.sql.person import (
     DROP_PERSON_DISTINCT_ID_TABLE_SQL,
     DROP_PERSON_STATIC_COHORT_TABLE_SQL,
@@ -63,11 +58,9 @@ class ClickhouseTestMixin:
 
     def _destroy_event_tables(self):
         sync_execute(DROP_EVENTS_TABLE_SQL)
-        sync_execute(DROP_EVENTS_WITH_ARRAY_PROPS_TABLE_SQL)
 
     def _create_event_tables(self):
         sync_execute(EVENTS_TABLE_SQL)
-        sync_execute(EVENTS_WITH_PROPS_TABLE_SQL)
 
     def _destroy_cohortpeople_table(self):
         sync_execute(DROP_COHORTPEOPLE_TABLE_SQL)

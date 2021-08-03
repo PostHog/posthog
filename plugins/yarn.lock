@@ -1009,10 +1009,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.5.tgz#596539ea69df21f07640a2ce0a335c7ead940b06"
   integrity sha512-EuRoYM17vYI1m2SmXpYe7LC9hFPWsRnN6rAi6q3unFIW26pT40sV/TYSWnBEihZXIWdVShwiGXORQMHjpnJOig==
 
-"@posthog/plugin-server@1.1.4":
-  version "1.1.4"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.1.4.tgz#fc8ad63825082fb79bc0c6e81a91a52a82422c12"
-  integrity sha512-ZHJUK9y8PGz/+T0oT1OrfRNyuSIlH/2t5Q/cG4TBC5WBvVcgYjOt7YEdJnFcK911KLOuPBvG3prCSQh+gLO4+Q==
+"@posthog/plugin-server@1.1.10":
+  version "1.1.10"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.1.10.tgz#d132c3475d023d8661660803f05d19f9ce2ccd92"
+  integrity sha512-TMoaludqWHjMxx2KPD1qdDWL56P8VZLhaoeAWwmVCpFkZYrCk/cr0Lthim8+7Cc1Z9jlfOHBc/K9a9S721Ks+A==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -1028,7 +1028,7 @@
     "@sentry/node" "^6.7.0"
     "@sentry/tracing" "^6.7.0"
     "@types/lru-cache" "^5.1.0"
-    adm-zip "^0.4.16"
+    adm-zip "0.5.3"
     aws-sdk "^2.927.0"
     escape-string-regexp "^4.0.0"
     fast-deep-equal "^3.1.3"
@@ -1229,10 +1229,10 @@ abort-controller@^3.0.0:
   dependencies:
     event-target-shim "^5.0.0"
 
-adm-zip@^0.4.16:
-  version "0.4.16"
-  resolved "https://registry.yarnpkg.com/adm-zip/-/adm-zip-0.4.16.tgz#cf4c508fdffab02c269cbc7f471a875f05570365"
-  integrity sha512-TFi4HBKSGfIKsK5YCkKaaFG2m4PEDyViZmEwof3MTIgzimHLto6muaHVpbrljdIvIrFZzEq/p4nafOeLcYegrg==
+adm-zip@0.5.3:
+  version "0.5.3"
+  resolved "https://registry.yarnpkg.com/adm-zip/-/adm-zip-0.5.3.tgz#f5ac6b2507f4418e2691c0feb6f130b4b90d7643"
+  integrity sha512-zsoTXEwRNCxBzRHLENFLuecCcwzzXiEhWo1r3GP68iwi8Q/hW2RrqgeY1nfJ/AhNQNWnZq/4v0TbfMsUkI+TYw==
 
 agent-base@6:
   version "6.0.2"

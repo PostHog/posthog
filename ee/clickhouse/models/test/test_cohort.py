@@ -632,22 +632,24 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                     """
                 SELECT distinct_id
                 FROM
-                (SELECT *
-                FROM person_distinct_id
-                JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, _timestamp) as person_id
+                FROM
                     (SELECT distinct_id,
-                            max(_offset) as _offset
+                            person_id,
+                            max(_timestamp) as _timestamp
                     FROM person_distinct_id
                     WHERE team_id = %(team_id)s
-                    GROUP BY distinct_id) as person_max ON person_distinct_id.distinct_id = person_max.distinct_id
-                AND person_distinct_id._offset = person_max._offset
-                WHERE team_id = %(team_id)s )
+                    GROUP BY person_id,
+                            distinct_id,
+                            team_id
+                    HAVING max(is_deleted) = 0)
+                GROUP BY distinct_id)
                 where person_id IN
                     (SELECT person_id
                     FROM person_static_cohort
                     WHERE cohort_id = %(cohort_id_0)s
                     AND team_id = %(team_id)s)
-                AND team_id = %(team_id)s
                 """,
                     reindent=True,
                 ),

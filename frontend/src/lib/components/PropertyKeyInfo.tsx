@@ -1,7 +1,9 @@
+import './PropertyKeyInfo.scss'
 import React from 'react'
 import { Popover, Typography } from 'antd'
-import { KeyMapping } from '~/types'
+import { KeyMapping, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { TooltipPlacement } from 'antd/es/tooltip'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -303,12 +305,12 @@ export const keyMapping: KeyMappingInterface = {
             examples: ['feature launch', 'discount'],
         },
         utm_content: {
-            label: 'UTM content',
+            label: 'UTM Content',
             description: 'The last UTM content tag that this user saw (last-touch).',
             examples: ['bottom link', 'second button'],
         },
         $initial_utm_content: {
-            label: 'Initial UTM content',
+            label: 'Initial UTM Content',
             description: 'The initial UTM content tag that this user saw (first-touch).',
             examples: ['bottom link', 'second button'],
         },
@@ -503,31 +505,72 @@ export const keyMapping: KeyMappingInterface = {
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
-    style?: any
+    style?: React.CSSProperties
+    tooltipPlacement?: TooltipPlacement
     disablePopover?: boolean
     disableIcon?: boolean
     ellipsis?: boolean
 }
 
-export function PropertyKeyInfo({
-    value,
-    type = 'event',
-    style,
-    disablePopover = false,
-    disableIcon = false,
-    ellipsis = true,
-}: PropertyKeyInfoInterface): JSX.Element {
+export function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
+    return (
+        <span>
+            <span className="property-key-info-logo" />
+            {data.label}
+        </span>
+    )
+}
+
+export function PropertyKeyDescription({ data, value }: { data: KeyMapping; value: string }): JSX.Element {
+    return (
+        <span>
+            {data.examples ? (
+                <>
+                    <span>{data.description}</span>
+                    <br />
+                    <br />
+                    <span>
+                        <i>Example: </i>
+                        {data.examples.join(', ')}
+                    </span>
+                </>
+            ) : (
+                data.description
+            )}
+            <hr />
+            Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
+        </span>
+    )
+}
+
+export function getKeyMapping(value: string | PropertyFilterValue, type: 'event' | 'element'): KeyMapping | null {
     value = `${value}` // convert to string
     let data = null
     if (value in keyMapping[type]) {
-        data = { ...keyMapping[type][value] }
+        return { ...keyMapping[type][value] }
     } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in keyMapping[type]) {
         data = { ...keyMapping[type][value.replace(/^\$initial_/, '$')] }
         if (data.description) {
             data.label = `Initial ${data.label}`
             data.description = `${data.description} Data from the first time this user was seen.`
         }
-    } else {
+        return data
+    }
+    return null
+}
+
+export function PropertyKeyInfo({
+    value,
+    type = 'event',
+    style,
+    tooltipPlacement = undefined,
+    disablePopover = false,
+    disableIcon = false,
+    ellipsis = true,
+}: PropertyKeyInfoInterface): JSX.Element {
+    value = `${value}` // convert to string
+    const data = getKeyMapping(value, type)
+    if (!data) {
         return (
             <Typography.Text ellipsis={ellipsis} style={{ color: 'inherit', maxWidth: 400, ...style }} title={value}>
                 {value !== '' ? value : <i>(empty string)</i>}
@@ -549,37 +592,29 @@ export function PropertyKeyInfo({
         </span>
     )
 
+    const popoverTitle = <PropertyKeyTitle data={data} />
+    const popoverContent = <PropertyKeyDescription data={data} value={value} />
+
     return disablePopover ? (
         innerContent
+    ) : tooltipPlacement ? (
+        <Popover
+            visible
+            overlayStyle={{ zIndex: 99999 }}
+            overlayClassName="property-key-info-tooltip"
+            placement={tooltipPlacement}
+            title={popoverTitle}
+            content={popoverContent}
+        >
+            {innerContent}
+        </Popover>
     ) : (
         <Popover
             overlayStyle={{ zIndex: 99999 }}
+            overlayClassName="property-key-info-tooltip"
             align={ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight}
-            title={
-                <span>
-                    <span className="property-key-info-logo" />
-                    {data.label}
-                </span>
-            }
-            content={
-                <span>
-                    {data.examples ? (
-                        <>
-                            <span>{data.description}</span>
-                            <br />
-                            <br />
-                            <span>
-                                <i>Example: </i>
-                                {data.examples.join(', ')}
-                            </span>
-                        </>
-                    ) : (
-                        data.description
-                    )}
-                    <hr />
-                    Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
-                </span>
-            }
+            title={popoverTitle}
+            content={popoverContent}
         >
             {innerContent}
         </Popover>

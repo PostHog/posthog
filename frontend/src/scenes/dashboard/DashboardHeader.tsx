@@ -124,7 +124,7 @@ export function DashboardHeader(): JSX.Element {
                 onClick={() => setDashboardMode(DashboardMode.Sharing, DashboardEventSource.DashboardHeader)}
                 data-attr="dashboard-share-button"
                 icon={<ShareAltOutlined />}
-                hotkey="s"
+                hotkey="k"
             >
                 Send or share
             </HotkeyButton>

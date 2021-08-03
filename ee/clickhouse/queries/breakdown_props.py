@@ -7,7 +7,7 @@ from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.trends.util import populate_entity_params
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL, GET_LATEST_PERSON_SQL
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from ee.clickhouse.sql.trends.top_person_props import TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL
 from posthog.models.cohort import Cohort
@@ -44,9 +44,9 @@ def get_breakdown_person_prop_values(
     person_prop_filters, person_prop_params = parse_prop_clauses(
         [prop for prop in filter.properties if prop.type == "person"],
         team_id,
-        table_name="e",
         filter_test_accounts=filter.filter_test_accounts,
         is_person_query=True,
+        prepend="person",
     )
 
     entity_params, entity_format_params = populate_entity_params(entity)
@@ -58,7 +58,7 @@ def get_breakdown_person_prop_values(
         prop_filters=prop_filters,
         person_prop_filters=person_prop_filters,
         aggregate_operation=aggregate_operation,
-        latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         **entity_format_params,
     )
     top_elements_array = _get_top_elements(
@@ -127,10 +127,14 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
 
 def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, List, Dict]:
     entity = kwargs.pop("entity", None)
-    cohorts = Cohort.objects.filter(team_id=team_id, pk__in=[b for b in filter.breakdown if b != "all"])
+    cohorts = (
+        Cohort.objects.filter(team_id=team_id, pk__in=[b for b in filter.breakdown if b != "all"])
+        if isinstance(filter.breakdown, list)
+        else Cohort.objects.filter(team_id=team_id, pk=filter.breakdown)
+    )
     cohort_queries, params = _parse_breakdown_cohorts(cohorts)
     ids = [cohort.pk for cohort in cohorts]
-    if "all" in filter.breakdown:
+    if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
         all_query, all_params = _format_all_query(team_id, filter, entity=entity)
         cohort_queries.append(all_query)
         params = {**params, **all_params}

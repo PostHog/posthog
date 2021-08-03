@@ -16,4 +16,4 @@ class ClickhouseFunnelStrictPersons(ClickhouseFunnelStrict):
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data
+        return PersonSerializer(people, many=True).data, len(results) > self._filter.limit - 1

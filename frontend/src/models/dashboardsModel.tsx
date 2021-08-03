@@ -49,7 +49,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
             addDashboard: async ({ name, show, useTemplate }) => {
                 const result = (await api.create('api/dashboard', {
                     name,
-                    pinned: true,
                     use_template: useTemplate,
                 })) as DashboardType
                 if (show) {

@@ -1,13 +1,12 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row, Col, Skeleton } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter, ViewType } from '~/types'
-import { ACTION_TYPE, EVENT_TYPE, FEATURE_FLAGS } from 'lib/constants'
+import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
@@ -15,6 +14,9 @@ import { Link } from 'lib/components/Link'
 import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { DateDisplay } from 'lib/components/DateDisplay'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -38,49 +40,64 @@ interface Props {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JSX.Element {
-    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, peopleLoading } = useValues(personsModalLogic)
     const {
-        setShowingPeople,
-        loadMorePeople,
-        setFirstLoadedPeople,
-        setPersonsModalFilters,
-        setSearchTerm,
-    } = useActions(personsModalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const title =
-        filters.shown_as === 'Stickiness'
-            ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
-            : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
-            ? `"${people?.label}"`
-            : filters.insight === ViewType.FUNNELS
-            ? `${people?.label}`
-            : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
+        people,
+        loadingMorePeople,
+        firstLoadedPeople,
+        searchTerm,
+        isInitialLoad,
+        clickhouseFeaturesEnabled,
+    } = useValues(personsModalLogic)
+    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
+        personsModalLogic
+    )
+    const { preflight } = useValues(preflightLogic)
+    const title = useMemo(
+        () =>
+            isInitialLoad ? (
+                'Loading persons list...'
+            ) : filters.shown_as === 'Stickiness' ? (
+                `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
+            ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
+                `"${people?.label}"`
+            ) : filters.insight === ViewType.FUNNELS ? (
+                <span style={{ whiteSpace: 'nowrap' }}>
+                    <strong>
+                        Persons who {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
+                        {Math.abs(people?.funnelStep ?? 0)} -{' '}
+                        <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
+                        {people?.breakdown_value !== undefined &&
+                            `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                    </strong>
+                </span>
+            ) : (
+                <>
+                    <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
+                    <DateDisplay interval={filters.interval || 'day'} date={people?.day.toString() || ''} />
+                </>
+            ),
+        [filters, people, isInitialLoad]
+    )
 
-    const closeModal = (): void => {
-        setShowingPeople(false)
-        setSearchTerm('')
-    }
+    const showModalActions = clickhouseFeaturesEnabled && (view === ViewType.TRENDS || view === ViewType.STICKINESS)
 
     return (
         <Modal
-            title={<strong>{title}</strong>}
+            title={title}
             visible={visible}
-            onOk={closeModal}
-            onCancel={closeModal}
+            onOk={hidePeople}
+            onCancel={hidePeople}
             footer={
                 <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
                     <Row style={{ alignItems: 'center' }}>
-                        {featureFlags['save-cohort-on-modal'] &&
-                            (view === ViewType.TRENDS || view === ViewType.STICKINESS || view === ViewType.FUNNELS) && (
+                        {people && people.count > 0 && showModalActions && (
+                            <>
                                 <div style={{ paddingRight: 8 }}>
                                     <Button onClick={onSaveCohort}>
                                         <UsergroupAddOutlined />
                                         Save as cohort
                                     </Button>
                                 </div>
-                            )}
-                        {!peopleLoading && people && (
-                            <>
                                 <Button
                                     icon={<DownloadOutlined />}
                                     href={`/api/action/people.csv?/?${parsePeopleParams(
@@ -100,19 +117,18 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                             </>
                         )}
                     </Row>
-                    <Button onClick={closeModal}>Close</Button>
+                    <Button onClick={hidePeople}>Close</Button>
                 </Row>
             }
             width={600}
-            bodyStyle={{ padding: 0, maxHeight: 500, overflowY: 'scroll' }}
             className="person-modal"
         >
-            {peopleLoading && (
+            {isInitialLoad && (
                 <div style={{ padding: 16 }}>
                     <Skeleton active />
                 </div>
             )}
-            {!peopleLoading && people && (
+            {!isInitialLoad && people && (
                 <>
                     <div
                         style={{
@@ -131,7 +147,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 padding: '0px 16px',
                             }}
                         >
-                            {featureFlags[FEATURE_FLAGS.PERSONS_MODAL_SEARCH] && (
+                            {!preflight?.is_clickhouse_enabled && (
                                 <Input.Search
                                     allowClear
                                     enterButton
@@ -152,11 +168,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 />
                             )}
                             <span style={{ paddingTop: 9 }}>
-                                Showing{' '}
+                                Found{' '}
                                 <b>
-                                    {people.count > 99 ? '99' : people.count} of {people.count}
+                                    {people.count}
+                                    {people.next ? '+' : ''}
                                 </b>{' '}
-                                persons
+                                {people.count === 1 ? 'person' : 'persons'}
                             </span>
                         </div>
                     </div>
@@ -213,7 +230,7 @@ export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Elem
             <Row style={{ justifyContent: 'space-between' }}>
                 <Row>
                     <ExpandIcon {...expandProps}>{undefined}</ExpandIcon>
-                    <Col>
+                    <Col style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <span className="text-default">
                             <strong>{person.properties.email}</strong>
                         </span>

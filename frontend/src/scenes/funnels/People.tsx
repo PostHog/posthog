@@ -11,7 +11,7 @@ import { Card } from 'antd'
 export function People(): JSX.Element | null {
     const { stepsWithCount, peopleSorted, peopleLoading, areFiltersValid } = useValues(funnelLogic({}))
 
-    if (!stepsWithCount || !areFiltersValid) {
+    if (!stepsWithCount && !areFiltersValid) {
         return null
     }
 
@@ -58,7 +58,9 @@ export function People(): JSX.Element | null {
                                     <td
                                         key={index}
                                         className={
-                                            step.people.indexOf(person.uuid) > -1 ? 'funnel-success' : 'funnel-dropped'
+                                            (step.people?.indexOf(person.uuid) ?? -1) > -1
+                                                ? 'funnel-success'
+                                                : 'funnel-dropped'
                                         }
                                     />
                                 ))}

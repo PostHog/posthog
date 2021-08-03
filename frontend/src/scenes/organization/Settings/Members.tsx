@@ -17,7 +17,7 @@ import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
-import { ProfilePicture } from '~/layout/navigation/TopNavigation'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'

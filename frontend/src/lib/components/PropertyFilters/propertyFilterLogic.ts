@@ -4,15 +4,14 @@ import { router } from 'kea-router'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 import { propertyFilterLogicType } from './propertyFilterLogicType'
-import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter, PropertyFilterValue } from '~/types'
+import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter } from '~/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
+import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>({
-    props: {} as {
-        pageKey: string
-        propertyFilters?: AnyPropertyFilter[] | null
-        onChange?: null | ((filters: AnyPropertyFilter[]) => void)
-    },
+    props: {} as PropertyFilterLogicProps,
     key: (props) => props.pageKey,
 
     actions: () => ({
@@ -20,7 +19,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         setFilter: (
             index: number,
             key: PropertyFilter['key'],
-            value: PropertyFilterValue,
+            value: PropertyFilter['value'],
             operator: PropertyFilter['operator'],
             type: PropertyFilter['type']
         ) => ({ index, key, value, operator, type }),
@@ -31,10 +30,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
 
     reducers: ({ props }) => ({
         filters: [
-            (props.propertyFilters ? parseProperties(props.propertyFilters) : []) as (
-                | PropertyFilter
-                | EmptyPropertyFilter
-            )[],
+            props.propertyFilters ? parseProperties(props.propertyFilters) : ([] as AnyPropertyFilter[]),
             {
                 setFilter: (state, { index, key, value, operator, type }) => {
                     const newFilters = [...state]
@@ -68,14 +64,12 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         update: () => {
             const cleanedFilters = [...values.filters].filter(isValidPropertyFilter)
 
-            // If the last item has a key, we need to add a new empty filter so the button appears
-            if ('key' in values.filters[values.filters.length - 1]) {
+            // if the last filter is used, add an empty filter to get the "new filter" button
+            if (isValidPropertyFilter(values.filters[values.filters.length - 1])) {
                 actions.newFilter()
             }
+
             if (props.onChange) {
-                if (cleanedFilters.length === 0) {
-                    return props.onChange([])
-                }
                 props.onChange(cleanedFilters)
             } else {
                 const { properties, ...searchParams } = router.values.searchParams // eslint-disable-line
@@ -114,7 +108,10 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
     }),
 
     selectors: {
-        filtersLoading: [() => [propertyDefinitionsModel.selectors.loaded], (loaded) => !loaded],
+        filtersLoading: [
+            () => [featureFlagLogic.selectors.featureFlags, propertyDefinitionsModel.selectors.loaded],
+            (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
+        ],
         filledFilters: [(s) => [s.filters], (filters) => filters.filter(isValidPropertyFilter)],
     },
 

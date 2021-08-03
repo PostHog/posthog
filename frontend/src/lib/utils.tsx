@@ -3,14 +3,15 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
-import { EventType, FilterType, ActionFilter } from '~/types'
+import { EventType, FilterType, ActionFilter, IntervalType } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
 import { open } from '@papercups-io/chat-widget'
 import posthog from 'posthog-js'
-import { WEBHOOK_SERVICES } from 'lib/constants'
+import { FEATURE_FLAGS, WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
+import { AlignType } from 'rc-trigger/lib/interface'
 
 const SI_PREFIXES: { value: number; symbol: string }[] = [
     { value: 1e18, symbol: 'E' },
@@ -23,11 +24,19 @@ const SI_PREFIXES: { value: number; symbol: string }[] = [
 ]
 const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
 
-export const ANTD_TOOLTIP_PLACEMENTS = {
+export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
     // https://github.com/react-component/select/blob/dade915d81069b8d3b3b5679bb9daee7e992faba/src/SelectTrigger.jsx#L11-L28
     bottomLeft: {
         points: ['tl', 'bl'],
+        offset: [0, 4],
+        overflow: {
+            adjustX: 0,
+            adjustY: 0,
+        },
+    },
+    bottomRight: {
+        points: ['tr', 'br'],
         offset: [0, 4],
         overflow: {
             adjustX: 0,
@@ -112,7 +121,7 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
      */
 
     const handleHelp = (): void => {
-        const papercupsOn = featureFlagLogic.values.featureFlags['papercups-enabled']
+        const papercupsOn = featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PAPERCUPS_ENABLED]
         if (papercupsOn) {
             open()
         } else {
@@ -413,9 +422,12 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
-export function humanFriendlyDuration(d: string | number, maxUnits?: number): string {
+export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
+    if (d === '' || d === null || d === undefined) {
+        return ''
+    }
     d = Number(d)
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
@@ -423,8 +435,8 @@ export function humanFriendlyDuration(d: string | number, maxUnits?: number): st
     const s = Math.floor((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
-    const hDisplay = h > 0 ? h + (h == 1 ? 'hr' : 'hrs') : ''
-    const mDisplay = m > 0 ? m + (m == 1 ? 'min' : 'mins') : ''
+    const hDisplay = h > 0 ? h + 'h' : ''
+    const mDisplay = m > 0 ? m + 'min' : ''
     const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
 
     let units: string[] = []
@@ -463,6 +475,51 @@ export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, wit
         formatString += ' a'
     }
     return parsedDate.format(formatString)
+}
+
+// Pad numbers with leading zeros
+export const zeroPad = (num: number, places: number): string => String(num).padStart(places, '0')
+
+export function colonDelimitedDuration(d: string | number | null | undefined, numUnits: number = 3): string {
+    // Convert `d` (seconds) to a colon delimited duration. includes `numUnits` no. of units starting from right
+    // Example: `01:10:09:08 = 1d 10hrs 9mins 8s`
+    if (d === '' || d === null || d === undefined) {
+        return ''
+    }
+    d = Number(d)
+
+    let s = d
+    let weeks = 0,
+        days = 0,
+        h = 0,
+        m = 0
+
+    if (numUnits >= 5) {
+        weeks = Math.floor(s / 604800)
+        s -= weeks * 604800
+    }
+    if (numUnits >= 4) {
+        days = Math.floor(s / 86400)
+        s -= days * 86400
+    }
+    if (numUnits >= 3) {
+        h = Math.floor(s / 3600)
+        s -= h * 3600
+    }
+    if (numUnits >= 2) {
+        m = Math.floor(s / 60)
+        s -= m * 60
+    }
+
+    const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
+
+    // get the last `numUnits` elements
+    return units.slice(0).slice(-Math.min(numUnits, 5)).join(':')
+}
+
+export function colonDelimitedDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string, maxUnits?: number): string {
+    const diff = dayjs(to).diff(dayjs(from), 'seconds')
+    return colonDelimitedDuration(diff, maxUnits)
 }
 
 export function stripHTTP(url: string): string {
@@ -802,7 +859,7 @@ export const disableHourFor: Record<string, boolean> = {
     other: false,
 }
 
-export function autocorrectInterval(filters: Partial<FilterType>): string {
+export function autocorrectInterval(filters: Partial<FilterType>): IntervalType {
     if (!filters.interval) {
         return 'day'
     } // undefined/uninitialized
@@ -974,4 +1031,8 @@ export function median(input: number[]): number {
         return sorted[half]
     }
     return average([sorted[half - 1], sorted[half]])
+}
+
+export function sum(input: number[]): number {
+    return input.reduce((a, b) => a + b, 0)
 }

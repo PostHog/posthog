@@ -1,11 +1,13 @@
-from .clickhouse import COLLAPSING_MERGE_TREE, STORAGE_POLICY, table_engine
+from posthog.settings import CLICKHOUSE_CLUSTER
+
+from .clickhouse import COLLAPSING_MERGE_TREE, table_engine
 
 CALCULATE_COHORT_PEOPLE_SQL = """
-SELECT distinct_id FROM ({latest_distinct_id_sql}) where {query} AND team_id = %(team_id)s
+SELECT distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) where {query}
 """
 
 CREATE_COHORTPEOPLE_TABLE_SQL = """
-CREATE TABLE cohortpeople
+CREATE TABLE cohortpeople ON CLUSTER {cluster}
 (
     person_id UUID,
     cohort_id Int64,
@@ -15,12 +17,10 @@ CREATE TABLE cohortpeople
 Order By (team_id, cohort_id, person_id)
 {storage_policy}
 """.format(
-    engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=""
+    cluster=CLICKHOUSE_CLUSTER, engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=""
 )
 
-DROP_COHORTPEOPLE_TABLE_SQL = """
-DROP TABLE cohortpeople
-"""
+DROP_COHORTPEOPLE_TABLE_SQL = f"DROP TABLE cohortpeople ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
 INSERT INTO cohortpeople
@@ -30,7 +30,7 @@ JOIN (
     SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
 ) as person ON (person.id = cohortpeople.person_id)
 WHERE cohort_id = %(cohort_id)s
-AND 
+AND
     (
         person.is_deleted = 1 OR NOT person_id IN ({cohort_filter})
     )
@@ -55,13 +55,8 @@ SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {ent
 """
 
 GET_PERSON_ID_BY_ENTITY_COUNT_SQL = """
-SELECT person_id FROM events 
-INNER JOIN (
-    SELECT person_id,
-        distinct_id
-    FROM ({latest_distinct_id_sql})
-    WHERE team_id = %(team_id)s
-) as pdi
+SELECT person_id FROM events
+INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi
 ON events.distinct_id = pdi.distinct_id
 WHERE team_id = %(team_id)s {date_query} AND {entity_query}
 GROUP BY person_id HAVING count(*) {count_operator} %(count)s

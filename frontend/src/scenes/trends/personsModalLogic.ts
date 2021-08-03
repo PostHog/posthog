@@ -1,15 +1,18 @@
+import dayjs from 'dayjs'
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import { cleanFunnelParams, funnelLogic } from 'scenes/funnels/funnelLogic'
-import { cohortLogic } from 'scenes/persons/cohortLogic'
-import { ActionFilter, FilterType, ViewType } from '~/types'
+import { cohortLogic } from 'scenes/cohorts/cohortLogic'
+import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
+import { ActionFilter, FilterType, ViewType, FunnelVizType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { parsePeopleParams, TrendPeople } from './trendsLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
-    label: string
+    label: string // Contains the step name
     date_from: string | number
     date_to: string | number
     filters: Partial<FilterType>
@@ -24,11 +27,9 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
-        saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
         loadMorePeople: true,
-        setLoadingMorePeople: (status: boolean) => ({ status }),
-        setShowingPeople: (isShowing: boolean) => ({ isShowing }),
-        setPeople: (people: TrendPeople) => ({ people }),
+        hidePeople: true,
+        saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
         setPersonsModalFilters: (searchTerm: string, people: TrendPeople, filters: Partial<FilterType>) => ({
             searchTerm,
             people,
@@ -37,13 +38,14 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         saveFirstLoadedPeople: (people: TrendPeople) => ({ people }),
         setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
         refreshCohort: true,
-        setPeopleLoading: (loading: boolean) => ({ loading }),
+        savePeopleParams: (peopleParams: PersonModalParams) => ({ peopleParams }),
     }),
     reducers: () => ({
         searchTerm: [
             '',
             {
                 setSearchTerm: (_, { term }) => term,
+                hidePeople: () => '',
             },
         ],
         cohortModalVisible: [
@@ -55,15 +57,16 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         people: [
             null as TrendPeople | null,
             {
+                loadPeople: (_, { peopleParams: { action, label, date_from, breakdown_value } }) => ({
+                    people: [],
+                    count: 0,
+                    action,
+                    label,
+                    day: date_from,
+                    breakdown_value,
+                }),
                 setFilters: () => null,
-                setPeople: (_, { people }) => people,
                 setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
-            },
-        ],
-        peopleLoading: [
-            false,
-            {
-                setPeopleLoading: (_, { loading }) => loading,
             },
         ],
         firstLoadedPeople: [
@@ -75,26 +78,143 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         loadingMorePeople: [
             false,
             {
-                setLoadingMorePeople: (_, { status }) => status,
+                loadMorePeople: () => true,
+                loadMorePeopleSuccess: () => false,
+                loadMorePeopleFailure: () => false,
             },
         ],
         showingPeople: [
             false,
             {
                 loadPeople: () => true,
-                setShowingPeople: ({}, { isShowing }) => isShowing,
+                hidePeople: () => false,
             },
         ],
+        peopleParams: [
+            null as PersonModalParams | null,
+            {
+                loadPeople: (_, { peopleParams }) => peopleParams,
+            },
+        ],
+    }),
+    selectors: {
+        isInitialLoad: [
+            (s) => [s.peopleLoading, s.loadingMorePeople],
+            (peopleLoading, loadingMorePeople) => peopleLoading && !loadingMorePeople,
+        ],
+        clickhouseFeaturesEnabled: [
+            () => [preflightLogic.selectors.preflight],
+            (preflight) => !!preflight?.is_clickhouse_enabled,
+        ],
+    },
+    loaders: ({ actions, values }) => ({
+        people: {
+            loadPeople: async ({ peopleParams }, breakpoint) => {
+                let people = []
+                const {
+                    label,
+                    action,
+                    filters,
+                    date_from,
+                    date_to,
+                    breakdown_value,
+                    saveOriginal,
+                    searchTerm,
+                    funnelStep,
+                } = peopleParams
+                const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
+
+                if (filters.insight === ViewType.LIFECYCLE) {
+                    const filterParams = parsePeopleParams(
+                        { label, action, target_date: date_from, lifecycle_type: breakdown_value },
+                        filters
+                    )
+                    people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
+                } else if (filters.insight === ViewType.STICKINESS) {
+                    const filterParams = parsePeopleParams(
+                        { label, action, date_from, date_to, breakdown_value },
+                        filters
+                    )
+                    people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
+                } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
+                    let params
+                    if (filters.funnel_viz_type === FunnelVizType.Trends) {
+                        // funnel trends
+                        const entrance_period_start = dayjs(date_from).format('YYYY-MM-DD HH:mm:ss')
+                        params = { ...filters, entrance_period_start, drop_off: false }
+                    } else {
+                        // regular funnel steps
+                        params = {
+                            ...filters,
+                            funnel_step: funnelStep,
+                            ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
+                        }
+                    }
+                    const cleanedParams = cleanFunnelParams(params)
+                    const funnelParams = toParams(cleanedParams)
+                    people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
+                } else {
+                    const filterParams = parsePeopleParams(
+                        { label, action, date_from, date_to, breakdown_value },
+                        filters
+                    )
+                    people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
+                }
+                breakpoint()
+                const peopleResult = {
+                    people: people.results[0]?.people,
+                    count: people.results[0]?.count || 0,
+                    action,
+                    label,
+                    day: date_from,
+                    breakdown_value,
+                    next: people.next,
+                    funnelStep,
+                } as TrendPeople
+                if (saveOriginal) {
+                    actions.saveFirstLoadedPeople(peopleResult)
+                }
+                return peopleResult
+            },
+            loadMorePeople: async ({}, breakpoint) => {
+                if (values.people) {
+                    const {
+                        people: currPeople,
+                        count,
+                        action,
+                        label,
+                        day,
+                        breakdown_value,
+                        next,
+                        funnelStep,
+                    } = values.people
+                    const people = await api.get(next)
+                    breakpoint()
+
+                    return {
+                        people: [...currPeople, ...people.results[0]?.people],
+                        count: count + people.results[0]?.count,
+                        action,
+                        label,
+                        day,
+                        breakdown_value,
+                        next: people.next,
+                        funnelStep,
+                    }
+                }
+                return null
+            },
+        },
     }),
     listeners: ({ actions, values }) => ({
         refreshCohort: () => {
             cohortLogic({
                 cohort: {
-                    id: 'new',
+                    id: 'personsModalNew',
                     groups: [],
                 },
             }).actions.setCohort({
-                id: 'new',
+                id: 'personsModalNew',
                 groups: [],
             })
         },
@@ -119,78 +239,8 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 errorToast(undefined, "We couldn't create your cohort:")
             }
         },
-        loadPeople: async ({ peopleParams }, breakpoint) => {
-            let people = []
-            const {
-                label,
-                action,
-                date_from,
-                date_to,
-                filters,
-                breakdown_value,
-                saveOriginal,
-                searchTerm,
-                funnelStep,
-            } = peopleParams
-            const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
-            const tempPeople = { people: [], count: 0, action, label, day: date_from, breakdown_value }
-            if (filters.insight === ViewType.LIFECYCLE) {
-                const filterParams = parsePeopleParams(
-                    { label, action, target_date: date_from, lifecycle_type: breakdown_value },
-                    filters
-                )
-                actions.setPeople(tempPeople)
-                people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
-            } else if (filters.insight === ViewType.STICKINESS) {
-                const filterParams = parsePeopleParams({ label, action, date_from, date_to, breakdown_value }, filters)
-                actions.setPeople(tempPeople)
-                people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
-            } else if (funnelStep) {
-                const params = { ...funnelLogic().values.filters, funnel_step: funnelStep }
-                const cleanedParams = cleanFunnelParams(params)
-                const funnelParams = toParams(cleanedParams)
-                people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
-            } else {
-                const filterParams = parsePeopleParams({ label, action, date_from, date_to, breakdown_value }, filters)
-                actions.setPeople(tempPeople)
-                people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
-            }
-            breakpoint()
-            const peopleResult = {
-                people: people.results[0]?.people,
-                count: people.results[0]?.count || 0,
-                action,
-                label,
-                day: date_from,
-                breakdown_value,
-                next: people.next,
-            } as TrendPeople
-            actions.setPeople(peopleResult)
-            if (saveOriginal) {
-                actions.saveFirstLoadedPeople(peopleResult)
-            }
-        },
-        loadMorePeople: async ({}, breakpoint) => {
-            if (values.people) {
-                const { people: currPeople, count, action, label, day, breakdown_value, next } = values.people
-                actions.setLoadingMorePeople(true)
-                const people = await api.get(next)
-                actions.setLoadingMorePeople(false)
-                breakpoint()
-                const morePeopleResult = {
-                    people: [...currPeople, ...people.results[0]?.people],
-                    count: count + people.results[0]?.count,
-                    action,
-                    label,
-                    day,
-                    breakdown_value,
-                    next: people.next,
-                }
-                actions.setPeople(morePeopleResult)
-            }
-        },
         setPersonsModalFilters: async ({ searchTerm, people, filters }) => {
-            const { label, action, day, breakdown_value } = people
+            const { label, action, day, breakdown_value, funnelStep } = people
             const date_from = day
             const date_to = day
             const saveOriginal = false
@@ -203,7 +253,32 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 breakdown_value,
                 saveOriginal,
                 searchTerm,
+                funnelStep,
             })
+        },
+    }),
+    actionToUrl: ({ values }) => ({
+        loadPeople: () => {
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                { ...router.values.hashParams, personModal: values.peopleParams },
+            ]
+        },
+        hidePeople: () => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { personModal: _discard, ...otherHashParams } = router.values.hashParams
+            return [router.values.location.pathname, router.values.searchParams, otherHashParams]
+        },
+    }),
+    urlToAction: ({ actions, values }) => ({
+        '/insights': (_, {}, { personModal }) => {
+            if (personModal && !values.showingPeople) {
+                actions.loadPeople(personModal)
+            }
+            if (!personModal && values.showingPeople) {
+                actions.hidePeople()
+            }
         },
     }),
 })

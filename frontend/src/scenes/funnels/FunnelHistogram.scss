@@ -1,12 +1,27 @@
-.funnel__header__info {
-    margin-right: 1rem;
-}
-
-.funnel__header__steps {
+.funnel-header-steps {
     display: flex;
     align-items: center;
 
-    .funnel__header__steps__label {
+    .funnel-header-steps-label {
         margin-right: 0.5rem;
+    }
+}
+
+.dashboard-item-content {
+    .histogram-container {
+        max-height: 100%;
+    }
+    .funnel-header-steps {
+        display: none;
+    }
+    .funnel-histogram-outer-container {
+        height: calc(100% - 1em);
+        width: 100%;
+    }
+}
+
+.funnel-histogram-outer-container {
+    &.scrollable {
+        overflow-x: auto;
     }
 }

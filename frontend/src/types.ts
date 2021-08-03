@@ -6,10 +6,17 @@ import {
     ShownAsValue,
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
+    ENTITY_MATCH_TYPE,
+    FunnelLayout,
+    COHORT_DYNAMIC,
+    COHORT_STATIC,
+    BinCountAuto,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
 import { Dayjs } from 'dayjs'
+import { PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { UploadFile } from 'antd/lib/upload/interface'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -84,6 +91,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeatures[]
+    domain_whitelist: string[]
 }
 
 export interface OrganizationMemberType {
@@ -328,22 +336,32 @@ export interface PersonType {
 }
 
 export interface CohortGroupType {
+    id: string
     days?: string
     action_id?: number
-    properties?: Record<string, any>
+    event_id?: string
+    label?: string
+    count?: number
+    count_operator?: string
+    properties?: AnyPropertyFilter[]
+    matchType: MatchType
 }
+
+export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
+export type CohortTypeType = typeof COHORT_STATIC | typeof COHORT_DYNAMIC
 
 export interface CohortType {
     count?: number
+    description?: string
     created_by?: UserBasicType | null
     created_at?: string
     deleted?: boolean
-    id: number | 'new'
+    id: number | 'new' | 'personsModalNew'
     is_calculating?: boolean
     last_calculation?: string
     is_static?: boolean
     name?: string
-    csv?: File
+    csv?: UploadFile
     groups: CohortGroupType[]
 }
 
@@ -359,6 +377,8 @@ export interface InsightHistory {
 export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
+
+export type BinCountValue = number | typeof BinCountAuto
 
 export enum PersonsTabType {
     EVENTS = 'events',
@@ -471,7 +491,6 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
 }
-
 export interface PluginType {
     id: number
     plugin_type: PluginInstallationType
@@ -487,6 +506,7 @@ export interface PluginType {
     organization_id: string
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
+    capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
 }
 
 export interface PluginConfigType {
@@ -555,7 +575,6 @@ export enum ChartDisplayType {
     ActionsBarChartValue = 'ActionsBarValue',
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
-    FunnelsTimeToConvert = 'FunnelsTimeToConvert',
 }
 
 export type ShownAsType = ShownAsValue // DEPRECATED: Remove when releasing `remove-shownas`
@@ -583,19 +602,25 @@ export enum PathType {
     CustomEvent = 'custom_event',
 }
 
+export enum FunnelVizType {
+    Steps = 'steps',
+    TimeToConvert = 'time_to_convert',
+    Trends = 'trends',
+}
+
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
-    interval?: string // TODO: Move to IntervalType
+    interval?: IntervalType
     date_from?: string
     date_to?: string
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
-    breakdown_type?: BreakdownType
-    breakdown?: string
+    breakdown_type?: BreakdownType | null
+    breakdown?: string | number | number[] | null
     breakdown_value?: string
     shown_as?: ShownAsType
     session?: string
@@ -615,10 +640,16 @@ export interface FilterType {
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean
+    layout?: FunnelLayout // used only for funnels
     funnel_step?: number
-    funnel_viz_type?: string // this and the below param is used for funnels time to convert, it'll be updated soon
-    funnel_to_step?: number
+    entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
+    drop_off?: boolean
+    funnel_viz_type?: string // parameter sent to funnels API for time conversion code path
+    funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
+    funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
+    funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     compare?: boolean
+    bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
 }
 
 export interface SystemStatusSubrows {
@@ -695,28 +726,82 @@ export interface TrendResultWithAggregate extends TrendResult {
 }
 
 export interface FunnelStep {
+    // The type returned from the API.
     action_id: string
-    average_conversion_time: number
+    average_conversion_time: number | null
     count: number
     name: string
     order: number
-    people: string[]
+    people?: string[]
     type: EntityType
     labels?: string[]
+    breakdown?: string
+    breakdown_value?: string
 }
 
-export interface FunnelResult {
+export interface FunnelStepWithNestedBreakdown extends FunnelStep {
+    nested_breakdown?: FunnelStep[]
+}
+
+export interface FunnelResult<ResultType = FunnelStep[]> {
     is_cached: boolean
     last_refresh: string | null
-    result: FunnelStep[]
+    result: ResultType
     type: 'Funnel'
+}
+
+export interface FunnelsTimeConversionBins {
+    bins: [number, number][] | []
+    average_conversion_time: number
 }
 
 export interface FunnelsTimeConversionResult {
-    result: number[]
+    result: FunnelsTimeConversionBins
     last_refresh: string | null
     is_cached: boolean
     type: 'Funnel'
+}
+
+// Indexing boundaries = [from_step, to_step)
+export interface FunnelTimeConversionStep {
+    from_step: number // set this to -1 if querying for all steps
+    to_step: number
+    label?: string
+    average_conversion_time?: number
+    count?: number
+}
+
+export interface FunnelTimeConversionMetrics {
+    averageTime: number
+    stepRate: number
+    totalRate: number
+}
+
+export interface FunnelRequestParams extends FilterType {
+    refresh?: boolean
+    from_dashboard?: boolean
+    funnel_window_days?: number
+}
+
+export interface LoadedRawFunnelResults {
+    results: FunnelStep[] | FunnelStep[][]
+    timeConversionResults: FunnelsTimeConversionBins
+}
+
+export interface FunnelStepWithConversionMetrics extends FunnelStep {
+    droppedOffFromPrevious: number
+    conversionRates: {
+        fromPrevious: number
+        total: number
+        fromBasisStep: number // either fromPrevious or total, depending on FunnelStepReference
+    }
+    nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
+}
+
+export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
+    rowKey: number | string
+    isBreakdownParent?: boolean
+    breakdownIndex?: number
 }
 
 export interface ChartParams {
@@ -913,6 +998,8 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
+    default_event_name: string
+    persisted_feature_flags?: string[]
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

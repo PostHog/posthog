@@ -1,10 +1,9 @@
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from django.conf import settings
 from django.db.models.expressions import F
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.utils.serializer_helpers import ReturnDict
 from sentry_sdk.api import capture_exception
@@ -15,8 +14,8 @@ from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.person import (
-    GET_LATEST_PERSON_DISTINCT_ID_SQL,
     GET_LATEST_PERSON_SQL,
+    GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_COHORT_ALL_PEOPLE_SQL,
     PEOPLE_SQL,
     PERSON_STATIC_COHORT_TABLE,
@@ -25,7 +24,6 @@ from ee.clickhouse.sql.stickiness.stickiness import STICKINESS_SQL
 from ee.clickhouse.sql.stickiness.stickiness_actions import STICKINESS_ACTIONS_SQL
 from ee.clickhouse.sql.stickiness.stickiness_people import STICKINESS_PEOPLE_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -58,7 +56,7 @@ class ClickhouseStickiness(Stickiness):
                 parsed_date_to=parsed_date_to,
                 filters=prop_filters,
                 trunc_func=trunc_func,
-                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             )
         else:
             content_sql = STICKINESS_SQL.format(
@@ -68,7 +66,7 @@ class ClickhouseStickiness(Stickiness):
                 parsed_date_to=parsed_date_to,
                 filters=prop_filters,
                 trunc_func=trunc_func,
-                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             )
 
         counts = sync_execute(content_sql, params)
@@ -114,7 +112,7 @@ def _process_content_sql(target_entity: Entity, filter: StickinessFilter, team: 
         parsed_date_to=parsed_date_to,
         filters=prop_filters,
         trunc_func=trunc_func,
-        latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+        GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
     )
     return content_sql, params
 
@@ -128,7 +126,7 @@ def retrieve_stickiness_people(target_entity: Entity, filter: StickinessFilter, 
             content_sql=content_sql,
             query="",
             latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         ),
         params,
     )
@@ -141,10 +139,9 @@ def insert_stickiness_people_into_cohort(cohort: Cohort, target_entity: Entity, 
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_SQL.format(
                 content_sql=content_sql,
-                query="",
                 latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
                 cohort_table=PERSON_STATIC_COHORT_TABLE,
-                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
         )

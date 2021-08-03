@@ -40,7 +40,9 @@ import { ActionsBarValueGraph } from 'scenes/trends/viz'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { FunnelHistogram } from 'scenes/funnels/FunnelHistogram'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Funnel } from 'scenes/funnels/Funnel'
 
 dayjs.extend(relativeTime)
 
@@ -135,24 +137,11 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
             ).url
         },
     },
-    FunnelsTimeToConvert: {
-        className: 'funnel-time-to-convert',
-        element: FunnelHistogram,
-        icon: BarChartOutlined,
-        viewText: 'View time conversion',
-        link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
-            return combineUrl(
-                `/insights`,
-                { insight: ViewType.FUNNELS, ...filters },
-                { fromItem: id, fromItemName: name, fromDashboard: dashboard }
-            ).url
-        },
-    },
     RetentionContainer: {
         className: 'retention',
         element: RetentionContainer,
         icon: TableOutlined,
-        viewText: 'View retention',
+        viewText: 'View graph',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
@@ -196,6 +185,13 @@ export function DashboardItem({
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
+    const { dashboards } = useValues(dashboardsModel)
+    const { renameDashboardItem } = useActions(dashboardItemsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
+        displayMap.FunnelViz.element = Funnel
+    }
 
     const _type: DisplayedType =
         item.filters.insight === ViewType.RETENTION
@@ -225,8 +221,6 @@ export function DashboardItem({
     const viewText = displayMap[_type].viewText
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
-    const { dashboards } = useValues(dashboardsModel)
-    const { renameDashboardItem } = useActions(dashboardItemsModel)
     const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
 
     const longPressProps = useLongPress(setEditMode, {
@@ -332,12 +326,10 @@ export function DashboardItem({
                                     trigger={['click']}
                                     overlay={
                                         <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
-                                            <Menu.Item
-                                                data-attr={'dashboard-item-' + index + '-dropdown-view'}
-                                                icon={<Icon />}
-                                                onClick={() => router.actions.push(link)}
-                                            >
-                                                {viewText}
+                                            <Menu.Item data-attr={'dashboard-item-' + index + '-dropdown-view'}>
+                                                <Link to={link}>
+                                                    <Icon /> {viewText}
+                                                </Link>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
@@ -504,7 +496,7 @@ export function DashboardItem({
                     <div style={{ padding: '0 16px', marginBottom: 16, fontSize: 12 }}>{item.description}</div>
                 )}
 
-                <div className="dashboard-item-content" onClickCapture={onClick}>
+                <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
                     {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
                             {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (

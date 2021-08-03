@@ -40,12 +40,14 @@ class Group(object):
         count_operator: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        label: Optional[str] = None,
     ):
         if not properties and not action_id and not event_id:
             raise ValueError("Cohort group needs properties or action_id or event_id")
         self.properties = properties
         self.action_id = action_id
         self.event_id = event_id
+        self.label = label
         self.days = days
         self.count = count
         self.count_operator = count_operator
@@ -124,23 +126,35 @@ class Cohort(models.Model):
             with transaction.atomic():
                 cursor.execute(query, params)
 
-                self.is_calculating = False
-                self.last_calculation = timezone.now()
-                self.errors_calculating = 0
-                self.save()
+                if not use_clickhouse:
+                    self.is_calculating = False
+                    self.last_calculation = timezone.now()
+                    self.errors_calculating = 0
+                    self.save()
         except Exception as err:
             if settings.DEBUG:
                 raise err
-            self.is_calculating = False
-            self.errors_calculating = F("errors_calculating") + 1
-            self.save()
+            if not use_clickhouse:
+                self.is_calculating = False
+                self.errors_calculating = F("errors_calculating") + 1
+                self.save()
             capture_exception(err)
 
     def calculate_people_ch(self):
         if is_clickhouse_enabled():
             from ee.clickhouse.models.cohort import recalculate_cohortpeople
 
-            recalculate_cohortpeople(self)
+            try:
+                recalculate_cohortpeople(self)
+                self.is_calculating = False
+                self.last_calculation = timezone.now()
+                self.errors_calculating = 0
+                self.save()
+            except Exception as err:
+                self.is_calculating = False
+                self.errors_calculating = F("errors_calculating") + 1
+                self.save()
+                capture_exception(err)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
