@@ -24,6 +24,7 @@ style files without adding already imported styles. */
     --text-default: #{$text_default};
     --text-light: #{$text_light};
     --muted: #{$text_muted};
+    --muted-alt: #{$text_muted_alt};
     --border: #{$border};
     // Used for graph series
     --blue: #{$blue_500};
@@ -437,10 +438,6 @@ code.code {
 }
 
 // Button styles
-
-button.ant-btn {
-    border-radius: $button_radius;
-}
 
 .btn-close {
     color: $text_muted;

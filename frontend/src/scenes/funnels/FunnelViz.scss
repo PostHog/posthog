@@ -126,3 +126,14 @@
         display: none;
     }
 }
+
+.funnel-tab {
+    .property-filter-wrapper {
+        display: flex;
+        flex-direction: row;
+
+        .new-prop-filter {
+            padding-left: 16px !important;
+        }
+    }
+}

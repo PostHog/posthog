@@ -257,7 +257,11 @@ export function LineGraph({
                             hasMultipleSeries={numberOfSeries > 1}
                             breakdownValue={
                                 entityData.breakdownValues // Used in `horizontalBar`
-                                    ? entityData.breakdownValues[tooltipItem.index]
+                                    ? entityData.breakdownValues[tooltipItem.index] === ''
+                                        ? 'None'
+                                        : entityData.breakdownValues[tooltipItem.index]
+                                    : entityData.breakdown_value === ''
+                                    ? 'None'
                                     : entityData.breakdown_value
                             }
                             seriesStatus={entityData.status}

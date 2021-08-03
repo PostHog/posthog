@@ -164,7 +164,7 @@ export function ErrorMessage(): JSX.Element {
     )
 }
 
-export function FunnelEmptyState(): JSX.Element {
+export function FunnelInvalidFiltersEmptyState(): JSX.Element {
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
@@ -194,14 +194,22 @@ export function FunnelEmptyState(): JSX.Element {
                 <div className="funnels-empty-state__help">
                     <a
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noreferrer noopener"
+                        rel="noopener"
                     >
                         Learn more about funnels in our support documentation.
                     </a>
                 </div>
             </div>
         </div>
+    )
+}
+
+export function FunnelEmptyState(): JSX.Element {
+    return (
+        <p style={{ textAlign: 'center', paddingTop: '2rem' }}>
+            We couldn't find any matching events. Try changing dates or pick another action, event, or breakdown.
+        </p>
     )
 }

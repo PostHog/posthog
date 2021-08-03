@@ -116,3 +116,142 @@ class TestActionPeople(
             },
         ).json()
         self.assertEqual(len(people["results"][0]["people"]), 2)
+
+    def test_breakdown_by_person_property_nones_people_endpoint(self):
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        people = self.client.get(
+            "/api/action/people/",
+            data={
+                "date_from": "2020-01-10",
+                "date_to": "2020-01-10",
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "$pageview",
+                "breakdown_type": "person",
+                "breakdown_value": "p1",
+                "breakdown": "name",
+            },
+        ).json()
+        self.assertEqual(len(people["results"][0]["people"]), 1)
+
+        people = self.client.get(
+            "/api/action/people/",
+            data={
+                "date_from": "2020-01-10",
+                "date_to": "2020-01-10",
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "$pageview",
+                "breakdown_type": "person",
+                "breakdown_value": "",
+                "breakdown": "name",
+            },
+        ).json()
+        self.assertEqual(len(people["results"][0]["people"]), 1)
+
+    def test_breakdown_by_event_property_none_people_endpoint(self):
+        p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-10T12:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z", properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"key": "val"},
+        )
+
+        people = self.client.get(
+            "/api/action/people/",
+            data={
+                "date_from": "2020-01-8",
+                "date_to": "2020-01-12",
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "$pageview",
+                "breakdown_type": "event",
+                "breakdown_value": "val",
+                "breakdown": "key",
+            },
+        ).json()
+        self.assertEqual(len(people["results"][0]["people"]), 2)
+
+        people = self.client.get(
+            "/api/action/people/",
+            data={
+                "date_from": "2020-01-08",
+                "date_to": "2020-01-12",
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "$pageview",
+                "breakdown_type": "event",
+                "breakdown_value": "",
+                "breakdown": "key",
+            },
+        ).json()
+        self.assertEqual(len(people["results"][0]["people"]), 1)

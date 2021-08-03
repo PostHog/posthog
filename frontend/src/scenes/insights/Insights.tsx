@@ -18,12 +18,11 @@ import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './Insigh
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { SavedFunnels } from './SavedCard'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import { ErrorMessage, FunnelEmptyState, TimeOut } from './EmptyStates'
+import { ErrorMessage, FunnelEmptyState, FunnelInvalidFiltersEmptyState, TimeOut } from './EmptyStates'
 import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
@@ -44,6 +43,7 @@ import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import clsx from 'clsx'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
+import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -311,14 +311,7 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            {activeView === ViewType.FUNNELS && (
-                                <Card
-                                    title={<Row align="middle">Funnels Saved in Project</Row>}
-                                    style={{ marginTop: 16 }}
-                                >
-                                    <SavedFunnels />
-                                </Card>
-                            )}
+                            <FunnelSecondaryTabs />
                         </Col>
                         <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
@@ -442,6 +435,16 @@ function FunnelInsight(): JSX.Element {
     const { loadResults } = useActions(funnelLogic({}))
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const renderFunnel = (): JSX.Element => {
+        if (isValidFunnel) {
+            return <Funnel filters={{ funnel_viz_type }} />
+        }
+        if (!areFiltersValid) {
+            return <FunnelInvalidFiltersEmptyState />
+        }
+        return <FunnelEmptyState />
+    }
+
     return (
         <div
             className={clsx('funnel-insights-container', {
@@ -452,7 +455,7 @@ function FunnelInsight(): JSX.Element {
                 'dirty-state': filtersDirty && !clickhouseFeaturesEnabled,
             })}
         >
-            {filtersDirty && !isLoading && !clickhouseFeaturesEnabled ? (
+            {filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled ? (
                 <div className="dirty-label">
                     <Alert
                         message={
@@ -467,7 +470,7 @@ function FunnelInsight(): JSX.Element {
                 </div>
             ) : null}
             {isLoading && <Loading />}
-            {isValidFunnel ? <Funnel filters={{ funnel_viz_type }} /> : !isLoading && <FunnelEmptyState />}
+            {renderFunnel()}
         </div>
     )
 }

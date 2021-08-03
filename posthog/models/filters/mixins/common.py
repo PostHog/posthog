@@ -10,6 +10,7 @@ from django.utils import timezone
 from posthog.constants import (
     ACTIONS,
     BREAKDOWN,
+    BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
     COMPARE,
@@ -110,9 +111,23 @@ class BreakdownMixin(BaseParamMixin):
         breakdown = self._data.get(BREAKDOWN)
         return self._process_breakdown_param(breakdown)
 
+    @cached_property
+    def _breakdown_limit(self) -> Optional[int]:
+        return self._data.get(BREAKDOWN_LIMIT)
+
+    @property
+    def breakdown_limit_or_default(self) -> int:
+        return self._breakdown_limit or 10
+
     @include_dict
     def breakdown_to_dict(self):
-        return {"breakdown": self.breakdown} if self.breakdown else {}
+        result = {}
+        if self.breakdown:
+            result[BREAKDOWN] = self.breakdown
+        if self._breakdown_limit:
+            result[BREAKDOWN_LIMIT] = self._breakdown_limit
+
+        return result
 
 
 class BreakdownTypeMixin(BaseParamMixin):
@@ -122,7 +137,7 @@ class BreakdownTypeMixin(BaseParamMixin):
 
     @include_dict
     def breakdown_type_to_dict(self):
-        return {"breakdown_type": self.breakdown_type} if self.breakdown_type else {}
+        return {BREAKDOWN_TYPE: self.breakdown_type} if self.breakdown_type else {}
 
 
 class BreakdownValueMixin(BaseParamMixin):

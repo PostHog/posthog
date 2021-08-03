@@ -58,7 +58,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                             seriesColor={color}
                             fallbackName={isBreakdownChild ? formatBreakdownLabel(step.breakdown, cohorts) : step.name}
                             hasMultipleSeries={steps.length > 1}
-                            breakdownValue={step.breakdown}
+                            breakdownValue={step.breakdown === '' ? 'None' : step.breakdown}
                             hideBreakdown
                             hideIcon={!isBreakdownChild}
                             allowWrap
