@@ -1528,6 +1528,42 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 response = trends().run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
             self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
+        def test_trends_regression_filtering_by_action_with_person_properties(self):
+            person1 = person_factory(
+                team_id=self.team.pk, properties={"email": "foo@example.com", "bar": "aa"}, distinct_ids=["d1"]
+            )
+            person2 = person_factory(
+                team_id=self.team.pk, properties={"email": "bar@example.com", "bar": "bb"}, distinct_ids=["d2"]
+            )
+            person2 = person_factory(
+                team_id=self.team.pk, properties={"email": "efg@example.com", "bar": "ab"}, distinct_ids=["d3"]
+            )
+            person3 = person_factory(team_id=self.team.pk, properties={"bar": "aa"}, distinct_ids=["d4"])
+
+            with freeze_time("2020-01-02 16:34:34"):
+                event_factory(team=self.team, event="$pageview", distinct_id="d1")
+                event_factory(team=self.team, event="$pageview", distinct_id="d2")
+                event_factory(team=self.team, event="$pageview", distinct_id="d3")
+                event_factory(team=self.team, event="$pageview", distinct_id="d4")
+
+            event_filtering_action = Action.objects.create(team=self.team, name="$pageview from non-internal")
+            ActionStep.objects.create(
+                action=event_filtering_action,
+                event="$pageview",
+                properties=[{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
+            )
+            filter = Filter(
+                {
+                    "actions": [{"id": event_filtering_action.id}],
+                    "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+                }
+            )
+
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = trends().run(filter, self.team)
+            self.assertEqual(len(response), 1)
+            self.assertEqual(response[0]["count"], 2)
+
         def test_dau_filtering(self):
             sign_up_action, person = self._create_events()
 
