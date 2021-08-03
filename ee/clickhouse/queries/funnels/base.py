@@ -401,7 +401,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if self._filter.funnel_step_breakdown:
                 values = self._parse_breakdown_prop_value()
             else:
-                limit = self._filter.breakdown_limit or 5
+                limit = self._filter.breakdown_limit_or_default
                 first_entity = next(x for x in self._filter.entities if x.order == 0)
                 if not first_entity:
                     ValidationError("An entity with order 0 was not provided")

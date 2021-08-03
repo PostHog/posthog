@@ -112,16 +112,20 @@ class BreakdownMixin(BaseParamMixin):
         return self._process_breakdown_param(breakdown)
 
     @cached_property
-    def breakdown_limit(self) -> Optional[int]:
+    def _breakdown_limit(self) -> Optional[int]:
         return self._data.get(BREAKDOWN_LIMIT)
+
+    @property
+    def breakdown_limit_or_default(self) -> int:
+        return self._breakdown_limit or 10
 
     @include_dict
     def breakdown_to_dict(self):
         result = {}
         if self.breakdown:
             result[BREAKDOWN] = self.breakdown
-        if self.breakdown_limit:
-            result[BREAKDOWN_LIMIT] = self.breakdown_limit
+        if self._breakdown_limit:
+            result[BREAKDOWN_LIMIT] = self._breakdown_limit
 
         return result
 

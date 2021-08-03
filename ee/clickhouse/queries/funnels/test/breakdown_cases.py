@@ -457,6 +457,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                 "funnel_window_days": 7,
                 "breakdown_type": "event",
                 "breakdown": "some_breakdown_val",
+                "breakdown_limit": 5,
             }
 
             filter = Filter(data=filters)
