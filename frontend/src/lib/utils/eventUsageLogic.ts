@@ -19,6 +19,7 @@ import {
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { PersonModalParams } from 'scenes/trends/personsModalLogic'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -44,6 +45,11 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             filters,
             isFirstLoad,
             fromDashboard,
+        }),
+        reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
+            params,
+            count,
+            hasNext,
         }),
         reportBookmarkletDragged: true,
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
@@ -115,7 +121,6 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             itemType,
             displayLocation,
         }),
-
         reportEventSearched: (searchTerm: string, extraProps?: Record<string, number>) => ({
             searchTerm,
             extraProps,
@@ -257,6 +262,24 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             }
 
             posthog.capture('insight viewed', properties)
+        },
+        reportPersonModalViewed: async ({ params, count, hasNext }) => {
+            const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params
+            const properties = {
+                insight: filters.insight,
+                display: filters.display,
+                funnel_viz_type: filters.funnel_viz_type,
+                interval: filters.interval,
+                date_from,
+                date_to,
+                funnel_step: funnelStep,
+                has_breakdown_value: Boolean(breakdown_value),
+                save_original: saveOriginal,
+                has_search_term: Boolean(searchTerm),
+                count, // Total count of persons
+                has_next: hasNext, // Whether there are other persons to be loaded (pagination)
+            }
+            posthog.capture('insight person modal viewed', properties)
         },
         reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
