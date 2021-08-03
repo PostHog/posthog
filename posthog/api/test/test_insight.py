@@ -117,6 +117,7 @@ def insight_test_factory(event_factory, person_factory):
                     "filters",
                     "dashboard",
                     "color",
+                    "description",
                     "last_refresh",
                     "refreshing",
                     "saved",
