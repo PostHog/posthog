@@ -105,6 +105,14 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
         formatted_date_from = format_ch_timestamp(_date_from, self._filter)
 
+        self.params.update(
+            {
+                "formatted_date_from": formatted_date_from,
+                "seconds_in_interval": seconds_in_interval,
+                "num_intervals": num_intervals,
+            }
+        )
+
         query = f"""
             SELECT
                 entrance_period_start,
@@ -124,9 +132,9 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {interval_method}(toDateTime('{formatted_date_from}') + number * {seconds_in_interval}) AS entrance_period_start
+                    {interval_method}(toDateTime(%(formatted_date_from)s) + number * %(seconds_in_interval)s) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
-                FROM numbers({num_intervals}) AS period_offsets
+                FROM numbers(%(num_intervals)s) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
             ) fill
             USING (entrance_period_start {breakdown_clause})
