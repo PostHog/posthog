@@ -327,9 +327,9 @@ export function DashboardItem({
                                     overlay={
                                         <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
                                             <Menu.Item data-attr={'dashboard-item-' + index + '-dropdown-view'}>
-                                                <a href={link}>
+                                                <Link to={link}>
                                                     <Icon /> {viewText}
-                                                </a>
+                                                </Link>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
