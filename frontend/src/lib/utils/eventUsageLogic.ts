@@ -74,10 +74,16 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
-        reportInsightViewed: (filters: Partial<FilterType>, isFirstLoad: boolean, fromDashboard: boolean) => ({
+        reportInsightViewed: (
+            filters: Partial<FilterType>,
+            isFirstLoad: boolean,
+            fromDashboard: boolean,
+            delay?: number
+        ) => ({
             filters,
             isFirstLoad,
             fromDashboard,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
         }),
         reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
             params,
@@ -234,13 +240,16 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard }, breakpoint) => {
-            await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
+        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
+            }
 
             const { insight } = filters
 
             const properties: Record<string, any> = {
                 ...sanitizeFilterParams(filters),
+                report_delay: delay,
                 is_first_component_load: isFirstLoad,
                 from_dashboard: fromDashboard, // Whether the insight is on a dashboard
             }
@@ -285,7 +294,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 properties.stickiness_days = filters.stickiness_days
             }
 
-            posthog.capture('insight viewed', properties)
+            const eventName = delay ? 'delayed insight viewed' : 'insight viewed'
+
+            posthog.capture(eventName, properties)
         },
         reportPersonModalViewed: async ({ params, count, hasNext }) => {
             const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params

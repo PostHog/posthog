@@ -153,10 +153,13 @@ export const insightLogic = kea<insightLogicType>({
         ],
     },
     listeners: ({ actions, values }) => ({
-        setAllFilters: (filters) => {
+        setAllFilters: async (filters, breakpoint) => {
             const { fromDashboard } = router.values.hashParams
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard))
             actions.setNotFirstLoad()
+
+            await breakpoint(10000)
+            eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard), 10)
         },
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
