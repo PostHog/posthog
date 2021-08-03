@@ -1552,6 +1552,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event="$pageview",
                 properties=[{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
             )
+            event_filtering_action.calculate_events()
             filter = Filter(
                 {
                     "actions": [{"id": event_filtering_action.id}],
