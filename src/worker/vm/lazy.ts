@@ -1,4 +1,3 @@
-import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 
 import {
@@ -89,9 +88,8 @@ export class LazyPluginVM {
                     await this.inferPluginCapabilities(hub, pluginConfig, vm)
                     resolve(vm)
                 } catch (error) {
-                    const isRetryError = error instanceof RetryError
                     status.warn('⚠️', error.message)
-                    if (isRetryError && this.totalInitAttemptsCounter < MAX_SETUP_RETRIES) {
+                    if (this.totalInitAttemptsCounter < MAX_SETUP_RETRIES) {
                         const nextRetryMs =
                             INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
                             INITIALIZATION_RETRY_BASE_MS
@@ -107,11 +105,9 @@ export class LazyPluginVM {
                         }, nextRetryMs)
                         resolve(null)
                     } else {
-                        const failureContextMessage = isRetryError
-                            ? `Disabling it due to too many retries – tried to load it ${
-                                  this.totalInitAttemptsCounter
-                              } time${this.totalInitAttemptsCounter > 1 ? 's' : ''} before giving up.`
-                            : 'Disabled it.'
+                        const failureContextMessage = `Disabling it due to too many retries – tried to load it ${
+                            this.totalInitAttemptsCounter
+                        } time${this.totalInitAttemptsCounter > 1 ? 's' : ''} before giving up.`
                         status.warn('⚠️', `Failed to load ${logInfo}. ${failureContextMessage}`)
                         await createLogEntry(
                             `Plugin failed to load (instance ID ${hub.instanceId}). ${failureContextMessage}`,

@@ -218,7 +218,7 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn test:postgres:1
+              run: cd plugin-server && tsc --noEmit -p . && yarn test:postgres:1
 
     tests-postgres-2:
         name: Tests / Postgres + Redis (2)
@@ -293,7 +293,7 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn test:postgres:2
+              run: cd plugin-server && tsc --noEmit -p . && yarn test:postgres:2
 
     tests-clickhouse-1:
         name: Tests / ClickHouse + Kafka (1)
@@ -384,7 +384,7 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn test:clickhouse:1
+              run: cd plugin-server && tsc --noEmit -p . && yarn test:clickhouse:1
 
     tests-clickhouse-2:
         name: Tests / ClickHouse + Kafka (2)
@@ -475,4 +475,4 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn test:clickhouse:2
+              run: cd plugin-server && tsc --noEmit -p . && yarn test:clickhouse:2
