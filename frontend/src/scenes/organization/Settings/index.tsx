@@ -110,7 +110,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
     return (
         <div>
             <h2 id="name" className="subtitle">
-                Emailing Preferences
+                Notification Preferences
             </h2>
             <div>
                 <Switch
@@ -129,7 +129,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
                     }}
                     htmlFor="is-member-joined-email-enabled"
                 >
-                    Notify all members when a new member joins
+                    Email all members when a new member joins
                 </label>
             </div>
         </div>
