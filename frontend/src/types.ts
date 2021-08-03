@@ -92,6 +92,7 @@ export interface OrganizationType extends OrganizationBasicType {
     teams: TeamBasicType[] | null
     available_features: AvailableFeatures[]
     domain_whitelist: string[]
+    is_member_join_email_enabled: boolean
 }
 
 export interface OrganizationMemberType {

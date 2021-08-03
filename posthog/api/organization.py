@@ -75,6 +75,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "teams",
             "available_features",
             "domain_whitelist",
+            "is_member_join_email_enabled",
         ]
         read_only_fields = [
             "id",
