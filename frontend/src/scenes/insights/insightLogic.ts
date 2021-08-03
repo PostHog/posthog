@@ -11,6 +11,7 @@ import { Entity, FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/t
 import { captureInternalMetric } from 'lib/internalMetrics'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
+import { router } from 'kea-router'
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -153,7 +154,8 @@ export const insightLogic = kea<insightLogicType>({
     },
     listeners: ({ actions, values }) => ({
         setAllFilters: (filters) => {
-            eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad)
+            const { fromDashboard } = router.values.hashParams
+            eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard))
             actions.setNotFirstLoad()
         },
         startQuery: () => {

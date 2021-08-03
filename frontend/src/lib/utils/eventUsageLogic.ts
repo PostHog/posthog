@@ -40,7 +40,11 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
-        reportInsightViewed: (filters: Partial<FilterType>, isFirstLoad: boolean) => ({ filters, isFirstLoad }),
+        reportInsightViewed: (filters: Partial<FilterType>, isFirstLoad: boolean, fromDashboard: boolean) => ({
+            filters,
+            isFirstLoad,
+            fromDashboard,
+        }),
         reportBookmarkletDragged: true,
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
@@ -191,7 +195,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightViewed: async ({ filters, isFirstLoad }, breakpoint) => {
+        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
 
             // Reports `insight viewed` event
@@ -209,6 +213,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 filters_count: filters.properties?.length || 0,
                 events_count: filters.events?.length || 0,
                 actions_count: filters.actions?.length || 0,
+                from_dashboard: fromDashboard, // Whether the insight is on a dashboard
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
