@@ -205,3 +205,11 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
         </div>
     )
 }
+
+export function FunnelEmptyState(): JSX.Element {
+    return (
+        <p style={{ textAlign: 'center', paddingTop: '2rem' }}>
+            We couldn't find any matching events. Try changing dates or pick another action, event, or breakdown.
+        </p>
+    )
+}

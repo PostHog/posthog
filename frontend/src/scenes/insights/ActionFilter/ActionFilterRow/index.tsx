@@ -47,6 +47,7 @@ export interface ActionFilterRowProps {
     filterCount: number
     customRowPrefix?: string | JSX.Element // Custom prefix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
+    showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
 }
 
 export function ActionFilterRow({
@@ -64,6 +65,7 @@ export function ActionFilterRow({
     filterCount,
     customRowPrefix,
     hasBreakdown,
+    showNestedArrow = false,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -124,6 +126,8 @@ export function ActionFilterRow({
     }
 
     const orLabel = <div className="stateful-badge or width-locked">OR</div>
+
+    console.log('ACTIONFILTERTROW', showNestedArrow)
 
     return (
         <div className={`${horizontalUI ? 'action-row-striped' : 'action-row'} ${fullWidth ? 'full-width' : ''}`}>
@@ -317,13 +321,13 @@ export function ActionFilterRow({
 
             {visible && (
                 <div className="mr property-filter-wrapper">
-                    <div className="arrow">&#8627;</div>
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         disablePopover={horizontalUI}
                         style={{ marginBottom: 0 }}
+                        showNestedArrow={showNestedArrow}
                     />
                 </div>
             )}

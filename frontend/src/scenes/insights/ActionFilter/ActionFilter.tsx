@@ -26,6 +26,7 @@ export interface ActionFilterProps {
     customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
     fullWidth?: boolean
+    showNestedArrow?: boolean // show nested arrows to the left of property filter buttons
 }
 
 export function ActionFilter({
@@ -45,6 +46,7 @@ export function ActionFilter({
     fullWidth = false,
     customRowPrefix,
     customActions,
+    showNestedArrow = false,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -79,6 +81,7 @@ export function ActionFilter({
         hasBreakdown: !!filters.breakdown,
         fullWidth,
     }
+    console.log('hello', showNestedArrow)
 
     return (
         <div>
@@ -92,6 +95,7 @@ export function ActionFilter({
                                 index={index}
                                 filterIndex={index}
                                 filterCount={localFilters.length}
+                                showNestedArrow={showNestedArrow}
                                 {...commonProps}
                             />
                         ))}
@@ -106,6 +110,7 @@ export function ActionFilter({
                             showOr={showOr}
                             horizontalUI={horizontalUI}
                             filterCount={localFilters.length}
+                            showNestedArrow={showNestedArrow}
                             {...commonProps}
                         />
                     ))
