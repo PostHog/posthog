@@ -1,4 +1,4 @@
-import { Button, Col, Table, Tabs } from 'antd'
+import { Button, Col, Row, Table, Tabs } from 'antd'
 import { ColumnType } from 'antd/lib/table'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -9,12 +9,20 @@ import React, { useEffect, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { DashboardItemType } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
-import { StarOutlined, StarFilled } from '@ant-design/icons'
+import {
+    StarOutlined,
+    StarFilled,
+    LeftOutlined,
+    RightOutlined,
+    UnorderedListOutlined,
+    AppstoreFilled,
+} from '@ant-design/icons'
+import './SavedInsights.scss'
 const { TabPane } = Tabs
 
 export function SavedInsights(): JSX.Element {
-    const { loadInsights, updateFavoritedInsight } = useActions(savedInsightsLogic)
-    const { insights } = useValues(savedInsightsLogic)
+    const { loadInsights, updateFavoritedInsight, loadPaginatedInsights } = useActions(savedInsightsLogic)
+    const { insights, count, offset, nextResult, previousResult, insightsLoading } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(userLogic)
     const [displayedColumns, setDisplayedColumns] = useState([] as ColumnType<DashboardItemType>[])
 
@@ -46,15 +54,21 @@ export function SavedInsights(): JSX.Element {
             ) {
                 return (
                     <Col>
-                        <div>
-                            <Link to={`/i/${short_id}`} style={{ marginRight: 16 }}>
+                        <Row>
+                            <Link to={`/i/${short_id}`} style={{ marginRight: 12 }}>
                                 <strong>{name || `Insight #${id}`}</strong>
                             </Link>
-                            <Button
+                            <div
+                                style={{ cursor: 'pointer', width: 'fit-content' }}
                                 onClick={() => updateFavoritedInsight({ id, favorited: !favorited })}
-                                icon={favorited ? <StarFilled /> : <StarOutlined />}
-                            />
-                        </div>
+                            >
+                                {favorited ? (
+                                    <StarFilled className="text-warning" />
+                                ) : (
+                                    <StarOutlined className="star-outlined" />
+                                )}
+                            </div>
+                        </Row>
                         {hasDashboardCollaboration && (
                             <div className="text-muted-alt">{description || 'No description provided'}</div>
                         )}
@@ -80,18 +94,59 @@ export function SavedInsights(): JSX.Element {
             sorter: (a: DashboardItemType, b: DashboardItemType) =>
                 new Date(a.created_at) > new Date(b.created_at) ? 1 : -1,
         },
-        createdByColumn(insights) as ColumnType<DashboardItemType>,
+        createdByColumn(insights?.results || []) as ColumnType<DashboardItemType>,
     ]
 
     return (
-        <>
-            <Tabs defaultActiveKey="1" onChange={(key) => loadInsights(key)}>
+        <div className="saved-insights">
+            <Tabs defaultActiveKey="1" style={{ borderColor: '#D9D9D9' }} onChange={(key) => loadInsights(key)}>
                 <TabPane tab="All" key="all" />
                 <TabPane tab="Your Insights" key="yours" />
                 <TabPane tab="Favorites" key="favorites" />
                 <TabPane tab="Updated Recently" key="recent" />
             </Tabs>
-            <Table columns={displayedColumns} dataSource={insights} />
-        </>
+            <Row className="list-or-card-layout">
+                Showing {!previousResult ? 1 : nextResult ? offset - 15 : count - (insights?.results.length || 0)} -{' '}
+                {nextResult ? offset : count} of {count} insights
+                <div>
+                    <Button>
+                        <UnorderedListOutlined />
+                        List
+                    </Button>
+                    <Button>
+                        <AppstoreFilled />
+                        Card
+                    </Button>
+                </div>
+            </Row>
+            <Table
+                loading={insightsLoading}
+                columns={displayedColumns}
+                dataSource={insights?.results || []}
+                pagination={false}
+                footer={() => (
+                    <Row className="footer-pagination">
+                        <span className="text-muted-alt">
+                            Showing{' '}
+                            {!previousResult ? 1 : nextResult ? offset - 15 : count - (insights?.results.length || 0)} -{' '}
+                            {nextResult ? offset : count} of {count} insights
+                        </span>
+                        <LeftOutlined
+                            style={{ paddingRight: 16 }}
+                            className={`${!previousResult ? 'paginate-disabled' : ''}`}
+                            onClick={() => {
+                                loadPaginatedInsights(previousResult)
+                            }}
+                        />
+                        <RightOutlined
+                            className={`${!nextResult ? 'paginate-disabled' : ''}`}
+                            onClick={() => {
+                                loadPaginatedInsights(nextResult)
+                            }}
+                        />
+                    </Row>
+                )}
+            />
+        </div>
     )
 }
