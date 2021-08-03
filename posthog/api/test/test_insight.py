@@ -110,7 +110,20 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response.json()["results"]), 2)
             self.assertEqual(
                 list(response.json()["results"][0].keys()),
-                ["id", "short_id", "name", "filters", "dashboard", "color", "last_refresh", "refreshing", "saved"],
+                [
+                    "id",
+                    "short_id",
+                    "name",
+                    "filters",
+                    "dashboard",
+                    "color",
+                    "last_refresh",
+                    "refreshing",
+                    "saved",
+                    "updated_at",
+                    "tags",
+                    "favorited",
+                ],
             )
 
         def test_create_insight_items(self):
