@@ -316,7 +316,8 @@ export function ActionFilterRow({
                 )}
 
             {visible && (
-                <div className="ml mr">
+                <div className="mr property-filter-wrapper">
+                    <div className="arrow">&#8627;</div>
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
