@@ -36,6 +36,14 @@ class ClickhouseSessionsDist:
 
         result = sync_execute(dist_query, params)
 
-        res = [{"label": DIST_LABELS[index], "count": result[0][index]} for index in range(len(DIST_LABELS))]
+        res = [
+            {
+                "label": DIST_LABELS[index].label,
+                "bin0": DIST_LABELS[index].bin0,
+                "bin1": DIST_LABELS[index].bin1,
+                "count": result[0][index],
+            }
+            for index in range(len(DIST_LABELS))
+        ]
 
         return res

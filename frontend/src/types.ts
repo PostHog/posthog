@@ -719,6 +719,8 @@ export interface TrendResult {
     breakdown_value?: string | number
     aggregated_value: number
     status?: string
+    bin0?: number // histogram
+    bin1?: number // histogram
 }
 
 export interface TrendResultWithAggregate extends TrendResult {

@@ -17,6 +17,7 @@ import { ViewType } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
+import { ActionsBarTimeGraph } from 'scenes/trends/viz/ActionsBarTimeGraph'
 
 interface Props {
     view: ViewType
@@ -31,6 +32,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, view, filters: null }))
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    console.log('render viz', _filters)
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||
@@ -38,6 +40,11 @@ export function TrendInsight({ view }: Props): JSX.Element {
             _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
             _filters.display === ACTIONS_BAR_CHART
         ) {
+            console.log('triggered')
+            if (view === ViewType.SESSIONS && _filters.session === 'dist' && _filters.display === ACTIONS_BAR_CHART) {
+                console.log('triggered 2')
+                return <ActionsBarTimeGraph filters={_filters} view={view} />
+            }
             return <ActionsLineGraph filters={_filters} view={view} />
         }
         if (_filters.display === ACTIONS_TABLE) {

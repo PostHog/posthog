@@ -61,10 +61,7 @@ function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {
         insight: ViewType.TRENDS,
         ...filters,
         interval: autocorrectInterval(filters),
-        display:
-            filters.session && filters.session === 'dist'
-                ? ChartDisplayType.ActionsTable
-                : filters.display || ChartDisplayType.ActionsLineGraphLinear,
+        display: filters.display || ChartDisplayType.ActionsLineGraphLinear,
         actions: Array.isArray(filters.actions) ? filters.actions : undefined,
         events: Array.isArray(filters.events) ? filters.events : undefined,
         properties: filters.properties || [],

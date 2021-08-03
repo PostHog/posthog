@@ -20,17 +20,27 @@ from posthog.queries.base import (
 )
 from posthog.utils import append_data, friendly_time, get_daterange
 
+
+class DistDatum(object):
+    def __init__(self, _id, bin0, bin1, label):
+        self.id = _id
+        self.bin0 = bin0
+        self.bin1 = bin1
+        self.label = label
+
+
+# bin (-2, -1) === (-inf, +inf)
 DIST_LABELS = [
-    "0 seconds (1 event)",
-    "0-3 seconds",
-    "3-10 seconds",
-    "10-30 seconds",
-    "30-60 seconds",
-    "1-3 minutes",
-    "3-10 minutes",
-    "10-30 minutes",
-    "30-60 minutes",
-    "1+ hours",
+    DistDatum(0, -2, 0, "0 seconds (1 event)"),
+    DistDatum(1, 0, 3, "0-3 seconds"),
+    DistDatum(2, 3, 10, "3-10 seconds"),
+    DistDatum(3, 10, 30, "10-30 seconds"),
+    DistDatum(4, 30, 60, "30-60 seconds"),
+    DistDatum(5, 60, 180, "1-3 minutes"),
+    DistDatum(6, 180, 600, "3-10 minutes"),
+    DistDatum(7, 600, 1800, "10-30 minutes"),
+    DistDatum(8, 1800, 3600, "30-60 minutes"),
+    DistDatum(9, 3600, -1, "1+ hours"),
 ]
 
 Query = str
@@ -215,7 +225,13 @@ class Sessions(BaseQuery):
         cursor.execute(distribution, params)
         calculated = cursor.fetchall()
         result = [
-            {"label": DIST_LABELS[index], "count": calculated[0][index], "aggregated_value": calculated[0][index]}
+            {
+                "label": DIST_LABELS[index].label,
+                "bin0": DIST_LABELS[index].bin0,
+                "bin1": DIST_LABELS[index].bin1,
+                "count": calculated[0][index],
+                "aggregated_value": calculated[0][index],
+            }
             for index in range(len(DIST_LABELS))
         ]
         return result

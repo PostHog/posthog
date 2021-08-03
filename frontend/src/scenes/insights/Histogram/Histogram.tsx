@@ -42,6 +42,29 @@ export function Histogram({
     const { setConfig } = useActions(histogramLogic)
     const isEmpty = data.length === 0 || d3.sum(data.map((d) => d.count)) === 0
 
+    console.log('width', width)
+
+    // Check if there are -inf and +inf values and normalize data
+    let _data = data
+    const hasLeftInf = data[0].bin0 === -2
+    const hasRightInf = data[0].bin1 === -1
+    const binValueWidth =
+        hasLeftInf && hasRightInf && data.length === 2
+            ? 5 /* default bin width */
+            : hasLeftInf
+            ? data[1].bin1 - data[1].bin0
+            : data[0].bin1 - data[0].bin0
+    if (hasLeftInf) {
+        _data = [{ ..._data[0], bin0: _data[0].bin1 - binValueWidth }, ..._data.slice(1)]
+    }
+    if (hasRightInf) {
+        _data = [
+            ..._data.slice(0, -1),
+            { ..._data[_data.length - 1], bin1: _data[_data.length - 1].bin0 + binValueWidth },
+        ]
+    }
+    console.log('NEW DATA', _data)
+
     // Initialize x-axis and y-axis scales
     const xMin = data?.[0]?.bin0 || 0
     const xMax = data?.[data.length - 1]?.bin1 || 1

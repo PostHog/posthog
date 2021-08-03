@@ -30,9 +30,12 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const tableDisabled = false
     const pieDisabled =
         !!filters.session || filters.insight === ViewType.RETENTION || filters.insight === ViewType.STICKINESS
-    const barDisabled = !!filters.session || filters.insight === ViewType.RETENTION
+    const barDisabled = (!!filters.session && filters.session === 'avg') || filters.insight === ViewType.RETENTION
     const barValueDisabled =
-        barDisabled || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
+        barDisabled ||
+        filters.insight === ViewType.STICKINESS ||
+        filters.insight === ViewType.RETENTION ||
+        (!!filters.session && filters.session === 'dist')
     const defaultDisplay: ChartDisplayType =
         filters.insight === ViewType.RETENTION
             ? ChartDisplayType.ActionsTable
@@ -128,6 +131,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             defaultValue={filters.display || defaultDisplay}
             value={chartFilter || defaultDisplay}
             onChange={(value: ChartDisplayType | FunnelVizType) => {
+                console.log('value', value)
                 setChartFilter(value)
                 onChange(value)
             }}
