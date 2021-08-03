@@ -87,6 +87,7 @@ class Organization(UUIDModel):
     )
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
+    is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -276,7 +277,7 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
-        if is_email_available(with_absolute_urls=True):
+        if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 
             send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization.id})
