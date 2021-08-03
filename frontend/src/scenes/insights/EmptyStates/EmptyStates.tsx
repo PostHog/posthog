@@ -164,7 +164,7 @@ export function ErrorMessage(): JSX.Element {
     )
 }
 
-export function FunnelEmptyState(): JSX.Element {
+export function FunnelInvalidFiltersEmptyState(): JSX.Element {
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))

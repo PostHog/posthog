@@ -23,7 +23,7 @@ import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import { ErrorMessage, FunnelEmptyState, TimeOut } from './EmptyStates'
+import { ErrorMessage, FunnelInvalidFiltersEmptyState, TimeOut } from './EmptyStates'
 import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
@@ -442,6 +442,16 @@ function FunnelInsight(): JSX.Element {
     const { loadResults } = useActions(funnelLogic({}))
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const renderFunnel = (): JSX.Element => {
+        if (isValidFunnel) {
+            return <Funnel filters={{ funnel_viz_type }} />
+        }
+        if (!areFiltersValid) {
+            return <FunnelInvalidFiltersEmptyState />
+        }
+        return <>lol</>
+    }
+
     return (
         <div
             className={clsx('funnel-insights-container', {
@@ -452,7 +462,7 @@ function FunnelInsight(): JSX.Element {
                 'dirty-state': filtersDirty && !clickhouseFeaturesEnabled,
             })}
         >
-            {filtersDirty && !isLoading && !clickhouseFeaturesEnabled ? (
+            {filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled ? (
                 <div className="dirty-label">
                     <Alert
                         message={
@@ -467,7 +477,7 @@ function FunnelInsight(): JSX.Element {
                 </div>
             ) : null}
             {isLoading && <Loading />}
-            {isValidFunnel ? <Funnel filters={{ funnel_viz_type }} /> : !isLoading && <FunnelEmptyState />}
+            {renderFunnel()}
         </div>
     )
 }
