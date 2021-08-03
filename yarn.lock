@@ -9925,10 +9925,15 @@ ripemd160@^2.0.0, ripemd160@^2.0.1:
     hash-base "^3.0.0"
     inherits "^2.0.1"
 
-rrweb-snapshot@^1.0.3, rrweb-snapshot@^1.1.6:
+rrweb-snapshot@^1.0.3:
   version "1.1.6"
   resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.6.tgz#e598510e387b9b2c62ce0cfc586a37c89549b228"
   integrity sha512-twvqV1WRuFwodO5UV0tzS4Q2w+ZYi5kwOx/uwbRkplfazcnbphDLFvy8x9IwMOZFhyRg1jDJjbnlC8wy4xq5bQ==
+
+rrweb-snapshot@^1.1.7:
+  version "1.1.7"
+  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.7.tgz#92a3b47b1112a1b566c2fae2edb02fa48a6f6653"
+  integrity sha512-+f2kCCvIQ1hbEeCWnV7mPVPDEdWEExqwcYqMd/r1nfK52QE7qU52jefUOyTe85Vy67rZGqWnfK/B25e/OTSgYg==
 
 rrweb@^0.9.14:
   version "0.9.14"
@@ -9941,16 +9946,16 @@ rrweb@^0.9.14:
     mitt "^1.1.3"
     rrweb-snapshot "^1.0.3"
 
-rrweb@^1.0.1:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-1.0.1.tgz#4a1fab4ab7fec4d7308443f012e591f9c1e4d209"
-  integrity sha512-T7aH4qcJt1KUK6utF7XzfRgMLgGqntzZ5IUZw36CQ8lrsO1UQm2gyzgMFSLbDV4EgplN0oIenAT29RKT9ET3Ig==
+rrweb@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-1.0.2.tgz#da561b829e3729461443966fe5abc745e7d3ebf3"
+  integrity sha512-CHv4MjODD7GwduKDHq++6EEwCqjSzXnkv27FLzCjkI93ml5PkUcCNVm1a6UB7xLSzITljPvu62vxZE0186/x1g==
   dependencies:
     "@types/css-font-loading-module" "0.0.4"
     "@xstate/fsm" "^1.4.0"
     fflate "^0.4.4"
     mitt "^1.1.3"
-    rrweb-snapshot "^1.1.6"
+    rrweb-snapshot "^1.1.7"
 
 rsvp@^4.8.4:
   version "4.8.5"
