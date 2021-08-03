@@ -121,8 +121,6 @@ def insight_test_factory(event_factory, person_factory):
                     "refreshing",
                     "saved",
                     "updated_at",
-                    "tags",
-                    "favorited",
                 ],
             )
 
