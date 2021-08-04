@@ -1,18 +1,18 @@
-from collections import defaultdict
+import re
+from datetime import timedelta
 from functools import wraps
 from typing import Dict, no_type_check
 
-from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
-from posthog.settings import CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 Property = str
 ColumnName = str
 
 
-def cache_for(cache_time: relativedelta):
+def cache_for(cache_time: timedelta):
     def wrapper(fn):
         @wraps(fn)
         @no_type_check
@@ -28,21 +28,58 @@ def cache_for(cache_time: relativedelta):
     return wrapper
 
 
-@cache_for(relativedelta(minutes=15))
+@cache_for(timedelta(minutes=15))
 def get_materialized_columns(table: str) -> Dict[Property, ColumnName]:
     rows = sync_execute(
         """
         SELECT comment, name
         FROM system.columns
         WHERE database = %(database)s
-          AND table = 'events'
+          AND table = %(table)s
           AND default_kind = 'MATERIALIZED'
-          AND comment LIKE '%column_materializer::%'
+          AND comment LIKE '%%column_materializer::%%'
     """,
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
 
     return {extract_property(comment): column_name for comment, column_name in rows}
+
+
+def materialize(table: str, property: str, distributed: bool = False) -> None:
+    column_name = f"mat_{re.sub('[^0-9a-zA-Z]+', '_', property)}"
+    if distributed:
+        sync_execute(
+            f"""
+            ALTER TABLE sharded_{table}
+            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            ADD COLUMN IF NOT EXISTS
+            {column_name} VARCHAR MATERIALIZED trim(BOTH '"' FROM JSONExtractRaw(properties, %(property)s))
+        """,
+            {"property": property},
+        )
+        sync_execute(
+            f"""
+            ALTER TABLE {table}
+            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            ADD COLUMN IF NOT EXISTS
+            {column_name} VARCHAR
+        """
+        )
+    else:
+        sync_execute(
+            f"""
+            ALTER TABLE {table}
+            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            ADD COLUMN IF NOT EXISTS
+            {column_name} VARCHAR MATERIALIZED trim(BOTH '"' FROM JSONExtractRaw(properties, %(property)s))
+        """,
+            {"property": property},
+        )
+
+    sync_execute(
+        f"ALTER TABLE {table} ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN {column_name} %(comment)s",
+        {"comment": f"column_materializer::{property}"},
+    )
 
 
 def extract_property(comment: str) -> Property:

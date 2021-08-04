@@ -1,1 +1,1 @@
-from .columns import get_events_materialized_columns
+from .columns import get_materialized_columns
