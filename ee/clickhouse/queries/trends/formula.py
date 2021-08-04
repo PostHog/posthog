@@ -32,6 +32,7 @@ class ClickhouseTrendsFormula:
             {date_select}
             arrayMap(({letters_select}) -> {formula}, {selects})
             {breakdown_value}
+            {max_length}
             FROM ({first_query}) as sub_A
             {queries}
         """.format(
@@ -40,9 +41,15 @@ class ClickhouseTrendsFormula:
             formula=filter.formula,  # formula is properly escaped in the filter
             # Need to wrap aggregates in arrays so we can still use arrayMap
             selects=", ".join(
-                [(f"[sub_{letter}.data]" if is_aggregate else f"sub_{letter}.data") for letter in letters]
+                [
+                    (f"[sub_{letter}.data]" if is_aggregate else f"arrayResize(sub_{letter}.data, max_length, 0)")
+                    for letter in letters
+                ]
             ),
             breakdown_value=breakdown_value if filter.breakdown else "",
+            max_length=""
+            if is_aggregate
+            else ", arrayMax([{}]) as max_length".format(", ".join(f"length(sub_{letter}.data)" for letter in letters)),
             first_query=queries[0],
             queries="".join(
                 [

@@ -160,21 +160,31 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
         self.assertEqual(self._run({"formula": "A/0"})[0]["count"], 0)
 
     def test_breakdown(self):
-        action_response = self._run({"formula": "A - B", "breakdown": "location"})
-        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
-        self.assertEqual(action_response[0]["label"], "London")
-        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
-        self.assertEqual(action_response[1]["label"], "Paris")
+        response = self._run({"formula": "A - B", "breakdown": "location"})
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
+        self.assertEqual(response[0]["label"], "London")
+        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
+        self.assertEqual(response[1]["label"], "Paris")
 
     def test_breakdown_cohort(self):
         cohort = Cohort.objects.create(
             team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
         )
-        action_response = self._run({"breakdown": ["all", cohort.pk], "breakdown_type": "cohort"})
-        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
-        self.assertEqual(action_response[0]["label"], "all users")
-        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
-        self.assertEqual(action_response[1]["label"], "cohort1")
+        response = self._run({"breakdown": ["all", cohort.pk], "breakdown_type": "cohort"})
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
+        self.assertEqual(response[0]["label"], "all users")
+        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
+        self.assertEqual(response[1]["label"], "cohort1")
+
+    def test_breakdown_mismatching_sizes(self):
+        response = self._run(
+            {"events": [{"id": "session start"}, {"id": "session end"},], "breakdown": "location", "formula": "A + B",}
+        )
+
+        self.assertEqual(response[0]["label"], "London")
+        self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 1, 3, 0])
+        self.assertEqual(response[1]["label"], "Paris")
+        self.assertEqual(response[1]["data"], [0, 0, 0, 0, 0, 2, 0, 0])
 
     def test_global_properties(self):
         self.assertEqual(
