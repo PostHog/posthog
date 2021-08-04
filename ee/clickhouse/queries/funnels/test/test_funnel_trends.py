@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytz
+from freezegun.api import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels import ClickhouseFunnel, ClickhouseFunnelStrict, ClickhouseFunnelUnordered
@@ -320,6 +321,38 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
         self.assertEqual(1, len(results))
+
+        persons, _ = self._get_people_at_step(filter, "2021-05-01 00:00:00", False)
+
+        self.assertEqual(
+            [person["distinct_ids"] for person in persons], [["user_one"]],
+        )
+
+    def test_all_date_range(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "all",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        _create_person(distinct_ids=["user_one"], team=self.team)
+
+        # full run
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+
+        with freeze_time("2021-05-20T13:01:01Z"):
+            results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
+        self.assertEqual(20, len(results))
 
         persons, _ = self._get_people_at_step(filter, "2021-05-01 00:00:00", False)
 
