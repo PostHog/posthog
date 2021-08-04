@@ -120,8 +120,8 @@ export function PropertyValue({
     }, [propertyKey])
 
     useEffect(() => {
-        if (input === '' && shouldBlur && document.activeElement instanceof HTMLElement) {
-            document.activeElement.blur()
+        if (input === '' && shouldBlur) {
+            ;(document.activeElement as HTMLElement)?.blur()
             setShouldBlur(false)
         }
     }, [input, shouldBlur])
@@ -147,9 +147,10 @@ export function PropertyValue({
         placeholder,
         allowClear: Boolean(value),
         onKeyDown: (e: React.KeyboardEvent) => {
-            if (e.key === 'Escape' && e.target instanceof HTMLElement) {
+            if (e.key === 'Escape') {
                 setInput('')
                 setShouldBlur(true)
+                return
             }
             if (!isMultiSelect && e.key === 'Enter') {
                 // We have not explicitly selected a dropdown item by pressing the up/down keys; or the ref is unavailable
