@@ -15,6 +15,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
+from posthog.settings import SHELL_PLUS_PRINT_SQL
 
 
 def _create_action(**kwargs):
@@ -60,8 +61,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             ),
             self.team,
         )
-        self.assertEqual(len(response), 2)
-        self.assertEqual(response[1]["breakdown_value"], "val")
+        self.assertEqual(len(response), 1)
+        # don't return none option when empty
+        self.assertEqual(response[0]["breakdown_value"], "val")
 
     def test_breakdown_filtering_limit(self):
         self._create_breakdown_events()
@@ -76,7 +78,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 ),
                 self.team,
             )
-        self.assertEqual(len(response), 26)  # We fetch 25 to see if there are more ethan 20 values
+        self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
 
     def test_breakdown_by_person_property(self):
         person1, person2, person3, person4 = self._create_multiple_people()
@@ -107,8 +109,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
 
         self.assertListEqual(
-            sorted([res["breakdown_value"] for res in event_response]),
-            sorted(["none", "person1", "person2", "person3"]),
+            sorted([res["breakdown_value"] for res in event_response]), sorted(["person1", "person2", "person3"]),
         )
 
         for response in event_response:
@@ -263,17 +264,13 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         response = sorted(response, key=lambda x: x["label"])
         self.assertEqual(response[0]["label"], "sign up - first url")
-        self.assertEqual(response[1]["label"], "sign up - none")
-        self.assertEqual(response[2]["label"], "sign up - second url")
+        self.assertEqual(response[1]["label"], "sign up - second url")
 
         self.assertEqual(sum(response[0]["data"]), 1)
         self.assertEqual(response[0]["breakdown_value"], "first url")
 
-        self.assertEqual(sum(response[1]["data"]), 0)
-        self.assertEqual(response[1]["breakdown_value"], "none")
-
-        self.assertEqual(sum(response[2]["data"]), 1)
-        self.assertEqual(response[2]["breakdown_value"], "second url")
+        self.assertEqual(sum(response[1]["data"]), 1)
+        self.assertEqual(response[1]["breakdown_value"], "second url")
 
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
@@ -331,10 +328,10 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertEqual(event_response[1]["label"], "sign up - other_value")
+        self.assertEqual(event_response[0]["label"], "sign up - other_value")
 
-        self.assertEqual(sum(event_response[1]["data"]), 1)
-        self.assertEqual(event_response[1]["data"][5], 1)  # property not defined
+        self.assertEqual(sum(event_response[0]["data"]), 1)
+        self.assertEqual(event_response[0]["data"][5], 1)  # property not defined
 
         self.assertEntityResponseEqual(action_response, event_response)
 
@@ -412,8 +409,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             ),
             self.team,
         )
-        self.assertEqual(len(response), 2)
-        self.assertEqual(response[1]["breakdown_value"], "test@gmail.com")
+        self.assertEqual(len(response), 1)
+        self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
     def _create_active_user_events(self):
         p0 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p0"], properties={"name": "p1"})
@@ -541,7 +538,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         filter = Filter(data=data)
         result = ClickhouseTrends().run(filter, self.team,)
-        self.assertEqual(result[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
     def test_filter_test_accounts(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
@@ -577,7 +574,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         result = ClickhouseTrends().run(filter_2, self.team,)
         self.assertEqual(result[0]["count"], 2)
         result = ClickhouseTrends().run(filter_3, self.team,)
-        self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(result[0]["count"], 1)
 
     def test_breakdown_filtering_bar_chart_by_value(self):
         self._create_events()
@@ -596,8 +593,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertEqual(response[0]["aggregated_value"], 1)
+        self.assertEqual(response[0]["aggregated_value"], 2)  # the events without breakdown value
         self.assertEqual(response[1]["aggregated_value"], 1)
+        self.assertEqual(response[2]["aggregated_value"], 1)
         self.assertEqual(
             response[0]["days"],
             [

@@ -51,6 +51,10 @@ describe('Dashboard', () => {
 
         cy.contains('New Dashboard').should('exist')
         cy.get('.empty-state').should('exist')
+
+        // Check that dashboard is not pinned by default
+        cy.get('[data-attr="dashboard-more"]').click()
+        cy.get('.ant-dropdown-menu-item span').contains('Pin dashboard').should('exist')
     })
 
     it('Create dashboard from a template', () => {

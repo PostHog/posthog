@@ -56,7 +56,7 @@ function DomainWhitelist({ isRestricted }: RestrictedComponentProps): JSX.Elemen
 
     return (
         <div>
-            <h2 id="name" className="subtitle">
+            <h2 id="domain-whitelist" className="subtitle">
                 Domain Whitelist
             </h2>
             {socialAuthAvailable ? (
@@ -91,7 +91,7 @@ function DomainWhitelist({ isRestricted }: RestrictedComponentProps): JSX.Elemen
                 <div className="text-muted">
                     This feature is only available when social authentication is enabled.{' '}
                     <a
-                        href="https://posthog.com/docs/features/log-in-with-github-gitlab?utm_campaign=domain-whitelist&utm_medium=in-product"
+                        href="https://posthog.com/docs/features/sso?utm_campaign=domain-whitelist&utm_medium=in-product"
                         target="_blank"
                         rel="noopener"
                     >

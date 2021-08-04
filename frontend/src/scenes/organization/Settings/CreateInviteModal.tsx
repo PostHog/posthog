@@ -8,6 +8,7 @@ import { isEmail } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { UserAddOutlined } from '@ant-design/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { urls } from 'scenes/sceneLogic'
 
 export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Element {
     const { createInvite } = useActions(invitesLogic)
@@ -38,8 +39,8 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
         } else {
             createInvite({ targetEmail: potentialEmail })
             closeModal()
-            if (location.pathname !== '/organization/members' && !preflight?.email_service_available) {
-                push('/organization/members')
+            if (location.pathname !== urls.organizationSettings() && !preflight?.email_service_available) {
+                push(urls.organizationSettings())
             }
         }
     }

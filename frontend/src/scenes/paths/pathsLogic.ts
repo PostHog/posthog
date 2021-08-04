@@ -182,12 +182,16 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
         ],
     },
-    actionToUrl: ({ values }) => ({
+    actionToUrl: ({ values, props }) => ({
         setProperties: () => {
-            return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
+            if (!props.dashboardItemId) {
+                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
+            }
         },
         setFilter: () => {
-            return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
+            if (!props.dashboardItemId) {
+                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
+            }
         },
     }),
     urlToAction: ({ actions, values, key }) => ({

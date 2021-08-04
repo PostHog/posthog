@@ -25,6 +25,7 @@ import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { dashboardsLogic } from './dashboardsLogic'
 import { userLogic } from 'scenes/userLogic'
+import { urls } from 'scenes/sceneLogic'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)
@@ -124,7 +125,7 @@ export function DashboardHeader(): JSX.Element {
                 onClick={() => setDashboardMode(DashboardMode.Sharing, DashboardEventSource.DashboardHeader)}
                 data-attr="dashboard-share-button"
                 icon={<ShareAltOutlined />}
-                hotkey="s"
+                hotkey="k"
             >
                 Send or share
             </HotkeyButton>
@@ -202,7 +203,7 @@ export function DashboardHeader(): JSX.Element {
                                         if (id === 'new') {
                                             addNewDashboard()
                                         } else {
-                                            router.actions.push(`/dashboard/${id}`)
+                                            router.actions.push(urls.dashboard(id))
                                             eventUsageLogic.actions.reportDashboardDropdownNavigation()
                                         }
                                     }}

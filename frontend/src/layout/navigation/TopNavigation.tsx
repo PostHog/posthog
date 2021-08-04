@@ -20,7 +20,7 @@ import {
     InfoCircleOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic, urls } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
@@ -83,7 +83,7 @@ export function TopNavigation(): JSX.Element {
             </div>
             <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
                 {preflight?.cloud && billing?.should_display_current_bill && (
-                    <Link to="/organization/billing" data-attr="top-menu-billing-usage">
+                    <Link to={urls.organizationBilling()} data-attr="top-menu-billing-usage">
                         <Card
                             bodyStyle={{ padding: 4, fontWeight: 'bold' }}
                             style={{ marginBottom: 16, cursor: 'pointer' }}
@@ -123,7 +123,7 @@ export function TopNavigation(): JSX.Element {
                 </div>
                 <div style={{ marginTop: 10 }}>
                     <LinkButton
-                        to="/organization/settings"
+                        to={urls.organizationSettings()}
                         data-attr="top-menu-item-org-settings"
                         style={{ width: '100%' }}
                         icon={<SettingOutlined />}
@@ -133,19 +133,19 @@ export function TopNavigation(): JSX.Element {
                 </div>
                 {preflight?.cloud ? (
                     <div className="mt-05">
-                        <Link to="/organization/billing" data-attr="top-menu-item-billing">
+                        <Link to={urls.organizationBilling()} data-attr="top-menu-item-billing">
                             Billing
                         </Link>
                     </div>
                 ) : (
                     <div className="mt-05">
-                        <Link to="/instance/licenses" data-attr="top-menu-item-licenses">
+                        <Link to={urls.instanceLicenses()} data-attr="top-menu-item-licenses">
                             Licenses
                         </Link>
                     </div>
                 )}
                 <div className="mt-05">
-                    <Link to="/me/settings" data-attr="top-menu-item-me">
+                    <Link to={urls.mySettings()} data-attr="top-menu-item-me">
                         My account
                     </Link>
                 </div>
@@ -210,7 +210,7 @@ export function TopNavigation(): JSX.Element {
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         if (team.id === user?.team?.id) {
-                                            push('/project/settings')
+                                            push(urls.projectSettings())
                                         } else {
                                             updateCurrentTeam(team.id, '/project/settings')
                                         }
@@ -265,13 +265,14 @@ export function TopNavigation(): JSX.Element {
                             />
                         )}
                         {(!preflight?.cloud || user?.is_staff) && (
-                            <Badge
-                                data-attr="system-status-badge"
-                                type={systemStatus ? 'success' : 'danger'}
-                                onClick={() => push('/instance/status')}
-                                tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
-                                className="mr"
-                            />
+                            <Link to={urls.systemStatus()}>
+                                <Badge
+                                    data-attr="system-status-badge"
+                                    type={systemStatus ? 'success' : 'danger'}
+                                    tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
+                                    className="mr"
+                                />
+                            </Link>
                         )}
                         {!preflight?.cloud && (
                             <Badge

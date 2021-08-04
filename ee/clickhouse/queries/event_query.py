@@ -84,11 +84,10 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._filter.filter_test_accounts:
             test_account_filters = Team.objects.only("test_account_filters").get(id=self._team_id).test_account_filters
             test_filter_props = [Property(**prop) for prop in test_account_filters]
-            for prop in test_filter_props:
-                if prop.type == "person":
-                    self._should_join_distinct_ids = True
-                    self._should_join_persons = True
-                    return
+            if any(self._should_property_join_persons(prop) for prop in test_filter_props):
+                self._should_join_distinct_ids = True
+                self._should_join_persons = True
+                return
 
     def _should_property_join_persons(self, prop: Property) -> bool:
         if prop.type == "person":

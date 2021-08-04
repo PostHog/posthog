@@ -43,6 +43,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Funnel } from 'scenes/funnels/Funnel'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 dayjs.extend(relativeTime)
 
@@ -141,7 +142,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'retention',
         element: RetentionContainer,
         icon: TableOutlined,
-        viewText: 'View retention',
+        viewText: 'View graph',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
@@ -186,6 +187,7 @@ export function DashboardItem({
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
     const { dashboards } = useValues(dashboardsModel)
+    const { refreshStatus } = useValues(dashboardLogic)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -326,12 +328,10 @@ export function DashboardItem({
                                     trigger={['click']}
                                     overlay={
                                         <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
-                                            <Menu.Item
-                                                data-attr={'dashboard-item-' + index + '-dropdown-view'}
-                                                icon={<Icon />}
-                                                onClick={() => router.actions.push(link)}
-                                            >
-                                                {viewText}
+                                            <Menu.Item data-attr={'dashboard-item-' + index + '-dropdown-view'}>
+                                                <Link to={link}>
+                                                    <Icon /> {viewText}
+                                                </Link>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
@@ -499,7 +499,7 @@ export function DashboardItem({
                 )}
 
                 <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
-                    {Element ? (
+                    {!refreshStatus[item.id]?.loading && Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
                             {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (
                                 <Skeleton />

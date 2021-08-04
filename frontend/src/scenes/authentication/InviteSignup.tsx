@@ -15,6 +15,7 @@ import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import smLogo from 'public/icon-white.svg'
+import { urls } from 'scenes/sceneLogic'
 
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
@@ -52,7 +53,7 @@ function HelperLinks(): JSX.Element {
 function BackToPostHog(): JSX.Element {
     const { push } = useActions(router)
     return (
-        <Button icon={<ArrowLeftOutlined />} block onClick={() => push('/')}>
+        <Button icon={<ArrowLeftOutlined />} block onClick={() => push(urls.default())}>
             Go back to PostHog
         </Button>
     )

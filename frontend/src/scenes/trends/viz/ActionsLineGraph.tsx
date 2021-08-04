@@ -54,7 +54,8 @@ export function ActionsLineGraph({
                                   date_from: day,
                                   date_to: day,
                                   filters: filters,
-                                  breakdown_value: dataset.breakdown_value || dataset.status,
+                                  breakdown_value:
+                                      dataset.breakdown_value === undefined ? dataset.status : dataset.breakdown_value,
                                   saveOriginal: true,
                               })
                           }

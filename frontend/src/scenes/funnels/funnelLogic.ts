@@ -119,7 +119,9 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
         ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
         ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
         ...(filters.drop_off ? { drop_off: filters.drop_off } : {}),
-        ...(filters.funnel_step_breakdown ? { funnel_step_breakdown: filters.funnel_step_breakdown } : {}),
+        ...(filters.funnel_step_breakdown !== undefined
+            ? { funnel_step_breakdown: filters.funnel_step_breakdown }
+            : {}),
         ...(filters.bin_count && filters.bin_count !== BinCountAuto ? { bin_count: filters.bin_count } : {}),
         interval: autocorrectInterval(filters),
         breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
@@ -618,7 +620,7 @@ export const funnelLogic = kea<funnelLogicType>({
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
             personsModalLogic.actions.loadPeople({
                 action: { id: step.action_id, name: step.name, properties: [], type: step.type },
-                breakdown_value: breakdown_value || '',
+                breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
                 label: step.name,
                 date_from: '',
                 date_to: '',
