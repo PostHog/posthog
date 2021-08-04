@@ -227,6 +227,25 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
         sync_execute(query, params)
 
+    def test_account_filters(self):
+        person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+        person2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+
+        _create_event(event="event_name", team=self.team, distinct_id="person_1")
+        _create_event(event="event_name", team=self.team, distinct_id="person_2")
+        _create_event(event="event_name", team=self.team, distinct_id="person_2")
+
+        cohort = Cohort.objects.create(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
+        cohort.calculate_people()
+
+        self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
+        self.team.save()
+
+        filter = Filter(data={"events": [{"id": "event_name", "order": 0},], "filter_test_accounts": True})
+
+        query, params = TrendsEventQuery(filter=filter, entity=filter.entities[0], team_id=self.team.pk).get_query()
+        sync_execute(query, params)
+
     def test_denormalised_props(self):
         filters = {
             "events": [

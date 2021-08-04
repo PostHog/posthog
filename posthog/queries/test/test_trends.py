@@ -2047,6 +2047,26 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             result = trends().run(filter_3, self.team,)
             self.assertEqual(result[0]["count"], 1)
 
+        def test_filter_test_accounts_cohorts(self):
+            person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+            person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+
+            event_factory(event="event_name", team=self.team, distinct_id="person_1")
+            event_factory(event="event_name", team=self.team, distinct_id="person_2")
+            event_factory(event="event_name", team=self.team, distinct_id="person_2")
+
+            cohort = cohort_factory(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
+
+            self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
+            self.team.save()
+
+            response = trends().run(
+                Filter(data={"events": [{"id": "event_name"}], "filter_test_accounts": True}), self.team,
+            )
+
+            self.assertEqual(response[0]["count"], 2)
+            self.assertEqual(response[0]["data"][-1], 2)
+
         def test_bar_chart_by_value(self):
             self._create_events()
 
