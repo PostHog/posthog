@@ -13,7 +13,7 @@ export function LocalPluginTag({
 }): JSX.Element {
     return (
         <Tooltip title={url.substring(5)}>
-            <Tag color="geekblue" onClick={() => copyToClipboard(url.substring(5))} style={style}>
+            <Tag color="purple" onClick={() => copyToClipboard(url.substring(5))} style={style}>
                 {title || 'Local Plugin'}
             </Tag>
         </Tooltip>

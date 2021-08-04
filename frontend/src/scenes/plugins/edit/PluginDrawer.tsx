@@ -150,6 +150,7 @@ export function PluginDrawer(): JSX.Element {
                                         onConfirm={() => uninstallPlugin(editingPlugin.name)}
                                         okText="Uninstall"
                                         cancelText="Cancel"
+                                        className="plugins-popconfirm"
                                     >
                                         <Button
                                             style={{ color: 'var(--danger)', padding: 4 }}

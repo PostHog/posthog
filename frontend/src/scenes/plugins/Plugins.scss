@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .plugins-scene {
     padding-bottom: 60px;
 }
@@ -76,4 +78,8 @@
             display: none;
         }
     }
+}
+
+.plugins-popconfirm {
+    z-index: $z_plugins-popconfirm;
 }

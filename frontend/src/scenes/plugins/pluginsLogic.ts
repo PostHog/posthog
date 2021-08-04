@@ -625,6 +625,16 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                 )
             },
         ],
+        pluginUrlToMaintainer: [
+            (s) => [s.repository],
+            (repository) => {
+                const pluginNameToMaintainerMap: Record<string, string> = {}
+                for (const plugin of Object.values(repository)) {
+                    pluginNameToMaintainerMap[plugin.url] = plugin.maintainer || ''
+                }
+                return pluginNameToMaintainerMap
+            },
+        ],
     },
 
     listeners: ({ actions, values }) => ({
