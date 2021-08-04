@@ -294,7 +294,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 properties.stickiness_days = filters.stickiness_days
             }
 
-            const eventName = delay ? 'delayed insight viewed' : 'insight viewed'
+            const eventName = delay ? 'insight analyzed' : 'insight viewed'
 
             posthog.capture(eventName, properties)
         },
