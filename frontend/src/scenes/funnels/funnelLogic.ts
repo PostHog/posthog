@@ -451,6 +451,10 @@ export const funnelLogic = kea<funnelLogicType>({
         apiParams: [
             (s) => [s.filters, s.conversionWindowInDays, featureFlagLogic.selectors.featureFlags],
             (filters, conversionWindowInDays, featureFlags) => {
+                /* TODO: Related to #4329. We're mixing `from_dashboard` as both which causes hard to manage code:
+                    a) a boolean-based hash param to determine if the insight is saved in a dashboard (when viewing insights page)
+                    b) dashboard ID passed as a filter in certain kind of insights when viewing in the dashboard page
+                */
                 const { from_dashboard } = filters
                 const cleanedParams = cleanFunnelParams(filters)
                 return {
