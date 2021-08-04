@@ -93,38 +93,46 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertEqual(response.status_code, 404, potential_err_message)
             self.assertTrue(Organization.objects.filter(id=organization.id).exists(), potential_err_message)
 
-    def test_rename_org(self):
+    def test_update_org(self):
         for level in OrganizationMembership.Level:
             self.organization_membership.level = level
             self.organization_membership.save()
-            response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "Woof"})
+            response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "Woof"})
+            response_email = self.client.patch(
+                f"/api/organizations/{self.organization.id}", {"is_member_join_email_enabled": False}
+            )
             self.organization.refresh_from_db()
+
+            expected_response = {
+                "attr": None,
+                "detail": "Your organization access level is insufficient.",
+                "code": "permission_denied",
+                "type": "authentication_error",
+            }
             if level < OrganizationMembership.Level.ADMIN:
-                potential_err_message = f"Somehow managed to rename the org as a level {level} (which is below admin)"
+                potential_err_message = f"Somehow managed to update the org as a level {level} (which is below admin)"
                 self.assertEqual(
-                    response.json(),
-                    {
-                        "attr": None,
-                        "detail": "Your organization access level is insufficient.",
-                        "code": "permission_denied",
-                        "type": "authentication_error",
-                    },
-                    potential_err_message,
+                    response_rename.json(), expected_response, potential_err_message,
                 )
-                self.assertEqual(response.status_code, 403, potential_err_message)
+                self.assertEqual(response_rename.status_code, 403, potential_err_message)
                 self.assertTrue(self.organization.name, self.CONFIG_ORGANIZATION_NAME)
+                self.assertEqual(
+                    response_email.json(), expected_response, potential_err_message,
+                )
+                self.assertEqual(response_email.status_code, 403, potential_err_message)
             else:
-                potential_err_message = f"Somehow did not rename the org as a level {level} (which is at least admin)"
-                self.assertEqual(response.status_code, 200, potential_err_message)
+                potential_err_message = f"Somehow did not update the org as a level {level} (which is at least admin)"
+                self.assertEqual(response_rename.status_code, 200, potential_err_message)
+                self.assertEqual(response_email.status_code, 200, potential_err_message)
                 self.assertTrue(self.organization.name, "Woof")
 
-    def test_no_rename_organization_not_belonging_to(self):
+    def test_no_update_organization_not_belonging_to(self):
         for level in OrganizationMembership.Level:
             self.organization_membership.level = level
             self.organization_membership.save()
             organization = Organization.objects.create(name="Meow")
             response = self.client.patch(f"/api/organizations/{organization.id}", {"name": "Mooooooooo"})
-            potential_err_message = f"Somehow managed to rename someone else's org as a level {level} in own org"
+            potential_err_message = f"Somehow managed to update someone else's org as a level {level} in own org"
             self.assertEqual(
                 response.json(),
                 {"attr": None, "detail": "Not found.", "code": "not_found", "type": "invalid_request"},
