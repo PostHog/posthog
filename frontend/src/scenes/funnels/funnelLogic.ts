@@ -34,6 +34,7 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import equal from 'fast-deep-equal'
+import { FunnelConversionWindow, TimeUnit } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
 
 function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
@@ -145,8 +146,10 @@ export const funnelLogic = kea<funnelLogicType>({
             mergeWithExisting,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        loadConversionWindow: (days: number) => ({ days }),
-        setConversionWindowInDays: (days: number) => ({ days }),
+        setConversionWindow: (conversionWindow: FunnelConversionWindow, timeValue = null) => ({
+            conversionWindow,
+            timeValue,
+        }),
         openPersonsModal: (
             step: FunnelStep | FunnelStepWithNestedBreakdown,
             stepNumber: number,
@@ -275,11 +278,27 @@ export const funnelLogic = kea<funnelLogicType>({
         people: {
             clearFunnel: () => [],
         },
-        conversionWindowInDays: [
-            14,
+        conversionWindow: [
             {
-                setConversionWindowInDays: (state, { days }) => {
-                    return days >= 1 && days <= 365 ? Math.round(days) : state
+                unit: TimeUnit.Day,
+                days: 14,
+            },
+            {
+                setConversionWindow: (state, { conversionWindow: { unit }, timeValue }) => {
+                    const days = Math.max(
+                        1,
+                        Math.min(
+                            365, // clamp between [1, 365]
+                            (timeValue && (unit || state.unit) === TimeUnit.Week ? timeValue * 7 : timeValue) ||
+                                ((unit || state.unit) === TimeUnit.Week && Math.ceil(state.days / 7) * 7),
+                            state.days || 14
+                        )
+                    )
+                    return {
+                        ...state,
+                        ...(unit ? { unit } : {}),
+                        days,
+                    }
                 },
             },
         ],
@@ -449,15 +468,15 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         apiParams: [
-            (s) => [s.filters, s.conversionWindowInDays, featureFlagLogic.selectors.featureFlags],
-            (filters, conversionWindowInDays, featureFlags) => {
+            (s) => [s.filters, s.conversionWindow, featureFlagLogic.selectors.featureFlags],
+            (filters, conversionWindow, featureFlags) => {
                 const { from_dashboard } = filters
                 const cleanedParams = cleanFunnelParams(filters)
                 return {
                     ...(props.refresh ? { refresh: true } : {}),
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
-                    funnel_window_days: conversionWindowInDays,
+                    funnel_window_days: conversionWindow.days,
                     ...(!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? { breakdown: null, breakdown_type: null } : {}),
                 }
             },
@@ -569,6 +588,15 @@ export const funnelLogic = kea<funnelLogicType>({
                 return binCount
             },
         ],
+        conversionWindowValueToShow: [
+            () => [selectors.conversionWindow],
+            (conversionWindow): number => {
+                if (conversionWindow.unit === TimeUnit.Week) {
+                    return Math.ceil(conversionWindow.days / 7)
+                }
+                return conversionWindow.days
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -613,10 +641,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 actions.setFilters(filters, true)
             }
         },
-        loadConversionWindow: async ({ days }) => {
-            actions.setConversionWindowInDays(days)
-            actions.loadResults()
-        },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
             personsModalLogic.actions.loadPeople({
                 action: { id: step.action_id, name: step.name, properties: [], type: step.type },
@@ -633,6 +657,9 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadResults()
         },
         setBinCount: async () => {
+            actions.loadResults()
+        },
+        setConversionWindow: async () => {
             actions.loadResults()
         },
     }),

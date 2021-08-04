@@ -311,7 +311,7 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            <FunnelSecondaryTabs />
+                            {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
                         <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
