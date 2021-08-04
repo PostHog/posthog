@@ -346,7 +346,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
 
             let indexedResults
             if (values.filters.insight !== ViewType.LIFECYCLE) {
-                indexedResults = values.results.map((element, index) => {
+                indexedResults = values.results?.map((element, index) => {
                     actions.setVisibilityById({ [`${index}`]: true })
                     return { ...element, id: index }
                 })

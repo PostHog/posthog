@@ -54,6 +54,7 @@ export function SelectGradientOverflow({
     defaultOpen = false,
     delayBeforeAutoOpen,
     dropdownMatchSelectWidth = true,
+    handleBlur = () => {},
     placement,
     ...props
 }: SelectGradientOverflowProps): JSX.Element {
@@ -90,7 +91,7 @@ export function SelectGradientOverflow({
     const onBlur = (): void => {
         if (isOpen) {
             setOpen(false)
-            if (props.handleBlur) {props.handleBlur()}
+            handleBlur()
         }
     }
 

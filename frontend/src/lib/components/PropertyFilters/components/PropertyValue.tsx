@@ -63,6 +63,7 @@ export function PropertyValue({
 }: PropertyValueProps): JSX.Element {
     const isMultiSelect = operator && isOperatorMulti(operator)
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
+    const [shouldBlur, setShouldBlur] = useState(false)
     const [options, setOptions] = useState({} as Record<string, Option>)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
@@ -119,10 +120,11 @@ export function PropertyValue({
     }, [propertyKey])
 
     useEffect(() => {
-        if (input === '' && document.activeElement instanceof HTMLElement) {
+        if (input === '' && shouldBlur && document.activeElement instanceof HTMLElement) {
             document.activeElement.blur()
+            setShouldBlur(false)
         }
-    }, [input])
+    }, [input, shouldBlur])
 
     const displayOptions = (options[propertyKey]?.values || []).filter(
         (option) => input === '' || matchesLowerCase(input, toString(option?.name))
@@ -147,6 +149,7 @@ export function PropertyValue({
         onKeyDown: (e: React.KeyboardEvent) => {
             if (e.key === 'Escape' && e.target instanceof HTMLElement) {
                 setInput('')
+                setShouldBlur(true)
             }
             if (!isMultiSelect && e.key === 'Enter') {
                 // We have not explicitly selected a dropdown item by pressing the up/down keys; or the ref is unavailable
