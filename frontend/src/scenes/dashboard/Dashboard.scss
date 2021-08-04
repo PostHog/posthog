@@ -11,10 +11,29 @@ $dashboard-title-size: 32px;
 
         .left-item {
             flex-grow: 1;
+
+            .dashboard-items-action-icon {
+                margin-right: 6px;
+            }
+
+            .dashboard-items-action-refresh-text {
+                visibility: visible;
+
+                &.hidden {
+                    visibility: hidden;
+                }
+
+                &.completed {
+                    position: absolute;
+                    left: 30px;
+                }
+            }
         }
 
-        .ant-btn {
-            padding-left: 4px !important;
+        .right-item {
+            .ant-btn {
+                padding-left: 4px !important;
+            }
         }
     }
 
@@ -186,4 +205,9 @@ $dashboard-title-size: 32px;
             justify-content: flex-end;
         }
     }
+}
+
+#auto-refresh-check {
+    padding: 5px 12px;
+    cursor: pointer;
 }
