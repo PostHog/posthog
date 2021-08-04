@@ -7,7 +7,7 @@ import { IllustrationDanger } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { Button } from 'antd'
+import { Button, Empty } from 'antd'
 
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
@@ -208,10 +208,10 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
 
 export function FunnelEmptyState(): JSX.Element {
     return (
-        <div className="insight-empty-state funnels-empty-state timeout-message">
+        <div className="insight-empty-state funnels-empty-state info-message">
             <div className="insight-empty-state__wrapper">
                 <div className="illustration-main">
-                    <IllustrationDanger />
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
                 <h2 className="funnels-empty-state__title">There are no matching events for this query.</h2>
                 <p className="funnels-empty-state__description">
