@@ -130,7 +130,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
                     }}
                     htmlFor="is-member-join-email-enabled-switch"
                 >
-                    Email all members when a new member joins
+                    Email all current members when a new member joins
                 </label>
             </div>
         </div>
