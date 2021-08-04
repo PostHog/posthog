@@ -115,7 +115,8 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
             <div>
                 <Switch
                     // @ts-expect-error - id works just fine despite not being in CompoundedComponent
-                    id="is-member-joined-email-enabled"
+                    id="is-member-join-email-enabled-switch"
+                    data-attr="is-member-join-email-enabled-switch"
                     onChange={(checked) => {
                         updateOrganization({ is_member_join_email_enabled: checked })
                     }}
@@ -127,7 +128,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
                     style={{
                         marginLeft: '10px',
                     }}
-                    htmlFor="is-member-joined-email-enabled"
+                    htmlFor="is-member-join-email-enabled-switch"
                 >
                     Email all members when a new member joins
                 </label>
