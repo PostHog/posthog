@@ -92,18 +92,17 @@ export function SavedInsights(): JSX.Element {
                 return <span>{humanFriendlyDetailedTime(updated_at)}</span>
             },
             sorter: (a: DashboardItemType, b: DashboardItemType) =>
-                new Date(a.created_at) > new Date(b.created_at) ? 1 : -1,
+                new Date(a.updated_at) > new Date(b.updated_at) ? 1 : -1,
         },
-        createdByColumn(insights?.results || []) as ColumnType<DashboardItemType>,
+        createdByColumn(insights.results) as ColumnType<DashboardItemType>,
     ]
 
     return (
         <div className="saved-insights">
             <Tabs defaultActiveKey="1" style={{ borderColor: '#D9D9D9' }} onChange={(key) => loadInsights(key)}>
-                <TabPane tab="All" key="all" />
+                <TabPane tab="All Insights" key="all" />
                 <TabPane tab="Your Insights" key="yours" />
                 <TabPane tab="Favorites" key="favorites" />
-                <TabPane tab="Updated Recently" key="recent" />
             </Tabs>
             <Row className="list-or-card-layout">
                 Showing {!previousResult ? 1 : nextResult ? offset - 15 : count - (insights?.results.length || 0)} -{' '}
@@ -122,7 +121,7 @@ export function SavedInsights(): JSX.Element {
             <Table
                 loading={insightsLoading}
                 columns={displayedColumns}
-                dataSource={insights?.results || []}
+                dataSource={insights.results}
                 pagination={false}
                 footer={() => (
                     <Row className="footer-pagination">
@@ -135,13 +134,13 @@ export function SavedInsights(): JSX.Element {
                             style={{ paddingRight: 16 }}
                             className={`${!previousResult ? 'paginate-disabled' : ''}`}
                             onClick={() => {
-                                loadPaginatedInsights(previousResult)
+                                previousResult && loadPaginatedInsights(previousResult)
                             }}
                         />
                         <RightOutlined
                             className={`${!nextResult ? 'paginate-disabled' : ''}`}
                             onClick={() => {
-                                loadPaginatedInsights(nextResult)
+                                nextResult && loadPaginatedInsights(nextResult)
                             }}
                         />
                     </Row>

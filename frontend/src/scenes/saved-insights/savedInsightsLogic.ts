@@ -14,7 +14,7 @@ interface InsightsResult {
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
     loaders: ({ values }) => ({
         insights: {
-            __default: null as InsightsResult | null,
+            __default: { results: [], count: 0 } as InsightsResult,
             loadInsights: async (key?: string) => {
                 const response = await api.get(
                     'api/insight/?' +
@@ -33,7 +33,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             },
             updateFavoritedInsight: async ({ id, favorited }) => {
                 const response = await api.update(`api/insight/${id}`, { favorited })
-                const updatedInsights = values.insights?.results.map((insight) =>
+                const updatedInsights = values.insights.results.map((insight) =>
                     insight.id === id ? response : insight
                 )
                 return { ...values.insights, results: updatedInsights }
@@ -41,13 +41,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
         },
     }),
     selectors: {
-        nextResult: [(s) => [s.insights], (insights) => insights?.next || ''],
-        previousResult: [(s) => [s.insights], (insights) => insights?.previous || ''],
-        count: [(s) => [s.insights], (insights) => insights?.count || 0],
+        nextResult: [(s) => [s.insights], (insights) => insights.next],
+        previousResult: [(s) => [s.insights], (insights) => insights.previous],
+        count: [(s) => [s.insights], (insights) => insights.count],
         offset: [
             (s) => [s.insights],
             (insights) => {
-                const offset = new URLSearchParams(insights?.next).get('offset') || '0'
+                const offset = new URLSearchParams(insights.next).get('offset') || '0'
                 return parseInt(offset)
             },
         ],
