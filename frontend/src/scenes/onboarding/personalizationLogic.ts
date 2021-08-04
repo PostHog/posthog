@@ -4,6 +4,7 @@ import { personalizationLogicType } from './personalizationLogicType'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PersonalizationData } from '~/types'
 import { router } from 'kea-router'
+import { urls } from 'scenes/sceneLogic'
 
 export const personalizationLogic = kea<personalizationLogicType>({
     connect: {
@@ -44,13 +45,13 @@ export const personalizationLogic = kea<personalizationLogicType>({
             organizationLogic.actions.updateOrganization({ personalization: payload })
         },
         [organizationLogic.actionTypes.updateOrganizationSuccess]: () => {
-            window.location.href = '/'
+            window.location.href = urls.default()
         },
         [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: () => {
             // Edge case in case this logic loaded before the api/organization request is completed
             const personalization = organizationLogic.values.currentOrganization?.personalization
             if (personalization && Object.keys(personalization).length) {
-                router.actions.push('/setup')
+                router.actions.push(urls.onboardingSetup())
             }
         },
     },
@@ -59,7 +60,7 @@ export const personalizationLogic = kea<personalizationLogicType>({
             const personalization = organizationLogic.values.currentOrganization?.personalization
             if (personalization && Object.keys(personalization).length) {
                 // If personalization has already been filled, this screen should no longer be loaded
-                router.actions.push('/setup')
+                router.actions.push(urls.onboardingSetup())
             }
         },
     },
