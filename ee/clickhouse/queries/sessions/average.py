@@ -5,7 +5,13 @@ from dateutil.relativedelta import relativedelta
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.sessions.util import entity_query_conditions
-from ee.clickhouse.queries.util import format_ch_timestamp, get_interval_func_ch, get_trunc_func_ch, parse_timestamps
+from ee.clickhouse.queries.util import (
+    format_ch_timestamp,
+    get_earliest_timestamp,
+    get_interval_func_ch,
+    get_trunc_func_ch,
+    parse_timestamps,
+)
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.sessions.average_all import AVERAGE_SQL
 from ee.clickhouse.sql.sessions.average_per_period import AVERAGE_PER_PERIOD_SQL
@@ -49,7 +55,7 @@ class ClickhouseSessionsAvg:
         final_query = AVERAGE_SQL.format(sessions=per_period_query, null_sql=null_sql)
 
         params["team_id"] = team.pk
-        params["date_from"] = format_ch_timestamp(filter.date_from, filter)
+        params["date_from"] = format_ch_timestamp(filter.date_from or get_earliest_timestamp(team.pk), filter)
         params["date_to"] = format_ch_timestamp(filter.date_to, filter)
         params["interval"] = filter.interval
         response = sync_execute(final_query, params)
