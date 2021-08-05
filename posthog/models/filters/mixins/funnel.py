@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional, Union
+from typing import Dict, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -90,7 +90,7 @@ class FunnelWindowMixin(BaseParamMixin):
 
     @include_dict
     def funnel_window_to_dict(self):
-        dict_part = {}
+        dict_part: Dict = {}
         if self.funnel_window_interval is not None:
             dict_part[FUNNEL_WINDOW_INTERVAL] = self.funnel_window_interval
         if self.funnel_window_interval_unit is not None:
@@ -170,7 +170,7 @@ class FunnelTypeMixin(BaseParamMixin):
 
     @include_dict
     def funnel_type_to_dict(self):
-        result = {}
+        result: Dict[str, str] = {}
         if self.funnel_order_type:
             result[FUNNEL_ORDER_TYPE] = self.funnel_order_type
         if self.funnel_viz_type:
@@ -202,7 +202,7 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
 
     @include_dict
     def funnel_trends_persons_to_dict(self):
-        result_dict = {}
+        result_dict: Dict = {}
         if self.entrance_period_start:
             result_dict[ENTRANCE_PERIOD_START] = self.entrance_period_start.isoformat()
         if self.drop_off is not None:

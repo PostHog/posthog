@@ -121,7 +121,7 @@ class BreakdownMixin(BaseParamMixin):
 
     @include_dict
     def breakdown_to_dict(self):
-        result = {}
+        result: Dict = {}
         if self.breakdown:
             result[BREAKDOWN] = self.breakdown
         if self._breakdown_limit:
