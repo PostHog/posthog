@@ -25,7 +25,7 @@ PostHog provides open-source product analytics, built for developers. Automate t
 
 See [PostHog Docs](https://posthog.com/docs/) for in-depth walk-throughs on functionality.
 
-![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/app-dashboard.png)
+![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/posthog-app-screenshot.png)
 
 Join our [Slack community](https://posthog.com/slack) if you need help, want to chat, or are thinking of a new feature. We're here to help - and to make PostHog even better.
 
