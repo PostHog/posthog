@@ -442,7 +442,7 @@ function FunnelInsight(): JSX.Element {
         if (!areFiltersValid) {
             return <FunnelInvalidFiltersEmptyState />
         }
-        return isLoading ? <></> : <FunnelEmptyState />
+        return isLoading ? <div style={{ height: 50 }} /> : <FunnelEmptyState />
     }
 
     return (
