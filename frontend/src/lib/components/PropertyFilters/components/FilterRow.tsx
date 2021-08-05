@@ -92,7 +92,13 @@ export const FilterRow = React.memo(function FilterRow({
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
                             onClick={() => remove(index)}
-                            style={{ cursor: 'pointer', float: 'none', paddingLeft: 8 }}
+                            style={{
+                                cursor: 'pointer',
+                                float: 'none',
+                                paddingLeft: 8,
+                                alignSelf: 'flex-start',
+                                paddingTop: 4,
+                            }}
                         />
                     )}
                 </>
