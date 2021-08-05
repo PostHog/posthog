@@ -88,7 +88,7 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(len(response.json()["results"]), 1)
-            self.assertEqual(len(response.json()["results"][0]["favorited"]), True)
+            self.assertEqual((response.json()["results"][0]["favorited"]), True)
 
         def test_get_insight_by_short_id(self):
             filter_dict = {
