@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from itertools import groupby
 from typing import Optional, Tuple, Type, Union
 
@@ -6,8 +6,7 @@ from dateutil.relativedelta import relativedelta
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp, get_time_diff, get_trunc_func_ch
-from posthog.constants import BREAKDOWN
+from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp, get_trunc_func_ch
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -98,19 +97,13 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         else:
             _date_from = self._filter.date_from
 
-        num_intervals, seconds_in_interval, _ = get_time_diff(
-            self._filter.interval or "day", _date_from, self._filter.date_to, team_id=self._team.pk
-        )
-
+        interval = self._filter.interval
         breakdown_clause = self._get_breakdown_prop()
         formatted_date_from = format_ch_timestamp(_date_from, self._filter)
+        formatted_date_to = format_ch_timestamp(self._filter.date_to, self._filter)
 
         self.params.update(
-            {
-                "formatted_date_from": formatted_date_from,
-                "seconds_in_interval": seconds_in_interval,
-                "num_intervals": num_intervals,
-            }
+            {"formatted_date_from": formatted_date_from, "formatted_date_to": formatted_date_to, "interval": interval}
         )
 
         query = f"""
@@ -132,9 +125,9 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {interval_method}(toDateTime(%(formatted_date_from)s) + number * %(seconds_in_interval)s) AS entrance_period_start
+                    {interval_method}(toDateTime(%(formatted_date_from)s) + INTERVAL number {interval.upper()}) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
-                FROM numbers(%(num_intervals)s) AS period_offsets
+                FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s), toDateTime(%(formatted_date_to)s)) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
             ) fill
             USING (entrance_period_start {breakdown_clause})
