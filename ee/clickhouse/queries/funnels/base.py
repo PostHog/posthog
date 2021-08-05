@@ -46,6 +46,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self._filter = self._filter.with_data(new_limit)
             self.params.update(new_limit)
 
+        self._update_filters()
+
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
             return []
@@ -120,8 +122,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return self._format_single_funnel(results[0])
 
     def _exec_query(self) -> List[Tuple]:
-        self.update_filters()
-
         query = self.get_query()
         return sync_execute(query, self.params)
 
