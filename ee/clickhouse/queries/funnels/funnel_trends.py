@@ -1,13 +1,12 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from itertools import groupby
-from typing import Optional, Tuple, Type, Union
+from typing import Optional, Tuple, Type, Union, cast
 
 from dateutil.relativedelta import relativedelta
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp, get_time_diff, get_trunc_func_ch
-from posthog.constants import BREAKDOWN
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -204,10 +203,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         days = []
         labels = []
         for row in summary:
+            timestamp: datetime = row["timestamp"]
             data.append(row["conversion_rate"])
             hour_min_sec = " %H:%M:%S" if self._filter.interval == "hour" or self._filter.interval == "minute" else ""
-            days.append(row["timestamp"].strftime(f"%Y-%m-%d{hour_min_sec}"))
-            labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
+            days.append(timestamp.strftime(f"%Y-%m-%d{hour_min_sec}"))
+            labels.append(timestamp.strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
         return {
             "count": count,
             "data": data,
@@ -218,11 +218,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def _is_period_final(self, timestamp: Union[datetime, date]):
         # difference between current date and timestamp greater than window
         now = datetime.utcnow().date()
-        intervals_to_subtract = self._filter.funnel_window_interval * -1
+        intervals_to_subtract = cast(int, self._filter.funnel_window_interval) * -1
         interval_unit = (
             "day" if self._filter.funnel_window_interval_unit is None else self._filter.funnel_window_interval_unit
         )
-        delta = relativedelta(**{f"{interval_unit}s": intervals_to_subtract})
+        delta = relativedelta(**{f"{interval_unit}s": intervals_to_subtract})  # type: ignore
         completed_end = now + delta
         compare_timestamp = timestamp.date() if isinstance(timestamp, datetime) else timestamp
         is_final = compare_timestamp <= completed_end
