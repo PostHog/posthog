@@ -225,8 +225,7 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
 
 def get_denormalized_property_column(prop, allow_denormalized_props: bool) -> Optional[ColumnName]:
     columns = {}
-    if allow_denormalized_props and prop.type == "person":
-        columns = get_materialized_columns("person")
+    # :TODO: Handle denormalized properties in person table
     if allow_denormalized_props and prop.type == "event":
         columns = get_materialized_columns("events")
 

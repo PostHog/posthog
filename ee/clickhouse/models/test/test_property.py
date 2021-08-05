@@ -1,4 +1,5 @@
 from typing import List
+from unittest.case import skip
 from uuid import UUID, uuid4
 
 import pytest
@@ -271,6 +272,24 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "not_icontains"}],})
         self.assertEqual(len(self._run_query(filter)), 1)
+
+    # Broken currently, denormalized person properties are not (yet) handled
+    @skip
+    def test_prop_person_denormalized(self):
+        _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
+        _create_event(event="$pageview", team=self.team, distinct_id="some_id")
+
+        materialize("person", "email")
+
+        filter = Filter(
+            data={"properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "icontains"}],}
+        )
+        self.assertEqual(len(self._run_query(filter)), 1)
+
+        filter = Filter(
+            data={"properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "not_icontains"}],}
+        )
+        self.assertEqual(len(self._run_query(filter)), 0)
 
     def test_prop_event_denormalized_ints(self):
         _create_event(
