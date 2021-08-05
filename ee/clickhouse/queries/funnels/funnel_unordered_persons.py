@@ -1,3 +1,5 @@
+from typing import cast
+
 from ee.clickhouse.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.models import Person
@@ -16,4 +18,4 @@ class ClickhouseFunnelUnorderedPersons(ClickhouseFunnelUnordered):
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data, len(results) > self._filter.limit - 1
+        return PersonSerializer(people, many=True).data, len(results) > cast(int, self._filter.limit) - 1
