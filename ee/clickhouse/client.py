@@ -149,9 +149,8 @@ else:
             finally:
                 execution_time = perf_counter() - start_time
 
-                if not timeout_task.done:
-                    QUERY_TIMEOUT_THREAD.cancel(timeout_task)
-                    timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+                QUERY_TIMEOUT_THREAD.cancel(timeout_task)
+                timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
 
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print("Execution time: %.6fs" % (execution_time,))
