@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.property import parse_prop_clauses, prop_filter_json_extract
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -250,26 +251,26 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": "some_val"},
         )
 
-        with self.settings(CLICKHOUSE_DENORMALIZED_PROPERTIES=["test_prop", "something_else"]):
-            filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val"}],})
-            self.assertEqual(len(self._run_query(filter)), 1)
+        materialize("events", "test_prop")
+        materialize("events", "something_else")
 
-            filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not"}],})
-            self.assertEqual(len(self._run_query(filter)), 1)
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val"}],})
+        self.assertEqual(len(self._run_query(filter)), 1)
 
-            filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_set"}],})
-            self.assertEqual(len(self._run_query(filter)), 2)
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not"}],})
+        self.assertEqual(len(self._run_query(filter)), 1)
 
-            filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not_set"}],})
-            self.assertEqual(len(self._run_query(filter)), 0)
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_set"}],})
+        self.assertEqual(len(self._run_query(filter)), 2)
 
-            filter = Filter(data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "icontains"}],})
-            self.assertEqual(len(self._run_query(filter)), 1)
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "some_val", "operator": "is_not_set"}],})
+        self.assertEqual(len(self._run_query(filter)), 0)
 
-            filter = Filter(
-                data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "not_icontains"}],}
-            )
-            self.assertEqual(len(self._run_query(filter)), 1)
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "icontains"}],})
+        self.assertEqual(len(self._run_query(filter)), 1)
+
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": "_other_", "operator": "not_icontains"}],})
+        self.assertEqual(len(self._run_query(filter)), 1)
 
     def test_prop_event_denormalized_ints(self):
         _create_event(
@@ -280,15 +281,17 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             event="$pageview", team=self.team, distinct_id="whatever", properties={"test_prop": 2},
         )
 
-        with self.settings(CLICKHOUSE_DENORMALIZED_PROPERTIES=["test_prop", "something_else"]):
-            filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "gt"}],})
-            self.assertEqual(len(self._run_query(filter)), 1)
+        materialize("events", "test_prop")
+        materialize("events", "something_else")
 
-            filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "lt"}],})
-            self.assertEqual(len(self._run_query(filter)), 1)
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "gt"}],})
+        self.assertEqual(len(self._run_query(filter)), 1)
 
-            filter = Filter(data={"properties": [{"key": "test_prop", "value": 0}],})
-            self.assertEqual(len(self._run_query(filter)), 1)
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 1, "operator": "lt"}],})
+        self.assertEqual(len(self._run_query(filter)), 1)
+
+        filter = Filter(data={"properties": [{"key": "test_prop", "value": 0}],})
+        self.assertEqual(len(self._run_query(filter)), 1)
 
 
 @pytest.fixture

@@ -5,7 +5,6 @@ from django.conf import settings
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.settings import CLICKHOUSE_DENORMALIZED_PROPERTIES
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models.action import Action
 
 
 class FunnelEventQuery(ClickhouseEventQuery):
