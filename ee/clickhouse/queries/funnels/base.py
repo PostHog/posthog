@@ -64,11 +64,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 total_people += results[step.order]
 
             serialized_result = self._serialize_step(step, total_people, [])
-            if step.order > 0:
+            if cast(int, step.order) > 0:
                 serialized_result.update(
                     {
-                        "average_conversion_time": results[step.order + len(self._filter.entities) - 1],
-                        "median_conversion_time": results[step.order + len(self._filter.entities) * 2 - 2],
+                        "average_conversion_time": results[cast(int, step.order) + len(self._filter.entities) - 1],
+                        "median_conversion_time": results[cast(int, step.order) + len(self._filter.entities) * 2 - 2],
                     }
                 )
             else:
@@ -140,7 +140,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if i < level_index:
                 cols.append(f"latest_{i}")
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
-                    if exclusion.funnel_from_step + 1 == i:
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
             else:
                 duplicate_event = 0
@@ -154,7 +154,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 )
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
-                    if exclusion.funnel_from_step + 1 == i:
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(
                             f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         )

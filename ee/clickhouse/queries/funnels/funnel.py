@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, cast
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from posthog.models.cohort import Cohort
@@ -83,14 +83,14 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
             if result and len(result) > 0:
                 total_people += result[step.order]
-                relevant_people += result[step.order + num_entities]
+                relevant_people += result[cast(int, step.order) + num_entities]
 
             serialized_result = self._serialize_step(step, total_people, relevant_people[0:100])
-            if step.order > 0:
+            if cast(int, step.order) > 0:
                 serialized_result.update(
                     {
-                        "average_conversion_time": result[step.order + num_entities * 2 - 1],
-                        "median_conversion_time": result[step.order + num_entities * 3 - 2],
+                        "average_conversion_time": result[cast(int, step.order) + num_entities * 2 - 1],
+                        "median_conversion_time": result[cast(int, step.order) + num_entities * 3 - 2],
                     }
                 )
             else:
@@ -143,14 +143,14 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             if i < level_index:
                 cols.append(f"latest_{i}")
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
-                    if exclusion.funnel_from_step + 1 == i:
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
             else:
                 comparison = self._get_comparison_at_step(i, level_index)
                 cols.append(f"if({comparison}, NULL, latest_{i}) as latest_{i}")
 
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
-                    if exclusion.funnel_from_step + 1 == i:
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
                         exclusion_identifier = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         cols.append(
                             f"if({exclusion_identifier} < latest_{exclusion.funnel_from_step}, NULL, {exclusion_identifier}) as {exclusion_identifier}"
@@ -161,7 +161,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
     def build_step_subquery(self, level_index: int, max_steps: int):
         if level_index >= max_steps:
             return f"""
-            SELECT 
+            SELECT
             person_id,
             timestamp,
             {self._get_partition_cols(1, max_steps)}
@@ -170,13 +170,13 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             """
         else:
             return f"""
-            SELECT 
+            SELECT
             person_id,
             timestamp,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
             FROM (
-                SELECT 
+                SELECT
                 person_id,
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
