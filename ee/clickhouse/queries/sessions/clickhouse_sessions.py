@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Union
+from datetime import datetime
+from typing import Any, Dict, List, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -20,7 +21,7 @@ def set_default_dates(filter: SessionsFilter) -> SessionsFilter:
             date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
         data.update({"date_from": date_from})
         if not filter._date_to:
-            data.update({"date_to": date_from + relativedelta(days=1)})
+            data.update({"date_to": cast(datetime, date_from) + relativedelta(days=1)})
     else:
         if not filter._date_from:
             data.update({"date_from": relative_date_parse("-7d")})
