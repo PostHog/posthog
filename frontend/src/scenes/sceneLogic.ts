@@ -8,6 +8,8 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { ViewType } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
@@ -17,7 +19,6 @@ export enum Scene {
     ErrorNetwork = '4xx',
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
-    DashboardInsight = 'dashboardInsight',
     Insights = 'insights',
     InsightRouter = 'insightRouter',
     Cohorts = 'cohorts',
@@ -38,6 +39,7 @@ export enum Scene {
     Annotations = 'annotations',
     Billing = 'billing',
     Plugins = 'plugins',
+    SavedInsights = 'savedInsights',
     // Onboarding / setup routes
     Login = 'login',
     PreflightCheck = 'preflightCheck',
@@ -63,8 +65,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
-    [Scene.DashboardInsight]: () =>
-        import(/* webpackChunkName: 'dashboardInsight' */ './dashboard-insight/DashboardInsight'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'),
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './cohorts/Cohorts'),
@@ -95,6 +95,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
     [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
     [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
+    [Scene.SavedInsights]: () => import(/* webpackChunkName: 'savedInsights' */ './saved-insights/SavedInsights'),
 }
 
 interface LoadedScene {
@@ -173,13 +174,13 @@ export const urls = {
     notFound: () => '404',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
-    dashboardInsight: (id: string | number) => `/dashboard_insight/${id}`,
     createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number) => `/action/${id}`,
     actions: () => '/actions',
     insights: () => '/insights',
     insightView: (view: ViewType) => `/insights?insight=${view}`,
     insightRouter: (id: string) => `/i/${id}`,
+    savedInsights: () => '/saved_insights',
     events: () => '/events',
     sessions: () => '/sessions',
     person: (id: string) => `/person/${id}`,
@@ -213,7 +214,6 @@ export const urls = {
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
-    [urls.dashboardInsight(':id')]: Scene.DashboardInsight,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.insights()]: Scene.Insights,
@@ -238,6 +238,7 @@ export const routes: Record<string, Scene> = {
     [urls.systemStatus()]: Scene.SystemStatus,
     [urls.systemStatusPage(':id')]: Scene.SystemStatus,
     [urls.mySettings()]: Scene.MySettings,
+    [urls.savedInsights()]: Scene.SavedInsights,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
     [urls.preflight()]: Scene.PreflightCheck,
@@ -310,10 +311,12 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
     },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
+        const { featureFlags } = featureFlagLogic.values
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                const redirect = redirects[path]
+                const redirect =
+                    path === '/' && featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? '/saved_insights' : redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
