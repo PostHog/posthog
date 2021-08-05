@@ -42,6 +42,8 @@ ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
 
 
 class IntervalMixin(BaseParamMixin):
+    """See https://clickhouse.tech/docs/en/sql-reference/data-types/special-data-types/interval/."""
+
     SUPPORTED_INTERVAL_TYPES = ["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
 
     @cached_property
