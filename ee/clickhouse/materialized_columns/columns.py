@@ -16,7 +16,7 @@ def cache_for(cache_time: timedelta):
     def wrapper(fn):
         @wraps(fn)
         @no_type_check
-        def memoized_fn(*args, use_cache=TEST):
+        def memoized_fn(*args, use_cache=not TEST):
             current_time = now()
             if (
                 args not in memoized_fn.__cache
