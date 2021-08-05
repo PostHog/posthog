@@ -69,11 +69,15 @@ class TestOrganizationAPI(APIBaseTest):
 
     # Updating organizations
 
-    def test_rename_organization_if_admin(self):
+    def test_update_organization_if_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
+        response_email = self.client.patch(
+            f"/api/organizations/{self.organization.id}", {"is_member_join_email_enabled": False}
+        )
+        self.assertEqual(response_rename.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_email.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
 
@@ -87,9 +91,13 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.domain_whitelist, ["posthog.com", "movies.posthog.com"])
 
-    def test_cannot_rename_organization_if_not_owner_or_admin(self):
-        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    def test_cannot_update_organization_if_not_owner_or_admin(self):
+        response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
+        response_email = self.client.patch(
+            f"/api/organizations/{self.organization.id}", {"is_member_join_email_enabled": False}
+        )
+        self.assertEqual(response_rename.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response_email.status_code, status.HTTP_403_FORBIDDEN)
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.name, "ASDFG")
 

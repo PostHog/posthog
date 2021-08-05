@@ -1,15 +1,13 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { organizationLogicType } from './organizationLogicType'
-import { OrganizationType, PersonalizationData } from '~/types'
+import { OrganizationType } from '~/types'
 import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
 
-interface OrganizationUpdatePayload {
-    name?: string
-    personalization?: PersonalizationData
-    domain_whitelist?: string[]
-}
+type OrganizationUpdatePayload = Partial<
+    Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
+>
 
 export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
     actions: {
