@@ -1,0 +1,55 @@
+import { Card, Input } from "antd"
+import React, { useRef, useState } from "react"
+import { EditOutlined } from "@ant-design/icons"
+import { DashboardItemType, ItemMode } from "~/types"
+import { DashboardEventSource } from "lib/utils/eventUsageLogic"
+import './Description.scss'
+
+interface DescriptionInterface {
+    item: any,
+    itemMode: ItemMode,
+    setItemMode: (mode: ItemMode | null, eventSource: DashboardEventSource) => void,
+    triggerItemUpdate: (description: Partial<DashboardItemType>) => void,
+}
+
+export function Description({ item, itemMode, setItemMode, triggerItemUpdate }: DescriptionInterface): JSX.Element {
+    const [newDescription, setNewDescription] = useState(item.description) // Used to update the input immediately, debouncing API calls
+    const descriptionInputRef = useRef<HTMLInputElement | null>(null)
+
+    return (
+        <Card className="description" bordered={!(itemMode === ItemMode.Edit)}>
+            {itemMode === ItemMode.Edit ? (
+                <Input.TextArea
+                    placeholder="Add a description to your dashboard that helps others understand it better."
+                    value={newDescription}
+                    onChange={(e) => {
+                        setNewDescription(e.target.value) // To update the input immediately
+                        triggerItemUpdate({ description: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                            setItemMode(null, DashboardEventSource.InputEnter)
+                        }
+                    }}
+                    ref={descriptionInputRef}
+                    tabIndex={5}
+                    allowClear
+                />
+            ) : (
+                <div
+                    className="edit-box"
+                    onClick={() =>
+                        setItemMode(ItemMode.Edit, DashboardEventSource.AddDescription)
+                    }
+                >
+                    {item.description ? (
+                        <span>{item.description}</span>
+                    ) : (
+                        <span className="add-description">Add a description...</span>
+                    )}
+                    <EditOutlined />
+                </div>
+            )}
+        </Card>
+    )
+}

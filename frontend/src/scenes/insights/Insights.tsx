@@ -5,7 +5,7 @@ import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Tabs, Row, Col, Card, Button, Tooltip, Alert } from 'antd'
+import { Tabs, Row, Col, Card, Button, Tooltip, Alert, Input } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -18,7 +18,7 @@ import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './Insigh
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { DownOutlined, UpOutlined } from '@ant-design/icons'
+import { DownOutlined, UpOutlined, EditOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
@@ -27,7 +27,7 @@ import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { FunnelVizType, HotKeys, ViewType } from '~/types'
+import { FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -44,7 +44,11 @@ import clsx from 'clsx'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
-
+import { DashboardInsightHeader } from 'scenes/dashboard-insight/DashboardInsightHeader'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { ObjectTags } from 'lib/components/ObjectTags'
+import './Insights.scss'
+import { Description } from 'lib/components/Description/Description'
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
 }
@@ -81,6 +85,7 @@ export function Insights(): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
+    const { hasDashboardCollaboration } = useValues(organizationLogic)
 
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 

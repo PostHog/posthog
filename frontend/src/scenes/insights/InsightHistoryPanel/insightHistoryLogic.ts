@@ -5,6 +5,7 @@ import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { insightHistoryLogicType } from './insightHistoryLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightLogic } from '../insightLogic'
 
 const updateInsightState = (
     state: DashboardItemType[],
