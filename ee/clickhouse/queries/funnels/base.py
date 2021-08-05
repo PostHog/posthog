@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns import get_materialized_columns
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
@@ -378,11 +379,15 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) AS prop"
             elif self._filter.breakdown_type == "event":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
+                column_name = get_materialized_columns("events").get(self._filter.breakdown)
+                if column_name is not None:
+                    return f", {column_name} AS prop"
+                else:
+                    return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) AS prop"
             elif self._filter.breakdown_type == "cohort":
-                return ", value as prop"
+                return ", value AS prop"
 
         return ""
 
