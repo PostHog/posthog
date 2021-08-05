@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union, cast
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -316,10 +316,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return " AND ".join(conditions)
 
     def _parse_breakdown_prop_value(self):
-        prop_vals = (
+        prop_vals: List[Union[str, int]] = (
             [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
             if isinstance(self._filter.funnel_step_breakdown, str)
-            else [self._filter.funnel_step_breakdown]
+            else [cast(int, self._filter.funnel_step_breakdown)]
         )
         return prop_vals
 
