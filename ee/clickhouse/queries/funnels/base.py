@@ -363,15 +363,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""
 
-    @abstractmethod
-    def get_query(self):
-        pass
+    def get_query(self) -> str:
+        raise NotImplementedError()
 
-    def get_step_counts_query(self):
-        pass
+    def get_step_counts_query(self) -> str:
+        raise NotImplementedError()
 
-    def get_step_counts_without_aggregation_query(self):
-        pass
+    def get_step_counts_without_aggregation_query(self) -> str:
+        raise NotImplementedError()
 
     def _get_breakdown_select_prop(self) -> str:
         if self._filter.breakdown:
