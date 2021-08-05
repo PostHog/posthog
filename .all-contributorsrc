@@ -1437,6 +1437,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "jredl-va",
+      "name": "Jesse Redl",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2300103?v=4",
+      "profile": "http://www.vendasta.com/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

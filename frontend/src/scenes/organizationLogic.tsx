@@ -25,6 +25,12 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
             },
         ],
     },
+    selectors: {
+        hasDashboardCollaboration: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) => currentOrganization?.available_features?.includes('dashboard_collaboration'),
+        ],
+    },
     loaders: ({ values }) => ({
         currentOrganization: [
             null as OrganizationType | null,

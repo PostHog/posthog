@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -16,7 +16,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     1. Given the first event is A, find the furthest everyone went starting from A.
        This finds any B's and C's that happen after A (without ordering them)
     2. Repeat the above, assuming first event to be B, and then C.
-    
+
     Then, the outer query unions the result of (2) and takes the maximum of these.
 
     ## Results
@@ -75,7 +75,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         for i in range(max_steps):
             inner_query = f"""
-                SELECT 
+                SELECT
                 person_id,
                 timestamp,
                 {partition_select}
@@ -144,7 +144,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         conditions = []
         for exclusion_id, exclusion in enumerate(self._filter.exclusions):
             from_time = f"latest_{exclusion.funnel_from_step}"
-            to_time = f"event_times[{exclusion.funnel_to_step + 1}]"
+            to_time = f"event_times[{cast(int, exclusion.funnel_to_step) + 1}]"
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
             condition = (
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
