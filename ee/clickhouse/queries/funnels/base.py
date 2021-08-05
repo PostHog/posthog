@@ -53,6 +53,34 @@ class ClickhouseFunnelBase(ABC, Funnel):
         results = self._exec_query()
         return self._format_results(results)
 
+    def _update_filters(self):
+        # format default dates
+        data: Dict[str, Any] = {}
+        if not self._filter._date_from:
+            data.update({"date_from": relative_date_parse("-7d")})
+        if not self._filter._date_to:
+            data.update({"date_to": timezone.now()})
+
+        if self._filter.breakdown and not self._filter.breakdown_type:
+            data.update({"breakdown_type": "event"})
+
+        for exclusion in self._filter.exclusions:
+            if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
+                raise ValidationError("Exclusion event needs to define funnel steps")
+
+            if exclusion.funnel_from_step >= exclusion.funnel_to_step:
+                raise ValidationError("Exclusion event range is invalid. End of range should be greater than start.")
+
+            if exclusion.funnel_from_step >= len(self._filter.entities) - 1:
+                raise ValidationError(
+                    "Exclusion event range is invalid. Start of range is greater than number of steps."
+                )
+
+            if exclusion.funnel_to_step > len(self._filter.entities) - 1:
+                raise ValidationError("Exclusion event range is invalid. End of range is greater than number of steps.")
+
+        self._filter = self._filter.with_data(data)
+
     def _format_single_funnel(self, results, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
@@ -92,33 +120,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return self._format_single_funnel(results[0])
 
     def _exec_query(self) -> List[Tuple]:
-
-        # format default dates
-        data: Dict[str, Any] = {}
-        if not self._filter._date_from:
-            data.update({"date_from": relative_date_parse("-7d")})
-        if not self._filter._date_to:
-            data.update({"date_to": timezone.now()})
-
-        if self._filter.breakdown and not self._filter.breakdown_type:
-            data.update({"breakdown_type": "event"})
-
-        for exclusion in self._filter.exclusions:
-            if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
-                raise ValidationError("Exclusion event needs to define funnel steps")
-
-            if exclusion.funnel_from_step >= exclusion.funnel_to_step:
-                raise ValidationError("Exclusion event range is invalid. End of range should be greater than start.")
-
-            if exclusion.funnel_from_step >= len(self._filter.entities) - 1:
-                raise ValidationError(
-                    "Exclusion event range is invalid. Start of range is greater than number of steps."
-                )
-
-            if exclusion.funnel_to_step > len(self._filter.entities) - 1:
-                raise ValidationError("Exclusion event range is invalid. End of range is greater than number of steps.")
-
-        self._filter = self._filter.with_data(data)
+        self.update_filters()
 
         query = self.get_query()
         return sync_execute(query, self.params)
