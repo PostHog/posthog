@@ -149,7 +149,8 @@ else:
             finally:
                 execution_time = perf_counter() - start_time
 
-                QUERY_TIMEOUT_THREAD.cancel(timeout_task)
+                if not timeout_task.done:
+                    QUERY_TIMEOUT_THREAD.cancel(timeout_task)
                 timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
 
                 if app_settings.SHELL_PLUS_PRINT_SQL:
