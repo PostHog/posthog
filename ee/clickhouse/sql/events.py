@@ -167,8 +167,8 @@ SELECT timestamp from events WHERE team_id = %(team_id)s order by toDate(timesta
 """
 
 NULL_SQL = """
-SELECT toUInt16(0) AS total, {interval_method}(toDateTime('{date_to}') - INTERVAL number {interval}) AS day_start
-FROM numbers(dateDiff('{interval}', toDateTime('{date_from}'), toDateTime('{date_to}')) + 1)
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number)) AS day_start
+FROM numbers(dateDiff(%(interval)s, toDateTime(%(date_from)s), toDateTime(%(date_to)s)) + 1)
 """
 
 EVENT_JOIN_PERSON_SQL = f"""

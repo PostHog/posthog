@@ -2,7 +2,13 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, parse_response, process_math
-from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp, get_time_diff, get_trunc_func_ch
+from ee.clickhouse.queries.util import (
+    format_ch_timestamp,
+    get_earliest_timestamp,
+    get_interval_func_ch,
+    get_time_diff,
+    get_trunc_func_ch,
+)
 from ee.clickhouse.sql.events import NULL_SQL
 from ee.clickhouse.sql.trends.aggregate import AGGREGATE_SQL
 from ee.clickhouse.sql.trends.volume import ACTIVE_USER_SQL, VOLUME_SQL, VOLUME_TOTAL_AGGREGATE_SQL
@@ -14,7 +20,8 @@ from posthog.models.filters import Filter
 class ClickhouseTrendsTotalVolume:
     def _total_volume_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
 
-        interval_method = get_trunc_func_ch(filter.interval)
+        trunc_func = get_trunc_func_ch(filter.interval)
+        interval_func = get_interval_func_ch(filter.interval)
         _, seconds_in_interval, _ = get_time_diff(
             filter.interval or "day", filter.date_from, filter.date_to, team_id=team_id
         )
@@ -33,7 +40,7 @@ class ClickhouseTrendsTotalVolume:
         content_sql_params = {
             "aggregate_operation": aggregate_operation,
             "timestamp": "e.timestamp",
-            "interval": interval_method,
+            "interval": trunc_func,
         }
         params: Dict = {"team_id": team_id}
         params = {**params, **math_params, **event_query_params}
@@ -62,12 +69,10 @@ class ClickhouseTrendsTotalVolume:
             else:
                 content_sql = VOLUME_SQL.format(event_query=event_query, **content_sql_params)
 
-            null_sql = NULL_SQL.format(
-                date_from=format_ch_timestamp(filter.date_from or get_earliest_timestamp(team_id), filter),
-                date_to=format_ch_timestamp(filter.date_to, filter),
-                interval_method=interval_method,
-                interval=filter.interval,
-            )
+            null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
+            params["date_from"] = format_ch_timestamp(filter.date_from or get_earliest_timestamp(team_id), filter)
+            params["date_to"] = format_ch_timestamp(filter.date_to, filter)
+            params["interval"] = filter.interval
             final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
             return final_query, params, self._parse_total_volume_result(filter)
 

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -79,30 +79,40 @@ def get_time_diff(
     return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + addition, TIME_IN_SECONDS[interval], round_interval
 
 
-PERIOD_TRUNC_MINUTE = "toStartOfMinute"
-PERIOD_TRUNC_HOUR = "toStartOfHour"
-PERIOD_TRUNC_DAY = "toStartOfDay"
-PERIOD_TRUNC_WEEK = "toStartOfWeek"
-PERIOD_TRUNC_MONTH = "toStartOfMonth"
+PERIOD_TO_TRUNC_FUNC: Dict[str, str] = {
+    "minute": "toStartOfMinute",
+    "hour": "toStartOfHour",
+    "week": "toStartOfWeek",
+    "day": "toStartOfDay",
+    "month": "toStartOfMonth",
+}
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:
     if period is None:
-        return PERIOD_TRUNC_DAY
-
-    period = period.lower()
-    if period == "minute":
-        return PERIOD_TRUNC_MINUTE
-    elif period == "hour":
-        return PERIOD_TRUNC_HOUR
-    elif period == "week":
-        return PERIOD_TRUNC_WEEK
-    elif period == "day":
-        return PERIOD_TRUNC_DAY
-    elif period == "month":
-        return PERIOD_TRUNC_MONTH
-    else:
+        period = "day"
+    ch_function = PERIOD_TO_TRUNC_FUNC.get(period.lower())
+    if ch_function is None:
         raise ValidationError(f"Period {period} is unsupported.")
+    return ch_function
+
+
+PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
+    "minute": "toIntervalMinute",
+    "hour": "toIntervalHour",
+    "week": "toIntervalWeek",
+    "day": "toIntervalDay",
+    "month": "toIntervalMonth",
+}
+
+
+def get_interval_func_ch(period: Optional[str]) -> str:
+    if period is None:
+        period = "day"
+    ch_function = PERIOD_TO_INTERVAL_FUNC.get(period.lower())
+    if ch_function is None:
+        raise ValidationError(f"Interval {period} is unsupported.")
+    return ch_function
 
 
 def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
