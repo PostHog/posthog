@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { DashboardItemType } from '~/types'
+import { DashboardItemType, SavedInsightsParamOptions } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 
 interface InsightsResult {
@@ -21,16 +21,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                         toParams({
                             order: '-created_at',
                             limit: 15,
-                            ...(key === 'yours' && { user: true }),
-                            ...(key === 'favorites' && { favorited: true }),
+                            saved: true,
+                            ...(key === SavedInsightsParamOptions.Yours && { user: true }),
+                            ...(key === SavedInsightsParamOptions.Favorites && { favorited: true }),
                         })
                 )
                 return response
             },
-            loadPaginatedInsights: async (url: string) => {
-                const response = await api.get(url)
-                return response
-            },
+            loadPaginatedInsights: async (url: string) => await api.get(url),
             updateFavoritedInsight: async ({ id, favorited }) => {
                 const response = await api.update(`api/insight/${id}`, { favorited })
                 const updatedInsights = values.insights.results.map((insight) =>
@@ -52,4 +50,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             },
         ],
     },
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadInsights()
+        },
+    }),
 })

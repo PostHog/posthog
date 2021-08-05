@@ -19,7 +19,6 @@ export enum Scene {
     ErrorNetwork = '4xx',
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
-    DashboardInsight = 'dashboardInsight',
     Insights = 'insights',
     InsightRouter = 'insightRouter',
     Cohorts = 'cohorts',
@@ -66,8 +65,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
-    [Scene.DashboardInsight]: () =>
-        import(/* webpackChunkName: 'dashboardInsight' */ './dashboard-insight/DashboardInsight'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'),
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './cohorts/Cohorts'),
@@ -177,7 +174,6 @@ export const urls = {
     notFound: () => '404',
     dashboards: () => '/dashboard',
     dashboard: (id: string | number) => `/dashboard/${id}`,
-    dashboardInsight: (id: string | number) => `/dashboard_insight/${id}`,
     createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
     action: (id: string | number) => `/action/${id}`,
     actions: () => '/actions',
@@ -218,7 +214,6 @@ export const urls = {
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
-    [urls.dashboardInsight(':id')]: Scene.DashboardInsight,
     [urls.createAction()]: Scene.Action,
     [urls.action(':id')]: Scene.Action,
     [urls.insights()]: Scene.Insights,

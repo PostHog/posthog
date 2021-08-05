@@ -84,11 +84,11 @@ def insight_test_factory(event_factory, person_factory):
             # create without user
             DashboardItem.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
-            response = self.client.get("/api/insight/", data={"favorited": "true", "user": "true"})
+            response = self.client.get("/api/insight/?favorited=true&user=true")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             self.assertEqual(len(response.json()["results"]), 1)
-            self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
+            self.assertEqual(len(response.json()["results"][0]["favorited"]), True)
 
         def test_get_insight_by_short_id(self):
             filter_dict = {

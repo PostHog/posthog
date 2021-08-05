@@ -5,9 +5,8 @@ import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { createdByColumn } from 'lib/components/Table/Table'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import React, { useEffect, useState } from 'react'
-import { userLogic } from 'scenes/userLogic'
-import { DashboardItemType } from '~/types'
+import React from 'react'
+import { DashboardItemType, SavedInsightsParamOptions } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
 import {
     StarOutlined,
@@ -18,25 +17,13 @@ import {
     AppstoreFilled,
 } from '@ant-design/icons'
 import './SavedInsights.scss'
+import { organizationLogic } from 'scenes/organizationLogic'
 const { TabPane } = Tabs
 
 export function SavedInsights(): JSX.Element {
     const { loadInsights, updateFavoritedInsight, loadPaginatedInsights } = useActions(savedInsightsLogic)
     const { insights, count, offset, nextResult, previousResult, insightsLoading } = useValues(savedInsightsLogic)
-    const { hasDashboardCollaboration } = useValues(userLogic)
-    const [displayedColumns, setDisplayedColumns] = useState([] as ColumnType<DashboardItemType>[])
-
-    useEffect(() => {
-        loadInsights()
-    }, [])
-
-    useEffect(() => {
-        if (!hasDashboardCollaboration) {
-            setDisplayedColumns(columns.filter((col) => !col.dataIndex || !['tags'].includes(col.dataIndex.toString())))
-        } else {
-            setDisplayedColumns(columns)
-        }
-    }, [hasDashboardCollaboration])
+    const { hasDashboardCollaboration } = useValues(organizationLogic)
 
     const columns = [
         {
@@ -76,14 +63,16 @@ export function SavedInsights(): JSX.Element {
                 )
             },
         },
-        {
-            title: 'Tags',
-            dataIndex: 'tags',
-            key: 'tags',
-            render: function renderTags(tags: string[]) {
-                return <ObjectTags tags={tags} staticOnly />
-            },
-        },
+        hasDashboardCollaboration
+            ? {
+                  title: 'Tags',
+                  dataIndex: 'tags',
+                  key: 'tags',
+                  render: function renderTags(tags: string[]) {
+                      return <ObjectTags tags={tags} staticOnly />
+                  },
+              }
+            : {},
         {
             title: 'Last modified',
             dataIndex: 'updated_at',
@@ -100,9 +89,9 @@ export function SavedInsights(): JSX.Element {
     return (
         <div className="saved-insights">
             <Tabs defaultActiveKey="1" style={{ borderColor: '#D9D9D9' }} onChange={(key) => loadInsights(key)}>
-                <TabPane tab="All Insights" key="all" />
-                <TabPane tab="Your Insights" key="yours" />
-                <TabPane tab="Favorites" key="favorites" />
+                <TabPane tab="All Insights" key={SavedInsightsParamOptions.All} />
+                <TabPane tab="Your Insights" key={SavedInsightsParamOptions.Yours} />
+                <TabPane tab="Favorites" key={SavedInsightsParamOptions.Favorites} />
             </Tabs>
             <Row className="list-or-card-layout">
                 Showing {!previousResult ? 1 : nextResult ? offset - 15 : count - (insights?.results.length || 0)} -{' '}
@@ -120,9 +109,10 @@ export function SavedInsights(): JSX.Element {
             </Row>
             <Table
                 loading={insightsLoading}
-                columns={displayedColumns}
+                columns={columns}
                 dataSource={insights.results}
                 pagination={false}
+                rowKey="id"
                 footer={() => (
                     <Row className="footer-pagination">
                         <span className="text-muted-alt">

@@ -228,6 +228,12 @@ export enum PropertyOperator {
     IsNotSet = 'is_not_set',
 }
 
+export enum SavedInsightsParamOptions {
+    All = 'all',
+    Yours = 'yours',
+    Favorites = 'favorites',
+}
+
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
