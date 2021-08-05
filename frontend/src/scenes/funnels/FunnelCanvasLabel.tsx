@@ -33,7 +33,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                     <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
-            {allFilters.funnel_viz_type !== FunnelVizType.Trends && (
+            {allFilters.funnel_viz_type !== FunnelVizType.Trends && !allFilters.breakdown && (
                 <>
                     <span className="text-muted-alt">
                         <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
