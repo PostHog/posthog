@@ -6,11 +6,6 @@ from posthog.test.base import BaseTest
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
-    def tearDown(self):
-        super().tearDown()
-        # :TRICKY: Reset the fetch method cache after tests
-        get_materialized_columns.__cache = {}
-
     def test_get_columns_default(self):
         self.assertCountEqual(get_materialized_columns("events"), [])
         self.assertCountEqual(get_materialized_columns("person"), [])
@@ -21,12 +16,12 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             materialize("events", "$bar")
             materialize("person", "$zeta")
 
-            self.assertCountEqual(get_materialized_columns("events"), ["$foo", "$bar"])
-            self.assertCountEqual(get_materialized_columns("person"), ["$zeta"])
+            self.assertCountEqual(get_materialized_columns("events", use_cache=True), ["$foo", "$bar"])
+            self.assertCountEqual(get_materialized_columns("person", use_cache=True), ["$zeta"])
 
             materialize("events", "abc")
 
-            self.assertCountEqual(get_materialized_columns("events"), ["$foo", "$bar"])
+            self.assertCountEqual(get_materialized_columns("events", use_cache=True), ["$foo", "$bar"])
 
         with freeze_time("2020-01-04T14:00:01Z"):
-            self.assertCountEqual(get_materialized_columns("events"), ["$foo", "$bar", "abc"])
+            self.assertCountEqual(get_materialized_columns("events", use_cache=True), ["$foo", "$bar", "abc"])

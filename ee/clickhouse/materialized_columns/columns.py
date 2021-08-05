@@ -6,9 +6,9 @@ from typing import Dict, no_type_check
 from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
 
-Property = str
+PropertyName = str
 ColumnName = str
 
 
@@ -16,9 +16,13 @@ def cache_for(cache_time: timedelta):
     def wrapper(fn):
         @wraps(fn)
         @no_type_check
-        def memoized_fn(*args):
+        def memoized_fn(*args, use_cache=TEST):
             current_time = now()
-            if args not in memoized_fn.__cache or current_time - memoized_fn.__cache[args][0] > cache_time:
+            if (
+                args not in memoized_fn.__cache
+                or current_time - memoized_fn.__cache[args][0] > cache_time
+                or not use_cache
+            ):
                 memoized_fn.__cache[args] = (current_time, fn(*args))
             return memoized_fn.__cache[args][1]
 
@@ -29,7 +33,7 @@ def cache_for(cache_time: timedelta):
 
 
 @cache_for(timedelta(minutes=15))
-def get_materialized_columns(table: str) -> Dict[Property, ColumnName]:
+def get_materialized_columns(table: str) -> Dict[PropertyName, ColumnName]:
     rows = sync_execute(
         """
         SELECT comment, name
@@ -82,5 +86,5 @@ def materialize(table: str, property: str, distributed: bool = False) -> None:
     )
 
 
-def extract_property(comment: str) -> Property:
+def extract_property(comment: str) -> PropertyName:
     return comment.split("::", 1)[1]
