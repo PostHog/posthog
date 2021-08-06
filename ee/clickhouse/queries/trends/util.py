@@ -25,15 +25,15 @@ MATH_FUNCTIONS = {
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
     aggregate_operation = "count(*)"
-    params = {}
     join_condition = ""
-    value = "toFloat64OrNull(JSONExtractRaw(properties, '{}'))".format(entity.math_property)
+    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity.order}_math)s))"
+    params = {f"e_{entity.order}_math": entity.math_property}
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math in MATH_FUNCTIONS:
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}({value})"
-        params = {"join_property_key": entity.math_property}
+        params["join_property_key"] = entity.math_property
 
     return aggregate_operation, join_condition, params
 
