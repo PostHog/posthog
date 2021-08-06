@@ -59,10 +59,11 @@ function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): resul
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
+// breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
 function isValidBreakdownParameter(
     breakdown: FunnelRequestParams['breakdown']
 ): breakdown is string | null | undefined {
-    return ['string', 'null', 'undefined'].includes(typeof breakdown)
+    return ['string', 'null', 'undefined', 'object', 'number'].includes(typeof breakdown)
 }
 
 function wait(ms = 1000): Promise<any> {
