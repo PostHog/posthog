@@ -128,7 +128,7 @@
                 },
                 {
                     "name": "DATABASE_URL",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:PG_DATABASE_URL::"
                 },
                 {
                     "name": "EMAIL_HOST",
