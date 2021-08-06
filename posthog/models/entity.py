@@ -19,6 +19,7 @@ class Entity(PropertyMixin):
     id: Union[int, str]
     type: str
     order: Optional[int]
+    index: int
     name: Optional[str]
     math: Optional[str]
     math_property: Optional[str]

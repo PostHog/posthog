@@ -23,8 +23,8 @@ MATH_FUNCTIONS = {
 
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
-    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity.order}_math)s))"
-    params = {f"e_{entity.order}_math": entity.math_property}
+    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity.index}_math)s))"
+    params = {f"e_{entity.index}_math": entity.math_property}
 
     aggregate_operation = "count(*)"
     join_condition = ""

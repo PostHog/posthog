@@ -325,23 +325,9 @@ class EntitiesMixin(BaseParamMixin):
                 events = json.loads(events)
             processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
         processed_entities.sort(key=lambda entity: entity.order if entity.order else float("inf"))
-        # ensure that there are no duplicate order values
-        order_values_so_far = set()
-        order_deduplication_offset = 0
-        max_order_so_far = 0
-        for entity in processed_entities:
-            if entity.order is not None:
-                entity.order += order_deduplication_offset
-                if entity.order in order_values_so_far:
-                    order_deduplication_offset += 1
-                    entity.order += 1
-                order_values_so_far.add(entity.order)
-                max_order_so_far = entity.order
-        # give order-less entities sequential order values
-        for entity in processed_entities:
-            if entity.order is None:
-                max_order_so_far += 1
-                entity.order = max_order_so_far
+        # Set sequential index values on entities
+        for index, entity in enumerate(processed_entities):
+            entity.index = index
         return processed_entities
 
     @cached_property
