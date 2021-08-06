@@ -5,7 +5,7 @@
 
 <br />
 
-PostHog provides open-source product analytics, built for developers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. With just 1 click you can deploy on your own infrastructure, having full API/SQL access to the underlying data. 
+PostHog provides open-source product analytics, built for developers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. With just 1 click you can deploy on your own infrastructure, having full API/SQL access to the underlying data.
 
 <br /><br />
 
@@ -25,9 +25,9 @@ PostHog provides open-source product analytics, built for developers. Automate t
 
 See [PostHog Docs](https://posthog.com/docs/) for in-depth walk-throughs on functionality.
 
-![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/app-dashboard.png)
+![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/posthog-app-screenshot.png)
 
-Join [our PostHog Users Slack community](https://posthog.com/slack) if you need help, want to chat, or are thinking of a new feature. We're here to help - and to make PostHog even better.
+Join our [Slack community](https://posthog.com/slack) if you need help, want to chat, or are thinking of a new feature. We're here to help - and to make PostHog even better.
 
 <br /><br />
 
@@ -35,16 +35,16 @@ Join [our PostHog Users Slack community](https://posthog.com/slack) if you need 
 
 ## Features
 
-- **Event-based** analytics at a user level - capture your product's usage data to see which users are doing what in your application.
-- **Product data visualizations**: [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [user cohorts](https://posthog.com/docs/features/cohorts), [user paths](https://posthog.com/docs/features/paths), [retention tables](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards).
-- **Complete control** over your data - host it yourself.
-- **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your user behavior, with fine-grained privacy controls.
-- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to analyze what your users are doing without pushing events manually
-- **Feature flags** to understand the impact of new features before rolling them out more widely
-- **Heatmaps** with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar).
-- **Plugins** to integrate your product usage data with other systems, like your CRM, or data lakes.
-- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration) + [API](https://posthog.com/docs/integrations/api) for anything else.
-- **Super easy deploy** using Docker or Heroku.
+-   **Event-based** analytics at a user level - capture your product's usage data to see which users are doing what in your application.
+-   **Product data visualizations**: [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [user cohorts](https://posthog.com/docs/features/cohorts), [user paths](https://posthog.com/docs/features/paths), [retention tables](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards).
+-   **Complete control** over your data - host it yourself.
+-   **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your user behavior, with fine-grained privacy controls.
+-   **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to analyze what your users are doing without pushing events manually
+-   **Feature flags** to understand the impact of new features before rolling them out more widely
+-   **Heatmaps** with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar).
+-   **Plugins** to integrate your product usage data with other systems, like your CRM, or data lakes.
+-   **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration) + [API](https://posthog.com/docs/integrations/api) for anything else.
+-   **Super easy deploy** using Docker or Heroku.
 
 <br /><br />
 
@@ -76,7 +76,7 @@ This means you can know who is using your app, how they're using it, and where y
 
 PostHog is the only **product-focused** open-source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, and creating user profiles. We are an open-source alternative to products such as Mixpanel, Amplitude, or Heap, that's designed to be more developer-friendly than them, with a broader range of features like session recording, heatmaps, feature flags and plugins.
 
-There are a few session-based open-source libraries that are nice alternatives to Google Analytics. That's not what we are focused on. 
+There are a few session-based open-source libraries that are nice alternatives to Google Analytics. That's not what we are focused on.
 
 <br /><br />
 
@@ -98,12 +98,12 @@ Our suggested method for quick deployment is Heroku's one-click option:
 
 However, PostHog can be deployed anywhere you want! Here are step-by-step tutorials we've written for deployment options using all the major cloud providers:
 
-* [AWS](https://posthog.com/docs/deployment/deploy-aws)
-* [Microsoft Azure](https://posthog.com/docs/deployment/deploy-azure)
-* [Digital Ocean](https://posthog.com/docs/deployment/deploy-digital-ocean)
-* [Google Cloud](https://posthog.com/docs/deployment/deploy-gcs)
-* [Linode](https://posthog.com/docs/deployment/deploy-linode)
-* [Render](https://posthog.com/docs/deployment/deploy-render)
+-   [AWS](https://posthog.com/docs/deployment/deploy-aws)
+-   [Microsoft Azure](https://posthog.com/docs/deployment/deploy-azure)
+-   [Digital Ocean](https://posthog.com/docs/deployment/deploy-digital-ocean)
+-   [Google Cloud](https://posthog.com/docs/deployment/deploy-gcs)
+-   [Linode](https://posthog.com/docs/deployment/deploy-linode)
+-   [Render](https://posthog.com/docs/deployment/deploy-render)
 
 <br /><br />
 
@@ -156,6 +156,7 @@ Premium features (contained in the `ee` directory) require a PostHog license. Co
 ## Contributors 🦸
 
 [//]: contributor-faces
+
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
