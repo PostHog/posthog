@@ -1,15 +1,15 @@
-import { Card, Input } from "antd"
-import React, { useRef, useState } from "react"
-import { EditOutlined } from "@ant-design/icons"
-import { DashboardItemType, ItemMode } from "~/types"
-import { DashboardEventSource } from "lib/utils/eventUsageLogic"
+import { Card, Input } from 'antd'
+import React, { useRef, useState } from 'react'
+import { EditOutlined } from '@ant-design/icons'
+import { DashboardItemType, ItemMode } from '~/types'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import './Description.scss'
 
 interface DescriptionInterface {
-    item: any,
-    itemMode: ItemMode,
-    setItemMode: (mode: ItemMode | null, eventSource: DashboardEventSource) => void,
-    triggerItemUpdate: (description: Partial<DashboardItemType>) => void,
+    item: Partial<DashboardItemType>
+    itemMode: ItemMode
+    setItemMode: (mode: ItemMode | null, eventSource: DashboardEventSource) => void
+    triggerItemUpdate: (description: Partial<DashboardItemType>) => void
 }
 
 export function Description({ item, itemMode, setItemMode, triggerItemUpdate }: DescriptionInterface): JSX.Element {
@@ -38,9 +38,7 @@ export function Description({ item, itemMode, setItemMode, triggerItemUpdate }: 
             ) : (
                 <div
                     className="edit-box"
-                    onClick={() =>
-                        setItemMode(ItemMode.Edit, DashboardEventSource.AddDescription)
-                    }
+                    onClick={() => setItemMode(ItemMode.Edit, DashboardEventSource.AddDescription)}
                 >
                     {item.description ? (
                         <span>{item.description}</span>

@@ -889,7 +889,7 @@ export interface PreflightStatus {
 
 export enum ItemMode {
     Edit = 'edit',
-    View = 'view', 
+    View = 'view',
 }
 
 export enum DashboardMode { // Default mode is null

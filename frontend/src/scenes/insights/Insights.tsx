@@ -27,7 +27,7 @@ import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
+import { FunnelVizType, HotKeys, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -74,8 +74,11 @@ export function Insights(): JSX.Element {
         controlsCollapsed,
         insight,
         insightLoading,
+        insightMode,
     } = useValues(insightLogic)
-    const { setActiveView, toggleControlsCollapsed, saveNewTag, deleteTag } = useActions(insightLogic)
+    const { setActiveView, toggleControlsCollapsed, saveNewTag, deleteTag, updateInsight, setInsightMode } = useActions(
+        insightLogic
+    )
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
     const { areFiltersValid } = useValues(funnelLogic)
@@ -87,7 +90,9 @@ export function Insights(): JSX.Element {
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
-
+    const {
+        hashParams: { fromItemName },
+    } = useValues(router)
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
     const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
@@ -141,7 +146,7 @@ export function Insights(): JSX.Element {
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />
-            <PageHeader title="Insights" />
+            <PageHeader title={fromItemName || 'Insights'} />
             <Row justify="space-between" align="middle" className="top-bar">
                 <Tabs
                     activeKey={activeView}
@@ -266,10 +271,10 @@ export function Insights(): JSX.Element {
                             />
                         </div>
                         <Description
-                            item={{}}
-                            itemMode={ItemMode.View}
-                            setItemMode={() => {}}
-                            triggerItemUpdate={() => {}}
+                            item={insight}
+                            itemMode={insightMode}
+                            setItemMode={setInsightMode}
+                            triggerItemUpdate={updateInsight}
                         />
                     </Col>
                 )}

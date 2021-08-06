@@ -246,7 +246,12 @@ export function DashboardHeader(): JSX.Element {
                             tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
                         />
                     </div>
-                    <Description item={dashboard} setItemMode={setDashboardMode} itemMode={dashboardMode} triggerItemUpdate={triggerDashboardUpdate} />
+                    <Description
+                        item={dashboard}
+                        setItemMode={setDashboardMode}
+                        itemMode={dashboardMode}
+                        triggerItemUpdate={triggerDashboardUpdate}
+                    />
                 </>
             )}
         </>

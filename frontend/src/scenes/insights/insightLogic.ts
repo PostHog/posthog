@@ -1,5 +1,5 @@
 import { BuiltLogic, kea, Logic } from 'kea'
-import { toParams, fromParams, errorToast } from 'lib/utils'
+import { toParams, fromParams, errorToast, clearDOMTextSelection, editingToast } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -7,7 +7,7 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { DashboardItemType, Entity, FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/types'
+import { DashboardItemType, Entity, FilterType, FunnelVizType, ItemMode, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
@@ -155,14 +155,31 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
     },
-    loaders: ({ values }) => ({
+    loaders: ({ values, actions }) => ({
         insight: {
             __default: { tags: [] } as Partial<DashboardItemType>,
             loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
-            updateInsight: async (payload: Partial<DashboardItemType>) =>
-                await api.update(`api/insight/${values.insight.id}`, payload),
+            updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
+                if (!Object.entries(payload).length) {
+                    return
+                }
+                await breakpoint(700)
+                return await api.update(`api/insight/${values.insight.id}`, payload)
+            },
             setInsight: (insight) => insight,
         },
+        insightMode: [
+            ItemMode.View,
+            {
+                setInsightMode: (mode) => {
+                    if (mode === ItemMode.Edit) {
+                        clearDOMTextSelection()
+                        setTimeout(() => editingToast('Insight', actions.setInsightMode), 100)
+                    }
+                    return mode
+                },
+            },
+        ],
     }),
     listeners: ({ actions, values }) => ({
         setAllFilters: async (filters, breakpoint) => {
