@@ -7,6 +7,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.utils import sane_repr
 
 
 class Entity(PropertyMixin):
@@ -88,6 +89,8 @@ class Entity(PropertyMixin):
             return Action.objects.get(id=self.id)
         except:
             raise ValidationError(f"Action ID {self.id} does not exist!")
+
+    __repr__ = sane_repr("id", "type", "order", "name", "math", "math_property", "properties")
 
 
 class ExclusionEntity(Entity, FunnelFromToStepsMixin):

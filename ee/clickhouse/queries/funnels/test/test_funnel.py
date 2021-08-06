@@ -1,11 +1,10 @@
-from uuid import uuid4
+from string import ascii_lowercase
+from uuid import UUID, uuid4
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
@@ -13,7 +12,6 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
@@ -95,6 +93,99 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
         self.assertEqual(len(result[1]["people"]), 1)
+
+    def test_basic_funnel_default_funnel_days_breakdown(self):
+        filters = {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "type": "events",
+                    "order": 0,
+                    "properties": [
+                        {
+                            "key": "$current_url",
+                            "operator": "icontains",
+                            "type": "event",
+                            "value": "https://posthog.com/docs",
+                        }
+                    ],
+                },
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "breakdown": "$current_url",
+            "breakdown_type": "event",
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        person = _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="user_1",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={"$current_url": "https://posthog.com/docs/x"},
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="user_1",
+            timestamp="2020-01-10T14:00:00Z",
+            properties={"$current_url": "https://posthog.com/docs/x"},
+        )
+
+        # dummy events to make sure that breakdown is not confused
+        # it was confused before, see: https://github.com/PostHog/posthog/issues/5382
+        for current_url_letter in ascii_lowercase[:20]:
+            # twenty dummy breakdown values
+            for _ in range(2):
+                # each twice, so that the breakdown values from dummy events rank higher in raw order
+                # this test makes sure that events are prefiltered properly to avoid problems with this raw order
+                _create_event(
+                    team=self.team,
+                    event="user signed up",
+                    distinct_id="user_1",
+                    timestamp="2020-01-02T14:00:00Z",
+                    properties={"$current_url": f"https://posthog.com/blog/{current_url_letter}"},
+                )
+
+        with self.assertNumQueries(1):
+            result = funnel.run()
+
+        self.assertEqual(
+            [
+                [
+                    {
+                        "action_id": "user signed up",
+                        "average_conversion_time": None,
+                        "breakdown": "https://posthog.com/docs/x",
+                        "count": 1,
+                        "median_conversion_time": None,
+                        "name": "user signed up",
+                        "order": 0,
+                        "people": [UUID(bytes=person.uuid.bytes)],
+                        "type": "events",
+                    },
+                    {
+                        "action_id": "paid",
+                        "average_conversion_time": 691200.0,
+                        "breakdown": "https://posthog.com/docs/x",
+                        "count": 1,
+                        "median_conversion_time": 691200.0,
+                        "name": "paid",
+                        "order": 1,
+                        "people": [UUID(bytes=person.uuid.bytes)],
+                        "type": "events",
+                    },
+                ]
+            ],
+            result,
+        )
 
     def test_basic_funnel_with_repeat_steps(self):
         filters = {
