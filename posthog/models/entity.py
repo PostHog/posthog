@@ -31,7 +31,10 @@ class Entity(PropertyMixin):
         ]:
             raise TypeError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
         self.type = data["type"]
-        self.order = data.get("order")
+        order_provided = data.get("order")
+        if order_provided is not None:
+            order_provided = int(order_provided)
+        self.order = order_provided
         self.name = data.get("name")
         self.math = data.get("math")
         self.math_property = data.get("math_property")
