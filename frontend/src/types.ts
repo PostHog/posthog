@@ -887,7 +887,7 @@ export interface PreflightStatus {
     site_url?: string
 }
 
-export enum ItemMode {
+export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
 }

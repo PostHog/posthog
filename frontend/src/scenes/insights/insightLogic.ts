@@ -1,7 +1,7 @@
 import { BuiltLogic, kea, Logic } from 'kea'
 import { toParams, fromParams, errorToast, clearDOMTextSelection, editingToast } from 'lib/utils'
 import posthog from 'posthog-js'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -13,6 +13,7 @@ export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFEC
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { toast } from 'react-toastify'
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -154,6 +155,12 @@ export const insightLogic = kea<insightLogicType>({
                 startQuery: (state, { queryId }) => ({ ...state, [queryId]: new Date().getTime() }),
             },
         ],
+        lastInsightModeSource: [
+            null as InsightEventSource | null,
+            {
+                setInsightMode: (_, { source }) => source,
+            }
+        ],
     },
     loaders: ({ values, actions }) => ({
         insight: {
@@ -171,16 +178,26 @@ export const insightLogic = kea<insightLogicType>({
         insightMode: [
             ItemMode.View,
             {
-                setInsightMode: (mode) => {
+                setInsightMode: ({ mode }) => {
+                    const editToastRef = editingToast('Insight', (insightMode, source) => {
+                        actions.setInsightMode({ mode: insightMode, source })
+                    })
                     if (mode === ItemMode.Edit) {
                         clearDOMTextSelection()
-                        setTimeout(() => editingToast('Insight', actions.setInsightMode), 100)
+                        setTimeout(() => editToastRef, 100)
+                    } else {
+                        toast.dismiss(editToastRef)
                     }
                     return mode
                 },
             },
         ],
     }),
+    selectors: {
+        insightName: [
+            (s) => [s.insight], (insight) => insight?.name,
+        ]
+    },
     listeners: ({ actions, values }) => ({
         setAllFilters: async (filters, breakpoint) => {
             const { fromDashboard } = router.values.hashParams

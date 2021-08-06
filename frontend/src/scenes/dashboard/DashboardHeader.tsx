@@ -251,6 +251,7 @@ export function DashboardHeader(): JSX.Element {
                         setItemMode={setDashboardMode}
                         itemMode={dashboardMode}
                         triggerItemUpdate={triggerDashboardUpdate}
+                        descriptionInputRef={descriptionInputRef}
                     />
                 </>
             )}
