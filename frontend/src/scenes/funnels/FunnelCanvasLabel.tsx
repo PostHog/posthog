@@ -30,11 +30,11 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                         Total conversion rate:{' '}
                     </span>
                     <span>{conversionMetrics.totalRate}%</span>
-                    <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                 </>
             )}
             {allFilters.funnel_viz_type !== FunnelVizType.Trends && !allFilters.breakdown && (
                 <>
+                    <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                     <span className="text-muted-alt">
                         <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
                             <InfoCircleOutlined className="info-indicator left" />
