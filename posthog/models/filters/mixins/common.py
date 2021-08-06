@@ -42,9 +42,21 @@ ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
 
 
 class IntervalMixin(BaseParamMixin):
+    """See https://clickhouse.tech/docs/en/sql-reference/data-types/special-data-types/interval/."""
+
+    SUPPORTED_INTERVAL_TYPES = ["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
+
     @cached_property
     def interval(self) -> str:
-        return self._data.get(INTERVAL, "day")
+        interval_candidate = self._data.get(INTERVAL)
+        if not interval_candidate:
+            return "day"
+        if not isinstance(interval_candidate, str):
+            raise ValueError(f"Interval must be a string!")
+        interval_candidate = interval_candidate.lower()
+        if interval_candidate not in self.SUPPORTED_INTERVAL_TYPES:
+            raise ValueError(f"Interval {interval_candidate} does not belong to SUPPORTED_INTERVAL_TYPES!")
+        return interval_candidate
 
     @include_dict
     def interval_to_dict(self):
