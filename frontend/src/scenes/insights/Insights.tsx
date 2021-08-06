@@ -5,7 +5,7 @@ import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Tabs, Row, Col, Card, Button, Tooltip, Alert, Input } from 'antd'
+import { Tabs, Row, Col, Card, Button, Tooltip, Alert } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -18,7 +18,7 @@ import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './Insigh
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { DownOutlined, UpOutlined, EditOutlined } from '@ant-design/icons'
+import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
@@ -44,7 +44,6 @@ import clsx from 'clsx'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
-import { DashboardInsightHeader } from 'scenes/dashboard-insight/DashboardInsightHeader'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import './Insights.scss'
@@ -73,8 +72,10 @@ export function Insights(): JSX.Element {
         showTimeoutMessage,
         showErrorMessage,
         controlsCollapsed,
+        insight,
+        insightLoading,
     } = useValues(insightLogic)
-    const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
+    const { setActiveView, toggleControlsCollapsed, saveNewTag, deleteTag } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
     const { areFiltersValid } = useValues(funnelLogic)
@@ -251,6 +252,27 @@ export function Insights(): JSX.Element {
                         key={ViewType.LIFECYCLE}
                     />
                 </Tabs>
+            </Row>
+            <Row>
+                {hasDashboardCollaboration && (
+                    <Col style={{ width: '100%' }}>
+                        <div className="mb" data-attr="dashboard-tags">
+                            <ObjectTags
+                                tags={insight.tags || []}
+                                onTagSave={saveNewTag}
+                                onTagDelete={deleteTag}
+                                saving={insightLoading}
+                                tagsAvailable={[]}
+                            />
+                        </div>
+                        <Description
+                            item={{}}
+                            itemMode={ItemMode.View}
+                            setItemMode={() => {}}
+                            triggerItemUpdate={() => {}}
+                        />
+                    </Col>
+                )}
             </Row>
             <Row gutter={16}>
                 {activeView === ViewType.HISTORY ? (

@@ -30,7 +30,7 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
-import { logicFromInsight } from 'scenes/insights/insightLogic'
+import { insightLogic, logicFromInsight } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
@@ -243,6 +243,7 @@ export function DashboardItem({
     const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
     const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
+    const { setInsight } = useActions(insightLogic)
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
     useEffect(() => {
@@ -280,6 +281,7 @@ export function DashboardItem({
                                     if (!isDraggingRef?.current) {
                                         onClick ? onClick() : router.actions.push(link)
                                     }
+                                    setInsight(item)
                                 }}
                                 style={{ fontSize: 16, fontWeight: 500 }}
                             >
@@ -328,7 +330,7 @@ export function DashboardItem({
                                     overlay={
                                         <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
                                             <Menu.Item data-attr={'dashboard-item-' + index + '-dropdown-view'}>
-                                                <Link to={link}>
+                                                <Link to={link} onClick={() => setInsight(item)}>
                                                     <Icon /> {viewText}
                                                 </Link>
                                             </Menu.Item>

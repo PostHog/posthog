@@ -1,5 +1,5 @@
 import { BuiltLogic, kea, Logic } from 'kea'
-import { toParams, fromParams } from 'lib/utils'
+import { toParams, fromParams, errorToast } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -7,11 +7,12 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { Entity, FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/types'
+import { DashboardItemType, Entity, FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
+import api from 'lib/api'
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -72,6 +73,8 @@ export const insightLogic = kea<insightLogicType>({
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
         toggleControlsCollapsed: true,
+        saveNewTag: (tag: string) => ({ tag }),
+        deleteTag: (tag: string) => ({ tag }),
     }),
 
     reducers: {
@@ -152,6 +155,15 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
     },
+    loaders: ({ values }) => ({
+        insight: {
+            __default: { tags: [] } as Partial<DashboardItemType>,
+            loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
+            updateInsight: async (payload: Partial<DashboardItemType>) =>
+                await api.update(`api/insight/${values.insight.id}`, payload),
+            setInsight: (insight) => insight,
+        },
+    }),
     listeners: ({ actions, values }) => ({
         setAllFilters: async (filters, breakpoint) => {
             const { fromDashboard } = router.values.hashParams
@@ -229,6 +241,17 @@ export const insightLogic = kea<insightLogicType>({
         toggleControlsCollapsed: async () => {
             eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
         },
+        saveNewTag: ({ tag }) => {
+            if (values.insight.tags?.includes(tag)) {
+                errorToast(undefined, 'Oops! Your insight already has that tag.')
+                return
+            }
+            actions.updateInsight({ tags: [...(values.insight.tags || []), tag] })
+        },
+        deleteTag: async ({ tag }, breakpoint) => {
+            await breakpoint(100)
+            actions.updateInsight({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
+        },
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }) => {
@@ -259,9 +282,12 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_: any, searchParams: Record<string, any>) => {
+        '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
+            }
+            if (hashParams.fromItem) {
+                actions.loadInsight(hashParams.fromItem)
             }
         },
     }),
