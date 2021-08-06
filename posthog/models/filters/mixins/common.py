@@ -324,7 +324,7 @@ class EntitiesMixin(BaseParamMixin):
             if isinstance(events, str):
                 events = json.loads(events)
             processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
-        processed_entities.sort(key=lambda entity: entity.order if entity.order else float("inf"))
+        processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
         # Set sequential index values on entities
         for index, entity in enumerate(processed_entities):
             entity.index = index
