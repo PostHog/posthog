@@ -99,7 +99,9 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
     return params
 
 
-def populate_entity_params(entity: Entity, team_id: int, table_name: str = "") -> Tuple[Dict, Dict]:
+def populate_entity_params(
+    entity: Entity, team_id: int, table_name: str = "", *, with_prop_clauses: bool = False
+) -> Tuple[Dict, Dict]:
     params, content_sql_params = {}, {}
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
@@ -107,10 +109,12 @@ def populate_entity_params(entity: Entity, team_id: int, table_name: str = "") -
         params.update(action_params)
         content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
     else:
-        prop_filters, prop_filter_params = parse_prop_clauses(entity.properties, team_id)
-        content_sql_params = {"entity_query": f"AND event = %(event)s {prop_filters}"}
+        prop_filters = ""
+        if with_prop_clauses:
+            prop_filters, prop_filter_params = parse_prop_clauses(entity.properties, team_id)
+            params.update(prop_filter_params)
         params["event"] = entity.id
-        params.update(prop_filter_params)
+        content_sql_params = {"entity_query": f"AND event = %(event)s {prop_filters}"}
 
     return params, content_sql_params
 
