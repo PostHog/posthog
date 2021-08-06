@@ -1,4 +1,4 @@
-import { humanizeNumber } from 'lib/utils'
+import { compactNumber } from 'lib/utils'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
 import { FunnelStep, FunnelsTimeConversionBins } from '~/types'
@@ -76,7 +76,7 @@ export function humanizeStepCount(count?: number): string {
     if (typeof count === 'undefined') {
         return ''
     }
-    return count > 9999 ? humanizeNumber(count, 2) : count.toLocaleString()
+    return count > 9999 ? compactNumber(count) : count.toLocaleString()
 }
 
 export function cleanBinResult(binsResult: FunnelsTimeConversionBins): FunnelsTimeConversionBins {
