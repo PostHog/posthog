@@ -29,7 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
+import { cleanBinResult, formatDisplayPercentage, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
@@ -373,13 +373,13 @@ export const funnelLogic = kea<funnelLogicType>({
                 const totalCount = sum(timeConversionBins.bins.map(([, count]) => count))
                 return timeConversionBins.bins.map(([id, count]: [id: number, count: number]) => {
                     const value = Math.max(0, id)
-                    const percent = calcPercentage(count, totalCount)
+                    const percent = count / totalCount
                     return {
                         id: value,
                         bin0: value,
                         bin1: value + binSize,
                         count,
-                        label: percent === 0 ? '' : `${percent}%`,
+                        label: percent === 0 ? '' : `${formatDisplayPercentage(percent)}%`,
                     }
                 })
             },
@@ -443,8 +443,8 @@ export const funnelLogic = kea<funnelLogicType>({
 
                 return {
                     averageTime: toStep?.average_conversion_time || 0,
-                    stepRate: calcPercentage(toStep.count, fromStep.count),
-                    totalRate: calcPercentage(stepsWithCount[stepsWithCount.length - 1].count, stepsWithCount[0].count),
+                    stepRate: toStep.count / fromStep.count,
+                    totalRate: stepsWithCount[stepsWithCount.length - 1].count / stepsWithCount[0].count,
                 }
             },
         ],
@@ -504,11 +504,8 @@ export const funnelLogic = kea<funnelLogicType>({
                         const firstBreakdownCount = steps[0]?.nested_breakdown?.[breakdownIndex].count || 0
                         const _droppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
                         const conversionRates = {
-                            fromPrevious:
-                                previousBreakdownCount === 0
-                                    ? 0
-                                    : calcPercentage(breakdown.count, previousBreakdownCount),
-                            total: calcPercentage(breakdown.count, firstBreakdownCount),
+                            fromPrevious: previousBreakdownCount === 0 ? 0 : breakdown.count / previousBreakdownCount,
+                            total: breakdown.count / firstBreakdownCount,
                         }
                         return {
                             ...breakdown,
@@ -523,8 +520,8 @@ export const funnelLogic = kea<funnelLogicType>({
                         }
                     })
                     const conversionRates = {
-                        fromPrevious: previousCount === 0 ? 0 : calcPercentage(step.count, previousCount),
-                        total: calcPercentage(step.count, steps[0].count),
+                        fromPrevious: previousCount === 0 ? 0 : step.count / previousCount,
+                        total: step.count / steps[0].count,
                     }
                     return {
                         ...step,

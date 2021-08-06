@@ -3,9 +3,11 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import { getChartColors } from 'lib/colors'
 import { FunnelStep, FunnelsTimeConversionBins } from '~/types'
 
-export function calcPercentage(numerator: number, denominator: number): number {
-    // Rounds to two decimal places
-    return Math.round(((numerator / denominator) * 100 || 0) * 100) / 100
+const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
+
+export function formatDisplayPercentage(percentage: number): string {
+    // Returns a formatted string properly rounded to ensure consistent results
+    return (percentage * 100).toFixed(PERCENTAGE_DISPLAY_PRECISION)
 }
 
 export function getReferenceStep<T>(steps: T[], stepReference: FunnelStepReference, index?: number): T {

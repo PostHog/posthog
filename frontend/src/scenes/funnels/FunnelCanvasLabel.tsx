@@ -9,6 +9,7 @@ import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType } from '~/types'
+import { formatDisplayPercentage } from './funnelUtils'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
@@ -29,7 +30,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                         </Tooltip>
                         Total conversion rate:{' '}
                     </span>
-                    <span>{conversionMetrics.totalRate}%</span>
+                    <span>{formatDisplayPercentage(conversionMetrics.totalRate)}%</span>
                 </>
             )}
             {allFilters.funnel_viz_type !== FunnelVizType.Trends && !allFilters.breakdown && (

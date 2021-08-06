@@ -645,7 +645,10 @@ export function humanizeNumber(number: number | null, digits: number = 1): strin
             break
         }
     }
-    return (number / matchingPrefix.value).toFixed(digits).replace(TRAILING_ZERO_REGEX, '$1') + matchingPrefix.symbol
+
+    const outputNumber = (number / matchingPrefix.value).toFixed(digits)
+    const formattedNumber = matchingPrefix.value !== 1 ? outputNumber.replace(TRAILING_ZERO_REGEX, '$1') : outputNumber
+    return formattedNumber + matchingPrefix.symbol
 }
 
 export function copyToClipboard(value: string, description?: string): boolean {

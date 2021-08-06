@@ -8,9 +8,9 @@ import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTabl
 import { cohortsModel } from '~/models/cohortsModel'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
+import { formatDisplayPercentage, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
-import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils'
 import { FlattenedFunnelStep } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
@@ -72,7 +72,6 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
         },
         fixed: 'left',
         width: 120,
-        align: 'center',
     })
 
     columns.push({
@@ -91,7 +90,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
     columns.push({
         title: 'Conversion',
         render: function RenderConversion({}, step: FlattenedFunnelStep): JSX.Element | null {
-            return step.order === 0 ? EmptyValue : <span>{step.conversionRates.total}%</span>
+            return step.order === 0 ? EmptyValue : <span>{formatDisplayPercentage(step.conversionRates.total)}%</span>
         },
         width: 80,
         align: 'center',
@@ -118,7 +117,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
             return step.order === 0 ? (
                 EmptyValue
             ) : (
-                <span>{humanizeNumber(100 - step.conversionRates.fromPrevious, 2)}%</span>
+                <span>{formatDisplayPercentage(1 - step.conversionRates.fromPrevious)}%</span>
             )
         },
         width: 80,
