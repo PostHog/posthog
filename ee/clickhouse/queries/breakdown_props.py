@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from django.db.models.manager import BaseManager
 
@@ -142,7 +142,7 @@ def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -
     return " UNION ALL ".join(cohort_queries), ids, params
 
 
-def _parse_breakdown_cohorts(cohorts: BaseManager) -> Tuple[List[str], Dict]:
+def _parse_breakdown_cohorts(cohorts: Union[BaseManager, List[Cohort]]) -> Tuple[List[str], Dict]:
     queries = []
     params: Dict[str, Any] = {}
     for idx, cohort in enumerate(cohorts):
