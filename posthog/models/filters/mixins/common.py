@@ -312,19 +312,37 @@ class DateMixin(BaseParamMixin):
 class EntitiesMixin(BaseParamMixin):
     @cached_property
     def entities(self) -> List[Entity]:
-        _entities: List[Entity] = []
+        processed_entities: List[Entity] = []
         if self._data.get(ACTIONS):
             actions = self._data.get(ACTIONS, [])
             if isinstance(actions, str):
                 actions = json.loads(actions)
 
-            _entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS}) for entity in actions])
+            processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS}) for entity in actions])
         if self._data.get(EVENTS):
             events = self._data.get(EVENTS, [])
             if isinstance(events, str):
                 events = json.loads(events)
-            _entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
-        return sorted(_entities, key=lambda entity: entity.order if entity.order else -1)
+            processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
+        processed_entities.sort(key=lambda entity: entity.order if entity.order else float("inf"))
+        # ensure that there are no duplicate order values
+        order_values_so_far = set()
+        order_deduplication_offset = 0
+        max_order_so_far = 0
+        for entity in processed_entities:
+            if entity.order is not None:
+                entity.order += order_deduplication_offset
+                if entity.order in order_values_so_far:
+                    order_deduplication_offset += 1
+                    entity.order += 1
+                order_values_so_far.add(entity.order)
+                max_order_so_far = entity.order
+        # give order-less entities sequential order values
+        for entity in processed_entities:
+            if entity.order is None:
+                max_order_so_far += 1
+                entity.order = max_order_so_far
+        return processed_entities
 
     @cached_property
     def actions(self) -> List[Entity]:
