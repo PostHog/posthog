@@ -49,10 +49,9 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
         entity.update(
             {
                 "labels": labels,
-                "days": days,
+                "days": entity["days"],
                 "label": "{} - {}".format(entity["label"], label),
                 "chartLabel": "{} - {}".format(entity["label"], label),
-                "dates": entity["days"],
                 "compare": True,
             }
         )

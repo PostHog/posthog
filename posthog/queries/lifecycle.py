@@ -533,7 +533,6 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     return {
         "data": counts,
         "count": sum(counts),
-        "dates": dates,
         "labels": labels,
         "days": days,
         **additional_values,
