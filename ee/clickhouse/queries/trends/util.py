@@ -7,7 +7,6 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, WEEKLY_ACTIVE
-from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -22,12 +21,21 @@ MATH_FUNCTIONS = {
     "p99": "quantile(0.99)",
 }
 
+entity_index = 0
+
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
+    global entity_index
+
+    # :KLUDGE: Generate a unique parameter name every time this is called to avoid collisions.
+    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity_index % 1000}_math)s))"
+    params = {f"e_{entity_index % 1000}_math": entity.math_property}
+    entity_index += 1
+
+    print([value, params])
+
     aggregate_operation = "count(*)"
     join_condition = ""
-    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity.order}_math)s))"
-    params = {f"e_{entity.order}_math": entity.math_property}
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
