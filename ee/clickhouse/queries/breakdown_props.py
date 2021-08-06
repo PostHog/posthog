@@ -35,7 +35,7 @@ def _get_top_elements(filter: Filter, team_id: int, query: str, limit, params: D
 
 
 def get_breakdown_person_prop_values(
-    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25
+    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25, extra_params={}
 ):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
@@ -65,7 +65,7 @@ def get_breakdown_person_prop_values(
         filter=filter,
         team_id=team_id,
         query=elements_query,
-        params={**prop_filter_params, **person_prop_params, **entity_params},
+        params={**prop_filter_params, **person_prop_params, **entity_params, **extra_params},
         limit=limit,
     )
 
@@ -73,7 +73,7 @@ def get_breakdown_person_prop_values(
 
 
 def get_breakdown_event_prop_values(
-    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25
+    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25, extra_params={}
 ):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
@@ -93,7 +93,7 @@ def get_breakdown_event_prop_values(
         filter=filter,
         team_id=team_id,
         query=elements_query,
-        params={**prop_filter_params, **entity_params},
+        params={**prop_filter_params, **entity_params, **extra_params},
         limit=limit,
     )
 

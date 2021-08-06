@@ -83,11 +83,11 @@ class ClickhouseTrendsBreakdown:
             )
         elif filter.breakdown_type == "person":
             (_params, breakdown_filter, _breakdown_filter_params, breakdown_value,) = self._breakdown_person_params(
-                "count(*)" if entity.math == "dau" else aggregate_operation, entity, filter, team_id
+                "count(*)" if entity.math == "dau" else aggregate_operation, math_params, entity, filter, team_id
             )
         else:
             (_params, breakdown_filter, _breakdown_filter_params, breakdown_value,) = self._breakdown_prop_params(
-                "count(*)" if entity.math == "dau" else aggregate_operation, entity, filter, team_id
+                "count(*)" if entity.math == "dau" else aggregate_operation, math_params, entity, filter, team_id
             )
 
         if len(_params["values"]) == 0:
@@ -158,8 +158,12 @@ class ClickhouseTrendsBreakdown:
 
         return params, breakdown_filter, breakdown_filter_params, "value"
 
-    def _breakdown_person_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
-        values_arr = get_breakdown_person_prop_values(filter, entity, aggregate_operation, team_id)
+    def _breakdown_person_params(
+        self, aggregate_operation: str, math_params: Dict, entity: Entity, filter: Filter, team_id: int
+    ):
+        values_arr = get_breakdown_person_prop_values(
+            filter, entity, aggregate_operation, team_id, extra_params=math_params
+        )
         breakdown_filter_params = {
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
@@ -174,8 +178,12 @@ class ClickhouseTrendsBreakdown:
             "value",
         )
 
-    def _breakdown_prop_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
-        values_arr = get_breakdown_event_prop_values(filter, entity, aggregate_operation, team_id)
+    def _breakdown_prop_params(
+        self, aggregate_operation: str, math_params: Dict, entity: Entity, filter: Filter, team_id: int
+    ):
+        values_arr = get_breakdown_event_prop_values(
+            filter, entity, aggregate_operation, team_id, extra_params=math_params
+        )
         params = {
             "values": values_arr,
         }

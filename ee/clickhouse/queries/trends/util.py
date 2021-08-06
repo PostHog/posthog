@@ -32,8 +32,6 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
     params = {f"e_{entity_index % 1000}_math": entity.math_property}
     entity_index += 1
 
-    print([value, params])
-
     aggregate_operation = "count(*)"
     join_condition = ""
     if entity.math == "dau":
