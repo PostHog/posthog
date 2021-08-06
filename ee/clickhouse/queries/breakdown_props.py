@@ -1,6 +1,4 @@
-from typing import Any, Dict, List, Tuple, Union
-
-from django.db.models.manager import BaseManager
+from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
@@ -132,7 +130,7 @@ def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -
         if isinstance(filter.breakdown, list)
         else Cohort.objects.filter(team_id=team_id, pk=filter.breakdown)
     )
-    cohort_queries, params = _parse_breakdown_cohorts(cohorts)
+    cohort_queries, params = _parse_breakdown_cohorts(list(cohorts))
     ids = [cohort.pk for cohort in cohorts]
     if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
         all_query, all_params = _format_all_query(team_id, filter, entity=entity)
@@ -142,7 +140,7 @@ def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -
     return " UNION ALL ".join(cohort_queries), ids, params
 
 
-def _parse_breakdown_cohorts(cohorts: Union[BaseManager, List[Cohort]]) -> Tuple[List[str], Dict]:
+def _parse_breakdown_cohorts(cohorts: List[Cohort]) -> Tuple[List[str], Dict]:
     queries = []
     params: Dict[str, Any] = {}
     for idx, cohort in enumerate(cohorts):

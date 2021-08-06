@@ -38,6 +38,6 @@ def test_parse_breakdown_cohort_query(db, team):
     cohort1 = Cohort.objects.create(
         team=team, groups=[{"action_id": action.pk, "start_date": datetime(2020, 1, 8, 12, 0, 1)}], name="cohort1",
     )
-    query, params = _parse_breakdown_cohorts([cohort1])
-    assert len(query) == 1
-    sync_execute(query[0], params)
+    queries, params = _parse_breakdown_cohorts([cohort1])
+    assert len(queries) == 1
+    sync_execute(queries[0], params)
