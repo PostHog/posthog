@@ -140,7 +140,8 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
         )
 
         # dummy events to make sure that breakdown is not confused
-        # it was confused before, see: https://github.com/PostHog/posthog/issues/5382
+        # it was confused before due to the nature of fetching breakdown values with a LIMIT based on value popularity
+        # see https://github.com/PostHog/posthog/pull/5496
         for current_url_letter in ascii_lowercase[:20]:
             # twenty dummy breakdown values
             for _ in range(2):
