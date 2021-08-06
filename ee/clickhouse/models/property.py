@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import ColumnName, PropertyName, get_materialized_columns
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
@@ -85,37 +85,30 @@ def prop_filter_json_extract(
     prop: Property, idx: int, prepend: str = "", prop_var: str = "properties", allow_denormalized_props: bool = False
 ) -> Tuple[str, Dict[str, Any]]:
     # Once all queries are migrated over we can get rid of allow_denormalized_props
-    json_extract = "trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s))".format(
-        idx=idx, prepend=prepend, prop_var=prop_var
+    property_expr, is_denormalized = get_property_string_expr(
+        property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
     )
-    denormalized_column = get_denormalized_property_column(prop, allow_denormalized_props)
     operator = prop.operator
     params: Dict[str, Any] = {}
 
     if operator == "is_not":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (
-            "AND NOT has(%(v{prepend}_{idx})s, {left})".format(
-                idx=idx, prepend=prepend, left=denormalized_column or json_extract
-            ),
+            "AND NOT has(%(v{prepend}_{idx})s, {left})".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator == "icontains":
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND {left} LIKE %(v{prepend}_{idx})s".format(
-                idx=idx, prepend=prepend, left=denormalized_column or json_extract
-            ),
+            "AND {left} LIKE %(v{prepend}_{idx})s".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator == "not_icontains":
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND NOT ({left} LIKE %(v{prepend}_{idx})s)".format(
-                idx=idx, prepend=prepend, left=denormalized_column or json_extract
-            ),
+            "AND NOT ({left} LIKE %(v{prepend}_{idx})s)".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator in ("regex", "not_regex"):
@@ -129,15 +122,15 @@ def prop_filter_json_extract(
                 regex_function="match" if operator == "regex" else "NOT match",
                 idx=idx,
                 prepend=prepend,
-                left=denormalized_column or json_extract,
+                left=property_expr,
             ),
             params,
         )
     elif operator == "is_set":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
-        if denormalized_column:
+        if is_denormalized:
             return (
-                "AND NOT isNull({left})".format(left=denormalized_column),
+                "AND NOT isNull({left})".format(left=property_expr),
                 params,
             )
         return (
@@ -146,14 +139,14 @@ def prop_filter_json_extract(
         )
     elif operator == "is_not_set":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
-        if denormalized_column:
+        if is_denormalized:
             return (
-                "AND isNull({left})".format(left=denormalized_column),
+                "AND isNull({left})".format(left=property_expr),
                 params,
             )
         return (
             "AND (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
-                idx=idx, prepend=prepend, prop_var=prop_var, left=json_extract
+                idx=idx, prepend=prepend, prop_var=prop_var, left=property_expr
             ),
             params,
         )
@@ -161,13 +154,7 @@ def prop_filter_json_extract(
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
             "AND toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) > %(v{prepend}_{idx})s".format(
-                idx=idx,
-                prepend=prepend,
-                left=denormalized_column
-                if denormalized_column
-                else "visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s)".format(
-                    idx=idx, prepend=prepend, prop_var=prop_var,
-                ),
+                idx=idx, prepend=prepend, left=property_expr,
             ),
             params,
         )
@@ -175,18 +162,12 @@ def prop_filter_json_extract(
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
             "AND toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) < %(v{prepend}_{idx})s".format(
-                idx=idx,
-                prepend=prepend,
-                left=denormalized_column
-                if denormalized_column
-                else "visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s)".format(
-                    idx=idx, prepend=prepend, prop_var=prop_var,
-                ),
+                idx=idx, prepend=prepend, left=property_expr,
             ),
             params,
         )
     else:
-        if is_json(prop.value) and not denormalized_column:
+        if is_json(prop.value) and not is_denormalized:
             clause = "AND has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
             params = {
                 "k{}_{}".format(prepend, idx): prop.key,
@@ -196,9 +177,30 @@ def prop_filter_json_extract(
             clause = "AND has(%(v{prepend}_{idx})s, {left})"
             params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (
-            clause.format(left=denormalized_column or json_extract, idx=idx, prepend=prepend, prop_var=prop_var),
+            clause.format(left=property_expr, idx=idx, prepend=prepend, prop_var=prop_var),
             params,
         )
+
+
+def property_table(property: Property) -> str:
+    if property.type == "event":
+        return "events"
+    elif property.type == "person":
+        return "person"
+    else:
+        raise ValueError(f"Property type does not have a table: {property.type}")
+
+
+def get_property_string_expr(
+    table: str, property_name: PropertyName, var: str, prop_var: str, allow_denormalized_props: bool
+) -> Tuple[str, bool]:
+    materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
+
+    # :TODO: Handle denormalized properties in person table
+    if allow_denormalized_props and property_name in materialized_columns and table == "events":
+        return materialized_columns[property_name], True
+
+    return f"trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, {var}))", False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
@@ -221,15 +223,6 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
         SELECT_PROP_VALUES_SQL.format(parsed_date_from=parsed_date_from, parsed_date_to=parsed_date_to),
         {"team_id": team.pk, "key": key},
     )
-
-
-def get_denormalized_property_column(prop, allow_denormalized_props: bool) -> Optional[ColumnName]:
-    columns = {}
-    # :TODO: Handle denormalized properties in person table
-    if allow_denormalized_props and prop.type == "event":
-        columns = get_materialized_columns("events")
-
-    return columns.get(prop.key)
 
 
 def filter_element(filters: Dict, prepend: str = "") -> Tuple[str, Dict]:
