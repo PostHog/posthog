@@ -15,7 +15,7 @@ PostHog provides open-source product analytics, built for developers. Automate t
 
 <a href="https://posthog.com/docs/self-host/overview#deploy">Deploy PostHog Self-Hosted</a>
 
-... or use [PostHog Cloud](https://app.posthog.com/signup) if you don't want to self-host.
+... or use [PostHog Cloud](https://app.posthog.com/signup) if you don't need to self-host.
 
 <br /><br />
 
