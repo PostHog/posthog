@@ -1,7 +1,6 @@
 import asyncio
 import hashlib
 import json
-import re
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -9,17 +8,16 @@ import sqlparse
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
-from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
+from ee.clickhouse.errors import wrap_query_error
 from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
 from posthog.constants import RDBMS
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
@@ -145,7 +143,7 @@ else:
                 tags["reason"] = type(err).__name__
                 incr("clickhouse_sync_execution_failure", tags=tags)
 
-                raise _wrap_api_error(err)
+                raise wrap_query_error(err)
             finally:
                 execution_time = perf_counter() - start_time
 
@@ -190,18 +188,6 @@ def _notify_of_slow_query_failure(tags: Dict[str, Any]):
     tags["failed"] = True
     tags["reason"] = "timeout"
     incr("clickhouse_sync_execution_failure", tags=tags)
-
-
-def _wrap_api_error(err: Exception) -> Exception:
-    if not isinstance(err, ServerException):
-        return err
-
-    # Return a 512 error for queries which would time out
-    match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)
-    if match:
-        return EstimatedQueryExecutionTimeTooLong(detail=match.group(0))
-
-    return err
 
 
 def format_sql(sql, params, colorize=True):

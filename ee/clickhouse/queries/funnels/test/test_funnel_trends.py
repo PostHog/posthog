@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 import pytz
@@ -302,8 +302,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
                 "interval": "month",
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
+                "date_from": "2020-01-01 00:00:00",
+                "date_to": "2020-07-01 00:00:00",
                 "funnel_window_days": 7,
                 "events": [
                     {"id": "step one", "order": 0},
@@ -315,14 +315,67 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         _create_person(distinct_ids=["user_one"], team=self.team)
 
         # full run
-        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
-        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2021-05-01 01:00:00")
-        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2021-05-01 02:00:00")
+        _create_event(event="step one", distinct_id="user_one", team=self.team, timestamp="2020-05-01 00:00:00")
+        _create_event(event="step two", distinct_id="user_one", team=self.team, timestamp="2020-05-01 01:00:00")
+        _create_event(event="step three", distinct_id="user_one", team=self.team, timestamp="2020-05-01 02:00:00")
 
         results = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)._exec_query()
-        self.assertEqual(1, len(results))
+        self.assertEqual(
+            results,
+            [
+                {
+                    "conversion_rate": 0.0,
+                    "is_period_final": True,
+                    "reached_from_step_count": 0,
+                    "reached_to_step_count": 0,
+                    "timestamp": date(2020, 1, 1),
+                },
+                {
+                    "conversion_rate": 0.0,
+                    "is_period_final": True,
+                    "reached_from_step_count": 0,
+                    "reached_to_step_count": 0,
+                    "timestamp": date(2020, 2, 1),
+                },
+                {
+                    "conversion_rate": 0.0,
+                    "is_period_final": True,
+                    "reached_from_step_count": 0,
+                    "reached_to_step_count": 0,
+                    "timestamp": date(2020, 3, 1),
+                },
+                {
+                    "conversion_rate": 0.0,
+                    "is_period_final": True,
+                    "reached_from_step_count": 0,
+                    "reached_to_step_count": 0,
+                    "timestamp": date(2020, 4, 1),
+                },
+                {
+                    "conversion_rate": 100.0,
+                    "is_period_final": True,
+                    "reached_from_step_count": 1,
+                    "reached_to_step_count": 1,
+                    "timestamp": date(2020, 5, 1),
+                },
+                {
+                    "conversion_rate": 0.0,
+                    "is_period_final": True,
+                    "reached_from_step_count": 0,
+                    "reached_to_step_count": 0,
+                    "timestamp": date(2020, 6, 1),
+                },
+                {
+                    "conversion_rate": 0.0,
+                    "is_period_final": True,
+                    "reached_from_step_count": 0,
+                    "reached_to_step_count": 0,
+                    "timestamp": date(2020, 7, 1),
+                },
+            ],
+        )
 
-        persons, _ = self._get_people_at_step(filter, "2021-05-01 00:00:00", False)
+        persons, _ = self._get_people_at_step(filter, "2020-05-01 00:00:00", False)
 
         self.assertEqual(
             [person["distinct_ids"] for person in persons], [["user_one"]],

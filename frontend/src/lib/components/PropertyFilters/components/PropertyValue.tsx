@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
-import { isOperatorFlag, isOperatorMulti, isOperatorRegex, isValidRegex, toString } from 'lib/utils'
+import { isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
 
@@ -41,8 +41,12 @@ function matchesLowerCase(needle?: string, haystack?: string): boolean {
 }
 
 function getValidationError(operator: PropertyOperator, value: any): string | null {
-    if (isOperatorRegex(operator) && !isValidRegex(value)) {
-        return 'Value is not a valid regular expression'
+    if (isOperatorRegex(operator)) {
+        try {
+            new RegExp(value)
+        } catch (e) {
+            return e.message
+        }
     }
     return null
 }

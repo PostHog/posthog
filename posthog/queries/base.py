@@ -88,7 +88,7 @@ TIME_IN_SECONDS: Dict[str, Any] = {
     "hour": 3600,
     "day": 3600 * 24,
     "week": 3600 * 24 * 7,
-    "month": 3600 * 24 * 30,
+    "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
 }
 
 """

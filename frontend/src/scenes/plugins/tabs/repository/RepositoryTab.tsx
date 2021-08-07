@@ -100,16 +100,14 @@ export function RepositoryTab(): JSX.Element {
                                     <Col span={24}>
                                         {communityPlugins.length > 0 ? (
                                             <span>
-                                                Community plugins are not built nor maintained by the PostHog team.
-                                                Anyone,{' '}
+                                                Community plugins are not built nor maintained by the PostHog team.{' '}
                                                 <a
-                                                    href="https://posthog.com/docs/plugins/build-your-own"
+                                                    href="https://posthog.com/docs/plugins/build"
                                                     target="_blank"
-                                                    rel="noreferrer noopener"
+                                                    rel="noopener"
                                                 >
-                                                    including you
+                                                    Anyone, including you, can build a plugin.
                                                 </a>
-                                                , can build a plugin.
                                             </span>
                                         ) : (
                                             'You have already installed all community plugins!'

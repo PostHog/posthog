@@ -1,3 +1,5 @@
+from typing import cast
+
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels.funnel_trends import TIMESTAMP_FORMAT, ClickhouseFunnelTrends
@@ -41,4 +43,4 @@ class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends):
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data, len(results) > self._filter.limit - 1
+        return PersonSerializer(people, many=True).data, len(results) > cast(int, self._filter.limit) - 1

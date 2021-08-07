@@ -120,7 +120,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
 def _handle_date_interval(filter: Filter) -> Filter:
     # adhoc date handling. parsed differently with django orm
     date_from = filter.date_from or timezone.now()
-    data = {}
+    data: Dict = {}
     if filter.interval == "month":
         data.update(
             {"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")}
