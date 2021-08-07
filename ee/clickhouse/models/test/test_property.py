@@ -145,6 +145,11 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter)), 2)
 
+        filter = Filter(
+            data={"properties": [{"key": "selector", "value": [], "operator": "exact", "type": "element",}]}
+        )
+        self.assertEqual(len(self._run_query(filter)), 0)
+
         # tag_name
 
         filter = Filter(
