@@ -171,8 +171,8 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 final.append(filter_query)
                 params.update(filter_params)
             elif prop.type == "element":
-                query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
-                final.append("AND {}".format(query[0]))
+                queries, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
+                final.extend(f"AND {query}" for query in queries)
                 params.update(filter_params)
             else:
                 filter_query, filter_params = prop_filter_json_extract(

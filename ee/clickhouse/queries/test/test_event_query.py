@@ -8,6 +8,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.cohort import Cohort
+from posthog.models.element import Element
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.person import Person
@@ -273,3 +274,60 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(data=filters)
         query = self._run_query(filter)
         self.assertIn("mat_test_prop", query)
+
+    def test_element(self):
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"attr": "some_other_val"},
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/a-url",
+                    attr_class=["small"],
+                    text="bla bla",
+                    attributes={},
+                    nth_child=1,
+                    nth_of_type=0,
+                ),
+                Element(tag_name="button", attr_class=["btn", "btn-primary"], nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="label", nth_child=0, nth_of_type=0, attr_id="nested",),
+            ],
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"attr": "some_val"},
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/a-url",
+                    attr_class=["small"],
+                    text="bla bla",
+                    attributes={},
+                    nth_child=1,
+                    nth_of_type=0,
+                ),
+                Element(tag_name="button", attr_class=["btn", "btn-secondary"], nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="img", nth_child=0, nth_of_type=0, attr_id="nested",),
+            ],
+        )
+
+        filter = Filter(
+            data={
+                "events": [{"id": "event_name", "order": 0},],
+                "properties": [{"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"}],
+            }
+        )
+
+        self._run_query(filter)
+
+        self._run_query(
+            filter.with_data(
+                {"properties": [{"key": "tag_name", "value": [], "operator": "exact", "type": "element"}],}
+            )
+        )
