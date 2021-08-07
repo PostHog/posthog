@@ -159,7 +159,7 @@ export const insightLogic = kea<insightLogicType>({
             null as InsightEventSource | null,
             {
                 setInsightMode: (_, { source }) => source,
-            }
+            },
         ],
     },
     loaders: ({ values, actions }) => ({
@@ -179,14 +179,17 @@ export const insightLogic = kea<insightLogicType>({
             ItemMode.View,
             {
                 setInsightMode: ({ mode }) => {
-                    const editToastRef = editingToast('Insight', (insightMode, source) => {
-                        actions.setInsightMode({ mode: insightMode, source })
-                    })
                     if (mode === ItemMode.Edit) {
                         clearDOMTextSelection()
-                        setTimeout(() => editToastRef, 100)
+                        setTimeout(
+                            () =>
+                                editingToast('Insight', (insightMode, source) => {
+                                    actions.setInsightMode({ mode: insightMode, source })
+                                }),
+                            100
+                        )
                     } else {
-                        toast.dismiss(editToastRef)
+                        toast.dismiss()
                     }
                     return mode
                 },
@@ -194,9 +197,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     selectors: {
-        insightName: [
-            (s) => [s.insight], (insight) => insight?.name,
-        ]
+        insightName: [(s) => [s.insight], (insight) => insight?.name],
     },
     listeners: ({ actions, values }) => ({
         setAllFilters: async (filters, breakpoint) => {

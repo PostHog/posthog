@@ -76,9 +76,15 @@ export function Insights(): JSX.Element {
         insightMode,
         lastInsightModeSource,
     } = useValues(insightLogic)
-    const { setActiveView, toggleControlsCollapsed, saveNewTag, deleteTag, updateInsight, setInsightMode, setInsight } = useActions(
-        insightLogic
-    )
+    const {
+        setActiveView,
+        toggleControlsCollapsed,
+        saveNewTag,
+        deleteTag,
+        updateInsight,
+        setInsightMode,
+        setInsight,
+    } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
     const { areFiltersValid } = useValues(funnelLogic)
@@ -92,7 +98,9 @@ export function Insights(): JSX.Element {
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
-    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters }))
+    const { loadResults } = useActions(
+        logicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
+    )
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -133,6 +141,11 @@ export function Insights(): JSX.Element {
         },
         l: {
             action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
+        },
+        escape: {
+            // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
+            action: () => setInsightMode({ mode: null, source: InsightEventSource.Hotkey }),
+            disabled: insightMode !== ItemMode.Edit,
         },
     })
 
@@ -178,10 +191,16 @@ export function Insights(): JSX.Element {
             ) : (
                 <Row style={{ alignItems: 'baseline' }}>
                     <PageHeader title={insightName || 'Insights'} />
-                    {hasDashboardCollaboration && <EditOutlined style={{paddingLeft: 16}} onClick={() => setInsightMode({ mode: ItemMode.Edit, source: InsightEventSource.InsightHeader })}/>}
+                    {hasDashboardCollaboration && (
+                        <EditOutlined
+                            style={{ paddingLeft: 16 }}
+                            onClick={() =>
+                                setInsightMode({ mode: ItemMode.Edit, source: InsightEventSource.InsightHeader })
+                            }
+                        />
+                    )}
                 </Row>
-                )
-            }
+            )}
 
             <Row>
                 {hasDashboardCollaboration && (
@@ -385,4 +404,3 @@ export function Insights(): JSX.Element {
         </div>
     )
 }
-
