@@ -63,7 +63,7 @@ function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): resul
 function isValidBreakdownParameter(
     breakdown: FunnelRequestParams['breakdown']
 ): breakdown is string | null | undefined {
-    return ['string', 'null', 'undefined', 'object', 'number'].includes(typeof breakdown)
+    return ['string', 'null', 'undefined'].includes(typeof breakdown) || Array.isArray(breakdown)
 }
 
 function wait(ms = 1000): Promise<any> {
