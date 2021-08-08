@@ -90,7 +90,7 @@ export const insightLogic = kea<insightLogicType>({
         maybeShowErrorMessage: [
             false,
             {
-                endQuery: (_, { exception }) => exception?.status === 500 || false,
+                endQuery: (_, { exception }) => exception?.status >= 400,
                 startQuery: () => false,
                 setActiveView: () => false,
             },
