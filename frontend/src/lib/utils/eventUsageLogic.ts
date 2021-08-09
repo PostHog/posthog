@@ -1,6 +1,6 @@
 /* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
@@ -16,6 +16,7 @@ import {
     DashboardItemType,
     ViewType,
     InsightType,
+    PropertyFilter,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -36,6 +37,18 @@ export enum DashboardEventSource {
     DashboardsList = 'dashboards_list',
 }
 
+function flattenProperties(properties: PropertyFilter[]): string[] {
+    const output = []
+    for (const prop of properties || []) {
+        if (isPostHogProp(prop.key)) {
+            output.push(prop.key)
+        } else {
+            output.push('redacted') // Custom property names are not reported
+        }
+    }
+    return output
+}
+
 /*
     Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
 */
@@ -52,6 +65,17 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         funnel_from_step,
         funnel_to_step,
     } = filters
+
+    let properties_local: string[] = []
+    for (const event of filters.events || []) {
+        properties_local = properties_local.concat(flattenProperties(event.properties || []))
+    }
+    for (const action of filters.actions || []) {
+        properties_local = properties_local.concat(flattenProperties(action.properties || []))
+    }
+
+    const properties_global = flattenProperties(filters.properties || [])
+
     return {
         insight,
         display,
@@ -66,6 +90,9 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         funnel_viz_type,
         funnel_from_step,
         funnel_to_step,
+        properties_global,
+        properties_local,
+        properties_all: properties_global.concat(properties_local), // Global and local properties together
     }
 }
 
