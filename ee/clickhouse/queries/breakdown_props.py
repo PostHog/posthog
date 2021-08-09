@@ -47,7 +47,7 @@ def get_breakdown_person_prop_values(
         prepend="person",
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id)
+    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
 
     elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
         parsed_date_from=parsed_date_from,
@@ -78,7 +78,7 @@ def get_breakdown_event_prop_values(
         filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id)
+    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
         parsed_date_from=parsed_date_from,
