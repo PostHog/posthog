@@ -42,12 +42,12 @@ import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import './Insights.scss'
 import { Description } from 'lib/components/Description/Description'
 import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
+import { userLogic } from 'scenes/userLogic'
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
 }
@@ -95,7 +95,7 @@ export function Insights(): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
-    const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { user } = useValues(userLogic)
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
     const { loadResults } = useActions(
@@ -191,7 +191,7 @@ export function Insights(): JSX.Element {
             ) : (
                 <Row style={{ alignItems: 'baseline' }}>
                     <PageHeader title={insightName || 'Insights'} />
-                    {hasDashboardCollaboration && (
+                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
                         <EditOutlined
                             style={{ paddingLeft: 16 }}
                             onClick={() =>
@@ -203,7 +203,7 @@ export function Insights(): JSX.Element {
             )}
 
             <Row>
-                {hasDashboardCollaboration && (
+                {user?.organization?.available_features?.includes('dashboard_collaboration') && (
                     <Col style={{ width: '100%' }}>
                         <div className="mb" data-attr="insight-tags">
                             <ObjectTags
