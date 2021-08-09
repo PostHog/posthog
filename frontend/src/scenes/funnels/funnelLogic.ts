@@ -149,7 +149,7 @@ export const funnelLogic = kea<funnelLogicType>({
         openPersonsModal: (
             step: FunnelStep | FunnelStepWithNestedBreakdown,
             stepNumber: number,
-            breakdown_value?: string
+            breakdown_value?: string | number
         ) => ({
             step,
             stepNumber,

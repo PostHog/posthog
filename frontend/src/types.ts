@@ -629,7 +629,7 @@ export interface FilterType {
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: string | number | number[] | null
-    breakdown_value?: string
+    breakdown_value?: string | number
     shown_as?: ShownAsType
     session?: string
     period?: string
@@ -743,8 +743,8 @@ export interface FunnelStep {
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: string
-    breakdown_value?: string
+    breakdown?: string | number | number[]
+    breakdown_value?: string | number
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {

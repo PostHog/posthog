@@ -98,7 +98,12 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
             if with_breakdown:
                 serialized_result.update(
-                    {"breakdown": result[-1] if isinstance(result[-1], str) else Cohort.objects.get(pk=result[-1]).name}
+                    {
+                        "breakdown": result[-1]
+                        if isinstance(result[-1], str)
+                        else Cohort.objects.get(pk=result[-1]).name,
+                        "breakdown_value": result[-1],
+                    }
                 )
                 # important to not try and modify this value any how - as these are keys for fetching persons
 

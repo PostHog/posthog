@@ -369,7 +369,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                     percentage={barSizePercentage}
                                                     name={breakdown.name}
                                                     onBarClick={() =>
-                                                        openPersonsModal(step, i + 1, breakdown.breakdown)
+                                                        openPersonsModal(step, i + 1, breakdown.breakdown_value)
                                                     }
                                                     disabled={!!dashboardItemId}
                                                     layout={layout}
