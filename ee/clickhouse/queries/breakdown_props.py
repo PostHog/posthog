@@ -2,8 +2,8 @@ from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
+from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.trends.util import get_entity_filtering_params
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL

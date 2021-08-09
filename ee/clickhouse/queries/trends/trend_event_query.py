@@ -1,8 +1,9 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns
+from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.trends.util import get_active_user_params, get_entity_filtering_params
+from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models import Entity
