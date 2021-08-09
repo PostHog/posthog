@@ -205,7 +205,7 @@ export function Insights(): JSX.Element {
             <Row>
                 {hasDashboardCollaboration && (
                     <Col style={{ width: '100%' }}>
-                        <div className="mb" data-attr="dashboard-tags">
+                        <div className="mb" data-attr="insight-tags">
                             <ObjectTags
                                 tags={insight.tags || []}
                                 onTagSave={saveNewTag}
