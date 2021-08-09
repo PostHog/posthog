@@ -3,11 +3,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, WEEKLY_ACTIVE
+from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -97,26 +95,6 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
             )
 
     return params
-
-
-def populate_entity_params(
-    entity: Entity, team_id: int, table_name: str = "", *, with_prop_clauses: bool = False
-) -> Tuple[Dict, Dict]:
-    params, content_sql_params = {}, {}
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        action = entity.get_action()
-        action_query, action_params = format_action_filter(action, table_name=table_name)
-        params.update(action_params)
-        content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
-    else:
-        prop_filters = ""
-        if with_prop_clauses:
-            prop_filters, prop_filter_params = parse_prop_clauses(entity.properties, team_id)
-            params.update(prop_filter_params)
-        params["event"] = entity.id
-        content_sql_params = {"entity_query": f"AND event = %(event)s {prop_filters}"}
-
-    return params, content_sql_params
 
 
 def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:

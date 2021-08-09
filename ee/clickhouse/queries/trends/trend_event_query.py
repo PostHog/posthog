@@ -2,7 +2,7 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.trends.util import get_active_user_params, populate_entity_params
+from ee.clickhouse.queries.trends.util import get_active_user_params, get_entity_filtering_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models import Entity
@@ -91,7 +91,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         return date_filter, date_params
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
-        entity_params, entity_format_params = populate_entity_params(
+        entity_params, entity_format_params = get_entity_filtering_params(
             self._entity, self._team_id, table_name=self.EVENT_TABLE_ALIAS
         )
 

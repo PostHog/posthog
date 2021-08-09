@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Tuple
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.trends.util import populate_entity_params
+from ee.clickhouse.queries.trends.util import get_entity_filtering_params
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
@@ -47,7 +47,7 @@ def get_breakdown_person_prop_values(
         prepend="person",
     )
 
-    entity_params, entity_format_params = populate_entity_params(entity, team_id, with_prop_clauses=True)
+    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
 
     elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
         parsed_date_from=parsed_date_from,
@@ -78,7 +78,7 @@ def get_breakdown_event_prop_values(
         filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
     )
 
-    entity_params, entity_format_params = populate_entity_params(entity, team_id, with_prop_clauses=True)
+    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
         parsed_date_from=parsed_date_from,
