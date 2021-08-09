@@ -1,14 +1,14 @@
-import { Alert, Button } from "antd"
-import clsx from "clsx"
-import { useActions, useValues } from "kea"
-import { FEATURE_FLAGS } from "lib/constants"
-import { featureFlagLogic } from "lib/logic/featureFlagLogic"
-import { Loading } from "lib/utils"
-import React from "react"
-import { Funnel } from "scenes/funnels/Funnel"
-import { funnelLogic } from "scenes/funnels/funnelLogic"
-import { FunnelVizType } from "~/types"
-import { FunnelInvalidFiltersEmptyState, FunnelEmptyState } from "./EmptyStates"
+import { Alert, Button } from 'antd'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Loading } from 'lib/utils'
+import React from 'react'
+import { Funnel } from 'scenes/funnels/Funnel'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { FunnelVizType } from '~/types'
+import { FunnelInvalidFiltersEmptyState, FunnelEmptyState } from './EmptyStates'
 
 export function FunnelInsight(): JSX.Element {
     const {
