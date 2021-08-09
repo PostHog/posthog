@@ -1,3 +1,5 @@
+import json
+
 from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
@@ -517,6 +519,23 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             self.assertEqual(len(people["results"][0]["people"]), 2)
             ordered_people = sorted([p["id"] for p in people["results"][0]["people"]])
             self.assertEqual(ordered_people, sorted([person1.pk, person2.pk]))
+
+        def test_filtering_by_person_properties(self):
+            person1, person2, person3, person4 = self._create_multiple_people()
+
+            people = self.client.get(
+                "/api/action/people/",
+                data={
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "watched movie",
+                    "properties": json.dumps([{"key": "name", "value": "person2", "type": "person"}]),
+                },
+            ).json()
+
+            self.assertEqual(len(people["results"][0]["people"]), 1)
+            self.assertEqual(people["results"][0]["people"][0]["id"], person2.pk)
 
     return TestActionPeople
 
