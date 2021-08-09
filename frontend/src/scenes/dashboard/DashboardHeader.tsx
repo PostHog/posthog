@@ -26,7 +26,7 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { dashboardsLogic } from './dashboardsLogic'
 import { urls } from 'scenes/sceneLogic'
 import { Description } from 'lib/components/Description/Description'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)
@@ -36,7 +36,7 @@ export function DashboardHeader(): JSX.Element {
     const { dashboardTags } = useValues(dashboardsLogic)
     const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
-    const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { user } = useValues(userLogic)
     const [newName, setNewName] = useState(dashboard.name) // Used to update the input immediately, debouncing API calls
 
     const nameInputRef = useRef<Input | null>(null)
@@ -235,7 +235,7 @@ export function DashboardHeader(): JSX.Element {
                     </>
                 )}
             </div>
-            {hasDashboardCollaboration && (
+            {user?.organization?.available_features?.includes('dashboard_collaboration') && (
                 <>
                     <div className="mb" data-attr="dashboard-tags">
                         <ObjectTags
