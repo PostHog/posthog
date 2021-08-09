@@ -31,23 +31,29 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     ]
 
     return (
-        <Row align="middle" style={{ margin: '0.25rem 0', padding: '0.25rem 0' }}>
+        <Row
+            align="middle"
+            className="funnel-options-conversion-window"
+            style={{ margin: '0.25rem 0', padding: '0.25rem 0' }}
+        >
             <span>
-                <Tooltip title="Limit data to users who converted within a specific number of days.">
+                <Tooltip title="Limit to users who converted within a specific number of days.">
                     <InfoCircleOutlined className="info-indicator left" />
                 </Tooltip>
                 Limit conversion window to{' '}
                 <InputNumber
+                    className="time-value-input"
                     min={1}
-                    max={conversionWindow.unit === TimeUnit.Week ? 53 : 365}
+                    max={conversionWindow.unit === TimeUnit.Day ? 365 : 53}
                     defaultValue={14} // days
                     value={conversionWindowValueToShow}
                     onChange={(timeValue) => setConversionWindow({}, Number(timeValue))}
                 />
                 <Select
+                    className="time-unit-input"
                     defaultValue={TimeUnit.Day}
+                    dropdownMatchSelectWidth={false}
                     value={conversionWindow.unit}
-                    style={{ width: 120 }}
                     onChange={(unit: TimeUnit) => setConversionWindow({ unit })}
                 >
                     {options.map(({ value, label }) => (

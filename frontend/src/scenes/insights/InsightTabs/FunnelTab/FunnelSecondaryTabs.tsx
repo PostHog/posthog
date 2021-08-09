@@ -23,7 +23,7 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
     return (
         <>
             {showConversionWindowFilter && (
-                <Card>
+                <Card className="funnel-options" data-attr="funnel-options">
                     <h4 className="secondary">Options</h4>
                     <FunnelConversionWindowFilter />
                 </Card>

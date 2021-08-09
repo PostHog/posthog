@@ -137,3 +137,20 @@
         }
     }
 }
+
+.funnel-options {
+    margin-top: 16px;
+
+    .funnel-options-conversion-window {
+        margin: 0.25rem 0;
+        padding: 0.25rem 0;
+
+        .time-value-input {
+            width: 70px;
+            margin-right: $default_spacing / 2;
+        }
+        .time-unit-input {
+            width: 90px;
+        }
+    }
+}

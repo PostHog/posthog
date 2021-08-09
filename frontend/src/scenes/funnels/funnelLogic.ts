@@ -285,8 +285,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
             {
                 setConversionWindow: (state, { conversionWindow: { unit }, timeValue }) => {
-                    const nextUnit = unit || state.unit
-                    const nextTimeValue = timeValue || (nextUnit === TimeUnit.Week ? state.days / 7 : state.days)
+                    const nextUnit = unit || state.unit || TimeUnit.Day
+                    const nextTimeValue = timeValue || (nextUnit === TimeUnit.Week ? state.days / 7 : state.days) || 14
                     const days = calculateDays(nextUnit, nextTimeValue)
                     return {
                         ...state,
@@ -590,7 +590,7 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [selectors.conversionWindow],
             (conversionWindow): number => {
                 if (conversionWindow.unit === TimeUnit.Week) {
-                    return Math.ceil(conversionWindow.days / 7)
+                    return Math.floor(conversionWindow.days / 7)
                 }
                 return conversionWindow.days
             },
