@@ -46,7 +46,6 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                 />
                 <Select
                     defaultValue={TimeUnit.Day}
-                    t
                     value={conversionWindow.unit}
                     style={{ width: 120 }}
                     onChange={(unit: TimeUnit) => setConversionWindow({ unit })}

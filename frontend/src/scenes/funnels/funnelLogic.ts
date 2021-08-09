@@ -29,7 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
+import { calcPercentage, calculateDays, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
@@ -285,18 +285,12 @@ export const funnelLogic = kea<funnelLogicType>({
             },
             {
                 setConversionWindow: (state, { conversionWindow: { unit }, timeValue }) => {
-                    const days = Math.max(
-                        1,
-                        Math.min(
-                            365, // clamp between [1, 365]
-                            (timeValue && (unit || state.unit) === TimeUnit.Week ? timeValue * 7 : timeValue) ||
-                                ((unit || state.unit) === TimeUnit.Week && Math.ceil(state.days / 7) * 7),
-                            state.days || 14
-                        )
-                    )
+                    const nextUnit = unit || state.unit
+                    const nextTimeValue = timeValue || (nextUnit === TimeUnit.Week ? state.days / 7 : state.days)
+                    const days = calculateDays(nextUnit, nextTimeValue)
                     return {
                         ...state,
-                        ...(unit ? { unit } : {}),
+                        ...(unit ? { unit: nextUnit } : {}),
                         days,
                     }
                 },
