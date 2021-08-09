@@ -4,6 +4,7 @@ from django.urls.base import resolve
 from loginas.utils import is_impersonated_session
 
 from posthog.ee import is_clickhouse_enabled
+from posthog.internal_metrics import incr
 
 
 class CHQueries(object):
@@ -20,6 +21,7 @@ class CHQueries(object):
         from ee.clickhouse import client
 
         route = resolve(request.path)
+        route_id = f"{route.route} ({route.func.__name__})"
         client._request_information = {
             "save": (
                 is_clickhouse_enabled()
@@ -28,10 +30,13 @@ class CHQueries(object):
             ),
             "user_id": request.user.pk,
             "kind": "request",
-            "id": f"{route.route} ({route.func.__name__})",
+            "id": route_id,
         }
 
         response: HttpResponse = self.get_response(request)
+
+        if "api/" in route_id and "capture" not in route_id:
+            incr("http_api_request_response", tags={"id": id, "status_code": response.status_code})
 
         client._request_information = None
 
