@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams } from 'scenes/trends/trendsLogic'
-import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UsergroupAddOutlined, ClockCircleOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row, Col, Skeleton } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
 import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter, ViewType } from '~/types'
@@ -47,6 +47,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
         searchTerm,
         isInitialLoad,
         clickhouseFeaturesEnabled,
+        peopleModalURL,
     } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
         personsModalLogic
@@ -143,7 +144,6 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 display: 'flex',
                                 flexDirection: 'column',
                                 width: '100%',
-                                alignItems: 'flex-start',
                                 padding: '0px 16px',
                             }}
                         >
@@ -167,6 +167,29 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                     }
                                 />
                             )}
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    paddingTop: 16,
+                                    flexDirection: 'column',
+                                    alignItems: 'flex-end',
+                                }}
+                            >
+                                <Link
+                                    to={peopleModalURL.sessions}
+                                    style={{ marginLeft: 8 }}
+                                    data-attr="persons-modal-sessions"
+                                >
+                                    <ClockCircleOutlined /> View related sessions <ArrowRightOutlined />
+                                </Link>
+                                <Link
+                                    to={peopleModalURL.recordings}
+                                    type="primary"
+                                    data-attr="persons-modal-recordings"
+                                >
+                                    View related recordings <ArrowRightOutlined />
+                                </Link>
+                            </div>
                             <span style={{ paddingTop: 9 }}>
                                 Found{' '}
                                 <b>

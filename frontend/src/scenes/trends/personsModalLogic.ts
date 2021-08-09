@@ -10,6 +10,8 @@ import { personsModalLogicType } from './personsModalLogicType'
 import { parsePeopleParams, TrendPeople } from './trendsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { SESSIONS_WITH_RECORDINGS_FILTER } from 'scenes/sessions/filters/constants'
+import { ACTION_TYPE, EVENT_TYPE } from 'lib/constants'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -102,6 +104,55 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         isInitialLoad: [
             (s) => [s.peopleLoading, s.loadingMorePeople],
             (peopleLoading, loadingMorePeople) => peopleLoading && !loadingMorePeople,
+        ],
+        sessionsPageParams: [
+            (selectors) => [selectors.peopleParams, selectors.people],
+            (peopleParams, people) => {
+                if (!people?.people) {
+                    return {}
+                }
+
+                const { action, day, breakdown_value } = people
+                const properties = [
+                    ...(peopleParams?.filters.properties || []),
+                    ...(action !== 'session' ? action.properties : []),
+                ]
+                if (peopleParams?.filters.breakdown && peopleParams.filters.breakdown_type && breakdown_value) {
+                    properties.push({
+                        key: peopleParams?.filters.breakdown,
+                        value: breakdown_value,
+                        type: peopleParams?.filters.breakdown_type,
+                        operator: null,
+                    })
+                }
+
+                const eventProperties = properties.filter(({ type }) => type === 'event')
+                const personProperties = properties.filter(({ type }) => type === 'person' || type === 'cohort')
+
+                return {
+                    date: day,
+                    filters: [
+                        {
+                            type: action !== 'session' && action.type === 'actions' ? ACTION_TYPE : EVENT_TYPE,
+                            key: 'id',
+                            value: action !== 'session' && action['id'],
+                            properties: eventProperties,
+                            label: action !== 'session' && action.name,
+                        },
+                        ...personProperties,
+                    ],
+                }
+            },
+        ],
+        peopleModalURL: [
+            (selectors) => [selectors.sessionsPageParams],
+            (params) => ({
+                sessions: `/sessions?${toParams(params)}`,
+                recordings: `/sessions?${toParams({
+                    ...params,
+                    filters: [...(params.filters || []), SESSIONS_WITH_RECORDINGS_FILTER],
+                })}`,
+            }),
         ],
         clickhouseFeaturesEnabled: [
             () => [preflightLogic.selectors.preflight],
