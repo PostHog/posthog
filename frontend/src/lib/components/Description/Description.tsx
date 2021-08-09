@@ -27,7 +27,7 @@ export function Description({
         <Card className="description" bordered={!(itemMode === ItemMode.Edit)}>
             {itemMode === ItemMode.Edit ? (
                 <Input.TextArea
-                    placeholder="Add a description to your dashboard that helps others understand it better."
+                    placeholder="Add a description that helps others understand it better."
                     value={newDescription}
                     onChange={(e) => {
                         setNewDescription(e.target.value) // To update the input immediately

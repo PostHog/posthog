@@ -331,6 +331,7 @@ export const insightLogic = kea<insightLogicType>({
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
+            toast.dismiss()
         },
     }),
 })
