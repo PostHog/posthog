@@ -17,7 +17,7 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
-    key: (props) => props.id,
+    key: (props) => props.id || 'new',
 
     actions: () => ({
         addNewDashboard: true,
