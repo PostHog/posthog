@@ -17,9 +17,11 @@ def get_entity_filtering_params(
         content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
     else:
         prop_filters = ""
-        params = {"event": entity.id}
         if with_prop_filters:
             prop_filters, params = parse_prop_clauses(entity.properties, team_id)
+        else:
+            prop_filters, params = "", {}
+        params["event"] = entity.id
         content_sql_params = {"entity_query": f"AND event = %(event)s {prop_filters}"}
 
     return params, content_sql_params
