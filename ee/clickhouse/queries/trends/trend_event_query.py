@@ -1,7 +1,6 @@
 from typing import Any, Dict, Tuple
 
-from django.conf import settings
-
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params, populate_entity_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -24,8 +23,8 @@ class TrendsEventQuery(ClickhouseEventQuery):
             + (
                 " ".join(
                     [
-                        f", {self.EVENT_TABLE_ALIAS}.properties_{prop} as properties_{prop}"
-                        for prop in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES
+                        f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
+                        for column_name in get_materialized_columns("events").values()
                     ]
                 )
             )

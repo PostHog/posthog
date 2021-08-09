@@ -2,10 +2,9 @@ from typing import Any, Dict, Tuple
 
 from django.conf import settings
 
+from ee.clickhouse.materialized_columns import get_materialized_columns
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.settings import CLICKHOUSE_DENORMALIZED_PROPERTIES
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models.action import Action
 
 
 class FunnelEventQuery(ClickhouseEventQuery):
@@ -17,8 +16,8 @@ class FunnelEventQuery(ClickhouseEventQuery):
             + (
                 " ".join(
                     [
-                        f", {self.EVENT_TABLE_ALIAS}.properties_{prop} as properties_{prop}"
-                        for prop in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES
+                        f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
+                        for column_name in get_materialized_columns("events").values()
                     ]
                 )
             )

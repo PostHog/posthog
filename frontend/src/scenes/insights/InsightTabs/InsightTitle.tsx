@@ -1,9 +1,12 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { DashboardOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
+import { useValues } from 'kea'
 
 export function InsightTitle({ actionBar = null }: { actionBar?: JSX.Element | null }): JSX.Element {
-    const [{ fromItemName, fromDashboard }] = useState(router.values.hashParams)
+    const {
+        hashParams: { fromItemName, fromDashboard },
+    } = useValues(router)
     return (
         <>
             <h3 className="l3 insight-title-container">
