@@ -27,10 +27,18 @@
     }
 }
 
+.dashboard-item {
+    .svg-funnel-js {
+        .svg-funnel-js__container {
+            height: 100%;
+        }
+    }
+}
+
 .svg-funnel-js {
     .svg-funnel-js__container {
         width: 100%;
-        height: 100%;
+        height: 300px;
     }
 
     .svg-funnel-js__labels {

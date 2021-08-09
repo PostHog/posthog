@@ -1,32 +1,21 @@
 // DEPRECATED: This file has been deprecated in favor of FunnelBarGraph.tsx
 import React, { useRef, useEffect } from 'react'
 import FunnelGraph from 'funnel-graph-js'
-import { Loading, humanFriendlyDuration } from 'lib/utils'
-import { useActions, useValues, BindLogic } from 'kea'
+import { humanFriendlyDuration } from 'lib/utils'
+import { useActions, useValues } from 'kea'
 import { funnelLogic } from './funnelLogic'
-import { LineGraph } from 'scenes/insights/LineGraph'
-import { router } from 'kea-router'
 import { ChartParams, FunnelVizType } from '~/types'
-import { FunnelInvalidFiltersEmptyState } from 'scenes/insights/EmptyStates'
-
 import './FunnelViz.scss'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 export function FunnelViz({
     filters: defaultFilters,
     dashboardItemId,
     cachedResults,
-    inSharedMode,
-    color = 'white',
 }: Omit<ChartParams, 'view'>): JSX.Element | null {
     const container = useRef<HTMLDivElement | null>(null)
     const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
-    const { results: stepsResult, steps, isLoading: funnelLoading, filters, areFiltersValid } = useValues(logic)
+    const { results: stepsResult, steps, isLoading: funnelLoading, filters } = useValues(logic)
     const { loadResults: loadFunnel } = useActions(logic)
-    const { loadPeople } = useActions(personsModalLogic)
-    const {
-        hashParams: { fromItem },
-    } = useValues(router)
 
     function buildChart(): void {
         // Build and mount graph for default "flow" visualization.
@@ -85,57 +74,12 @@ export function FunnelViz({
         }
     }, [stepsResult, funnelLoading])
 
-    // Leave this at top. All filter visualizations require > 1 action or event filter
-    if (!areFiltersValid) {
-        return (
-            <BindLogic logic={funnelLogic} props={{ dashboardItemId, cachedResults, filters: defaultFilters }}>
-                <FunnelInvalidFiltersEmptyState />
-            </BindLogic>
-        )
-    }
-
-    if (filters.funnel_viz_type === FunnelVizType.Trends) {
-        return steps && steps.length > 0 && steps[0].labels ? (
-            <LineGraph
-                data-attr="trend-line-graph-funnel"
-                type="line"
-                color={color}
-                datasets={steps}
-                labels={steps[0].labels}
-                isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId || fromItem}
-                inSharedMode={inSharedMode}
-                percentage={true}
-                onClick={
-                    dashboardItemId
-                        ? null
-                        : (point) => {
-                              loadPeople({
-                                  action: { id: point.index, name: point.label, properties: [], type: 'actions' },
-                                  label: `Persons converted on ${point.label}`,
-                                  date_from: point.day,
-                                  date_to: point.day,
-                                  filters: filters,
-                                  saveOriginal: true,
-                              })
-                          }
-                }
-            />
-        ) : null
-    }
-
-    return !funnelLoading ? (
-        areFiltersValid ? (
-            <div
-                data-attr="funnel-viz"
-                ref={container}
-                className="svg-funnel-js"
-                style={{ height: '100%', width: '100%', overflow: 'hidden' }}
-            />
-        ) : (
-            <FunnelInvalidFiltersEmptyState />
-        )
-    ) : (
-        <Loading />
+    return (
+        <div
+            data-attr="funnel-viz"
+            ref={container}
+            className="svg-funnel-js"
+            style={{ height: '100%', width: '100%', overflow: 'hidden' }}
+        />
     )
 }

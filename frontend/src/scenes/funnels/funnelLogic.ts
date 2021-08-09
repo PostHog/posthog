@@ -359,7 +359,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     return timeConversionBins?.bins?.length > 0
                 }
                 if (filters.funnel_viz_type === FunnelVizType.Trends) {
-                    return results?.length > 0
+                    return results?.length > 0 && stepsWithCount?.[0]?.labels
                 }
                 return false
             },
