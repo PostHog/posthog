@@ -1,19 +1,26 @@
 import { Card, Input } from 'antd'
-import React, { useState } from 'react'
+import React, { Ref, useState } from 'react'
 import { EditOutlined } from '@ant-design/icons'
 import { DashboardItemType, ItemMode } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import './Description.scss'
+import { TextAreaRef } from 'antd/lib/input/TextArea'
 
 interface DescriptionInterface {
     item: Partial<DashboardItemType>
     itemMode: ItemMode
     setItemMode: (mode: ItemMode | null, eventSource: DashboardEventSource) => void
     triggerItemUpdate: (description: Partial<DashboardItemType>) => void
-    descriptionInputRef: any 
+    descriptionInputRef: Ref<TextAreaRef> | undefined
 }
 
-export function Description({ item, itemMode, setItemMode, triggerItemUpdate, descriptionInputRef }: DescriptionInterface): JSX.Element {
+export function Description({
+    item,
+    itemMode,
+    setItemMode,
+    triggerItemUpdate,
+    descriptionInputRef,
+}: DescriptionInterface): JSX.Element {
     const [newDescription, setNewDescription] = useState(item.description) // Used to update the input immediately, debouncing API calls
 
     return (
