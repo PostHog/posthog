@@ -56,7 +56,10 @@ class SingleThreadedTimer(Thread):
 
     def cancel(self, task: TimerTask) -> None:
         with self.lock:
-            del self.tasks[task.id]
+            try:
+                del self.tasks[task.id]
+            except:
+                pass
             self.lock.notify()
 
     # :TRICKY: We override start() to make it easy to start the thread when scheduling the first task

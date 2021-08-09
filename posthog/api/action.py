@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Union, cast
 
 import posthoganalytics
 from django.core.cache import cache
@@ -340,7 +340,7 @@ def _filter_cohort_breakdown(events: QuerySet, filter: Filter) -> QuerySet:
         events = events.filter(
             Exists(
                 CohortPeople.objects.filter(
-                    cohort_id=int(filter.breakdown_value), person_id=OuterRef("person_id"),
+                    cohort_id=int(cast(str, filter.breakdown_value)), person_id=OuterRef("person_id"),
                 ).only("id")
             )
         )

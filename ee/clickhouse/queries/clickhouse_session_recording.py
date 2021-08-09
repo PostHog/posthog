@@ -68,7 +68,7 @@ def query_sessions_in_range(
     filter_query, filter_params = "", {}
 
     if filter.recording_duration_filter:
-        filter_query = f"AND duration {OPERATORS[filter.recording_duration_filter.operator]} %(min_recording_duration)s"
+        filter_query = f"AND duration {OPERATORS[filter.recording_duration_filter.operator]} %(min_recording_duration)s"  # type: ignore
         filter_params = {
             "min_recording_duration": filter.recording_duration_filter.value,
         }

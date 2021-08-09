@@ -92,6 +92,7 @@ export interface OrganizationType extends OrganizationBasicType {
     teams: TeamBasicType[] | null
     available_features: AvailableFeatures[]
     domain_whitelist: string[]
+    is_member_join_email_enabled: boolean
 }
 
 export interface OrganizationMemberType {
@@ -226,6 +227,12 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+}
+
+export enum SavedInsightsParamOptions {
+    All = 'all',
+    Yours = 'yours',
+    Favorites = 'favorites',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -463,6 +470,7 @@ export interface DashboardItemType {
     is_sample: boolean
     dashboard: number
     result: any | null
+    updated_at: string
 }
 
 export interface DashboardType {

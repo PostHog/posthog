@@ -1,6 +1,7 @@
 import secrets
 from typing import Optional
 
+from django.contrib.postgres.fields.array import ArrayField
 from django.db import models
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
@@ -45,6 +46,9 @@ class DashboardItem(models.Model):
     short_id: models.CharField = models.CharField(
         max_length=12, blank=True, default=generate_short_id,
     )  # Unique ID per team for easy sharing and short links
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
+    favorited: models.BooleanField = models.BooleanField(default=False)
 
     # ----- DEPRECATED ATTRIBUTES BELOW
 

@@ -7,7 +7,7 @@ import { IllustrationDanger } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { Button } from 'antd'
+import { Button, Empty } from 'antd'
 
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
@@ -208,8 +208,16 @@ export function FunnelInvalidFiltersEmptyState(): JSX.Element {
 
 export function FunnelEmptyState(): JSX.Element {
     return (
-        <p style={{ textAlign: 'center', paddingTop: '2rem' }}>
-            We couldn't find any matching events. Try changing dates or pick another action, event, or breakdown.
-        </p>
+        <div className="insight-empty-state funnels-empty-state info-message">
+            <div className="insight-empty-state__wrapper">
+                <div className="illustration-main">
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                </div>
+                <h2 className="funnels-empty-state__title">There are no matching events for this query.</h2>
+                <p className="funnels-empty-state__description">
+                    Try changing dates or pick another action, event, or breakdown.
+                </p>
+            </div>
+        </div>
     )
 }

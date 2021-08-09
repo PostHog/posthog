@@ -80,6 +80,7 @@ export function Insights(): JSX.Element {
 
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
+    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
 
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
@@ -130,6 +131,7 @@ export function Insights(): JSX.Element {
                 onOk={(title: string) => {
                     saveCohortWithFilters(title, allFilters)
                     setCohortModalVisible(false)
+                    reportCohortCreatedFromPersonModal(allFilters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />
@@ -442,7 +444,7 @@ function FunnelInsight(): JSX.Element {
         if (!areFiltersValid) {
             return <FunnelInvalidFiltersEmptyState />
         }
-        return <FunnelEmptyState />
+        return isLoading ? <div style={{ height: 50 }} /> : <FunnelEmptyState />
     }
 
     return (

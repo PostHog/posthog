@@ -76,8 +76,7 @@ class Person(models.Model):
     is_identified: models.BooleanField = models.BooleanField(default=False)
     uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
 
-    # Has an index on properties -> email, built concurrently
-    # See migration 0121
+    # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
 
 class PersonDistinctId(models.Model):
