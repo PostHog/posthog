@@ -119,7 +119,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 ]
                 if (peopleParams?.filters.breakdown && peopleParams.filters.breakdown_type && breakdown_value) {
                     properties.push({
-                        key: peopleParams?.filters.breakdown,
+                        key: peopleParams?.filters.breakdown.toString(),
                         value: breakdown_value,
                         type: peopleParams?.filters.breakdown_type,
                         operator: null,
