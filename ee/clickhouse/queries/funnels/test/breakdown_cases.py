@@ -943,6 +943,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             result = funnel.run()
             self.assertEqual(len(result[0]), 3)
             self.assertEqual(result[0][0]["breakdown"], "test_cohort")
+            self.assertEqual(result[0][0]["breakdown_value"], cohort.pk)
             self.assertCountEqual(self._get_people_at_step(filter, 1, cohort.pk), [person.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, cohort.pk), [])
 
