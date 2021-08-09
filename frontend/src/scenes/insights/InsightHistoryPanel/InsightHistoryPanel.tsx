@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Tabs, Col, Row, Button, Spin } from 'antd'
 import { Loading } from 'lib/utils'
-import { useValues, useActions } from 'kea'
+import { useValues, useActions, BindLogic } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
 import { DashboardItemType, ViewType } from '~/types'
 import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
@@ -11,6 +11,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { router } from 'kea-router'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 dayjs.extend(relativeTime)
 
 const InsightHistoryType = {
@@ -23,6 +24,7 @@ const { TabPane } = Tabs
 
 interface InsightHistoryPanelProps {
     onChange?: () => void
+    id?: string
     displayLocation?: string
 }
 
@@ -106,7 +108,7 @@ function InsightPane({
     )
 }
 
-export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ displayLocation }) => {
+export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ id, displayLocation }) => {
     const {
         insights,
         insightsLoading,
@@ -131,71 +133,73 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ displa
     )
 
     return (
-        <div data-attr="insight-history-panel" className="insight-history-panel">
-            <Tabs
-                style={{
-                    overflow: 'visible',
-                }}
-                animated={false}
-                activeKey={activeTab}
-                onChange={(activeKey: string): void => setActiveTab(activeKey)}
-            >
-                <TabPane
-                    tab={<span data-attr="insight-history-tab">Recent</span>}
-                    key={InsightHistoryType.RECENT}
-                    data-attr="insight-history-pane"
+        <BindLogic logic={dashboardLogic} props={{ id }}>
+            <div data-attr="insight-history-panel" className="insight-history-panel">
+                <Tabs
+                    style={{
+                        overflow: 'visible',
+                    }}
+                    animated={false}
+                    activeKey={activeTab}
+                    onChange={(activeKey: string): void => setActiveTab(activeKey)}
                 >
-                    <InsightPane
-                        data={insights.map((insight) => ({ ...insight }))}
-                        loadMore={insightsNext ? loadNextInsights : undefined}
-                        loadingMore={loadingMoreInsights}
-                        footer={(item) => <>Ran query {dayjs(item.created_at).fromNow()}</>}
-                        loading={insightsLoading}
-                        reportOnClick={() => {
-                            reportInsightHistoryItemClicked(InsightHistoryType.RECENT, displayLocation)
-                        }}
-                    />
-                </TabPane>
-                {savedInsights?.length > 0 && (
                     <TabPane
-                        tab={<span data-attr="insight-saved-tab">Saved</span>}
-                        key={InsightHistoryType.SAVED}
-                        data-attr="insight-saved-pane"
+                        tab={<span data-attr="insight-history-tab">Recent</span>}
+                        key={InsightHistoryType.RECENT}
+                        data-attr="insight-history-pane"
                     >
                         <InsightPane
-                            data={savedInsights}
-                            loadMore={savedInsightsNext ? loadNextSavedInsights : undefined}
-                            loadingMore={loadingMoreSavedInsights}
-                            footer={(item) => <>Saved {dayjs(item.created_at).fromNow()}</>}
-                            loading={savedInsightsLoading}
+                            data={insights.map((insight) => ({ ...insight }))}
+                            loadMore={insightsNext ? loadNextInsights : undefined}
+                            loadingMore={loadingMoreInsights}
+                            footer={(item) => <>Ran query {dayjs(item.created_at).fromNow()}</>}
+                            loading={insightsLoading}
                             reportOnClick={() => {
-                                reportInsightHistoryItemClicked(InsightHistoryType.SAVED, displayLocation)
+                                reportInsightHistoryItemClicked(InsightHistoryType.RECENT, displayLocation)
                             }}
                         />
                     </TabPane>
-                )}
-                <TabPane
-                    tab={<span data-attr="insight-saved-tab">Dashboard Insights</span>}
-                    key={InsightHistoryType.TEAM}
-                    data-attr="insight-team-panel"
-                >
-                    <InsightPane
-                        data={teamInsights}
-                        loadMore={teamInsightsNext ? loadNextTeamInsights : undefined}
-                        loadingMore={loadingMoreTeamInsights}
-                        footer={(item) => (
-                            <>
-                                Saved {dayjs(item.created_at).fromNow()} by{' '}
-                                {item.created_by?.first_name || item.created_by?.email || 'unknown'}
-                            </>
-                        )}
-                        loading={teamInsightsLoading}
-                        reportOnClick={() => {
-                            reportInsightHistoryItemClicked(InsightHistoryType.TEAM, displayLocation)
-                        }}
-                    />
-                </TabPane>
-            </Tabs>
-        </div>
+                    {savedInsights?.length > 0 && (
+                        <TabPane
+                            tab={<span data-attr="insight-saved-tab">Saved</span>}
+                            key={InsightHistoryType.SAVED}
+                            data-attr="insight-saved-pane"
+                        >
+                            <InsightPane
+                                data={savedInsights}
+                                loadMore={savedInsightsNext ? loadNextSavedInsights : undefined}
+                                loadingMore={loadingMoreSavedInsights}
+                                footer={(item) => <>Saved {dayjs(item.created_at).fromNow()}</>}
+                                loading={savedInsightsLoading}
+                                reportOnClick={() => {
+                                    reportInsightHistoryItemClicked(InsightHistoryType.SAVED, displayLocation)
+                                }}
+                            />
+                        </TabPane>
+                    )}
+                    <TabPane
+                        tab={<span data-attr="insight-saved-tab">Dashboard Insights</span>}
+                        key={InsightHistoryType.TEAM}
+                        data-attr="insight-team-panel"
+                    >
+                        <InsightPane
+                            data={teamInsights}
+                            loadMore={teamInsightsNext ? loadNextTeamInsights : undefined}
+                            loadingMore={loadingMoreTeamInsights}
+                            footer={(item) => (
+                                <>
+                                    Saved {dayjs(item.created_at).fromNow()} by{' '}
+                                    {item.created_by?.first_name || item.created_by?.email || 'unknown'}
+                                </>
+                            )}
+                            loading={teamInsightsLoading}
+                            reportOnClick={() => {
+                                reportInsightHistoryItemClicked(InsightHistoryType.TEAM, displayLocation)
+                            }}
+                        />
+                    </TabPane>
+                </Tabs>
+            </div>
+        </BindLogic>
     )
 }
