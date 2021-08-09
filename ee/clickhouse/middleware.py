@@ -36,7 +36,7 @@ class CHQueries(object):
         response: HttpResponse = self.get_response(request)
 
         if "api/" in route_id and "capture" not in route_id:
-            incr("http_api_request_response", tags={"id": id, "status_code": response.status_code})
+            incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
 
         client._request_information = None
 
