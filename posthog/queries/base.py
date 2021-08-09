@@ -221,7 +221,7 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
         queryset = queryset.filter(cohort__id=request.GET["cohort"])
     if request.GET.get("properties"):
         filter = Filter(data={"properties": json.loads(request.GET["properties"])})
-        queryset = queryset.filter(properties_to_Q(filter.properties, team_id=team_id))
+        queryset = queryset.filter(properties_to_Q(filter.properties, team_id=team_id, is_person_query=True))
 
     queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return queryset

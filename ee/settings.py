@@ -26,9 +26,4 @@ if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
     ].split(",")
 
 # ClickHouse and Kafka
-CLICKHOUSE_DENORMALIZED_PROPERTIES: list = (
-    os.getenv("CLICKHOUSE_DENORMALIZED_PROPERTIES", "").split(",")
-    if os.getenv("CLICKHOUSE_DENORMALIZED_PROPERTIES")
-    else []
-)
 KAFKA_ENABLED = PRIMARY_DB == RDBMS.CLICKHOUSE and not TEST
