@@ -11,21 +11,21 @@ class ClickhouseTestCohorts(ClickhouseTestMixin, APIBaseTest):
     def test_creating_update_and_calculating(self):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
-        Person.objects.create(
+        person1 = Person.objects.create(
             team=self.team, distinct_ids=["user_1"], properties={"$geoip_country_code": "HK", "organization_id": "zz"}
         )
-        Person.objects.create(
+        person2 = Person.objects.create(
             team=self.team, distinct_ids=["user_2"], properties={"$geoip_country_code": "HK", "organization_id": "xx"}
         )
-        Person.objects.create(
+        person3 = Person.objects.create(
             team=self.team, distinct_ids=["user_3"], properties={"$geoip_country_code": "HK", "organization_id": "xx"}
         )
-        Person.objects.create(
+        person4 = Person.objects.create(
             team=self.team,
             distinct_ids=["user_4"],
             properties={"$geoip_country_code": "HK", "organization_id": "xx", "a": "set"},
         )
-        Person.objects.create(
+        person5 = Person.objects.create(
             team=self.team,
             distinct_ids=["user_5"],
             properties={"$geoip_country_code": "HK", "organization_id": "xx", "a": "set"},
@@ -108,6 +108,13 @@ class ClickhouseTestCohorts(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["is_calculating"], False)
         self.assertEqual(response.json()["count"], 2)
 
+        print("people: ", person1.uuid, person2.uuid, person3.uuid, person4.uuid, person5.uuid)
+        print(
+            sync_execute(
+                f""" Select person_id from cohortpeople where team_id={self.team.pk} and cohort_id = {cohort_id} GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0"""
+            )
+        )
+        print([person.uuid for person in Person.objects.filter(cohort__id=cohort_id).all()])
         with self.settings(SHELL_PLUS_PRINT_SQL=False):
             response = self.client.patch(
                 f"/api/cohort/{cohort_id}/",
@@ -129,8 +136,39 @@ class ClickhouseTestCohorts(ClickhouseTestMixin, APIBaseTest):
                 response = self.client.get(f"/api/cohort/{cohort_id}/",)
                 time.sleep(0.5)
 
-            print(response.json())
+            # print(response.json())
+            print(
+                sync_execute(
+                    f""" Select person_id from cohortpeople where team_id={self.team.pk} and cohort_id = {cohort_id} GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0"""
+                )
+            )
+            print([person.uuid for person in Person.objects.filter(cohort__id=cohort_id).all()])
             self.assertEqual(response.status_code, 200, response.content)
             self.assertEqual(response.json()["name"], "whatever")
             self.assertEqual(response.json()["is_calculating"], False)
             self.assertEqual(response.json()["count"], 0)
+
+        response = self.client.patch(
+            f"/api/cohort/{cohort_id}/",
+            data={
+                "name": "whatever",
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "$geoip_country_code", "type": "event", "value": ["HK"], "operator": "exact"},
+                            {"key": "organization_id", "value": ["xx"], "operator": "exact", "type": "event"},
+                            {"key": "a", "type": "event", "value": ["c"], "operator": "exact"},
+                        ]
+                    }
+                ],
+            },
+        )
+
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/cohort/{cohort_id}/",)
+            time.sleep(0.5)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["name"], "whatever")
+        self.assertEqual(response.json()["is_calculating"], False)
+        self.assertEqual(response.json()["count"], 0)
