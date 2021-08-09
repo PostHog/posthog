@@ -37,7 +37,7 @@ import equal from 'fast-deep-equal'
 
 function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
-    breakdownProperty?: string
+    breakdownProperty?: string | number | number[]
 ): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
         return breakdownList[0].map((step, i) => ({
@@ -60,9 +60,7 @@ function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): resul
 }
 
 // breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
-function isValidBreakdownParameter(
-    breakdown: FunnelRequestParams['breakdown']
-): breakdown is number[] | number | string | null | undefined {
+function isValidBreakdownParameter(breakdown: FunnelRequestParams['breakdown']): boolean {
     return ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) || Array.isArray(breakdown)
 }
 
