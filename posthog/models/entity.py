@@ -19,10 +19,14 @@ class Entity(PropertyMixin):
     id: Union[int, str]
     type: str
     order: Optional[int]
-    index: int
     name: Optional[str]
     math: Optional[str]
     math_property: Optional[str]
+    # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
+    # Used for identifying entities within a single query during query building,
+    # which generally uses Entity objects processed by EntitiesMixin
+    # The clean room way to do this would be passing the index _alongside_ the object, but OOP abuse is much less work
+    index: int
 
     def __init__(self, data: Dict[str, Any]) -> None:
         self.id = data["id"]
