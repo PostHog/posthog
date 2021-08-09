@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Tuple
+from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
