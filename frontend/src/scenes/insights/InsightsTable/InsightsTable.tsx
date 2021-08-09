@@ -164,10 +164,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         filters.display === ACTIONS_PIE_CHART)
                 ) {
                     // Special handling because `count` will contain the last amount, instead of the cumulative sum.
-                    return (
-                        item.aggregated_value?.toLocaleString() ||
-                        item.data.reduce((acc, val) => acc + val, 0).toLocaleString()
-                    )
+                    return (item.count || item.aggregated_value).toLocaleString()
                 }
                 return (
                     <>
@@ -180,6 +177,8 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                     </>
                 )
             },
+            defaultSortOrder: 'descend',
+            sorter: (a, b) => a.count - b.count,
             dataIndex: 'count',
             fixed: 'right',
             width: 100,
