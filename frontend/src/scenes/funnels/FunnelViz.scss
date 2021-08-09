@@ -152,13 +152,16 @@
     .funnel-options-conversion-window {
         margin: 0.25rem 0;
         padding: 0.25rem 0;
+        display: flex;
+        align-items: center;
 
         .time-value-input {
-            width: 70px;
+            flex-grow: 1;
+            max-width: 80px;
             margin-right: $default_spacing / 2;
         }
         .time-unit-input {
-            width: 90px;
+            width: 80px;
         }
     }
 }
