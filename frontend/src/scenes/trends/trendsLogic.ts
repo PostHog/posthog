@@ -40,7 +40,7 @@ export interface TrendPeople {
     day: string | number
     label: string
     action: ActionFilter | 'session'
-    breakdown_value?: string
+    breakdown_value?: string | number
     next?: string
     loadingMore?: boolean
     funnelStep?: number
