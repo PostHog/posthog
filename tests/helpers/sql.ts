@@ -166,6 +166,7 @@ export async function createUserTeamAndOrganization(
         for_internal_metrics: false,
         available_features: [],
         domain_whitelist: [],
+        is_member_join_email_enabled: false,
     } as RawOrganization)
     await insertRow(db, 'posthog_organizationmembership', {
         id: organizationMembershipId,
