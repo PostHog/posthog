@@ -63,7 +63,7 @@ function ComputationTimeAndRefresh({
     lastRefresh: string
     loadResults: (refresh: boolean) => void
 }): JSX.Element {
-    const [rerenderCounter, setRerenderCounter] = useState(0) // eslint-disable-line no-unused-vars
+    const [, setRerenderCounter] = useState(0)
 
     useEffect(() => {
         const rerenderInterval = setInterval(() => {
