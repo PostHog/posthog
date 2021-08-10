@@ -75,7 +75,11 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
         title: 'Completed',
         render: function RenderCompleted({}, step: FlattenedFunnelStep): JSX.Element {
             return (
-                <ValueInspectorButton onClick={() => openPersonsModal(step, step.order + 1, step.breakdown)}>
+                <ValueInspectorButton
+                    onClick={() =>
+                        openPersonsModal(step, step.order + 1, step.isBreakdownParent ? undefined : step.breakdown)
+                    }
+                >
                     {step.count}
                 </ValueInspectorButton>
             )
@@ -95,7 +99,11 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
         title: 'Dropped off',
         render: function RenderDropoff({}, step: FlattenedFunnelStep): JSX.Element | null {
             return step.order === 0 ? null : (
-                <ValueInspectorButton onClick={() => openPersonsModal(step, -(step.order + 1), step.breakdown)}>
+                <ValueInspectorButton
+                    onClick={() =>
+                        openPersonsModal(step, -(step.order + 1), step.isBreakdownParent ? undefined : step.breakdown)
+                    }
+                >
                     {step.droppedOffFromPrevious}
                 </ValueInspectorButton>
             )
