@@ -1,6 +1,10 @@
+from django import dispatch
 from rest_framework import status
 
-from posthog.models.organization import Organization
+from posthog.models.cohort import Cohort
+from posthog.models.event import Event
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 
@@ -118,3 +122,21 @@ class TestTeamAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["name"], self.team.name)
         self.assertEqual(response_data["test_account_filters"], [{"key": "$current_url", "value": "test"}])
+
+    def test_delete_team_own_second(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team = Team.objects.create(organization=self.organization)
+        cohort = Cohort.objects.create(team=team)
+        for i in range(100):
+            person_i = Person.objects.create(team=team)
+            person_i_distinct_id = PersonDistinctId.objects.create(team=team, person=person_i, distinct_id=f"user_{i}")
+            cohort.people.add(person_i)
+            Event.objects.create(team=team, distinct_id=f"user_{id}", event="test")
+
+        with self.settings(DEBUG=1):
+            response = self.client.delete(f"/api/projects/{team.id}")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
