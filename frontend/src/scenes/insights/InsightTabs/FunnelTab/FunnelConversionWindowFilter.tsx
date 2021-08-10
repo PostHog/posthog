@@ -6,20 +6,23 @@ import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindowTimeUnit } from '~/types'
 
+const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
+    [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
+    [FunnelConversionWindowTimeUnit.Hour]: [1, 24],
+    [FunnelConversionWindowTimeUnit.Day]: [1, 365],
+    [FunnelConversionWindowTimeUnit.Week]: [1, 53],
+    [FunnelConversionWindowTimeUnit.Month]: [1, 12],
+}
+
 export function FunnelConversionWindowFilter(): JSX.Element {
-    const { conversionWindow, conversionWindowValueToShow } = useValues(funnelLogic)
+    const { conversionWindow } = useValues(funnelLogic)
     const { setConversionWindow, loadResults } = useActions(funnelLogic)
 
-    const options = [
-        {
-            label: pluralize(conversionWindowValueToShow, 'day', 'days', false),
-            value: FunnelConversionWindowTimeUnit.Day,
-        },
-        {
-            label: pluralize(conversionWindowValueToShow, 'week', 'weeks', false),
-            value: FunnelConversionWindowTimeUnit.Week,
-        },
-    ]
+    const options = Object.keys(TIME_INTERVAL_BOUNDS).map((unit) => ({
+        label: pluralize(conversionWindow.funnel_window_interval, unit, `${unit}s`, false),
+        value: unit,
+    }))
+    const intervalBounds = TIME_INTERVAL_BOUNDS[conversionWindow.funnel_window_interval_unit]
 
     return (
         <div className="funnel-options-conversion-window">
@@ -39,11 +42,13 @@ export function FunnelConversionWindowFilter(): JSX.Element {
             <Row className="funnel-options-conversion-window-inputs">
                 <InputNumber
                     className="time-value-input"
-                    min={1}
-                    max={conversionWindow.unit === FunnelConversionWindowTimeUnit.Day ? 365 : 53}
-                    defaultValue={14} // days
-                    value={conversionWindowValueToShow}
-                    onChange={(timeValue) => setConversionWindow({}, Number(timeValue))}
+                    min={intervalBounds[0]}
+                    max={intervalBounds[1]}
+                    defaultValue={14}
+                    value={conversionWindow.funnel_window_interval}
+                    onChange={(funnel_window_interval) =>
+                        setConversionWindow({ funnel_window_interval: Number(funnel_window_interval) })
+                    }
                     onBlur={loadResults}
                     onPressEnter={loadResults}
                 />
@@ -51,8 +56,10 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     className="time-unit-input"
                     defaultValue={FunnelConversionWindowTimeUnit.Day}
                     dropdownMatchSelectWidth={false}
-                    value={conversionWindow.unit}
-                    onChange={(unit: FunnelConversionWindowTimeUnit) => setConversionWindow({ unit })}
+                    value={conversionWindow.funnel_window_interval_unit}
+                    onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit) =>
+                        setConversionWindow({ funnel_window_interval_unit })
+                    }
                     onBlur={loadResults}
                 >
                     {options.map(({ value, label }) => (

@@ -31,14 +31,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import {
-    calcPercentage,
-    calculateDays,
-    cleanBinResult,
-    getLastFilledStep,
-    getReferenceStep,
-    getTimeValue,
-} from './funnelUtils'
+import { calcPercentage, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
@@ -154,10 +147,7 @@ export const funnelLogic = kea<funnelLogicType>({
             mergeWithExisting,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        setConversionWindow: (conversionWindow: FunnelConversionWindow, timeValue = null) => ({
-            conversionWindow,
-            timeValue,
-        }),
+        setConversionWindow: (conversionWindow: FunnelConversionWindow) => ({ conversionWindow }),
         openPersonsModal: (
             step: FunnelStep | FunnelStepWithNestedBreakdown,
             stepNumber: number,
@@ -288,18 +278,23 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         conversionWindow: [
             {
-                unit: FunnelConversionWindowTimeUnit.Day,
-                days: 14,
+                funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+                funnel_window_interval: 14,
             },
             {
-                setConversionWindow: (state, { conversionWindow: { unit }, timeValue }) => {
-                    const nextUnit = unit || state.unit || FunnelConversionWindowTimeUnit.Day
-                    const nextTimeValue = timeValue || getTimeValue(nextUnit, state.days)
-                    const days = calculateDays(nextUnit, nextTimeValue)
+                setConversionWindow: (
+                    state,
+                    { conversionWindow: { funnel_window_interval_unit, funnel_window_interval } }
+                ) => {
+                    const nextIntervalUnit =
+                        funnel_window_interval_unit ||
+                        state.funnel_window_interval_unit ||
+                        FunnelConversionWindowTimeUnit.Day
+                    const nextInterval = funnel_window_interval || state.funnel_window_interval
                     return {
                         ...state,
-                        ...(unit ? { unit: nextUnit } : {}),
-                        days,
+                        ...(funnel_window_interval_unit ? { funnel_window_interval_unit: nextIntervalUnit } : {}),
+                        ...(funnel_window_interval ? { funnel_window_interval: nextInterval } : {}),
                     }
                 },
             },
@@ -482,7 +477,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     ...(props.refresh ? { refresh: true } : {}),
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
-                    funnel_window_days: conversionWindow.days,
+                    funnel_window_interval: conversionWindow.funnel_window_interval,
+                    funnel_window_interval_unit: conversionWindow.funnel_window_interval_unit,
                     ...(!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? { breakdown: null, breakdown_type: null } : {}),
                 }
             },
@@ -593,10 +589,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
                 return binCount
             },
-        ],
-        conversionWindowValueToShow: [
-            () => [selectors.conversionWindow],
-            (conversionWindow): number => getTimeValue(conversionWindow.unit, conversionWindow.days),
         ],
     }),
 

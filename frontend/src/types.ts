@@ -786,13 +786,17 @@ export interface FunnelTimeConversionMetrics {
 }
 
 export interface FunnelConversionWindow {
-    unit?: FunnelConversionWindowTimeUnit
-    days?: number | undefined
+    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit
+    funnel_window_interval?: number | undefined
 }
 
+// https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
-    Day = 'Day',
-    Week = 'Week',
+    Minute = 'minute',
+    Hour = 'hour',
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
 }
 
 export interface FunnelRequestParams extends FilterType {
