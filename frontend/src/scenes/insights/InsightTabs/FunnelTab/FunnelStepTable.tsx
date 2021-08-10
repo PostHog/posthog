@@ -29,7 +29,7 @@ function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string 
 function isBreakdownChildType(
     stepBreakdown: FlattenedFunnelStep['breakdown']
 ): stepBreakdown is string | number | undefined {
-    return typeof stepBreakdown == 'string' || typeof stepBreakdown == 'number' || typeof stepBreakdown == 'undefined'
+    return ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
 }
 
 export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
