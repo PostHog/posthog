@@ -99,9 +99,9 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             if with_breakdown:
                 serialized_result.update(
                     {
-                        "breakdown": result[-1]
-                        if isinstance(result[-1], str)
-                        else Cohort.objects.get(pk=result[-1]).name,
+                        "breakdown": Cohort.objects.get(pk=result[-1]).name
+                        if self._filter.breakdown_type == "cohort"
+                        else result[-1],
                         "breakdown_value": result[-1],
                     }
                 )
