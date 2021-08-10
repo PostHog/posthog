@@ -90,7 +90,7 @@ export function calculateDays(unit: FunnelConversionWindowTimeUnit, timeValue: n
     return Math.min(365, Math.max(1, Math.floor(timeValue) * multiplier))
 }
 
-export function getTimeValue(unit: FunnelConversionWindowTimeUnit, days: number, defaultDays: number = 14): number {
+export function getTimeValue(unit: FunnelConversionWindowTimeUnit, days?: number, defaultDays: number = 14): number {
     const nextDays = days ?? defaultDays
     return Math.floor(unit === FunnelConversionWindowTimeUnit.Week ? nextDays / 7 : nextDays)
 }
