@@ -153,15 +153,28 @@
         margin: 0.25rem 0;
         padding: 0.25rem 0;
         display: flex;
-        align-items: center;
+        flex-direction: column;
 
-        .time-value-input {
-            flex-grow: 1;
-            max-width: 80px;
-            margin-right: $default_spacing / 2;
+        .funnel-options-conversion-window-label {
+            padding: 4px 0;
+
+            .info-indicator {
+                vertical-align: middle;
+            }
         }
-        .time-unit-input {
-            width: 80px;
+
+        .funnel-options-conversion-window-inputs {
+            padding: 4px 0;
+
+            .time-value-input {
+                flex-grow: 1;
+                max-width: 80px;
+                margin-right: $default_spacing / 2;
+            }
+
+            .time-unit-input {
+                width: 90px;
+            }
         }
     }
 }

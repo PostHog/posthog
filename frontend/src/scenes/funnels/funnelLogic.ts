@@ -24,17 +24,25 @@ import {
     FlattenedFunnelStep,
     FunnelStepWithConversionMetrics,
     BinCountValue,
+    FunnelConversionWindow,
+    FunnelConversionWindowTimeUnit,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import { calcPercentage, calculateDays, cleanBinResult, getLastFilledStep, getReferenceStep } from './funnelUtils'
+import {
+    calcPercentage,
+    calculateDays,
+    cleanBinResult,
+    getLastFilledStep,
+    getReferenceStep,
+    getTimeValue,
+} from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import equal from 'fast-deep-equal'
-import { FunnelConversionWindow, TimeUnit } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
 
 function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
@@ -280,13 +288,13 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         conversionWindow: [
             {
-                unit: TimeUnit.Day,
+                unit: FunnelConversionWindowTimeUnit.Day,
                 days: 14,
             },
             {
                 setConversionWindow: (state, { conversionWindow: { unit }, timeValue }) => {
-                    const nextUnit = unit || state.unit || TimeUnit.Day
-                    const nextTimeValue = timeValue || (nextUnit === TimeUnit.Week ? state.days / 7 : state.days) || 14
+                    const nextUnit = unit || state.unit || FunnelConversionWindowTimeUnit.Day
+                    const nextTimeValue = timeValue || getTimeValue(nextUnit, state.days)
                     const days = calculateDays(nextUnit, nextTimeValue)
                     return {
                         ...state,
@@ -588,12 +596,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         conversionWindowValueToShow: [
             () => [selectors.conversionWindow],
-            (conversionWindow): number => {
-                if (conversionWindow.unit === TimeUnit.Week) {
-                    return Math.floor(conversionWindow.days / 7)
-                }
-                return conversionWindow.days
-            },
+            (conversionWindow): number => getTimeValue(conversionWindow.unit, conversionWindow.days),
         ],
     }),
 
@@ -655,9 +658,6 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadResults()
         },
         setBinCount: async () => {
-            actions.loadResults()
-        },
-        setConversionWindow: async () => {
             actions.loadResults()
         },
     }),

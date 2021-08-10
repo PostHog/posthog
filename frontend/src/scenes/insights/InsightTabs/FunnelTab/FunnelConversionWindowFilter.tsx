@@ -1,69 +1,67 @@
-import { InputNumber, Select, Tooltip } from 'antd'
+import { InputNumber, Row, Select, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { pluralize } from 'lib/utils'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-
-export interface FunnelConversionWindow {
-    unit?: TimeUnit
-    days?: number | undefined
-}
-
-export enum TimeUnit {
-    Day = 'Day',
-    Week = 'Week',
-}
+import { FunnelConversionWindowTimeUnit } from '~/types'
 
 export function FunnelConversionWindowFilter(): JSX.Element {
     const { conversionWindow, conversionWindowValueToShow } = useValues(funnelLogic)
-    const { setConversionWindow } = useActions(funnelLogic)
+    const { setConversionWindow, loadResults } = useActions(funnelLogic)
 
     const options = [
         {
             label: pluralize(conversionWindowValueToShow, 'day', 'days', false),
-            value: TimeUnit.Day,
+            value: FunnelConversionWindowTimeUnit.Day,
         },
         {
             label: pluralize(conversionWindowValueToShow, 'week', 'weeks', false),
-            value: TimeUnit.Week,
+            value: FunnelConversionWindowTimeUnit.Week,
         },
     ]
 
     return (
         <div className="funnel-options-conversion-window">
-            <Tooltip
-                title={
-                    <>
-                        <b>Recommended!</b> Limit to users who converted within a specific time frame. Users who do not
-                        convert in this time frame will be considered as drop-offs.
-                    </>
-                }
-            >
-                <InfoCircleOutlined className="info-indicator left" />
-            </Tooltip>
-            <span style={{ paddingRight: 6, lineHeight: '1.3em' }}>Limit conversion window to</span>
-            <InputNumber
-                className="time-value-input"
-                min={1}
-                max={conversionWindow.unit === TimeUnit.Day ? 365 : 53}
-                defaultValue={14} // days
-                value={conversionWindowValueToShow}
-                onChange={(timeValue) => setConversionWindow({}, Number(timeValue))}
-            />
-            <Select
-                className="time-unit-input"
-                defaultValue={TimeUnit.Day}
-                dropdownMatchSelectWidth={false}
-                value={conversionWindow.unit}
-                onChange={(unit: TimeUnit) => setConversionWindow({ unit })}
-            >
-                {options.map(({ value, label }) => (
-                    <Select.Option value={value} key={value}>
-                        {label}
-                    </Select.Option>
-                ))}
-            </Select>
+            <span className="funnel-options-conversion-window-label">
+                Conversion window limit{' '}
+                <Tooltip
+                    title={
+                        <>
+                            <b>Recommended!</b> Limit to users who converted within a specific time frame. Users who do
+                            not convert in this time frame will be considered as drop-offs.
+                        </>
+                    }
+                >
+                    <InfoCircleOutlined className="info-indicator" />
+                </Tooltip>
+            </span>
+            <Row className="funnel-options-conversion-window-inputs">
+                <InputNumber
+                    className="time-value-input"
+                    min={1}
+                    max={conversionWindow.unit === FunnelConversionWindowTimeUnit.Day ? 365 : 53}
+                    defaultValue={14} // days
+                    value={conversionWindowValueToShow}
+                    onChange={(timeValue) => setConversionWindow({}, Number(timeValue))}
+                    onBlur={loadResults}
+                    onPressEnter={loadResults}
+                />
+                <Select
+                    className="time-unit-input"
+                    defaultValue={FunnelConversionWindowTimeUnit.Day}
+                    dropdownMatchSelectWidth={false}
+                    value={conversionWindow.unit}
+                    onChange={(unit: FunnelConversionWindowTimeUnit) => setConversionWindow({ unit })}
+                    onBlur={loadResults}
+                >
+                    {options.map(({ value, label }) => (
+                        <Select.Option value={value} key={value}>
+                            {label}
+                        </Select.Option>
+                    ))}
+                </Select>
+            </Row>
         </div>
     )
 }

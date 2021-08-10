@@ -785,6 +785,16 @@ export interface FunnelTimeConversionMetrics {
     totalRate: number
 }
 
+export interface FunnelConversionWindow {
+    unit?: FunnelConversionWindowTimeUnit
+    days?: number | undefined
+}
+
+export enum FunnelConversionWindowTimeUnit {
+    Day = 'Day',
+    Week = 'Week',
+}
+
 export interface FunnelRequestParams extends FilterType {
     refresh?: boolean
     from_dashboard?: boolean

@@ -1,8 +1,7 @@
 import { humanizeNumber } from 'lib/utils'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
-import { FunnelStep, FunnelsTimeConversionBins } from '~/types'
-import { TimeUnit } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
+import { FunnelStep, FunnelsTimeConversionBins, FunnelConversionWindowTimeUnit } from '~/types'
 
 export function calcPercentage(numerator: number, denominator: number): number {
     // Rounds to two decimal places
@@ -86,7 +85,12 @@ export function cleanBinResult(binsResult: FunnelsTimeConversionBins): FunnelsTi
     }
 }
 
-export function calculateDays(unit: TimeUnit, timeValue: number): number {
-    const multiplier = unit === TimeUnit.Week ? 7 : 1
+export function calculateDays(unit: FunnelConversionWindowTimeUnit, timeValue: number): number {
+    const multiplier = unit === FunnelConversionWindowTimeUnit.Week ? 7 : 1
     return Math.min(365, Math.max(1, Math.floor(timeValue) * multiplier))
+}
+
+export function getTimeValue(unit: FunnelConversionWindowTimeUnit, days: number, defaultDays: number = 14): number {
+    const nextDays = days ?? defaultDays
+    return Math.floor(unit === FunnelConversionWindowTimeUnit.Week ? nextDays / 7 : nextDays)
 }
