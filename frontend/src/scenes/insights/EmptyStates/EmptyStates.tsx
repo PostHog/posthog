@@ -64,13 +64,13 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                         <li>
                             <a
                                 data-attr="insight-timeout-upgrade-to-clickhouse"
-                                href="https://posthog.com/pricing?o=enterprise&utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
+                                href="https://posthog.com/docs/self-host#deployment-options?utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
                                 rel="noopener"
                                 target="_blank"
                             >
-                                Upgrade PostHog to Enterprise Edition
+                                Switch to Clickhouse backend
                             </a>{' '}
-                            and get access to a backend engineered for scale using the ClickHouse database.
+                            (engineered for scale, and you'll get more features)
                         </li>
                     )}
                     <li>
