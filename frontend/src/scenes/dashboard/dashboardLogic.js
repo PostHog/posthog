@@ -17,7 +17,7 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
-    key: (props) => props.id || 'new',
+    key: (props) => props.id ?? '',
 
     actions: () => ({
         addNewDashboard: true,
@@ -49,7 +49,10 @@ export const dashboardLogic = kea({
                 loadDashboardItems: async ({ refresh = undefined } = {}) => {
                     try {
                         const dashboard = await api.get(
-                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken, refresh })}`
+                            `api/dashboard/${props.id ? `${props.id}/` : ''}?${toParams({
+                                share_token: props.shareToken,
+                                refresh,
+                            })}`
                         )
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)

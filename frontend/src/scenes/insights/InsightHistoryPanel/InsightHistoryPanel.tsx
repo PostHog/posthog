@@ -12,6 +12,7 @@ import { router } from 'kea-router'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+
 dayjs.extend(relativeTime)
 
 const InsightHistoryType = {
@@ -24,7 +25,6 @@ const { TabPane } = Tabs
 
 interface InsightHistoryPanelProps {
     onChange?: () => void
-    id?: string
     displayLocation?: string
 }
 
@@ -108,7 +108,7 @@ function InsightPane({
     )
 }
 
-export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ id, displayLocation }) => {
+export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ displayLocation }) => {
     const {
         insights,
         insightsLoading,
@@ -133,7 +133,7 @@ export const InsightHistoryPanel: React.FC<InsightHistoryPanelProps> = ({ id, di
     )
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id }}>
+        <BindLogic logic={dashboardLogic} props={{ id: null }}>
             <div data-attr="insight-history-panel" className="insight-history-panel">
                 <Tabs
                     style={{

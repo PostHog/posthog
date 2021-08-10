@@ -251,7 +251,7 @@ export function Insights(): JSX.Element {
                 {activeView === ViewType.HISTORY ? (
                     <Col span={24}>
                         <Card className="" style={{ overflow: 'visible' }}>
-                            <InsightHistoryPanel id="history" />
+                            <InsightHistoryPanel />
                         </Card>
                     </Col>
                 ) : (
