@@ -1,19 +1,19 @@
-import React, { useRef, useState, useEffect } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Layout, Menu, Modal, Popover, Tooltip } from 'antd'
 import {
-    ProjectFilled,
     ApiFilled,
     ClockCircleFilled,
     DownOutlined,
-    MessageOutlined,
-    PushpinFilled,
-    PlusOutlined,
-    SettingOutlined,
     HomeOutlined,
+    MessageOutlined,
+    PlusOutlined,
+    ProjectFilled,
+    PushpinFilled,
+    SettingOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { Scene, sceneLogic } from 'scenes/sceneLogic'
+import { Scene, sceneLogic, urls } from 'scenes/sceneLogic'
 import { isMobile } from 'lib/utils'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import lgLogo from 'public/posthog-logo-white.svg'
@@ -31,7 +31,7 @@ import {
 import { navigationLogic } from './navigationLogic'
 import { ToolbarModal } from '~/layout/ToolbarModal/ToolbarModal'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, HotKeys } from '~/types'
+import { DashboardType, HotKeys, ViewType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { canViewPlugins } from 'scenes/plugins/access'
@@ -146,7 +146,7 @@ function PinnedDashboards(): JSX.Element {
                                         title={item.name}
                                         icon={<PushpinFilled />}
                                         identifier={`dashboard-${index}`}
-                                        to={`/dashboard/${item.id}`}
+                                        to={urls.dashboard(item.id)}
                                         onClick={() => setPinnedDashboardsVisible(false)}
                                     />
                                 </Menu.Item>
@@ -163,7 +163,7 @@ function PinnedDashboards(): JSX.Element {
                                             title={item.name}
                                             icon={<IconDashboard />}
                                             identifier={`dashboard-${item.id}`}
-                                            to={`/dashboard/${item.id}`}
+                                            to={urls.dashboard(item.id)}
                                             onClick={() => setPinnedDashboardsVisible(false)}
                                         />
                                     </Menu.Item>
@@ -176,7 +176,7 @@ function PinnedDashboards(): JSX.Element {
                     <span className="text-muted">You don't have any dashboards yet.</span>
                     <div>
                         <Link
-                            to="/dashboard?new"
+                            to={[urls.dashboards(), '?new']}
                             style={{ color: 'var(--primary)' }}
                             data-attr="create-dashboard-pinned-overlay"
                         >
@@ -245,7 +245,7 @@ export function MainNavigation(): JSX.Element {
                 <div className="navigation-inner" ref={navRef} onScroll={handleNavScroll}>
                     <div className="nav-logo">
                         {
-                            <Link to="/insights">
+                            <Link to={urls.insights()}>
                                 <img src={smLogo} className="logo-sm" alt="" />
                                 <img src={lgLogo} className="logo-lg" alt="" />
                             </Link>
@@ -256,18 +256,18 @@ export function MainNavigation(): JSX.Element {
                             title="Setup"
                             icon={<SettingOutlined />}
                             identifier="onboardingSetup"
-                            to="/setup"
+                            to={urls.onboardingSetup()}
                             hotkey="u"
                         />
                     )}
                     {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
-                        <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to="/home" />
+                        <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to={urls.home()} />
                     )}
                     <MenuItem
                         title="Insights"
                         icon={<IconInsights />}
                         identifier="insights"
-                        to="/insights?insight=TRENDS"
+                        to={urls.insightView(ViewType.TRENDS)}
                         hotkey="i"
                         tooltip="Answers to all your analytics questions."
                     />
@@ -285,7 +285,7 @@ export function MainNavigation(): JSX.Element {
                                 title="Dashboards"
                                 icon={<IconDashboard />}
                                 identifier="dashboards"
-                                to="/dashboard"
+                                to={urls.dashboards()}
                                 onClick={() => setPinnedDashboardsVisible(false)}
                                 hotkey="d"
                             />
@@ -297,7 +297,7 @@ export function MainNavigation(): JSX.Element {
                         title="Events"
                         icon={<IconEvents />}
                         identifier="events"
-                        to="/events"
+                        to={urls.events()}
                         hotkey="e"
                         tooltip="List of events and actions"
                     />
@@ -305,7 +305,7 @@ export function MainNavigation(): JSX.Element {
                         title="Sessions"
                         icon={<ClockCircleFilled />}
                         identifier="sessions"
-                        to="/sessions"
+                        to={urls.sessions()}
                         hotkey="s"
                         tooltip="Understand interactions based by visits and watch session recordings"
                     />
@@ -314,7 +314,7 @@ export function MainNavigation(): JSX.Element {
                         title="Persons"
                         icon={<IconPerson />}
                         identifier="persons"
-                        to="/persons"
+                        to={urls.persons()}
                         hotkey="p"
                         tooltip="Understand your users individually"
                     />
@@ -322,7 +322,7 @@ export function MainNavigation(): JSX.Element {
                         title="Cohorts"
                         icon={<IconCohorts />}
                         identifier="cohorts"
-                        to="/cohorts"
+                        to={urls.cohorts()}
                         hotkey="c"
                         tooltip="Group users for easy filtering"
                     />
@@ -331,7 +331,7 @@ export function MainNavigation(): JSX.Element {
                         title="Feat. Flags"
                         icon={<IconFeatureFlags />}
                         identifier="featureFlags"
-                        to="/feature_flags"
+                        to={urls.featureFlags()}
                         hotkey="f"
                         tooltip="Controlled feature releases"
                     />
@@ -341,7 +341,7 @@ export function MainNavigation(): JSX.Element {
                             title="Plugins"
                             icon={<ApiFilled />}
                             identifier="plugins"
-                            to="/project/plugins"
+                            to={urls.plugins()}
                             hotkey="l"
                             tooltip="Extend your analytics functionality"
                         />
@@ -350,14 +350,14 @@ export function MainNavigation(): JSX.Element {
                         title="Annotations"
                         icon={<MessageOutlined />}
                         identifier="annotations"
-                        to="/annotations"
+                        to={urls.annotations()}
                         hotkey="a"
                     />
                     <MenuItem
                         title="Project"
                         icon={<ProjectFilled />}
                         identifier="projectSettings"
-                        to="/project/settings"
+                        to={urls.projectSettings()}
                         hotkey="j"
                     />
                     <div className="divider" />

@@ -7,7 +7,6 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, WEEKLY_ACTIVE
-from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -24,16 +23,17 @@ MATH_FUNCTIONS = {
 
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
+    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity.index}_math)s))"
+    params = {f"e_{entity.index}_math": entity.math_property}
+
     aggregate_operation = "count(*)"
-    params = {}
     join_condition = ""
-    value = "toFloat64OrNull(JSONExtractRaw(properties, '{}'))".format(entity.math_property)
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math in MATH_FUNCTIONS:
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}({value})"
-        params = {"join_property_key": entity.math_property}
+        params["join_property_key"] = entity.math_property
 
     return aggregate_operation, join_condition, params
 

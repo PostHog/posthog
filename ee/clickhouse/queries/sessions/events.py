@@ -18,7 +18,7 @@ class SessionsListEvents(BaseQuery):
             {"team_id": team.pk, "distinct_id": filter.distinct_id},
         )
 
-        return self._serialize(raw_events, filter.distinct_id, team.pk)
+        return self._serialize(raw_events, cast(str, filter.distinct_id), team.pk)
 
     def _serialize(self, events: List[List[Any]], distinct_id: str, team_id: int) -> List[Dict]:
         data = []

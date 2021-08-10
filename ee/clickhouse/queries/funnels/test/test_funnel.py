@@ -2,10 +2,9 @@ from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
@@ -13,7 +12,6 @@ from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
@@ -1137,28 +1135,29 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             "date_to": "2020-01-14",
         }
 
-        with self.settings(CLICKHOUSE_DENORMALIZED_PROPERTIES=["test_prop"]):
-            filter = Filter(data=filters)
-            funnel = ClickhouseFunnel(filter, self.team)
+        materialize("events", "test_prop")
 
-            # event
-            _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id="user_1",
-                timestamp="2020-01-02T14:00:00Z",
-                properties={"test_prop": "hi"},
-            )
-            _create_event(
-                team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
-            )
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
 
-            with self.assertNumQueries(1):
-                result = funnel.run()
+        # event
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="user_1",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={"test_prop": "hi"},
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
+        )
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+        with self.assertNumQueries(1):
+            result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 1)
 
     def test_advanced_funnel_multiple_exclusions_between_steps(self):
         filters = {

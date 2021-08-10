@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union, cast
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -64,11 +64,11 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 total_people += results[step.order]
 
             serialized_result = self._serialize_step(step, total_people, [])
-            if step.order > 0:
+            if cast(int, step.order) > 0:
                 serialized_result.update(
                     {
-                        "average_conversion_time": results[step.order + len(self._filter.entities) - 1],
-                        "median_conversion_time": results[step.order + len(self._filter.entities) * 2 - 2],
+                        "average_conversion_time": results[cast(int, step.order) + len(self._filter.entities) - 1],
+                        "median_conversion_time": results[cast(int, step.order) + len(self._filter.entities) * 2 - 2],
                     }
                 )
             else:
@@ -140,7 +140,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if i < level_index:
                 cols.append(f"latest_{i}")
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
-                    if exclusion.funnel_from_step + 1 == i:
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
             else:
                 duplicate_event = 0
@@ -154,7 +154,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 )
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
-                    if exclusion.funnel_from_step + 1 == i:
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(
                             f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         )
@@ -316,10 +316,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return " AND ".join(conditions)
 
     def _parse_breakdown_prop_value(self):
-        prop_vals = (
+        prop_vals: List[Union[str, int]] = (
             [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
             if isinstance(self._filter.funnel_step_breakdown, str)
-            else [self._filter.funnel_step_breakdown]
+            else [cast(int, self._filter.funnel_step_breakdown)]
         )
         return prop_vals
 
@@ -363,15 +363,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""
 
-    @abstractmethod
-    def get_query(self):
-        pass
+    def get_query(self) -> str:
+        raise NotImplementedError()
 
-    def get_step_counts_query(self):
-        pass
+    def get_step_counts_query(self) -> str:
+        raise NotImplementedError()
 
-    def get_step_counts_without_aggregation_query(self):
-        pass
+    def get_step_counts_without_aggregation_query(self) -> str:
+        raise NotImplementedError()
 
     def _get_breakdown_select_prop(self) -> str:
         if self._filter.breakdown:

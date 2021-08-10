@@ -241,6 +241,7 @@ export const FEATURE_FLAGS = {
     SESSIONS_TABLE: '4964-sessions-table', // Expand/collapse all in sessions table (performance consideration)
     TAXONOMIC_PROPERTY_FILTER: '4267-taxonomic-property-filter',
     INGESTION_HELP_BUTTON: '112-ingestion-help-button',
+    SAVED_INSIGHTS: '3408-saved-insights',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

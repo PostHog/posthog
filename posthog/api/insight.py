@@ -48,11 +48,13 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "filters",
             "dashboard",
             "color",
+            "description",
             "last_refresh",
             "refreshing",
             "saved",
+            "updated_at",
         ]
-        read_only_fields = ("short_id",)
+        read_only_fields = ("short_id", "updated_at")
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
@@ -84,6 +86,10 @@ class InsightSerializer(InsightBasicSerializer):
             "refreshing",
             "result",
             "created_at",
+            "description",
+            "updated_at",
+            "tags",
+            "favorited",
             "saved",
             "created_by",
         ]
@@ -91,6 +97,7 @@ class InsightSerializer(InsightBasicSerializer):
             "created_by",
             "created_at",
             "short_id",
+            "updated_at",
         )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -161,6 +168,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     queryset = queryset.filter(Q(saved=False))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "favorited":
+                queryset = queryset.filter(Q(favorited=True))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
 

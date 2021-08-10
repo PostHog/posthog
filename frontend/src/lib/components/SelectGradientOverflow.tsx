@@ -46,6 +46,7 @@ export type SelectGradientOverflowProps = SelectProps<any> & {
     delayBeforeAutoOpen?: number
     dropdownMatchSelectWidth?: boolean | number
     placement?: 'bottomLeft' | 'topLeft' // Dropdown placement (undefined = auto). See API at https://ant.design/components/dropdown
+    handleBlur?: () => void
 }
 
 export function SelectGradientOverflow({
@@ -53,6 +54,7 @@ export function SelectGradientOverflow({
     defaultOpen = false,
     delayBeforeAutoOpen,
     dropdownMatchSelectWidth = true,
+    handleBlur = () => {},
     placement,
     ...props
 }: SelectGradientOverflowProps): JSX.Element {
@@ -89,6 +91,7 @@ export function SelectGradientOverflow({
     const onBlur = (): void => {
         if (isOpen) {
             setOpen(false)
+            handleBlur()
         }
     }
 

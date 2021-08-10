@@ -18,7 +18,7 @@
             "environment": [
                 {
                     "name": "USING_PGBOUNCER",
-                    "value": "True"
+                    "value": "False"
                 },
                 {
                     "name": "DISABLE_SERVER_SIDE_CURSORS",
@@ -101,10 +101,6 @@
                     "value": "1"
                 },
                 {
-                    "name": "USING_PGBOUNCER",
-                    "value": "True"
-                },
-                {
                     "name": "PERSISTED_FEATURE_FLAGS",
                     "value": "0"
                 }
@@ -128,7 +124,7 @@
                 },
                 {
                     "name": "DATABASE_URL",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:PG_DATABASE_URL::"
                 },
                 {
                     "name": "EMAIL_HOST",
@@ -229,6 +225,10 @@
                 {
                     "name": "STRIPE_WEBHOOK_SECRET",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_WEBHOOK_SECRET::"
+                },
+                {
+                    "name": "HUBSPOT_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:HUBSPOT_API_KEY::"
                 }
             ],
             "entryPoint": ["sh", "-c"],

@@ -1,7 +1,5 @@
 from typing import Any, Dict, List, Tuple
 
-from django.db.models.manager import BaseManager
-
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.property import parse_prop_clauses
@@ -35,7 +33,7 @@ def _get_top_elements(filter: Filter, team_id: int, query: str, limit, params: D
 
 
 def get_breakdown_person_prop_values(
-    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25
+    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25, extra_params={}
 ):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
@@ -65,7 +63,7 @@ def get_breakdown_person_prop_values(
         filter=filter,
         team_id=team_id,
         query=elements_query,
-        params={**prop_filter_params, **person_prop_params, **entity_params},
+        params={**prop_filter_params, **person_prop_params, **entity_params, **extra_params},
         limit=limit,
     )
 
@@ -73,7 +71,7 @@ def get_breakdown_person_prop_values(
 
 
 def get_breakdown_event_prop_values(
-    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25
+    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25, extra_params={}
 ):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
@@ -93,7 +91,7 @@ def get_breakdown_event_prop_values(
         filter=filter,
         team_id=team_id,
         query=elements_query,
-        params={**prop_filter_params, **entity_params},
+        params={**prop_filter_params, **entity_params, **extra_params},
         limit=limit,
     )
 
@@ -132,7 +130,7 @@ def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -
         if isinstance(filter.breakdown, list)
         else Cohort.objects.filter(team_id=team_id, pk=filter.breakdown)
     )
-    cohort_queries, params = _parse_breakdown_cohorts(cohorts)
+    cohort_queries, params = _parse_breakdown_cohorts(list(cohorts))
     ids = [cohort.pk for cohort in cohorts]
     if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
         all_query, all_params = _format_all_query(team_id, filter, entity=entity)
@@ -142,12 +140,14 @@ def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -
     return " UNION ALL ".join(cohort_queries), ids, params
 
 
-def _parse_breakdown_cohorts(cohorts: BaseManager) -> Tuple[List[str], Dict]:
+def _parse_breakdown_cohorts(cohorts: List[Cohort]) -> Tuple[List[str], Dict]:
     queries = []
     params: Dict[str, Any] = {}
     for idx, cohort in enumerate(cohorts):
         person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
         params = {**params, **cohort_filter_params}
-        cohort_query = person_id_query.replace("SELECT distinct_id", f"SELECT distinct_id, {cohort.pk} as value")
+        cohort_query = person_id_query.replace(
+            "SELECT distinct_id", f"SELECT distinct_id, {cohort.pk} as value", 1
+        )  # only replace the first top level occurrence
         queries.append(cohort_query)
     return queries, params

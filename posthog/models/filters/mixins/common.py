@@ -42,9 +42,21 @@ ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
 
 
 class IntervalMixin(BaseParamMixin):
+    """See https://clickhouse.tech/docs/en/sql-reference/data-types/special-data-types/interval/."""
+
+    SUPPORTED_INTERVAL_TYPES = ["minute", "hour", "day", "week", "month"]
+
     @cached_property
     def interval(self) -> str:
-        return self._data.get(INTERVAL, "day")
+        interval_candidate = self._data.get(INTERVAL)
+        if not interval_candidate:
+            return "day"
+        if not isinstance(interval_candidate, str):
+            raise ValueError(f"Interval must be a string!")
+        interval_candidate = interval_candidate.lower()
+        if interval_candidate not in self.SUPPORTED_INTERVAL_TYPES:
+            raise ValueError(f"Interval {interval_candidate} does not belong to SUPPORTED_INTERVAL_TYPES!")
+        return interval_candidate
 
     @include_dict
     def interval_to_dict(self):
@@ -73,11 +85,11 @@ class ShownAsMixin(BaseParamMixin):
 
 class FilterTestAccountsMixin(BaseParamMixin):
     @cached_property
-    def filter_test_accounts(self) -> Optional[bool]:
+    def filter_test_accounts(self) -> bool:
         setting = self._data.get(FILTER_TEST_ACCOUNTS, None)
         if setting == True or setting == "true":
             return True
-        return None
+        return False
 
     @include_dict
     def filter_out_team_members_to_dict(self):
@@ -121,7 +133,7 @@ class BreakdownMixin(BaseParamMixin):
 
     @include_dict
     def breakdown_to_dict(self):
-        result = {}
+        result: Dict = {}
         if self.breakdown:
             result[BREAKDOWN] = self.breakdown
         if self._breakdown_limit:
@@ -300,19 +312,23 @@ class DateMixin(BaseParamMixin):
 class EntitiesMixin(BaseParamMixin):
     @cached_property
     def entities(self) -> List[Entity]:
-        _entities: List[Entity] = []
+        processed_entities: List[Entity] = []
         if self._data.get(ACTIONS):
             actions = self._data.get(ACTIONS, [])
             if isinstance(actions, str):
                 actions = json.loads(actions)
 
-            _entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS}) for entity in actions])
+            processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_ACTIONS}) for entity in actions])
         if self._data.get(EVENTS):
             events = self._data.get(EVENTS, [])
             if isinstance(events, str):
                 events = json.loads(events)
-            _entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
-        return sorted(_entities, key=lambda entity: entity.order if entity.order else -1)
+            processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
+        processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
+        # Set sequential index values on entities
+        for index, entity in enumerate(processed_entities):
+            entity.index = index
+        return processed_entities
 
     @cached_property
     def actions(self) -> List[Entity]:

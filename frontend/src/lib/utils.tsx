@@ -303,15 +303,6 @@ export function isOperatorRegex(operator: string): boolean {
     return ['regex', 'not_regex'].includes(operator)
 }
 
-export function isValidRegex(value: any): boolean {
-    try {
-        new RegExp(value)
-        return true
-    } catch {
-        return false
-    }
-}
-
 export function formatPropertyLabel(
     item: Record<string, any>,
     cohorts: Record<string, any>[],

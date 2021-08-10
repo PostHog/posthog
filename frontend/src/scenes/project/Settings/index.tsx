@@ -172,6 +172,10 @@ export function ProjectSettings(): JSX.Element {
                     company's team members, or <i>Host ∌ localhost</i> to exclude all events from local development
                     environments.
                 </p>
+                <p>
+                    <b>The filters you apply here are added as extra filters when the toggle is switched on.</b> So, if
+                    you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
+                </p>
                 <TestAccountFiltersConfig />
                 <Divider />
                 <h2 className="subtitle" id="urls">

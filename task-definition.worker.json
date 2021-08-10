@@ -85,10 +85,6 @@
                     "value": "Posthog Cloud"
                 },
                 {
-                    "name": "CLICKHOUSE_DENORMALIZED_PROPERTIES",
-                    "value": "issampledevent,currentscreen,objectname"
-                },
-                {
                     "name": "BILLING_TRIAL_DAYS",
                     "value": "0"
                 },
@@ -241,6 +237,10 @@
                 {
                     "name": "STRIPE_WEBHOOK_SECRET",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_WEBHOOK_SECRET::"
+                },
+                {
+                    "name": "HUBSPOT_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:HUBSPOT_API_KEY::"
                 }
             ],
             "entryPoint": ["sh", "-c"],
