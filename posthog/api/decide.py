@@ -65,7 +65,7 @@ def get_decide(request: HttpRequest):
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }
 
-    if request.COOKIES.get(settings.TOOLBAR_COOKIE_NAME):
+    if request.COOKIES.get(settings.TOOLBAR_COOKIE_NAME) and request.user.is_authenticated:
         response["isAuthenticated"] = True
         if settings.JS_URL and request.user.toolbar_mode != "disabled":
             response["editorParams"] = {"jsURL": settings.JS_URL, "toolbarVersion": "toolbar"}
