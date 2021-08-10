@@ -201,7 +201,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
         return Response({**result, "next": next})
 
-    @cached_function()
+    @cached_function
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
@@ -229,7 +229,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         return Response(self.calculate_session(request))
 
-    @cached_function()
+    @cached_function
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
         result = Sessions().run(filter=SessionsFilter(request=request), team=self.team)
         return {"result": result}
@@ -250,7 +250,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response(result)
 
-    @cached_function()
+    @cached_function
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         refresh = should_refresh(request)
@@ -290,7 +290,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_retention(request)
         return Response(result)
 
-    @cached_function()
+    @cached_function
     def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
@@ -312,7 +312,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_path(request)
         return Response(result)
 
-    @cached_function()
+    @cached_function
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})

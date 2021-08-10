@@ -31,6 +31,10 @@ class ClickhousePersonViewSet(PersonViewSet):
             return Response(data=[])
 
         results_package = self.calculate_funnel_persons(request)
+
+        if not results_package:
+            return Response(data=[])
+
         people, next_url, initial_url = results_package["result"]
 
         return Response(
@@ -43,7 +47,7 @@ class ClickhousePersonViewSet(PersonViewSet):
             }
         )
 
-    @cached_function()
+    @cached_function
     def calculate_funnel_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not request.user.team:
             return {"result": ([], None, None)}
