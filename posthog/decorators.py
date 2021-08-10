@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from functools import wraps
-from typing import Callable, Dict, List, Union, cast
+from typing import Callable, Dict, List, TypeVar, Union, cast
 
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -25,8 +25,11 @@ class CacheType(str, Enum):
     PATHS = "Path"
 
 
-def cached_function():
-    def parameterized_decorator(f: Callable):
+T = TypeVar("T")
+
+
+def cached_function() -> Callable[[Callable[..., T]], Callable[..., T]]:
+    def parameterized_decorator(f: Callable[..., T]) -> T:
         @wraps(f)
         def wrapper(*args, **kwargs) -> Dict[str, Union[List, datetime, bool, str]]:
             # prepare caching params
@@ -38,23 +41,29 @@ def cached_function():
 
             filter = get_filter(request=request, team=team)
             cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
+
             # return cached result if possible
             if not should_refresh(request):
                 cached_result = get_safe_cache(cache_key)
                 if cached_result and cached_result.get("result"):
-                    return {**cached_result, "is_cached": True}
-            # call function being wrapped
-            result = f(*args, **kwargs)
+                    cached_result["is_cached"] = True
+                    return cached_result
 
+            # call function being wrapped
+            fresh_result = cast(dict, f(*args, **kwargs))
             # cache new data
-            if result is not None and not (isinstance(result.get("result"), dict) and result["result"].get("loading")):
+            if fresh_result is not None and not (
+                isinstance(fresh_result.get("result"), dict) and fresh_result["result"].get("loading")
+            ):
+                fresh_result["last_refresh"] = now()
                 cache.set(
-                    cache_key, {"result": result["result"], "last_refresh": now()}, TEMP_CACHE_RESULTS_TTL,
+                    cache_key, fresh_result, TEMP_CACHE_RESULTS_TTL,
                 )
                 if filter:
                     dashboard_items = DashboardItem.objects.filter(team_id=team.pk, filters_hash=cache_key)
                     dashboard_items.update(last_refresh=now())
-            return result
+            fresh_result["is_cached"] = False
+            return fresh_result
 
         return wrapper
 

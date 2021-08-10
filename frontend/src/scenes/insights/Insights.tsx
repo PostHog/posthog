@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
 import { isMobile, Loading } from 'lib/utils'
@@ -54,6 +54,51 @@ const { TabPane } = Tabs
 
 function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
     return !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
+}
+
+function ComputationTimeAndRefresh({
+    lastRefresh,
+    loadResults,
+}: {
+    lastRefresh: string
+    loadResults: (refresh: boolean) => void
+}): JSX.Element {
+    const [rerenderCounter, setRerenderCounter] = useState(0) // eslint-disable-line no-unused-vars
+
+    useEffect(() => {
+        const rerenderInterval = setInterval(() => {
+            setRerenderCounter((previousValue) => previousValue + 1)
+        }, 30000)
+        return () => {
+            clearInterval(rerenderInterval)
+        }
+    })
+
+    return (
+        <div className="text-muted-alt">
+            Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+            {' • '}
+            <Tooltip
+                title={
+                    <>
+                        Insights can be refreshed
+                        <br />
+                        every 3 minutes.
+                    </>
+                }
+            >
+                <Button
+                    size="small"
+                    type="link"
+                    onClick={() => loadResults(true)}
+                    disabled={dayjs().subtract(3, 'minutes') <= dayjs(lastRefresh)}
+                    style={{ padding: 0 }}
+                >
+                    <span style={{ fontSize: 14 }}>Refresh</span>
+                </Button>
+            </Tooltip>
+        </div>
+    )
 }
 
 export function Insights(): JSX.Element {
@@ -343,19 +388,11 @@ export function Insights(): JSX.Element {
                                     >
                                         <FunnelCanvasLabel />
                                         <FunnelHistogramHeader />
-                                        {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
-                                            <div className="text-muted-alt">
-                                                Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}{' '}
-                                                &bull;
-                                                <Button
-                                                    size="small"
-                                                    type="link"
-                                                    onClick={() => loadResults(true)}
-                                                    style={{ margin: 0 }}
-                                                >
-                                                    <span style={{ fontSize: 14 }}>Refresh</span>
-                                                </Button>
-                                            </div>
+                                        {lastRefresh && (
+                                            <ComputationTimeAndRefresh
+                                                lastRefresh={lastRefresh}
+                                                loadResults={loadResults}
+                                            />
                                         )}
                                     </Row>
                                     {showErrorMessage ? (
