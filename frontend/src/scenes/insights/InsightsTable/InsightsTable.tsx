@@ -146,7 +146,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     if (showTotalCount) {
         columns.push({
             title: (
-                <Dropdown overlay={calcColumnMenu} trigger={['click']}>
+                <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]} <DownOutlined />
                     </span>
@@ -181,7 +181,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             sorter: (a, b) => a.count - b.count,
             dataIndex: 'count',
             fixed: 'right',
-            width: 100,
+            width: 120,
             align: 'center',
         })
     }
