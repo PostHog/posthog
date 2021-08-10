@@ -67,7 +67,7 @@ def get_decide(request: HttpRequest):
 
     if request.COOKIES.get(settings.TOOLBAR_COOKIE_NAME):
         response["isAuthenticated"] = True
-        if settings.JS_URL:
+        if settings.JS_URL and request.user.toolbar_mode != "disabled":
             response["editorParams"] = {"jsURL": settings.JS_URL, "toolbarVersion": "toolbar"}
 
     if request.user.is_authenticated:
