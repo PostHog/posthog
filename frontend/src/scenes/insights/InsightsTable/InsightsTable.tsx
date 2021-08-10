@@ -163,7 +163,6 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         filters.display === ACTIONS_TABLE ||
                         filters.display === ACTIONS_PIE_CHART)
                 ) {
-                    // Special handling because `count` will contain the last amount, instead of the cumulative sum.
                     return (item.count || item.aggregated_value).toLocaleString()
                 }
                 return (
