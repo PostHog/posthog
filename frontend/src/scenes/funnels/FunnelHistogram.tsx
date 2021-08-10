@@ -22,7 +22,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
     }
 
     return (
-        <div className="funnel-header-steps">
+        <div className="funnel-header-steps" style={{ marginLeft: 'auto' }}>
             <span className="funnel-header-steps-label">Steps</span>
             {histogramStepsDropdown.length > 0 && stepsWithCount.length > 0 && (
                 <Select

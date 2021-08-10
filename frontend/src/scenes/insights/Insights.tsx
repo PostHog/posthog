@@ -75,7 +75,7 @@ function ComputationTimeAndRefresh({
     })
 
     return (
-        <div className="text-muted-alt">
+        <div className="text-muted-alt" style={{ marginLeft: 'auto' }}>
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
             {' • '}
             <Tooltip
