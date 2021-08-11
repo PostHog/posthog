@@ -20,7 +20,7 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
 
     return (
         <>
-            <Card className="funnel-options" data-attr="funnel-options">
+            <Card className="funnel-options" data-attr="funnel-options" style={{ marginTop: 16 }}>
                 <h4 className="secondary">Options</h4>
                 <FunnelConversionWindowFilter />
             </Card>

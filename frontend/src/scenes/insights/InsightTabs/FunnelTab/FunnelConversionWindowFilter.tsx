@@ -1,4 +1,4 @@
-import { InputNumber, Row, Select, Tooltip } from 'antd'
+import { Col, InputNumber, Row, Select, Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { pluralize } from 'lib/utils'
 import React from 'react'
@@ -26,48 +26,43 @@ export function FunnelConversionWindowFilter(): JSX.Element {
 
     return (
         <div className="funnel-options-conversion-window">
-            <span className="funnel-options-conversion-window-label">
-                Conversion window limit{' '}
-                <Tooltip
-                    title={
-                        <>
-                            <b>Recommended!</b> Limit to users who converted within a specific time frame. Users who do
-                            not convert in this time frame will be considered as drop-offs.
-                        </>
-                    }
-                >
-                    <InfoCircleOutlined className="info-indicator" />
+            <Row align="middle">
+                Conversion window
+                <Tooltip title="Only conversions within this timeframe of performing the initial step will be counted.">
+                    <InfoCircleOutlined className="info-indicator right" />
                 </Tooltip>
-            </span>
-            <Row className="funnel-options-conversion-window-inputs">
-                <InputNumber
-                    className="time-value-input"
-                    min={intervalBounds[0]}
-                    max={intervalBounds[1]}
-                    defaultValue={14}
-                    value={conversionWindow.funnel_window_interval}
-                    onChange={(funnel_window_interval) => {
-                        setConversionWindow({ funnel_window_interval: Number(funnel_window_interval) })
-                        loadResults()
-                    }}
-                    onPressEnter={loadResults}
-                />
-                <Select
-                    className="time-unit-input"
-                    defaultValue={FunnelConversionWindowTimeUnit.Day}
-                    dropdownMatchSelectWidth={false}
-                    value={conversionWindow.funnel_window_interval_unit}
-                    onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit) => {
-                        setConversionWindow({ funnel_window_interval_unit })
-                        loadResults()
-                    }}
-                >
-                    {options.map(({ value, label }) => (
-                        <Select.Option value={value} key={value}>
-                            {label}
-                        </Select.Option>
-                    ))}
-                </Select>
+            </Row>
+            <Row align="middle" gutter={8} style={{ marginTop: 8 }}>
+                <Col>
+                    <InputNumber
+                        min={intervalBounds[0]}
+                        max={intervalBounds[1]}
+                        defaultValue={14}
+                        value={conversionWindow.funnel_window_interval}
+                        onChange={(funnel_window_interval) => {
+                            setConversionWindow({ funnel_window_interval: Number(funnel_window_interval) })
+                            loadResults()
+                        }}
+                        onPressEnter={loadResults}
+                    />
+                </Col>
+                <Col>
+                    <Select
+                        defaultValue={FunnelConversionWindowTimeUnit.Day}
+                        dropdownMatchSelectWidth={false}
+                        value={conversionWindow.funnel_window_interval_unit}
+                        onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit) => {
+                            setConversionWindow({ funnel_window_interval_unit })
+                            loadResults()
+                        }}
+                    >
+                        {options.map(({ value, label }) => (
+                            <Select.Option value={value} key={value}>
+                                {label}
+                            </Select.Option>
+                        ))}
+                    </Select>
+                </Col>
             </Row>
         </div>
     )
