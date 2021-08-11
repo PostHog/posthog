@@ -40,7 +40,7 @@ export interface ActionFilterRowProps {
     hidePropertySelector?: boolean // DEPRECATED: Out of use in the new horizontal UI
     singleFilter?: boolean
     showOr?: boolean
-    hideFilter?: boolean
+    hideFilter?: boolean // Hides the local filter options
     showSeriesIndicator?: boolean // Show series badge
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     horizontalUI?: boolean

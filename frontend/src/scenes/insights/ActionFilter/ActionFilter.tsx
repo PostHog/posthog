@@ -2,7 +2,7 @@ import './ActionFilter.scss'
 import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
-import { ActionFilterRow } from './ActionFilterRow'
+import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import posthog from 'posthog-js'
@@ -22,7 +22,7 @@ export interface ActionFilterProps {
     showSeriesIndicator?: boolean // Whether to show an indicator identifying each graph
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     showOr?: boolean // Whether to show the "OR" label after each filter
-    hideFilter?: boolean // Hide filter dropdown for retention insights
+    hideFilter?: boolean // Hide local filtering (currently used for retention insight)
     customRowPrefix?: string | JSX.Element // Custom prefix element to show in each ActionFilterRow
     customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean

@@ -54,9 +54,9 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                         <Col>
                             <ActionFilter
                                 horizontalUI
-                                singleFilter={true}
-                                hideMathSelector={true}
-                                hideFilter={true}
+                                singleFilter
+                                hideMathSelector
+                                hideFilter
                                 buttonCopy="Add graph series"
                                 filters={filters}
                                 setFilters={(newFilters: FilterType) => {
@@ -68,7 +68,7 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                                         setFilters({ target_entity: null })
                                     }
                                 }}
-                                typeKey={'retention-table'}
+                                typeKey="retention-table"
                                 customRowPrefix={
                                     <>
                                         Showing <b>Unique users</b> who did
@@ -113,9 +113,9 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                         <Col>
                             <ActionFilter
                                 horizontalUI
-                                singleFilter={true}
-                                hideMathSelector={true}
-                                hideFilter={true}
+                                singleFilter
+                                hideMathSelector
+                                hideFilter
                                 buttonCopy="Add graph series"
                                 filters={filters}
                                 setFilters={(newFilters: FilterType) => {
@@ -127,8 +127,8 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                                         setFilters({ target_entity: null })
                                     }
                                 }}
-                                typeKey={'retention-table-returning'}
-                                customRowPrefix={<>... who then came back and did</>}
+                                typeKey="retention-table-returning"
+                                customRowPrefix="... who then came back and did"
                             />
                         </Col>
                     </Row>
