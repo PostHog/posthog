@@ -16,13 +16,14 @@
         "node": ">=14"
     },
     "scripts": {
-        "copy-scripts": "cp node_modules/posthog-js/dist/array.js* frontend/dist/; cp node_modules/@posthog/rrweb/dist/rrweb.min.js frontend/dist/recorder.js",
+        "copy-scripts": "cp node_modules/posthog-js/dist/array.js* frontend/dist/; cp node_modules/rrweb/dist/rrweb.min.js frontend/dist/recorder.js",
         "test": "jest",
         "start": "concurrently -n WEBPACK,TYPEGEN -c blue,green \"yarn run start-http\" \"yarn run typegen:watch\"",
         "start-http": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve",
         "start-https": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve --https",
         "start-docker": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve --host 0.0.0.0",
         "start-ch-dev": "concurrently -n DOCKER,WEBPACK,TYPEGEN -c red,blue,green \"CH_WEB_SCRIPT=./ee/bin/docker-ch-dev-backend docker-compose -f ee/docker-compose.ch.yml up\" \"yarn run start-http --host 0.0.0.0\" \"yarn run typegen:watch\"",
+        "clear-ch-dev": "docker compose -f ee/docker-compose.ch.yml stop && docker compose -f ee/docker-compose.ch.yml rm -v",
         "build": "echo \"Building Webpack\" && NODE_ENV=production webpack --config webpack.config.js && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts",
         "prettier": "prettier --write \"./frontend/src/**/*.{js,ts,tsx,json,yaml,yml,css,scss}\"",
         "prettier:check": "prettier --check \"./**/*.{js,ts,tsx,json,yaml,yml,css,scss}\"",
@@ -45,8 +46,7 @@
         "@popperjs/core": "^2.9.2",
         "@posthog/chart.js": "^2.9.6",
         "@posthog/plugin-scaffold": "0.12.5",
-        "@posthog/react-rrweb-player": "1.1.3-beta",
-        "@posthog/rrweb": "^0.9.15-beta",
+        "@posthog/react-rrweb-player": "^1.1.2",
         "@posthog/simmerjs": "0.7.4",
         "@react-hook/size": "^2.1.2",
         "@sentry/browser": "^6.0.4",
@@ -94,6 +94,7 @@
         "redux": "^4.0.5",
         "reselect": "^4.0.0",
         "resize-observer-polyfill": "^1.5.1",
+        "rrweb": "^1.0.2",
         "sass": "^1.26.2",
         "use-debounce": "^6.0.1",
         "zxcvbn": "^4.4.2"
