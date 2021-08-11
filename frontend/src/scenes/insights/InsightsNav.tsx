@@ -4,6 +4,7 @@ import { isMobile } from 'lib/utils'
 import React from 'react'
 import { HotKeys, ViewType } from '~/types'
 import { insightLogic } from './insightLogic'
+import { ClockCircleOutlined } from '@ant-design/icons'
 
 const { TabPane } = Tabs
 
@@ -28,9 +29,11 @@ export function InsightsNav(): JSX.Element {
                 tabBarExtraContent={{
                     right: (
                         <Button
-                            type={activeView === ViewType.HISTORY ? 'primary' : undefined}
+                            type="link"
                             data-attr="insight-history-button"
+                            className={`insight-history-button${activeView === ViewType.HISTORY ? ' active' : ''}`}
                             onClick={() => setActiveView(ViewType.HISTORY)}
+                            icon={<ClockCircleOutlined />}
                         >
                             History
                         </Button>
