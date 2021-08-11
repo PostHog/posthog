@@ -135,8 +135,7 @@ class TestTeamAPI(APIBaseTest):
             cohort.people.add(person_i)
             Event.objects.create(team=team, distinct_id=f"user_{id}", event="test")
 
-        with self.settings(DEBUG=1):
-            response = self.client.delete(f"/api/projects/{team.id}")
+        response = self.client.delete(f"/api/projects/{team.id}")
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
