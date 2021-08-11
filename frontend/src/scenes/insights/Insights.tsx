@@ -202,28 +202,30 @@ export function Insights(): JSX.Element {
                 </Row>
             )}
 
-            <Row>
-                {user?.organization?.available_features?.includes('dashboard_collaboration') && (
-                    <Col style={{ width: '100%' }}>
-                        <div className="mb" data-attr="insight-tags">
-                            <ObjectTags
-                                tags={insight.tags || []}
-                                onTagSave={saveNewTag}
-                                onTagDelete={deleteTag}
-                                saving={insightLoading}
-                                tagsAvailable={[]}
+            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                <Row>
+                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                        <Col style={{ width: '100%' }}>
+                            <div className="mb" data-attr="insight-tags">
+                                <ObjectTags
+                                    tags={insight.tags || []}
+                                    onTagSave={saveNewTag}
+                                    onTagDelete={deleteTag}
+                                    saving={insightLoading}
+                                    tagsAvailable={[]}
+                                />
+                            </div>
+                            <Description
+                                item={insight}
+                                itemMode={insightMode}
+                                setItemMode={(mode, source) => setInsightMode({ mode, source })}
+                                triggerItemUpdate={updateInsight}
+                                descriptionInputRef={descriptionInputRef}
                             />
-                        </div>
-                        <Description
-                            item={insight}
-                            itemMode={insightMode}
-                            setItemMode={(mode, source) => setInsightMode({ mode, source })}
-                            triggerItemUpdate={updateInsight}
-                            descriptionInputRef={descriptionInputRef}
-                        />
-                    </Col>
-                )}
-            </Row>
+                        </Col>
+                    )}
+                </Row>
+            )}
 
             <InsightsNav />
 
