@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { TrendPeople, parsePeopleParams } from 'scenes/trends/trendsLogic'
-import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UsergroupAddOutlined, ReloadOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Row, Col, Skeleton } from 'antd'
 import { deepLinkToPersonSessions } from 'scenes/persons/PersonsTable'
 import { ActionFilter, EntityTypes, EventPropertyFilter, FilterType, SessionsPropertyFilter, ViewType } from '~/types'
@@ -11,12 +11,12 @@ import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+
 // Utility function to handle filter conversion required for deeplinking to person -> sessions
 const convertToSessionFilters = (people: TrendPeople, filters: Partial<FilterType>): SessionsPropertyFilter[] => {
     if (!people?.action) {
@@ -66,15 +66,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
                 `"${people?.label}"`
             ) : filters.insight === ViewType.FUNNELS ? (
-                <span style={{ whiteSpace: 'nowrap' }}>
-                    <strong>
-                        Persons who {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
-                        {Math.abs(people?.funnelStep ?? 0)} -{' '}
-                        <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
-                        {people?.breakdown_value !== undefined &&
-                            `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
-                    </strong>
-                </span>
+                <>
+                    Persons who {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
+                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
+                    {people?.breakdown_value !== undefined &&
+                        `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                </>
             ) : (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
@@ -92,17 +89,18 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
             visible={visible}
             onOk={hidePeople}
             onCancel={hidePeople}
+            bodyStyle={{ padding: 0, maxHeight: '60vh', overflowY: 'scroll' }}
             footer={
-                <Row style={{ justifyContent: 'space-between', alignItems: 'center', padding: '6px 0px' }}>
-                    <Row style={{ alignItems: 'center' }}>
-                        {people && people.count > 0 && showModalActions && (
-                            <>
-                                <div style={{ paddingRight: 8 }}>
-                                    <Button onClick={onSaveCohort} data-attr="person-modal-save-as-cohort">
-                                        <UsergroupAddOutlined />
-                                        Save as cohort
-                                    </Button>
-                                </div>
+                <Row gutter={16} justify="end">
+                    {people && people.count > 0 && showModalActions && (
+                        <>
+                            <Col>
+                                <Button onClick={onSaveCohort} data-attr="person-modal-save-as-cohort">
+                                    <UsergroupAddOutlined />
+                                    Save as cohort
+                                </Button>
+                            </Col>
+                            <Col>
                                 <Button
                                     icon={<DownloadOutlined />}
                                     href={`/api/action/people.csv?/?${parsePeopleParams(
@@ -119,14 +117,18 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 >
                                     Download CSV
                                 </Button>
-                            </>
-                        )}
-                    </Row>
-                    <Button onClick={hidePeople}>Close</Button>
+                            </Col>
+                        </>
+                    )}
+                    <Col>
+                        <Button onClick={reloadPeople} loading={loadingMorePeople} icon={<ReloadOutlined />}>
+                            Refresh
+                        </Button>
+                    </Col>
                 </Row>
             }
             width={600}
-            className="person-modal"
+            maskClosable
         >
             {isInitialLoad && (
                 <div style={{ padding: 16 }}>
@@ -137,7 +139,6 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                 <>
                     <div
                         style={{
-                            margin: 16,
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'flex-start',
@@ -164,26 +165,6 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 }
                             />
                         )}
-                        <div
-                            style={{
-                                width: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                            }}
-                        >
-                            <span>
-                                Found{' '}
-                                <b>
-                                    {people.count}
-                                    {people.next ? '+' : ''}
-                                </b>{' '}
-                                {people.count === 1 ? 'person' : 'persons'}
-                            </span>
-                            <Button type="link" onClick={() => reloadPeople()} style={{ padding: 0 }}>
-                                Refresh
-                            </Button>
-                        </div>
                     </div>
                     <Col style={{ background: '#FAFAFA' }}>
                         {people?.people.map((person) => (
@@ -192,18 +173,18 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                             </div>
                         ))}
                     </Col>
-                    <div
-                        style={{
-                            margin: '1rem',
-                            textAlign: 'center',
-                        }}
-                    >
-                        {people?.next && (
+                    {people?.next && (
+                        <div
+                            style={{
+                                margin: '1rem',
+                                textAlign: 'center',
+                            }}
+                        >
                             <Button type="primary" style={{ color: 'white' }} onClick={loadMorePeople}>
-                                {loadingMorePeople ? <Spin /> : 'Load more people'}
+                                {loadingMorePeople ? <Spin /> : 'Load more persons'}
                             </Button>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </>
             )}
         </Modal>
@@ -227,15 +208,8 @@ export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Elem
     } as ExpandIconProps
 
     return (
-        <Col
-            key={person.id}
-            style={{
-                alignItems: 'center',
-                padding: '14px 8px',
-                borderBottom: '1px solid #D9D9D9',
-            }}
-        >
-            <Row style={{ justifyContent: 'space-between' }}>
+        <Col key={person.id} style={{ borderBottom: '1px solid var(--border)' }}>
+            <Row style={{ justifyContent: 'space-between', padding: '14px 8px' }}>
                 <Row>
                     <ExpandIcon {...expandProps}>{undefined}</ExpandIcon>
                     <Col style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
@@ -268,7 +242,7 @@ export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Elem
                 </Button>
             </Row>
             {showProperties && (
-                <Row className="person-modal-properties" style={{ paddingTop: 16 }}>
+                <Row style={{ padding: '0 16px', background: '#fff', borderTop: '1px solid var(--border-light)' }}>
                     <PropertiesTable properties={person.properties} />
                 </Row>
             )}
