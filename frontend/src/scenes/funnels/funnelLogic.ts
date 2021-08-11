@@ -286,15 +286,10 @@ export const funnelLogic = kea<funnelLogicType>({
                     state,
                     { conversionWindow: { funnel_window_interval_unit, funnel_window_interval } }
                 ) => {
-                    const nextIntervalUnit =
-                        funnel_window_interval_unit ||
-                        state.funnel_window_interval_unit ||
-                        FunnelConversionWindowTimeUnit.Day
-                    const nextInterval = funnel_window_interval || state.funnel_window_interval
                     return {
                         ...state,
-                        ...(funnel_window_interval_unit ? { funnel_window_interval_unit: nextIntervalUnit } : {}),
-                        ...(funnel_window_interval ? { funnel_window_interval: nextInterval } : {}),
+                        ...(funnel_window_interval_unit ? { funnel_window_interval_unit } : {}),
+                        ...(funnel_window_interval ? { funnel_window_interval } : {}),
                     }
                 },
             },

@@ -17,17 +17,13 @@ import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/Funnel
 export function FunnelSecondaryTabs(): JSX.Element | null {
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
-    const showConversionWindowFilter =
-        filters.funnel_viz_type === FunnelVizType.TimeToConvert || filters.funnel_viz_type === FunnelVizType.Trends
 
     return (
         <>
-            {showConversionWindowFilter && (
-                <Card className="funnel-options" data-attr="funnel-options">
-                    <h4 className="secondary">Options</h4>
-                    <FunnelConversionWindowFilter />
-                </Card>
-            )}
+            <Card className="funnel-options" data-attr="funnel-options">
+                <h4 className="secondary">Options</h4>
+                <FunnelConversionWindowFilter />
+            </Card>
             <Card style={{ marginTop: 16 }}>
                 <GlobalFiltersTitle unit="steps" />
                 <PropertyFilters
