@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
+import { FunnelConversionWindowFilter } from './FunnelConversionWindowFilter'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
@@ -44,6 +45,7 @@ export function FunnelTab(): JSX.Element {
                 }
             />
             {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && <ToggleButtonChartFilter />}
+            <FunnelConversionWindowFilter />
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()

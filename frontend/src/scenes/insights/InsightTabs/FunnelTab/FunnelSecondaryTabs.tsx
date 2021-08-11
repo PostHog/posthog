@@ -12,22 +12,13 @@ import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { BreakdownType, FunnelVizType } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
 
 export function FunnelSecondaryTabs(): JSX.Element | null {
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
-    const showConversionWindowFilter =
-        filters.funnel_viz_type === FunnelVizType.TimeToConvert || filters.funnel_viz_type === FunnelVizType.Trends
 
     return (
         <>
-            {showConversionWindowFilter && (
-                <Card className="funnel-options" data-attr="funnel-options">
-                    <h4 className="secondary">Options</h4>
-                    <FunnelConversionWindowFilter />
-                </Card>
-            )}
             <Card style={{ marginTop: 16 }}>
                 <GlobalFiltersTitle unit="steps" />
                 <PropertyFilters
