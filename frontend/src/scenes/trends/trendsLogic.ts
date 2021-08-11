@@ -172,7 +172,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 cache.abortController = new AbortController()
 
                 const queryId = uuid()
+                const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true)
 
                 let response
                 try {
@@ -208,6 +210,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                         null,
                         e
                     )
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false)
                     return []
                 }
                 breakpoint()
@@ -217,13 +220,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     (values.filters.insight as ViewType) || ViewType.TRENDS,
                     response.last_refresh
                 )
-                if (props.dashboardItemId) {
-                    dashboardsModel.actions.updateDashboardRefreshStatus(
-                        props.dashboardItemId as number,
-                        false,
-                        response.last_refresh
-                    )
-                }
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, response.last_refresh)
 
                 return response
             },

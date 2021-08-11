@@ -17,7 +17,7 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 export const dashboardLogic = kea({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
-    key: (props) => props.id ?? '',
+    key: (props) => props.id,
 
     actions: () => ({
         addNewDashboard: true,
@@ -49,10 +49,7 @@ export const dashboardLogic = kea({
                 loadDashboardItems: async ({ refresh = undefined } = {}) => {
                     try {
                         const dashboard = await api.get(
-                            `api/dashboard/${props.id ? `${props.id}/` : ''}?${toParams({
-                                share_token: props.shareToken,
-                                refresh,
-                            })}`
+                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken, refresh })}`
                         )
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
@@ -109,9 +106,21 @@ export const dashboardLogic = kea({
                 return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
             },
             [dashboardsModel.actions.updateDashboardRefreshStatus]: (state, { id, refreshing, last_refresh }) => {
+                // If not a dashboard item, don't do anything.
+                if (!id) {
+                    return state
+                }
                 return {
                     ...state,
-                    items: state.items.map((i) => (i.id === id ? { ...i, refreshing, last_refresh } : i)),
+                    items: state.items.map((i) =>
+                        i.id === id
+                            ? {
+                                  ...i,
+                                  ...(refreshing == null ? { refreshing } : {}),
+                                  ...(last_refresh ? { last_refresh } : {}),
+                              }
+                            : i
+                    ),
                 }
             },
             updateItemColor: (state, { id, color }) => {

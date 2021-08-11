@@ -233,7 +233,10 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
 
                     const queryId = uuid()
+                    const dashboardItemId = props.dashboardItemId as number | undefined
                     insightLogic.actions.startQuery(queryId)
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true)
+
                     try {
                         const [result, timeConversionResults] = await Promise.all([
                             loadFunnelResults(),
@@ -241,17 +244,16 @@ export const funnelLogic = kea<funnelLogicType>({
                         ])
                         breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
-                        if (props.dashboardItemId) {
-                            dashboardsModel.actions.updateDashboardRefreshStatus(
-                                props.dashboardItemId as number,
-                                false,
-                                result.last_refresh
-                            )
-                        }
+                        dashboardsModel.actions.updateDashboardRefreshStatus(
+                            dashboardItemId,
+                            false,
+                            result.last_refresh
+                        )
                         return { results: result.result, timeConversionResults }
                     } catch (e) {
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                            dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false)
                             console.error(e)
                         }
                         return EMPTY_FUNNEL_RESULTS

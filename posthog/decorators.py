@@ -35,7 +35,6 @@ def cached_function():
             filter = None
             if not team:
                 return f(*args, **kwargs)
-
             filter = get_filter(request=request, team=team)
             cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
             # return cached result if possible
@@ -45,17 +44,16 @@ def cached_function():
                     return {**cached_result, "is_cached": True}
             # call function being wrapped
             result = f(*args, **kwargs)
-            captured_now = now()
 
             # cache new data
             if result is not None and not (isinstance(result.get("result"), dict) and result["result"].get("loading")):
                 cache.set(
-                    cache_key, {"result": result["result"], "last_refresh": captured_now}, TEMP_CACHE_RESULTS_TTL,
+                    cache_key, {"result": result["result"], "last_refresh": now()}, TEMP_CACHE_RESULTS_TTL,
                 )
                 if filter:
                     dashboard_items = DashboardItem.objects.filter(team_id=team.pk, filters_hash=cache_key)
-                    dashboard_items.update(last_refresh=captured_now)
-            return {**result, "last_refresh": captured_now}
+                    dashboard_items.update(last_refresh=now())
+            return result
 
         return wrapper
 

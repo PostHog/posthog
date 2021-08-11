@@ -69,25 +69,26 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     return { paths: props.cachedResults, filter }
                 }
                 const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
-                let paths
+
                 const queryId = uuid()
+                const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true)
+
+                let paths
                 try {
                     paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false)
+
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
-                if (props.dashboardItemId) {
-                    dashboardsModel.actions.updateDashboardRefreshStatus(
-                        props.dashboardItemId as number,
-                        false,
-                        paths.last_refresh
-                    )
-                }
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, paths.last_refresh)
+
                 return { paths: paths.result, filter }
             },
         },
