@@ -37,7 +37,7 @@ import equal from 'fast-deep-equal'
 
 function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
-    breakdownProperty?: string
+    breakdownProperty?: string | number | number[]
 ): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
         return breakdownList[0].map((step, i) => ({
@@ -59,10 +59,9 @@ function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): resul
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
-function isValidBreakdownParameter(
-    breakdown: FunnelRequestParams['breakdown']
-): breakdown is string | null | undefined {
-    return ['string', 'null', 'undefined'].includes(typeof breakdown)
+// breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
+function isValidBreakdownParameter(breakdown: FunnelRequestParams['breakdown']): boolean {
+    return ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) || Array.isArray(breakdown)
 }
 
 function wait(ms = 1000): Promise<any> {
@@ -150,7 +149,7 @@ export const funnelLogic = kea<funnelLogicType>({
         openPersonsModal: (
             step: FunnelStep | FunnelStepWithNestedBreakdown,
             stepNumber: number,
-            breakdown_value?: string
+            breakdown_value?: string | number
         ) => ({
             step,
             stepNumber,

@@ -17,7 +17,7 @@ export interface PersonModalParams {
     date_from: string | number
     date_to: string | number
     filters: Partial<FilterType>
-    breakdown_value?: string
+    breakdown_value?: string | number
     saveOriginal?: boolean
     searchTerm?: string
     funnelStep?: number
