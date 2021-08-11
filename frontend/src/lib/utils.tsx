@@ -13,17 +13,6 @@ import { FEATURE_FLAGS, WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 
-const SI_PREFIXES: { value: number; symbol: string }[] = [
-    { value: 1e18, symbol: 'E' },
-    { value: 1e15, symbol: 'P' },
-    { value: 1e12, symbol: 'T' },
-    { value: 1e9, symbol: 'G' },
-    { value: 1e6, symbol: 'M' },
-    { value: 1e3, symbol: 'k' },
-    { value: 1, symbol: '' },
-]
-const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
-
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
     // https://github.com/react-component/select/blob/dade915d81069b8d3b3b5679bb9daee7e992faba/src/SelectTrigger.jsx#L11-L28
@@ -633,21 +622,6 @@ export function dateFilterToText(
     return name
 }
 
-export function humanizeNumber(number: number | null, digits: number = 1): string {
-    if (number === null) {
-        return '-'
-    }
-    // adapted from https://stackoverflow.com/a/9462382/624476
-    let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
-    for (const currentPrefix of SI_PREFIXES) {
-        if (number >= currentPrefix.value) {
-            matchingPrefix = currentPrefix
-            break
-        }
-    }
-    return (number / matchingPrefix.value).toFixed(digits).replace(TRAILING_ZERO_REGEX, '$1') + matchingPrefix.symbol
-}
-
 export function copyToClipboard(value: string, description?: string): boolean {
     if (!navigator.clipboard) {
         toast.info('Oops! Clipboard capabilities are only available over HTTPS or localhost.')
@@ -878,7 +852,11 @@ export function pluralize(count: number, singular: string, plural?: string, incl
 /** Return a number in a compact format, with a SI suffix if applicable.
  *  Server-side equivalent: utils.py#compact_number.
  */
-export function compactNumber(value: number): string {
+export function compactNumber(value: number | null): string {
+    if (value === null) {
+        return '-'
+    }
+
     value = parseFloat(value.toPrecision(3))
     let magnitude = 0
     while (Math.abs(value) >= 1000) {

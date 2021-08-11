@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { eventWithTime } from '@posthog/rrweb/typings/types'
+import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
 import { eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
