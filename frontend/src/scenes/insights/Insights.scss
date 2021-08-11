@@ -221,7 +221,7 @@
         }
         .funnel-bar-graph {
             z-index: 1;
-            opacity: 0.1;
+            filter: blur(2px);
         }
     }
 }

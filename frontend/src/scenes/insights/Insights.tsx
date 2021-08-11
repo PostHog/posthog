@@ -22,13 +22,7 @@ import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import {
-    ErrorMessage,
-    FunnelEmptyState,
-    FunnelInvalidFiltersEmptyState,
-    FunnelRecalculateEmptyState,
-    TimeOut,
-} from './EmptyStates'
+import { ErrorMessage, FunnelEmptyState, FunnelInvalidFiltersEmptyState, TimeOut } from './EmptyStates'
 import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
@@ -440,7 +434,6 @@ function FunnelInsight(): JSX.Element {
         filtersDirty,
         clickhouseFeaturesEnabled,
     } = useValues(funnelLogic({}))
-    const { loadResults } = useActions(funnelLogic({}))
     const { featureFlags } = useValues(featureFlagLogic)
     const showDirtyState = filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled
 
@@ -464,7 +457,7 @@ function FunnelInsight(): JSX.Element {
                 'dirty-state': showDirtyState,
             })}
         >
-            {showDirtyState && <FunnelRecalculateEmptyState onClick={loadResults} />}
+            {showDirtyState && <div className="dirty-label" />}
             {isLoading && <Loading />}
             {renderFunnel()}
         </div>

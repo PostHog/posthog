@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
-import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined, ReloadOutlined } from '@ant-design/icons'
+import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { IllustrationDanger } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -217,28 +217,6 @@ export function FunnelEmptyState(): JSX.Element {
                 <p className="funnels-empty-state__description">
                     Try changing dates or pick another action, event, or breakdown.
                 </p>
-            </div>
-        </div>
-    )
-}
-
-export function FunnelRecalculateEmptyState({ onClick }: { onClick: () => void }): JSX.Element {
-    return (
-        <div className="insight-empty-state dirty-label funnels-empty-state action-message">
-            <div className="insight-empty-state__wrapper">
-                <div className="illustration-main">
-                    <ReloadOutlined />
-                </div>
-                <h2 className="funnels-empty-state__title mb">Your query steps have changed.</h2>
-                <Button
-                    size="large"
-                    onClick={() => onClick()}
-                    data-attr="add-action-event-button-empty-state"
-                    icon={<ReloadOutlined />}
-                    className="add-action-event-button"
-                >
-                    Recalculate the funnel
-                </Button>
             </div>
         </div>
     )
