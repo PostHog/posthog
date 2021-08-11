@@ -25,7 +25,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     const intervalBounds = TIME_INTERVAL_BOUNDS[conversionWindow.funnel_window_interval_unit]
 
     return (
-        <div className="funnel-options-conversion-window">
+        <div style={{ marginTop: 16 }}>
             <Row align="middle">
                 Conversion window
                 <Tooltip title="Only conversions within this timeframe of performing the initial step will be counted.">
