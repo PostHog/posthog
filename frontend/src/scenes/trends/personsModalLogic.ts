@@ -28,6 +28,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         setSearchTerm: (term: string) => ({ term }),
         setCohortModalVisible: (visible: boolean) => ({ visible }),
         loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
+        reloadPeople: true,
         loadMorePeople: true,
         hidePeople: true,
         saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
@@ -68,6 +69,13 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 }),
                 setFilters: () => null,
                 setFirstLoadedPeople: (_, { firstLoadedPeople }) => firstLoadedPeople,
+            },
+        ],
+        forceRefresh: [
+            false,
+            {
+                setFilters: () => false,
+                reloadPeople: () => true,
             },
         ],
         firstLoadedPeople: [
@@ -162,6 +170,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
                 }
                 breakpoint()
+
                 const peopleResult = {
                     people: people.results[0]?.people,
                     count: people.results[0]?.count || 0,
@@ -169,6 +178,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     label,
                     day: date_from,
                     breakdown_value,
+                    initial: people.initial,
                     next: people.next,
                     funnelStep,
                 } as TrendPeople
@@ -181,30 +191,35 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
 
                 return peopleResult
             },
-            loadMorePeople: async ({}, breakpoint) => {
+            reloadPeople: async (_, breakpoint) => {
                 if (values.people) {
-                    const {
-                        people: currPeople,
-                        count,
-                        action,
-                        label,
-                        day,
-                        breakdown_value,
-                        next,
-                        funnelStep,
-                    } = values.people
-                    const people = await api.get(next)
+                    const initialUrl = values.people.initial
+                    const people = await api.get(`${initialUrl}&refresh=true`)
                     breakpoint()
 
                     return {
-                        people: [...currPeople, ...people.results[0]?.people],
-                        count: count + people.results[0]?.count,
-                        action,
-                        label,
-                        day,
-                        breakdown_value,
+                        ...values.people,
+                        people: people.results[0]?.people,
+                        count: people.results[0]?.count,
                         next: people.next,
-                        funnelStep,
+                    }
+                }
+                return null
+            },
+            loadMorePeople: async (_, breakpoint) => {
+                if (values.people) {
+                    let nextUrl = values.people.next
+                    if (values.forceRefresh) {
+                        nextUrl += '&refresh=true'
+                    }
+                    const people = await api.get(nextUrl)
+                    breakpoint()
+
+                    return {
+                        ...values.people,
+                        people: [...values.people.people, ...people.results[0]?.people],
+                        count: values.people.count + people.results[0]?.count,
+                        next: people.next,
                     }
                 }
                 return null

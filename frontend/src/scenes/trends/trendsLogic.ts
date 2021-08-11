@@ -41,8 +41,12 @@ export interface TrendPeople {
     label: string
     action: ActionFilter | 'session'
     breakdown_value?: string
+    /** URL of the next page of people. */
     next?: string
+    /** URL of the initial page of people. */
+    initial?: string
     loadingMore?: boolean
+    /** Only applicable to funnel steps - for which steps are we showing people. */
     funnelStep?: number
 }
 

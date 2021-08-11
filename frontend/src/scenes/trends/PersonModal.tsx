@@ -48,9 +48,14 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
         isInitialLoad,
         clickhouseFeaturesEnabled,
     } = useValues(personsModalLogic)
-    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
-        personsModalLogic
-    )
+    const {
+        reloadPeople,
+        hidePeople,
+        loadMorePeople,
+        setFirstLoadedPeople,
+        setPersonsModalFilters,
+        setSearchTerm,
+    } = useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
     const title = useMemo(
         () =>
@@ -132,42 +137,42 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                 <>
                     <div
                         style={{
-                            marginBottom: 16,
+                            margin: 16,
                             display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
+                            flexDirection: 'column',
+                            alignItems: 'flex-start',
+                            gap: 16,
                         }}
                     >
+                        {!preflight?.is_clickhouse_enabled && (
+                            <Input.Search
+                                allowClear
+                                enterButton
+                                placeholder="Search person by email, name, or ID"
+                                style={{ width: '100%', flexGrow: 1 }}
+                                onChange={(e) => {
+                                    setSearchTerm(e.target.value)
+                                    if (!e.target.value) {
+                                        setFirstLoadedPeople(firstLoadedPeople)
+                                    }
+                                }}
+                                value={searchTerm}
+                                onSearch={(term) =>
+                                    term
+                                        ? setPersonsModalFilters(term, people, filters)
+                                        : setFirstLoadedPeople(firstLoadedPeople)
+                                }
+                            />
+                        )}
                         <div
                             style={{
-                                display: 'flex',
-                                flexDirection: 'column',
                                 width: '100%',
-                                alignItems: 'flex-start',
-                                padding: '0px 16px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
                             }}
                         >
-                            {!preflight?.is_clickhouse_enabled && (
-                                <Input.Search
-                                    allowClear
-                                    enterButton
-                                    placeholder="Search person by email, name, or ID"
-                                    style={{ width: '100%', flexGrow: 1 }}
-                                    onChange={(e) => {
-                                        setSearchTerm(e.target.value)
-                                        if (!e.target.value) {
-                                            setFirstLoadedPeople(firstLoadedPeople)
-                                        }
-                                    }}
-                                    value={searchTerm}
-                                    onSearch={(term) =>
-                                        term
-                                            ? setPersonsModalFilters(term, people, filters)
-                                            : setFirstLoadedPeople(firstLoadedPeople)
-                                    }
-                                />
-                            )}
-                            <span style={{ paddingTop: 9 }}>
+                            <span>
                                 Found{' '}
                                 <b>
                                     {people.count}
@@ -175,6 +180,9 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                 </b>{' '}
                                 {people.count === 1 ? 'person' : 'persons'}
                             </span>
+                            <Button type="link" onClick={() => reloadPeople()} style={{ padding: 0 }}>
+                                Refresh
+                            </Button>
                         </div>
                     </div>
                     <Col style={{ background: '#FAFAFA' }}>
