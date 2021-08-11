@@ -5,7 +5,7 @@ import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Tabs, Row, Col, Card, Button, Tooltip, Alert } from 'antd'
+import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -22,7 +22,13 @@ import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import { ErrorMessage, FunnelEmptyState, FunnelInvalidFiltersEmptyState, TimeOut } from './EmptyStates'
+import {
+    ErrorMessage,
+    FunnelEmptyState,
+    FunnelInvalidFiltersEmptyState,
+    FunnelRecalculateEmptyState,
+    TimeOut,
+} from './EmptyStates'
 import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
@@ -436,6 +442,7 @@ function FunnelInsight(): JSX.Element {
     } = useValues(funnelLogic({}))
     const { loadResults } = useActions(funnelLogic({}))
     const { featureFlags } = useValues(featureFlagLogic)
+    const showDirtyState = filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled
 
     const renderFunnel = (): JSX.Element => {
         if (isValidFunnel) {
@@ -454,23 +461,10 @@ function FunnelInsight(): JSX.Element {
                     isValidFunnel &&
                     areFiltersValid &&
                     (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || funnel_viz_type === FunnelVizType.Trends),
-                'dirty-state': filtersDirty && !clickhouseFeaturesEnabled,
+                'dirty-state': showDirtyState,
             })}
         >
-            {filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled ? (
-                <div className="dirty-label">
-                    <Alert
-                        message={
-                            <>
-                                The filters have changed.{' '}
-                                <Button onClick={loadResults}>Click to recalculate the funnel.</Button>
-                            </>
-                        }
-                        type="warning"
-                        showIcon
-                    />
-                </div>
-            ) : null}
+            {showDirtyState && <FunnelRecalculateEmptyState onClick={loadResults} />}
             {isLoading && <Loading />}
             {renderFunnel()}
         </div>
