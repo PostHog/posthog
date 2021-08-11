@@ -83,6 +83,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": "Chrome",
+                    "breakdown_value": "Chrome",
                 },
                 {
                     "action_id": "play movie",
@@ -94,6 +95,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": "Chrome",
+                    "breakdown_value": "Chrome",
                 },
             ],
         )
@@ -113,6 +115,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": "Safari",
+                    "breakdown_value": "Safari",
                 },
                 {
                     "action_id": "play movie",
@@ -124,6 +127,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                     "average_conversion_time": 3600,
                     "median_conversion_time": 3600,
                     "breakdown": "Safari",
+                    "breakdown_value": "Safari",
                 },
             ],
         )

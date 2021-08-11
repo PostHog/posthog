@@ -52,7 +52,7 @@ class TestDecide(BaseTest):
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.get("/decide", HTTP_ORIGIN="https://example.com").json()
         self.assertEqual(response["isAuthenticated"], True)
-        self.assertIsNone(response.get("toolbarVersion", None))
+        self.assertIsNone(response["editorParams"].get("toolbarVersion"))
 
     def test_user_on_evil_site(self):
         user = self.organization.members.first()
