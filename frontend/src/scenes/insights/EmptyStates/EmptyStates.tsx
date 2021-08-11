@@ -229,7 +229,7 @@ export function FunnelRecalculateEmptyState({ onClick }: { onClick: () => void }
                 <div className="illustration-main">
                     <ReloadOutlined />
                 </div>
-                <h2 className="funnels-empty-state__title mb">The filters have changed.</h2>
+                <h2 className="funnels-empty-state__title mb">Your query steps have changed.</h2>
                 <Button
                     size="large"
                     onClick={() => onClick()}
