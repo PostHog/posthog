@@ -26,6 +26,12 @@ function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string 
     return getColor(step, 'var(--text-default)', isBreakdown)
 }
 
+function isBreakdownChildType(
+    stepBreakdown: FlattenedFunnelStep['breakdown']
+): stepBreakdown is string | number | undefined {
+    return ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
+}
+
 export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
     const { stepsWithCount, flattenedSteps, filters, steps } = useValues(funnelLogic)
     const { openPersonsModal } = useActions(funnelLogic)
@@ -59,9 +65,19 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                     <div style={{ flexGrow: 1, maxWidth: 270, wordBreak: 'break-word' }}>
                         <InsightLabel
                             seriesColor={color}
-                            fallbackName={isBreakdownChild ? formatBreakdownLabel(step.breakdown, cohorts) : step.name}
+                            fallbackName={
+                                isBreakdownChild && isBreakdownChildType(step.breakdown)
+                                    ? formatBreakdownLabel(step.breakdown, cohorts)
+                                    : step.name
+                            }
                             hasMultipleSeries={steps.length > 1}
-                            breakdownValue={step.breakdown === '' ? 'None' : step.breakdown}
+                            breakdownValue={
+                                step.breakdown === ''
+                                    ? 'None'
+                                    : isBreakdownChildType(step.breakdown)
+                                    ? step.breakdown
+                                    : undefined
+                            }
                             hideBreakdown
                             hideIcon={!isBreakdownChild}
                             allowWrap
@@ -80,7 +96,11 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
             return (
                 <ValueInspectorButton
                     onClick={() =>
-                        openPersonsModal(step, step.order + 1, step.isBreakdownParent ? undefined : step.breakdown)
+                        openPersonsModal(
+                            step,
+                            step.order + 1,
+                            step.isBreakdownParent ? undefined : step.breakdown_value
+                        )
                     }
                 >
                     {step.count}
@@ -108,7 +128,11 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
             ) : (
                 <ValueInspectorButton
                     onClick={() =>
-                        openPersonsModal(step, -(step.order + 1), step.isBreakdownParent ? undefined : step.breakdown)
+                        openPersonsModal(
+                            step,
+                            -(step.order + 1),
+                            step.isBreakdownParent ? undefined : step.breakdown_value
+                        )
                     }
                 >
                     {step.droppedOffFromPrevious}

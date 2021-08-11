@@ -75,7 +75,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
             if with_breakdown:
-                serialized_result.update({"breakdown": results[-1]})
+                serialized_result.update({"breakdown": results[-1], "breakdown_value": results[-1]})
                 # important to not try and modify this value any how - as these are keys for fetching persons
 
             steps.append(serialized_result)
