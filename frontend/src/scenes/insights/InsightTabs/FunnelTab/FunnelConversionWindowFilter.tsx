@@ -46,10 +46,10 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     max={intervalBounds[1]}
                     defaultValue={14}
                     value={conversionWindow.funnel_window_interval}
-                    onChange={(funnel_window_interval) =>
+                    onChange={(funnel_window_interval) => {
                         setConversionWindow({ funnel_window_interval: Number(funnel_window_interval) })
-                    }
-                    onBlur={loadResults}
+                        loadResults()
+                    }}
                     onPressEnter={loadResults}
                 />
                 <Select
@@ -57,10 +57,10 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     defaultValue={FunnelConversionWindowTimeUnit.Day}
                     dropdownMatchSelectWidth={false}
                     value={conversionWindow.funnel_window_interval_unit}
-                    onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit) =>
+                    onChange={(funnel_window_interval_unit: FunnelConversionWindowTimeUnit) => {
                         setConversionWindow({ funnel_window_interval_unit })
-                    }
-                    onBlur={loadResults}
+                        loadResults()
+                    }}
                 >
                     {options.map(({ value, label }) => (
                         <Select.Option value={value} key={value}>
