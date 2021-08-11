@@ -22,6 +22,7 @@ export interface ActionFilterProps {
     showSeriesIndicator?: boolean // Whether to show an indicator identifying each graph
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     showOr?: boolean // Whether to show the "OR" label after each filter
+    hideFilter?: boolean // Hide filter dropdown for retention insights
     customRowPrefix?: string | JSX.Element // Custom prefix element to show in each ActionFilterRow
     customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
@@ -42,6 +43,7 @@ export function ActionFilter({
     showSeriesIndicator = false,
     seriesIndicatorType = 'alpha',
     showOr = false,
+    hideFilter = false,
     horizontalUI = false,
     fullWidth = false,
     customRowPrefix,
@@ -107,6 +109,7 @@ export function ActionFilter({
                             key={index}
                             singleFilter={singleFilter}
                             showOr={showOr}
+                            hideFilter={hideFilter}
                             horizontalUI={horizontalUI}
                             filterCount={localFilters.length}
                             showNestedArrow={showNestedArrow}
