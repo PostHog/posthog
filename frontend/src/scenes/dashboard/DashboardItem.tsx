@@ -340,6 +340,7 @@ export function DashboardItem({
                                                 }}
                                             >
                                                 <Tooltip
+                                                    placement="left"
                                                     title={
                                                         <i>
                                                             Last updated:{' '}
