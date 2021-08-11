@@ -1315,29 +1315,18 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.5.tgz#596539ea69df21f07640a2ce0a335c7ead940b06"
   integrity sha512-EuRoYM17vYI1m2SmXpYe7LC9hFPWsRnN6rAi6q3unFIW26pT40sV/TYSWnBEihZXIWdVShwiGXORQMHjpnJOig==
 
-"@posthog/react-rrweb-player@1.1.3-beta":
-  version "1.1.3-beta"
-  resolved "https://registry.yarnpkg.com/@posthog/react-rrweb-player/-/react-rrweb-player-1.1.3-beta.tgz#1b729776d65575bb5b336c4e9f0be9544f4b4e6b"
-  integrity sha512-6RAxeQzcSCbJHIu7bXHEpZpbvwi1axuyHDyNXHxaDRQkg6CycUKrsPhyHVZMNMy3r+r0cHefTIFthyOhCgX4XA==
+"@posthog/react-rrweb-player@^1.1.2":
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/@posthog/react-rrweb-player/-/react-rrweb-player-1.1.2.tgz#65c6fcc9b6736baba5494855ed9676e26a0971b2"
+  integrity sha512-mQH9+wkZWa+ey9AJ0n74rJDLA5krjTFoSs2smEg8Rj85uuyI7C35Dr4ANafvIYbHZzDyuHGScEXaQNy/RTj1AA==
   dependencies:
-    "@posthog/rrweb" "0.9.15-beta"
     rc-slider "^9.6.2"
     rc-tooltip "^5.0.1"
     react-transition-group "^4.4.1"
+    rrweb "^1.0.2"
     screenfull "^5.0.2"
     use-debounce "^5.2.1"
     use-local-storage-state "^6.0.0"
-
-"@posthog/rrweb@0.9.15-beta", "@posthog/rrweb@^0.9.15-beta":
-  version "0.9.15-beta"
-  resolved "https://registry.yarnpkg.com/@posthog/rrweb/-/rrweb-0.9.15-beta.tgz#6049277a09820eb8ba1ee271b3bfa82555ea3ca3"
-  integrity sha512-+a4Gi9AwR5Ithrn0YxtSv5xGUV4Zgibjewjii4dSvfi/Yno4xXM2bMNuNYvzbxJulxyf6HxNq67PHB5Ds5kAdQ==
-  dependencies:
-    "@types/css-font-loading-module" "0.0.4"
-    "@xstate/fsm" "^1.4.0"
-    fflate "^0.4.4"
-    mitt "^1.1.3"
-    rrweb-snapshot "^1.1.2"
 
 "@posthog/simmerjs@0.7.4":
   version "0.7.4"
@@ -10003,10 +9992,21 @@ ripemd160@^2.0.0, ripemd160@^2.0.1:
     hash-base "^3.0.0"
     inherits "^2.0.1"
 
-rrweb-snapshot@^1.1.2:
-  version "1.1.3"
-  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.3.tgz#a2b35dd481281e70a8f25972c77ea03930ae338a"
-  integrity sha512-FAMn6bonk1XCeoe87F9DxVpgeeSFCYoziLlzRI56S7Jb+t4lxX7LIN/VOqS3ZbVdGTiQLP4cosDtYU8pu6bnHg==
+rrweb-snapshot@^1.1.7:
+  version "1.1.7"
+  resolved "https://registry.yarnpkg.com/rrweb-snapshot/-/rrweb-snapshot-1.1.7.tgz#92a3b47b1112a1b566c2fae2edb02fa48a6f6653"
+  integrity sha512-+f2kCCvIQ1hbEeCWnV7mPVPDEdWEExqwcYqMd/r1nfK52QE7qU52jefUOyTe85Vy67rZGqWnfK/B25e/OTSgYg==
+
+rrweb@^1.0.2:
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/rrweb/-/rrweb-1.0.2.tgz#da561b829e3729461443966fe5abc745e7d3ebf3"
+  integrity sha512-CHv4MjODD7GwduKDHq++6EEwCqjSzXnkv27FLzCjkI93ml5PkUcCNVm1a6UB7xLSzITljPvu62vxZE0186/x1g==
+  dependencies:
+    "@types/css-font-loading-module" "0.0.4"
+    "@xstate/fsm" "^1.4.0"
+    fflate "^0.4.4"
+    mitt "^1.1.3"
+    rrweb-snapshot "^1.1.7"
 
 rsvp@^4.8.4:
   version "4.8.5"
