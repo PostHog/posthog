@@ -4,7 +4,7 @@ import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
 import { useValues, useActions } from 'kea'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, humanizeNumber } from 'lib/utils'
+import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
@@ -124,7 +124,7 @@ export function VolumeTable({
                       )
                   },
                   render: function RenderVolume(_, record) {
-                      return <span className="ph-no-capture">{humanizeNumber(record.eventOrProp.volume_30_day)}</span>
+                      return <span className="ph-no-capture">{compactNumber(record.eventOrProp.volume_30_day)}</span>
                   },
                   sorter: (a, b) =>
                       a.eventOrProp.volume_30_day == b.eventOrProp.volume_30_day
@@ -145,7 +145,7 @@ export function VolumeTable({
                 )
             },
             render: function Render(_, item) {
-                return <span className="ph-no-capture">{humanizeNumber(item.eventOrProp.query_usage_30_day)}</span>
+                return <span className="ph-no-capture">{compactNumber(item.eventOrProp.query_usage_30_day)}</span>
             },
             sorter: (a, b) =>
                 a.eventOrProp.query_usage_30_day == b.eventOrProp.query_usage_30_day
