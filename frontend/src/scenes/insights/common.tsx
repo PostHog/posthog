@@ -13,7 +13,7 @@ export function GlobalFiltersTitle({ unit = 'series' }: { unit?: string }): JSX.
                     </>
                 }
             >
-                <InfoCircleOutlined />
+                <InfoCircleOutlined className="info-indicator" />
             </Tooltip>
         </h4>
     )
