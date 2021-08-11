@@ -7,12 +7,13 @@ import { funnelLogic } from './funnelLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelViz } from 'scenes/funnels/FunnelViz'
-import { FunnelInvalidFiltersEmptyState } from 'scenes/insights/EmptyStates/EmptyStates'
+import { FunnelEmptyState, FunnelInvalidFiltersEmptyState } from 'scenes/insights/EmptyStates/EmptyStates'
+import { Loading } from 'lib/utils'
 
 export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const logic = funnelLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
-    const { filters, areFiltersValid } = useValues(logic)
+    const { filters, areFiltersValid, resultsLoading, isValidFunnel } = useValues(logic)
     const { loadResults } = useActions(logic)
 
     useEffect(() => {
@@ -21,6 +22,12 @@ export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
 
     if (!areFiltersValid) {
         return <FunnelInvalidFiltersEmptyState />
+    }
+    if (resultsLoading) {
+        return <Loading />
+    }
+    if (!isValidFunnel) {
+        return <FunnelEmptyState />
     }
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {

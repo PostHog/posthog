@@ -43,7 +43,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Funnel } from 'scenes/funnels/Funnel'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 dayjs.extend(relativeTime)
 
@@ -187,7 +186,6 @@ export function DashboardItem({
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
     const { dashboards } = useValues(dashboardsModel)
-    const { refreshStatus } = useValues(dashboardLogic)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -499,7 +497,7 @@ export function DashboardItem({
                 )}
 
                 <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
-                    {!refreshStatus[item.id]?.loading && Element ? (
+                    {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
                             {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (
                                 <Skeleton />

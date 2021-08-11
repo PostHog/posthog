@@ -10,6 +10,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
@@ -80,6 +81,13 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
+                if (props.dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(
+                        props.dashboardItemId as number,
+                        false,
+                        paths.last_refresh
+                    )
+                }
                 return { paths: paths.result, filter }
             },
         },

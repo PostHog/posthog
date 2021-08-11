@@ -108,6 +108,12 @@ export const dashboardLogic = kea({
             [dashboardsModel.actions.updateDashboardItem]: (state, { item }) => {
                 return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
             },
+            [dashboardsModel.actions.updateDashboardRefreshStatus]: (state, { id, refreshing, last_refresh }) => {
+                return {
+                    ...state,
+                    items: state.items.map((i) => (i.id === id ? { ...i, refreshing, last_refresh } : i)),
+                }
+            },
             updateItemColor: (state, { id, color }) => {
                 return { ...state, items: state.items.map((i) => (i.id === id ? { ...i, color } : i)) }
             },
@@ -369,11 +375,9 @@ export const dashboardLogic = kea({
         updateItemColor: ({ id, color }) => {
             api.update(`api/insight/${id}`, { color })
         },
-        refreshAllDashboardItemsManual: async (_, breakpoint) => {
+        refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
             actions.resetInterval()
-            await breakpoint(100)
-
             actions.refreshAllDashboardItems()
         },
         refreshAllDashboardItems: async (_, breakpoint) => {

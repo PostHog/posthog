@@ -24,6 +24,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -216,6 +217,13 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     (values.filters.insight as ViewType) || ViewType.TRENDS,
                     response.last_refresh
                 )
+                if (props.dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(
+                        props.dashboardItemId as number,
+                        false,
+                        response.last_refresh
+                    )
+                }
 
                 return response
             },

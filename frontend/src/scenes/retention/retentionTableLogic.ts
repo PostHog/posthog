@@ -24,6 +24,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -80,6 +81,13 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
+                if (props.dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(
+                        props.dashboardItemId as number,
+                        false,
+                        res.last_refresh
+                    )
+                }
                 return res.result
             },
         },
