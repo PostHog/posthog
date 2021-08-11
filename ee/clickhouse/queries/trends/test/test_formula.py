@@ -166,6 +166,26 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
         self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
         self.assertEqual(response[1]["label"], "Paris")
 
+    def test_breakdown_counts_of_different_events_one_without_events(self):
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "insight": "TRENDS",
+                        "display": "ActionsLineGraph",
+                        "formula": "B / A",
+                        "breakdown": "actions_count",
+                        "breakdown_type": "location",
+                        "events": [
+                            {"id": "session start", "name": "session start created", "type": "events", "order": 0},
+                            {"id": "session error", "name": "session error", "type": "events", "order": 1},
+                        ],
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual([], response)
+
     def test_breakdown_cohort(self):
         cohort = Cohort.objects.create(
             team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
