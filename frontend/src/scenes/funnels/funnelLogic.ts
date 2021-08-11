@@ -647,6 +647,9 @@ export const funnelLogic = kea<funnelLogicType>({
         setBinCount: async () => {
             actions.loadResults()
         },
+        setConversionWindow: async () => {
+            actions.loadResults()
+        },
     }),
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
