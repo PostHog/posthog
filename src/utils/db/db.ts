@@ -745,27 +745,30 @@ export class DB {
         try {
             await this.postgresTransaction(async (client) => {
                 const insertResult = await client.query(
-                    'INSERT INTO posthog_elementgroup (hash, team_id) VALUES ($1, $2) RETURNING *',
+                    'INSERT INTO posthog_elementgroup (hash, team_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING *',
                     [hash, teamId]
                 )
-                const elementGroup = insertResult.rows[0] as ElementGroup
-                for (const element of cleanedElements) {
-                    await client.query(
-                        'INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-                        [
-                            element.text,
-                            element.tag_name,
-                            element.href,
-                            element.attr_id,
-                            element.nth_child,
-                            element.nth_of_type,
-                            element.attributes || '{}',
-                            element.order,
-                            element.event_id,
-                            element.attr_class,
-                            elementGroup.id,
-                        ]
-                    )
+
+                if (insertResult.rows.length > 0) {
+                    const elementGroup = insertResult.rows[0] as ElementGroup
+                    for (const element of cleanedElements) {
+                        await client.query(
+                            'INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+                            [
+                                element.text,
+                                element.tag_name,
+                                element.href,
+                                element.attr_id,
+                                element.nth_child,
+                                element.nth_of_type,
+                                element.attributes || '{}',
+                                element.order,
+                                element.event_id,
+                                element.attr_class,
+                                elementGroup.id,
+                            ]
+                        )
+                    }
                 }
             })
         } catch (error) {
