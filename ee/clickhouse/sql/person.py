@@ -132,8 +132,8 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     distinct_id VARCHAR,
     person_id UUID,
     team_id Int64,
-    _sign Int8 DEFAULT if(is_deleted==0, 1, -1),
-    is_deleted Int8 DEFAULT 0
+    _sign Nullable(Int8),
+    is_deleted Nullable(Int8)
 ) ENGINE = {engine}
 """.format(
     table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
@@ -151,7 +151,7 @@ AS SELECT
 distinct_id,
 person_id,
 team_id,
-_sign,
+coalesce(_sign, if(is_deleted==0, 1, -1)) AS _sign,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
