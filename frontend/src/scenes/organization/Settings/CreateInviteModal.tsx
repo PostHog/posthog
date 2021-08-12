@@ -56,7 +56,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                 icon={<UserAddOutlined />}
                 {...buttonProps}
             >
-                Invite Team Member
+                Invite team member
             </Button>
             <Modal
                 title={`Inviting Team Member${user?.organization ? ' to ' + user?.organization?.name : ''}`}
