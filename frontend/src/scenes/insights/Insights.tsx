@@ -190,8 +190,8 @@ export function Insights(): JSX.Element {
                 />
             ) : (
                 <Row style={{ alignItems: 'baseline' }}>
-                    <PageHeader title={insightName || 'Insights'} />
-                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                    <PageHeader title={'Insights'} />
+                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && user?.organization?.available_features?.includes('dashboard_collaboration') && (
                         <EditOutlined
                             style={{ paddingLeft: 16 }}
                             onClick={() =>
@@ -295,7 +295,7 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            <FunnelSecondaryTabs />
+                            {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
                         <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
@@ -378,6 +378,7 @@ export function Insights(): JSX.Element {
                             {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] &&
                                 preflight?.is_clickhouse_enabled &&
                                 activeView === ViewType.FUNNELS &&
+                                !showErrorMessage &&
                                 allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&

@@ -8,7 +8,6 @@ import React, { RefObject, useEffect, useState } from 'react'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/viz/ActionsTable'
 import { ActionsPie } from 'scenes/trends/viz/ActionsPie'
-import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { Paths } from 'scenes/paths/Paths'
 import {
     EllipsisOutlined,
@@ -30,18 +29,15 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
-import { insightLogic, logicFromInsight } from 'scenes/insights/insightLogic'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { logicFromInsight } from 'scenes/insights/insightLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
-
-import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Funnel } from 'scenes/funnels/Funnel'
 
 dayjs.extend(relativeTime)
@@ -126,7 +122,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     },
     FunnelViz: {
         className: 'funnel',
-        element: FunnelViz,
+        element: Funnel,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
@@ -188,11 +184,6 @@ export function DashboardItem({
     const { dashboards } = useValues(dashboardsModel)
     /* FIXME (see #5454): const { refreshStatus } = useValues(dashboardLogic) */
     const { renameDashboardItem } = useActions(dashboardItemsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
-        displayMap.FunnelViz.element = Funnel
-    }
 
     const _type: DisplayedType =
         item.filters.insight === ViewType.RETENTION
@@ -243,7 +234,6 @@ export function DashboardItem({
     const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
     const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
-    const { setInsight } = useActions(insightLogic)
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
     useEffect(() => {
@@ -281,7 +271,6 @@ export function DashboardItem({
                                     if (!isDraggingRef?.current) {
                                         onClick ? onClick() : router.actions.push(link)
                                     }
-                                    setInsight(item)
                                 }}
                                 style={{ fontSize: 16, fontWeight: 500 }}
                             >
@@ -330,7 +319,7 @@ export function DashboardItem({
                                     overlay={
                                         <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
                                             <Menu.Item data-attr={'dashboard-item-' + index + '-dropdown-view'}>
-                                                <Link to={link} onClick={() => setInsight(item)}>
+                                                <Link to={link}>
                                                     <Icon /> {viewText}
                                                 </Link>
                                             </Menu.Item>

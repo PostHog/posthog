@@ -9,6 +9,7 @@ import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType } from '~/types'
+import { formatDisplayPercentage } from './funnelUtils'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
@@ -29,12 +30,12 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                         </Tooltip>
                         Total conversion rate:{' '}
                     </span>
-                    <span>{conversionMetrics.totalRate}%</span>
-                    <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
+                    <span>{formatDisplayPercentage(conversionMetrics.totalRate)}%</span>
                 </>
             )}
             {allFilters.funnel_viz_type !== FunnelVizType.Trends && !allFilters.breakdown && (
                 <>
+                    <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />
                     <span className="text-muted-alt">
                         <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
                             <InfoCircleOutlined className="info-indicator left" />

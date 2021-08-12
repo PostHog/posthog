@@ -223,7 +223,6 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.user import UserSerializer
-        from posthog.models import EventDefinition
         from posthog.views import preflight_check
 
         posthog_app_context: Dict = {

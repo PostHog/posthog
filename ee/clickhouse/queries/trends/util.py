@@ -21,16 +21,10 @@ MATH_FUNCTIONS = {
     "p99": "quantile(0.99)",
 }
 
-entity_index = 0
-
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
-    global entity_index
-
-    # :KLUDGE: Generate a unique parameter name every time this is called to avoid collisions.
-    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity_index % 1000}_math)s))"
-    params = {f"e_{entity_index % 1000}_math": entity.math_property}
-    entity_index += 1
+    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity.index}_math)s))"
+    params = {f"e_{entity.index}_math": entity.math_property}
 
     aggregate_operation = "count(*)"
     join_condition = ""

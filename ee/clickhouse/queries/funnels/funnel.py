@@ -97,8 +97,15 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
             if with_breakdown:
+                # breakdown will return a display ready value
+                # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
                 serialized_result.update(
-                    {"breakdown": result[-1] if isinstance(result[-1], str) else Cohort.objects.get(pk=result[-1]).name}
+                    {
+                        "breakdown": Cohort.objects.get(pk=result[-1]).name
+                        if self._filter.breakdown_type == "cohort"
+                        else result[-1],
+                        "breakdown_value": result[-1],
+                    }
                 )
                 # important to not try and modify this value any how - as these are keys for fetching persons
 
@@ -111,13 +118,15 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         max_steps = len(self._filter.entities)
         if max_steps >= 2:
             formatted_query = self.build_step_subquery(2, max_steps)
+            breakdown_query = self._get_breakdown_prop()
         else:
             formatted_query = self._get_inner_event_query()
+            breakdown_query = self._get_breakdown_prop(group_remaining=True)
 
         exclusion_clause = self._get_exclusion_condition()
 
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {self._get_breakdown_prop()} FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {breakdown_query} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
         {'AND exclusion = 0' if exclusion_clause else ''}
@@ -165,7 +174,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             person_id,
             timestamp,
             {self._get_partition_cols(1, max_steps)}
-            {self._get_breakdown_prop()}
+            {self._get_breakdown_prop(group_remaining=True)}
             FROM ({self._get_inner_event_query()})
             """
         else:

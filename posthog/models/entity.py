@@ -22,6 +22,11 @@ class Entity(PropertyMixin):
     name: Optional[str]
     math: Optional[str]
     math_property: Optional[str]
+    # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
+    # Used for identifying entities within a single query during query building,
+    # which generally uses Entity objects processed by EntitiesMixin
+    # The clean room way to do this would be passing the index _alongside_ the object, but OOP abuse is much less work
+    index: int
 
     def __init__(self, data: Dict[str, Any]) -> None:
         self.id = data["id"]
@@ -31,7 +36,10 @@ class Entity(PropertyMixin):
         ]:
             raise TypeError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
         self.type = data["type"]
-        self.order = data.get("order")
+        order_provided = data.get("order")
+        if order_provided is not None:
+            order_provided = int(order_provided)
+        self.order = order_provided
         self.name = data.get("name")
         self.math = data.get("math")
         self.math_property = data.get("math_property")
