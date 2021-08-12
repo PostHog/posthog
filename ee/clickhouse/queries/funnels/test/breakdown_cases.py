@@ -270,6 +270,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Other",
+                        "breakdown_value": "Other",
                     },
                     {
                         "action_id": "play movie",
@@ -281,6 +282,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 3600.0,
                         "median_conversion_time": 3600.0,
                         "breakdown": "Other",
+                        "breakdown_value": "Other",
                     },
                     {
                         "action_id": "buy",
@@ -292,6 +294,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
                         "breakdown": "Other",
+                        "breakdown_value": "Other",
                     },
                 ],
             )
@@ -315,6 +318,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                     {
                         "action_id": "play movie",
@@ -326,6 +330,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                     {
                         "action_id": "buy",
@@ -337,6 +342,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                 ],
             )
