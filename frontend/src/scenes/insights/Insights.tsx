@@ -177,15 +177,6 @@ export function Insights(): JSX.Element {
                     />
                     <TabPane
                         tab={
-                            <span data-attr="insight-sessions-tab">
-                                Sessions
-                                <InsightHotkey hotkey="s" />
-                            </span>
-                        }
-                        key={ViewType.SESSIONS}
-                    />
-                    <TabPane
-                        tab={
                             <span data-attr="insight-retention-tab">
                                 Retention
                                 <InsightHotkey hotkey="r" />
@@ -201,6 +192,31 @@ export function Insights(): JSX.Element {
                             </span>
                         }
                         key={ViewType.PATHS}
+                    />
+                    <TabPane
+                        tab={
+                            <Tooltip
+                                placement="bottom"
+                                title={
+                                    <>
+                                        Sessions shows you session lengths, with sessions defined by one or more events.
+                                        <br />
+                                        <br />
+                                        <i>
+                                            Example: If you select a Pageview event, the session will include all
+                                            pageviews that happened in sequence without a break longer than 30min in
+                                            between. Its duration will be the time taken from the first to the last
+                                            event, or 0 if there was only 1 event.
+                                        </i>
+                                    </>
+                                }
+                                data-attr="insight-sessions-tab"
+                            >
+                                Sessions
+                                <InsightHotkey hotkey="s" />
+                            </Tooltip>
+                        }
+                        key={ViewType.SESSIONS}
                     />
                     <TabPane
                         tab={
