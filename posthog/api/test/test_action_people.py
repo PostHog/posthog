@@ -2,7 +2,7 @@ import json
 
 from freezegun import freeze_time
 
-from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
+from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
@@ -508,6 +508,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
+                    "display": TRENDS_CUMULATIVE,  # ensure date range is used as is
                     ENTITY_TYPE: "events",
                     ENTITY_ID: "watched movie",
                     "breakdown_type": "cohort",
@@ -526,6 +527,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
+                    "display": TRENDS_CUMULATIVE,  # ensure date range is used as is
                     ENTITY_TYPE: "events",
                     ENTITY_ID: "watched movie",
                     "breakdown_type": "cohort",
