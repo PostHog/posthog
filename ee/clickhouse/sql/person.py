@@ -139,7 +139,6 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
-    extra_fields="",
 )
 
 # You must include the database here because of a bug in clickhouse
