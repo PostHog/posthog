@@ -120,6 +120,7 @@ describe('compactNumber()', () => {
         expect(compactNumber(5392)).toEqual('5.39K')
         expect(compactNumber(2833102)).toEqual('2.83M')
         expect(compactNumber(8283310234)).toEqual('8.28B')
+        expect(compactNumber(null)).toEqual('-')
     })
 })
 describe('pluralize()', () => {
