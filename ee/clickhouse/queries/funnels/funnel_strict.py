@@ -35,7 +35,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
 
         partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self._get_sorting_condition(max_steps, max_steps)
-        breakdown_clause = self._get_breakdown_prop()
+        breakdown_clause = self._get_breakdown_prop(group_remaining=True)
 
         inner_query = f"""
             SELECT 

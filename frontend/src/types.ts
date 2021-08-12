@@ -785,6 +785,20 @@ export interface FunnelTimeConversionMetrics {
     totalRate: number
 }
 
+export interface FunnelConversionWindow {
+    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit
+    funnel_window_interval?: number | undefined
+}
+
+// https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
+export enum FunnelConversionWindowTimeUnit {
+    Minute = 'minute',
+    Hour = 'hour',
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+}
+
 export interface FunnelRequestParams extends FilterType {
     refresh?: boolean
     from_dashboard?: boolean

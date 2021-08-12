@@ -118,13 +118,15 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         max_steps = len(self._filter.entities)
         if max_steps >= 2:
             formatted_query = self.build_step_subquery(2, max_steps)
+            breakdown_query = self._get_breakdown_prop()
         else:
             formatted_query = self._get_inner_event_query()
+            breakdown_query = self._get_breakdown_prop(group_remaining=True)
 
         exclusion_clause = self._get_exclusion_condition()
 
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {self._get_breakdown_prop()} FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {breakdown_query} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
         {'AND exclusion = 0' if exclusion_clause else ''}
@@ -172,7 +174,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             person_id,
             timestamp,
             {self._get_partition_cols(1, max_steps)}
-            {self._get_breakdown_prop()}
+            {self._get_breakdown_prop(group_remaining=True)}
             FROM ({self._get_inner_event_query()})
             """
         else:
