@@ -27,10 +27,18 @@
     }
 }
 
+.dashboard-item {
+    .svg-funnel-js {
+        .svg-funnel-js__container {
+            height: 100%;
+        }
+    }
+}
+
 .svg-funnel-js {
     .svg-funnel-js__container {
         width: 100%;
-        height: 100%;
+        height: 300px;
     }
 
     .svg-funnel-js__labels {
@@ -134,6 +142,39 @@
 
         .new-prop-filter {
             padding-left: 16px !important;
+        }
+    }
+}
+
+.funnel-options {
+    margin-top: 16px;
+
+    .funnel-options-conversion-window {
+        margin: 0.25rem 0;
+        padding: 0.25rem 0;
+        display: flex;
+        flex-direction: column;
+
+        .funnel-options-conversion-window-label {
+            padding: 4px 0;
+
+            .info-indicator {
+                vertical-align: middle;
+            }
+        }
+
+        .funnel-options-conversion-window-inputs {
+            padding: 4px 0;
+
+            .time-value-input {
+                flex-grow: 1;
+                max-width: 80px;
+                margin-right: $default_spacing / 2;
+            }
+
+            .time-unit-input {
+                min-width: 90px;
+            }
         }
     }
 }

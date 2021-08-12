@@ -12,7 +12,7 @@ interface InsightsLabelProps {
     seriesColor?: string
     action?: ActionFilter
     value?: string
-    breakdownValue?: string
+    breakdownValue?: string | number
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
     seriesStatus?: string // Used by lifecycle chart to display the series name
