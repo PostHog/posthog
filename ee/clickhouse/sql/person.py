@@ -227,7 +227,7 @@ INSERT INTO person (id, created_at, team_id, properties, is_identified, _timesta
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, 0, now(), 0 VALUES
+INSERT INTO person_distinct_id SELECT%(distinct_id)s, %(person_id)s, %(team_id)s, %(sign)s, now(), 0 VALUES
 """
 
 DELETE_PERSON_BY_ID = """
@@ -240,10 +240,6 @@ WHERE distinct_id IN (
     SELECT distinct_id FROM person_distinct_id WHERE person_id=%(id)s AND team_id = %(team_id)s
 )
 AND team_id = %(team_id)s
-"""
-
-DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
-INSERT INTO person_distinct_id (id, distinct_id, person_id, team_id, is_deleted, _timestamp, _offset) SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, 0, now(), 0
 """
 
 PERSON_TREND_SQL = """
