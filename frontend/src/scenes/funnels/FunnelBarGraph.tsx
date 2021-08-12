@@ -1,5 +1,5 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
-import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover, Tooltip } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -14,13 +14,13 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import { InsightTooltip } from 'scenes/insights/InsightTooltip'
 import { FunnelLayout } from 'lib/constants'
 import {
-    calcPercentage,
     getReferenceStep,
     humanizeOrder,
     getSeriesColor,
     getBreakdownMaxIndex,
     getSeriesPositionName,
     humanizeStepCount,
+    formatDisplayPercentage,
 } from './funnelUtils'
 import { ChartParams } from '~/types'
 
@@ -157,7 +157,7 @@ function Bar({
                 ref={barRef}
                 className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
                 style={{
-                    flex: `${percentage} 100 0`,
+                    flex: `${percentage} 1 0`,
                     cursor: cursorType,
                     backgroundColor: getSeriesColor(breakdownIndex),
                 }}
@@ -175,9 +175,9 @@ function Bar({
                         role="progressbar"
                         aria-valuemin={0}
                         aria-valuemax={100}
-                        aria-valuenow={breakdownSumPercentage ?? percentage}
+                        aria-valuenow={(breakdownSumPercentage ?? percentage) * 100}
                     >
-                        {humanizeNumber(breakdownSumPercentage ?? percentage, 2)}%
+                        {formatDisplayPercentage(breakdownSumPercentage ?? percentage)}%
                     </div>
                 )}
             </div>
@@ -289,7 +289,7 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
         <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
             <div>{title}</div>
             <div>
-                <strong>{value}</strong>
+                <strong style={{ paddingLeft: 6 }}>{value}</strong>
             </div>
         </div>
     )
@@ -354,7 +354,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                 {Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length ? (
                                     <>
                                         {step.nested_breakdown.map((breakdown, index) => {
-                                            const barSizePercentage = calcPercentage(breakdown.count, basisStep.count)
+                                            const barSizePercentage = breakdown.count / basisStep.count
                                             return (
                                                 <Bar
                                                     key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
@@ -363,13 +363,13 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                     breakdownMaxIndex={breakdownMaxIndex}
                                                     breakdownSumPercentage={
                                                         index === breakdownMaxIndex && breakdownSum
-                                                            ? calcPercentage(breakdownSum, basisStep.count)
+                                                            ? breakdownSum / basisStep.count
                                                             : undefined
                                                     }
                                                     percentage={barSizePercentage}
                                                     name={breakdown.name}
                                                     onBarClick={() =>
-                                                        openPersonsModal(step, i + 1, breakdown.breakdown)
+                                                        openPersonsModal(step, i + 1, breakdown.breakdown_value)
                                                     }
                                                     disabled={!!dashboardItemId}
                                                     layout={layout}
@@ -388,17 +388,17 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                         {
                                                             title: 'Conversion rate (total)',
                                                             value:
-                                                                humanizeNumber(breakdown.conversionRates.total, 2) +
-                                                                '%',
+                                                                formatDisplayPercentage(
+                                                                    breakdown.conversionRates.total
+                                                                ) + '%',
                                                         },
                                                         {
                                                             title: `Conversion rate (from step ${humanizeOrder(
                                                                 previousStep.order
                                                             )})`,
                                                             value:
-                                                                humanizeNumber(
-                                                                    breakdown.conversionRates.fromPrevious,
-                                                                    2
+                                                                formatDisplayPercentage(
+                                                                    breakdown.conversionRates.fromPrevious
                                                                 ) + '%',
                                                             visible: step.order !== 0,
                                                         },
@@ -414,9 +414,8 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                                 previousStep.order
                                                             )})`,
                                                             value:
-                                                                humanizeNumber(
-                                                                    100 - breakdown.conversionRates.fromPrevious,
-                                                                    2
+                                                                formatDisplayPercentage(
+                                                                    1 - breakdown.conversionRates.fromPrevious
                                                                 ) + '%',
                                                             visible:
                                                                 step.order !== 0 &&
@@ -441,7 +440,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                 openPersonsModal(step, -(i + 1))
                                             } // dropoff value for steps is negative
                                             style={{
-                                                flex: `${100 - calcPercentage(breakdownSum, basisStep.count)} 100 0`,
+                                                flex: `${1 - breakdownSum / basisStep.count} 1 0`,
                                                 cursor: `${
                                                     clickhouseFeaturesEnabled && !dashboardItemId ? 'pointer' : ''
                                                 }`,
@@ -464,13 +463,15 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                 },
                                                 {
                                                     title: 'Conversion rate (total)',
-                                                    value: humanizeNumber(step.conversionRates.total, 2) + '%',
+                                                    value: formatDisplayPercentage(step.conversionRates.total) + '%',
                                                 },
                                                 {
                                                     title: `Conversion rate (from step ${humanizeOrder(
                                                         previousStep.order
                                                     )})`,
-                                                    value: humanizeNumber(step.conversionRates.fromPrevious, 2) + '%',
+                                                    value:
+                                                        formatDisplayPercentage(step.conversionRates.fromPrevious) +
+                                                        '%',
                                                     visible: step.order !== 0,
                                                 },
                                                 {
@@ -483,7 +484,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                         previousStep.order
                                                     )})`,
                                                     value:
-                                                        humanizeNumber(100 - step.conversionRates.fromPrevious, 2) +
+                                                        formatDisplayPercentage(1 - step.conversionRates.fromPrevious) +
                                                         '%',
                                                     visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
                                                 },
@@ -502,7 +503,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                                 openPersonsModal(step, -(i + 1))
                                             } // dropoff value for steps is negative
                                             style={{
-                                                flex: `${100 - step.conversionRates.fromBasisStep} 100 0`,
+                                                flex: `${1 - step.conversionRates.fromBasisStep} 1 0`,
                                                 cursor: `${
                                                     clickhouseFeaturesEnabled && !dashboardItemId ? 'pointer' : ''
                                                 }`,
@@ -523,7 +524,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                         <b>{humanizeStepCount(step.count)}</b>
                                     </ValueInspectorButton>
                                     <span className="text-muted-alt">
-                                        ({step.order > 0 ? calcPercentage(step.count, steps[i - 1].count) : '100'}
+                                        ({formatDisplayPercentage(step.order > 0 ? step.count / steps[i - 1].count : 1)}
                                         %)
                                     </span>
                                 </div>
@@ -552,10 +553,9 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                     </ValueInspectorButton>
                                     <span className="text-muted-alt">
                                         (
-                                        {step.order > 0
-                                            ? Math.round((100 - calcPercentage(step.count, steps[i - 1].count)) * 100) /
-                                              100
-                                            : 0}
+                                        {formatDisplayPercentage(
+                                            step.order > 0 ? 1 - step.count / steps[i - 1].count : 0
+                                        )}
                                         %)
                                     </span>
                                 </div>

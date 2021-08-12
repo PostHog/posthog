@@ -313,7 +313,7 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            <FunnelSecondaryTabs />
+                            {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
                         <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
@@ -435,14 +435,13 @@ function FunnelInsight(): JSX.Element {
         clickhouseFeaturesEnabled,
     } = useValues(funnelLogic({}))
     const { loadResults } = useActions(funnelLogic({}))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const renderFunnel = (): JSX.Element => {
-        if (isValidFunnel) {
-            return <Funnel filters={{ funnel_viz_type }} />
-        }
         if (!areFiltersValid) {
             return <FunnelInvalidFiltersEmptyState />
+        }
+        if (isValidFunnel) {
+            return <Funnel filters={{ funnel_viz_type }} />
         }
         return isLoading ? <div style={{ height: 50 }} /> : <FunnelEmptyState />
     }
@@ -450,10 +449,7 @@ function FunnelInsight(): JSX.Element {
     return (
         <div
             className={clsx('funnel-insights-container', {
-                'non-empty-state':
-                    isValidFunnel &&
-                    areFiltersValid &&
-                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || funnel_viz_type === FunnelVizType.Trends),
+                'non-empty-state': (isValidFunnel && areFiltersValid) || isLoading,
                 'dirty-state': filtersDirty && !clickhouseFeaturesEnabled,
             })}
         >

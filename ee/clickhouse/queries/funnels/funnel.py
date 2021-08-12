@@ -97,8 +97,15 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
             if with_breakdown:
+                # breakdown will return a display ready value
+                # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
                 serialized_result.update(
-                    {"breakdown": result[-1] if isinstance(result[-1], str) else Cohort.objects.get(pk=result[-1]).name}
+                    {
+                        "breakdown": Cohort.objects.get(pk=result[-1]).name
+                        if self._filter.breakdown_type == "cohort"
+                        else result[-1],
+                        "breakdown_value": result[-1],
+                    }
                 )
                 # important to not try and modify this value any how - as these are keys for fetching persons
 

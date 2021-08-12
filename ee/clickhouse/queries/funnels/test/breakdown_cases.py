@@ -90,6 +90,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                     {
                         "action_id": "play movie",
@@ -101,6 +102,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 3600.0,
                         "median_conversion_time": 3600.0,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                     {
                         "action_id": "buy",
@@ -112,6 +114,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                 ],
             )
@@ -132,6 +135,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                     {
                         "action_id": "play movie",
@@ -143,6 +147,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                     {
                         "action_id": "buy",
@@ -154,6 +159,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                 ],
             )
@@ -415,6 +421,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                     {
                         "action_id": "play movie",
@@ -426,6 +433,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 3600.0,
                         "median_conversion_time": 3600.0,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                     {
                         "action_id": "buy",
@@ -437,6 +445,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                 ],
             )
@@ -457,6 +466,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                     {
                         "action_id": "play movie",
@@ -468,6 +478,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                     {
                         "action_id": "buy",
@@ -479,6 +490,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                 ],
             )
@@ -555,6 +567,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                     {
                         "action_id": "play movie",
@@ -566,6 +579,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 3600.0,
                         "median_conversion_time": 3600.0,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                     {
                         "action_id": "buy",
@@ -577,6 +591,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                 ],
             )
@@ -596,6 +611,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                     {
                         "action_id": "play movie",
@@ -607,6 +623,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                     {
                         "action_id": "buy",
@@ -618,6 +635,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                 ],
             )
@@ -882,6 +900,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "0",
+                        "breakdown_value": "0",
                     },
                 ],
             )
@@ -900,6 +919,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                 ],
             )
@@ -918,6 +938,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Mac",
+                        "breakdown_value": "Mac",
                     },
                 ],
             )
@@ -936,6 +957,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                 ],
             )
@@ -1001,6 +1023,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                     {
                         "action_id": "play movie",
@@ -1012,6 +1035,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Chrome",
+                        "breakdown_value": "Chrome",
                     },
                 ],
             )
@@ -1031,6 +1055,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": None,
                         "median_conversion_time": None,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                     {
                         "action_id": "play movie",
@@ -1042,6 +1067,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "average_conversion_time": 3600,
                         "median_conversion_time": 3600,
                         "breakdown": "Safari",
+                        "breakdown_value": "Safari",
                     },
                 ],
             )
@@ -1095,6 +1121,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             result = funnel.run()
             self.assertEqual(len(result[0]), 3)
             self.assertEqual(result[0][0]["breakdown"], "test_cohort")
+            self.assertEqual(result[0][0]["breakdown_value"], cohort.pk)
             self.assertCountEqual(self._get_people_at_step(filter, 1, cohort.pk), [person.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, cohort.pk), [])
 
