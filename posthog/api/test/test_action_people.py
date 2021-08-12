@@ -59,6 +59,64 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 )
             return sign_up_action, person
 
+        def test_people_cumulative(self):
+            with freeze_time("2020-01-01 00:06:34"):
+                for i in range(20):
+                    person_factory(team_id=self.team.pk, distinct_ids=[f"blabla_{i}"])
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"blabla_{i}",
+                        properties={"$some_property": "value"},
+                    )
+
+            with freeze_time("2020-01-05 00:06:34"):
+                for i in range(20, 40):
+                    person_factory(team_id=self.team.pk, distinct_ids=[f"blabla_{i}"])
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"blabla_{i}",
+                        properties={"$some_property": "value"},
+                    )
+
+            with freeze_time("2020-01-15 00:06:34"):
+                for i in range(40, 80):
+                    person_factory(team_id=self.team.pk, distinct_ids=[f"blabla_{i}"])
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"blabla_{i}",
+                        properties={"$some_property": "value"},
+                    )
+
+            event_response = self.client.get(
+                "/api/action/people/",
+                data={
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-31",
+                    "interval": "day",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "sign up",
+                    "display": "ActionsLineGraphCumulative",
+                },
+            ).json()
+            self.assertEqual(event_response["results"][0]["count"], 80)
+
+            with freeze_time("2020-01-31 00:06:34"):
+                event_response = self.client.get(
+                    "/api/action/people/",
+                    data={
+                        "date_from": "-30d",
+                        "date_to": "2020-01-31",
+                        "interval": "day",
+                        ENTITY_TYPE: "events",
+                        ENTITY_ID: "sign up",
+                        "display": "ActionsLineGraphCumulative",
+                    },
+                ).json()
+                self.assertEqual(event_response["results"][0]["count"], 80)
+
         def _create_breakdown_events(self):
             freeze_without_time = ["2020-01-02"]
 
