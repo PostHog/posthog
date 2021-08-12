@@ -127,8 +127,8 @@ export function Insights(): JSX.Element {
         f: {
             action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
         },
-        s: {
-            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
+        o: {
+            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 'o'),
         },
         r: {
             action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),

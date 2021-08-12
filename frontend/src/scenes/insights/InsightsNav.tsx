@@ -60,15 +60,6 @@ export function InsightsNav(): JSX.Element {
                 />
                 <TabPane
                     tab={
-                        <span data-attr="insight-sessions-tab">
-                            Sessions
-                            <InsightHotkey hotkey="s" />
-                        </span>
-                    }
-                    key={ViewType.SESSIONS}
-                />
-                <TabPane
-                    tab={
                         <span data-attr="insight-retention-tab">
                             Retention
                             <InsightHotkey hotkey="r" />
@@ -84,6 +75,19 @@ export function InsightsNav(): JSX.Element {
                         </span>
                     }
                     key={ViewType.PATHS}
+                />
+                <TabPane
+                    tab={
+                        <Tooltip
+                            placement="bottom"
+                            title="View average and distribution of session durations."
+                            data-attr="insight-sessions-tab"
+                        >
+                            Sessions
+                            <InsightHotkey hotkey="o" />
+                        </Tooltip>
+                    }
+                    key={ViewType.SESSIONS}
                 />
                 <TabPane
                     tab={
