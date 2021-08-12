@@ -405,12 +405,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 values = get_breakdown_person_prop_values(
                     self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
                 )
+                # people pagination sets the offset param, which is common across filters
+                # and gives us the wrong breakdown values here, so we override it.
             elif self._filter.breakdown_type == "event":
                 values = get_breakdown_event_prop_values(
                     self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
                 )
-                # people pagination sets the offset param, which is common across filters
-                # and gives us the wrong breakdown values here, so we override it here
+                # We assume breakdown values remain stable across the funnel, so using
+                # just the first entity to get breakdown values is ok.
 
             self.params.update({"breakdown_values": values})
 
