@@ -98,8 +98,8 @@ export function Insights(): JSX.Element {
         f: {
             action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
         },
-        s: {
-            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
+        o: {
+            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 'o'),
         },
         r: {
             action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
@@ -197,23 +197,11 @@ export function Insights(): JSX.Element {
                         tab={
                             <Tooltip
                                 placement="bottom"
-                                title={
-                                    <>
-                                        Sessions shows you session lengths, with sessions defined by one or more events.
-                                        <br />
-                                        <br />
-                                        <i>
-                                            Example: If you select a Pageview event, the session will include all
-                                            pageviews that happened in sequence without a break longer than 30min in
-                                            between. Its duration will be the time taken from the first to the last
-                                            event, or 0 if there was only 1 event.
-                                        </i>
-                                    </>
-                                }
+                                title="View average and distribution of session durations."
                                 data-attr="insight-sessions-tab"
                             >
                                 Sessions
-                                <InsightHotkey hotkey="s" />
+                                <InsightHotkey hotkey="o" />
                             </Tooltip>
                         }
                         key={ViewType.SESSIONS}
