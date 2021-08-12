@@ -276,7 +276,8 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
                         unittest.mock.ANY,
                         self.team.id,
                     ),
-                ]
+                ],
+                any_order=True,
             )
 
         def test_return_non_anonymous_name(self) -> None:
