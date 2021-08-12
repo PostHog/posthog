@@ -1,7 +1,7 @@
 @import '~/vars';
 
 .metrics-drawer {
-    z-index: $z_plugin_metrics_drawer;
+    z-index: $z_drawer;
     .metrics-chart-wrapper {
         canvas {
             max-width: 90%;

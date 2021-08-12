@@ -5,11 +5,10 @@ import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
 import React from 'react'
-import { clearDOMTextSelection, toParams } from 'lib/utils'
+import { clearDOMTextSelection, editingToast, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Button } from 'antd'
 import { DashboardMode, ViewType } from '~/types'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
@@ -427,22 +426,7 @@ export const dashboardLogic = kea({
                 clearDOMTextSelection()
 
                 if (!cache.draggingToastId) {
-                    cache.draggingToastId = toast(
-                        <>
-                            <h1>Dashboard edit mode</h1>
-                            <p>Tap below when finished.</p>
-                            <div className="text-right">
-                                <Button>Finish editing</Button>
-                            </div>
-                        </>,
-                        {
-                            type: 'info',
-                            autoClose: false,
-                            onClick: () => actions.setDashboardMode(null, DashboardEventSource.Toast),
-                            closeButton: false,
-                            className: 'drag-items-toast accent-border',
-                        }
-                    )
+                    cache.draggingToastId = editingToast('Dashboard', actions.setDashboardMode)
                 }
             } else {
                 // Clean edit mode toast if applicable

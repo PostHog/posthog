@@ -471,6 +471,7 @@ export interface DashboardItemType {
     dashboard: number
     result: any | null
     updated_at: string
+    tags: string[]
 }
 
 export interface DashboardType {
@@ -629,7 +630,7 @@ export interface FilterType {
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
     breakdown?: string | number | number[] | null
-    breakdown_value?: string
+    breakdown_value?: string | number
     shown_as?: ShownAsType
     session?: string
     period?: string
@@ -743,8 +744,8 @@ export interface FunnelStep {
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: string
-    breakdown_value?: string
+    breakdown?: string | number | number[]
+    breakdown_value?: string | number
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
@@ -783,6 +784,20 @@ export interface FunnelTimeConversionMetrics {
     averageTime: number
     stepRate: number
     totalRate: number
+}
+
+export interface FunnelConversionWindow {
+    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit
+    funnel_window_interval?: number | undefined
+}
+
+// https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
+export enum FunnelConversionWindowTimeUnit {
+    Minute = 'minute',
+    Hour = 'hour',
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
 }
 
 export interface FunnelRequestParams extends FilterType {
@@ -884,6 +899,11 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
+}
+
+export enum ItemMode { // todo: consolidate this and dashboardmode
+    Edit = 'edit',
+    View = 'view',
 }
 
 export enum DashboardMode { // Default mode is null

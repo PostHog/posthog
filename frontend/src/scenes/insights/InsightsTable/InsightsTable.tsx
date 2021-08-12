@@ -146,7 +146,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     if (showTotalCount) {
         columns.push({
             title: (
-                <Dropdown overlay={calcColumnMenu} trigger={['click']}>
+                <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]} <DownOutlined />
                     </span>
@@ -163,16 +163,12 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         filters.display === ACTIONS_TABLE ||
                         filters.display === ACTIONS_PIE_CHART)
                 ) {
-                    // Special handling because `count` will contain the last amount, instead of the cumulative sum.
-                    return (
-                        item.aggregated_value?.toLocaleString() ||
-                        item.data.reduce((acc, val) => acc + val, 0).toLocaleString()
-                    )
+                    return (item.count || item.aggregated_value).toLocaleString()
                 }
                 return (
                     <>
                         {count.toLocaleString()}
-                        {item.action && item.action.math === 'dau' && (
+                        {item.action && item.action?.math === 'dau' && (
                             <Tooltip title="Keep in mind this is just the sum of all values in the row, not the unique users across the entire time period (i.e. this number may contain duplicate users).">
                                 <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--primary-alt)' }} />
                             </Tooltip>
@@ -180,9 +176,11 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                     </>
                 )
             },
+            defaultSortOrder: 'descend',
+            sorter: (a, b) => a.count - b.count,
             dataIndex: 'count',
             fixed: 'right',
-            width: 100,
+            width: 120,
             align: 'center',
         })
     }

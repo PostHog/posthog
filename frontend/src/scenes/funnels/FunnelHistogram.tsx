@@ -3,8 +3,8 @@ import { Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import useSize from '@react-hook/size'
-import { ANTD_TOOLTIP_PLACEMENTS, hashCodeForString, humanFriendlyDuration, humanizeNumber } from 'lib/utils'
-import { calcPercentage, getReferenceStep } from './funnelUtils'
+import { ANTD_TOOLTIP_PLACEMENTS, hashCodeForString, humanFriendlyDuration } from 'lib/utils'
+import { formatDisplayPercentage, getReferenceStep } from './funnelUtils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -48,8 +48,7 @@ export function FunnelHistogramHeader(): JSX.Element | null {
                                     </Row>
                                     <Row className="text-muted-alt">
                                         Total conversion rate:{' '}
-                                        {humanizeNumber(Math.round(calcPercentage(option.count ?? 0, basisStep.count)))}
-                                        %
+                                        {formatDisplayPercentage(option.count ?? 0 / basisStep.count)}%
                                     </Row>
                                 </Col>
                             </Select.Option>
