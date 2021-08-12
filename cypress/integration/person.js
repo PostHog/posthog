@@ -47,11 +47,11 @@ describe('Merge person', () => {
 
         // Merge people
         cy.get('[data-attr=merge-person-button]').click()
-        cy.get('.ant-select-multiple').type('amalia')
-        cy.contains('amalia.potts@hotmail.com').click()
+        cy.get('.ant-select-multiple').type('merritt')
+        cy.contains('merritt.humphrey@gmail.com').click()
         cy.contains('OK').click()
 
-        cy.wait(2000)
+        cy.contains('There are new events', { timeout: 40000 }).click()
         cy.reload()
 
         cy.contains('$create_alias').should('exist')
