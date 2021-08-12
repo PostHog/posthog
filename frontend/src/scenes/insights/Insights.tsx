@@ -1,11 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
 import { isMobile } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Row, Col, Card, Button, Input, Tooltip } from 'antd'
+import { Row, Col, Card, Input } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -48,56 +48,13 @@ import { Description } from 'lib/components/Description/Description'
 import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
 import { userLogic } from 'scenes/userLogic'
+import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
+
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
 }
 
 dayjs.extend(relativeTime)
-
-function ComputationTimeAndRefresh({
-    lastRefresh,
-    loadResults,
-}: {
-    lastRefresh: string
-    loadResults: (refresh: boolean) => void
-}): JSX.Element {
-    const [, setRerenderCounter] = useState(0)
-
-    useEffect(() => {
-        const rerenderInterval = setInterval(() => {
-            setRerenderCounter((previousValue) => previousValue + 1)
-        }, 30000)
-        return () => {
-            clearInterval(rerenderInterval)
-        }
-    })
-
-    return (
-        <div className="text-muted-alt" style={{ marginLeft: 'auto' }}>
-            Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-            {' • '}
-            <Tooltip
-                title={
-                    <>
-                        Insights can be refreshed
-                        <br />
-                        every 3 minutes.
-                    </>
-                }
-            >
-                <Button
-                    size="small"
-                    type="link"
-                    onClick={() => loadResults(true)}
-                    disabled={dayjs().subtract(3, 'minutes') <= dayjs(lastRefresh)}
-                    style={{ padding: 0 }}
-                >
-                    <span style={{ fontSize: 14 }}>Refresh</span>
-                </Button>
-            </Tooltip>
-        </div>
-    )
-}
 
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
@@ -372,7 +329,7 @@ export function Insights(): JSX.Element {
                                         <FunnelCanvasLabel />
                                         <FunnelHistogramHeader />
                                         {lastRefresh && (
-                                            <ComputationTimeAndRefresh
+                                            <ComputationTimeWithRefresh
                                                 lastRefresh={lastRefresh}
                                                 loadResults={loadResults}
                                             />
