@@ -226,20 +226,44 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                 timestamp="2020-01-02T14:00:00Z",
             )
 
+            person4 = _create_person(distinct_ids=["person4"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="person4",
+                properties={"key": "val", "$browser": "random"},
+                timestamp="2020-01-02T14:00:00Z",
+            )
+
+            person5 = _create_person(distinct_ids=["person5"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="person5",
+                properties={"key": "val", "$browser": "another one"},
+                timestamp="2020-01-02T15:00:00Z",
+            )
+
             result = funnel.run()
+
+            people = result[0][0].pop("people")
+            self.assertCountEqual(
+                people, [person1.uuid, person4.uuid, person5.uuid] if Funnel == ClickhouseFunnel else []
+            )
+
             self.assertEqual(
-                result[1],
+                result[0],
                 [
                     {
                         "action_id": "sign up",
                         "name": "sign up",
                         "order": 0,
-                        "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
-                        "count": 1,
+                        # popped people because flakey ordering for assertEqual
+                        "count": 3,
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Chrome",
+                        "breakdown": "Other",
                     },
                     {
                         "action_id": "play movie",
@@ -250,7 +274,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "type": "events",
                         "average_conversion_time": 3600.0,
                         "median_conversion_time": 3600.0,
-                        "breakdown": "Chrome",
+                        "breakdown": "Other",
                     },
                     {
                         "action_id": "buy",
@@ -261,14 +285,17 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "type": "events",
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
-                        "breakdown": "Chrome",
+                        "breakdown": "Other",
                     },
                 ],
             )
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Chrome"), [person1.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Chrome"), [person1.uuid])
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1, "Other"), [person1.uuid, person4.uuid, person5.uuid]
+            )
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Other"), [person1.uuid])
+
             self.assertEqual(
-                result[0],
+                result[1],
                 [
                     {
                         "action_id": "sign up",
@@ -281,7 +308,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Other",
+                        "breakdown": "Safari",
                     },
                     {
                         "action_id": "play movie",
@@ -292,7 +319,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "type": "events",
                         "average_conversion_time": 7200.0,
                         "median_conversion_time": 7200.0,
-                        "breakdown": "Other",
+                        "breakdown": "Safari",
                     },
                     {
                         "action_id": "buy",
@@ -303,13 +330,13 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
                         "type": "events",
                         "average_conversion_time": None,
                         "median_conversion_time": None,
-                        "breakdown": "Other",
+                        "breakdown": "Safari",
                     },
                 ],
             )
 
-            self.assertCountEqual(self._get_people_at_step(filter, 1, "Other"), [person2.uuid, person3.uuid])
-            self.assertCountEqual(self._get_people_at_step(filter, 2, "Other"), [person2.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
 
         def test_funnel_step_breakdown_event_no_type(self):
 

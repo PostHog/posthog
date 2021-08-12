@@ -398,9 +398,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _get_breakdown_conditions(self) -> str:
         if self._filter.breakdown:
             limit = self._filter.breakdown_limit_or_default
-            first_entity = next(x for x in self._filter.entities if x.order == 0)
-            if not first_entity:
-                ValidationError("An entity with order 0 was not provided")
+            first_entity = self._filter.entities[0]
+
             values = []
             if self._filter.breakdown_type == "person":
                 values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
@@ -408,7 +407,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
 
             self.params.update({"breakdown_values": values})
-            return ""
+
+        return ""
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
