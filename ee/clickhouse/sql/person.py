@@ -124,6 +124,8 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
     storage_policy=STORAGE_POLICY,
 )
 
+# :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
+#    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
@@ -131,7 +133,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     person_id UUID,
     team_id Int64,
     _sign Int8 DEFAULT if(is_deleted==0, 1, -1),
-    is_deleted Int8 DEFAULT if(_sign==-1, 1, 0)
+    is_deleted Int8 DEFAULT 0
 ) ENGINE = {engine}
 """.format(
     table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
@@ -146,7 +148,6 @@ PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
 TO {database}.{table_name}
 AS SELECT
-id,
 distinct_id,
 person_id,
 team_id,

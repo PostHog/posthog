@@ -22,8 +22,6 @@ operations = [
         FROM {PERSONS_DISTINCT_ID_TABLE}
     """
     ),
-    migrations.RunSQL(KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL),
-    migrations.RunSQL(PERSONS_DISTINCT_ID_TABLE_MV_SQL),
     migrations.RunSQL(
         f"""
         RENAME TABLE
@@ -32,4 +30,6 @@ operations = [
         ON CLUSTER {CLICKHOUSE_CLUSTER}
     """
     ),
+    migrations.RunSQL(KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL),
+    migrations.RunSQL(PERSONS_DISTINCT_ID_TABLE_MV_SQL),
 ]
