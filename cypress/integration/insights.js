@@ -50,7 +50,7 @@ describe('Insights', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it('Cannot see tags or description (non-FOSS feature)', () => {
+    xit('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('h1').should('contain', 'Insights')
         cy.get('.insight-description').should('not.exist')
         cy.get('[data-attr=insight-tags]').should('not.exist')

@@ -4,7 +4,7 @@ describe('Insights Premium Features', () => {
         cy.location('pathname').should('include', '/insights')
     })
 
-    it('Tag insight', () => {
+    xit('Tag insight', () => {
         const newTag = `test-${Math.floor(Math.random() * 10000)}`
         cy.get('[data-attr=button-add-tag]').click()
         cy.focused().type(newTag)
@@ -15,7 +15,7 @@ describe('Insights Premium Features', () => {
         cy.get('.new-tag-input').should('not.exist') // Input should disappear
     })
 
-    it('Cannot add duplicate tags', () => {
+    xit('Cannot add duplicate tags', () => {
         const newTag = `test2-${Math.floor(Math.random() * 10000)}`
         cy.get('[data-attr=button-add-tag]').click()
         cy.focused().type(newTag)
