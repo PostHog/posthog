@@ -162,12 +162,36 @@ def insight_test_factory(event_factory, person_factory):
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(response.json()["description"], None)
+            self.assertEqual(response.json()["tags"], [])
 
             objects = DashboardItem.objects.all()
             self.assertEqual(len(objects), 1)
             self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
             self.assertEqual(objects[0].filters["date_from"], "-90d")
             self.assertEqual(len(objects[0].short_id), 8)
+
+        def test_update_insight(self):
+            insight = DashboardItem.objects.create(team=self.team, name="special insight", created_by=self.user,)
+            response = self.client.patch(
+                f"/api/insight/{insight.id}",
+                {
+                    "name": "insight new name",
+                    "tags": ["official", "engineering"],
+                    "description": "Internal system metrics.",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["name"], "insight new name")
+            self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
+            self.assertEqual(response_data["description"], "Internal system metrics.")
+            self.assertEqual(response_data["tags"], ["official", "engineering"])
+
+            insight.refresh_from_db()
+            self.assertEqual(insight.name, "insight new name")
+            self.assertEqual(insight.tags, ["official", "engineering"])
 
         def test_save_new_funnel(self):
 

@@ -31,9 +31,20 @@ export enum DashboardEventSource {
     InputEnter = 'input_enter',
     Toast = 'toast',
     Browser = 'browser',
-    AddDescription = 'add_description',
+    AddDescription = 'add_dashboard_description',
     MainNavigation = 'main_nav',
     DashboardsList = 'dashboards_list',
+}
+
+export enum InsightEventSource {
+    LongPress = 'long_press',
+    MoreDropdown = 'more_dropdown',
+    InsightHeader = 'insight_header',
+    Hotkey = 'hotkey',
+    InputEnter = 'input_enter',
+    Toast = 'toast',
+    Browser = 'browser',
+    AddDescription = 'add_insight_description',
 }
 
 /*
