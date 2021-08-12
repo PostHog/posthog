@@ -1,7 +1,14 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import (
+    COLLAPSING_MERGE_TREE,
+    KAFKA_COLUMNS,
+    REPLACING_MERGE_TREE,
+    STORAGE_POLICY,
+    kafka_engine,
+    table_engine,
+)
 
 DROP_PERSON_TABLE_SQL = f"DROP TABLE person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
@@ -95,29 +102,38 @@ PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
-    id Int64,
     distinct_id VARCHAR,
     person_id UUID,
     team_id Int64,
-    is_deleted Int8 DEFAULT 0
+    _sign Int8 DEFAULT 1,
+    is_deleted Int8 ALIAS if(_sign==-1, 1, 0)
     {extra_fields}
 ) ENGINE = {engine}
 """
 
 PERSONS_DISTINCT_ID_TABLE_SQL = (
     PERSONS_DISTINCT_ID_TABLE_BASE_SQL
-    + """Order By (team_id, distinct_id, person_id, id)
+    + """Order By (team_id, distinct_id, person_id)
 {storage_policy}
 """
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", COLLAPSING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
 
-KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = """
+CREATE TABLE {table_name} ON CLUSTER {cluster}
+(
+    distinct_id VARCHAR,
+    person_id UUID,
+    team_id Int64,
+    _sign Int8 DEFAULT if(is_deleted==0, 1, -1),
+    is_deleted Int8 DEFAULT if(_sign==-1, 1, 0)
+) ENGINE = {engine}
+""".format(
     table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
@@ -134,7 +150,7 @@ id,
 distinct_id,
 person_id,
 team_id,
-is_deleted,
+_sign,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
