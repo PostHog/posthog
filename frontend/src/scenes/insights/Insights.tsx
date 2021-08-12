@@ -98,8 +98,8 @@ export function Insights(): JSX.Element {
         f: {
             action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
         },
-        s: {
-            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
+        o: {
+            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 'o'),
         },
         r: {
             action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
@@ -177,15 +177,6 @@ export function Insights(): JSX.Element {
                     />
                     <TabPane
                         tab={
-                            <span data-attr="insight-sessions-tab">
-                                Sessions
-                                <InsightHotkey hotkey="s" />
-                            </span>
-                        }
-                        key={ViewType.SESSIONS}
-                    />
-                    <TabPane
-                        tab={
                             <span data-attr="insight-retention-tab">
                                 Retention
                                 <InsightHotkey hotkey="r" />
@@ -201,6 +192,19 @@ export function Insights(): JSX.Element {
                             </span>
                         }
                         key={ViewType.PATHS}
+                    />
+                    <TabPane
+                        tab={
+                            <Tooltip
+                                placement="bottom"
+                                title="View average and distribution of session durations."
+                                data-attr="insight-sessions-tab"
+                            >
+                                Sessions
+                                <InsightHotkey hotkey="o" />
+                            </Tooltip>
+                        }
+                        key={ViewType.SESSIONS}
                     />
                     <TabPane
                         tab={
