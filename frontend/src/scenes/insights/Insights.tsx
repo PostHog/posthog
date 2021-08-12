@@ -191,14 +191,15 @@ export function Insights(): JSX.Element {
             ) : (
                 <Row style={{ alignItems: 'baseline' }}>
                     <PageHeader title={'Insights'} />
-                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && user?.organization?.available_features?.includes('dashboard_collaboration') && (
-                        <EditOutlined
-                            style={{ paddingLeft: 16 }}
-                            onClick={() =>
-                                setInsightMode({ mode: ItemMode.Edit, source: InsightEventSource.InsightHeader })
-                            }
-                        />
-                    )}
+                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
+                        user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                            <EditOutlined
+                                style={{ paddingLeft: 16 }}
+                                onClick={() =>
+                                    setInsightMode({ mode: ItemMode.Edit, source: InsightEventSource.InsightHeader })
+                                }
+                            />
+                        )}
                 </Row>
             )}
 
