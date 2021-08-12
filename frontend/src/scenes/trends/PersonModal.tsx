@@ -167,14 +167,6 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: Props): JS
                                     }
                                 />
                             )}
-                            <span style={{ paddingTop: 9 }}>
-                                Found{' '}
-                                <b>
-                                    {people.count}
-                                    {people.next ? '+' : ''}
-                                </b>{' '}
-                                {people.count === 1 ? 'person' : 'persons'}
-                            </span>
                         </div>
                     </div>
                     <Col style={{ background: '#FAFAFA' }}>
