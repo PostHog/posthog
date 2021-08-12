@@ -1,15 +1,6 @@
 from enum import Enum
 from functools import wraps
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    TypeVar,
-    Union,
-    cast,
-)
+from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -45,7 +36,6 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
     def wrapper(self, request) -> T:
         # prepare caching params
         team = cast(User, request.user).team
-        filter = None
         if not team:
             return f(self, request)
 
