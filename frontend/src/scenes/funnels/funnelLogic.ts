@@ -24,6 +24,8 @@ import {
     FlattenedFunnelStep,
     FunnelStepWithConversionMetrics,
     BinCountValue,
+    FunnelConversionWindow,
+    FunnelConversionWindowTimeUnit,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout, BinCountAuto } from 'lib/constants'
@@ -144,8 +146,7 @@ export const funnelLogic = kea<funnelLogicType>({
             mergeWithExisting,
         }),
         saveFunnelInsight: (name: string) => ({ name }),
-        loadConversionWindow: (days: number) => ({ days }),
-        setConversionWindowInDays: (days: number) => ({ days }),
+        setConversionWindow: (conversionWindow: FunnelConversionWindow) => ({ conversionWindow }),
         openPersonsModal: (
             step: FunnelStep | FunnelStepWithNestedBreakdown,
             stepNumber: number,
@@ -274,11 +275,21 @@ export const funnelLogic = kea<funnelLogicType>({
         people: {
             clearFunnel: () => [],
         },
-        conversionWindowInDays: [
-            14,
+        conversionWindow: [
             {
-                setConversionWindowInDays: (state, { days }) => {
-                    return days >= 1 && days <= 365 ? Math.round(days) : state
+                funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
+                funnel_window_interval: 14,
+            },
+            {
+                setConversionWindow: (
+                    state,
+                    { conversionWindow: { funnel_window_interval_unit, funnel_window_interval } }
+                ) => {
+                    return {
+                        ...state,
+                        ...(funnel_window_interval_unit ? { funnel_window_interval_unit } : {}),
+                        ...(funnel_window_interval ? { funnel_window_interval } : {}),
+                    }
                 },
             },
         ],
@@ -345,7 +356,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     return timeConversionBins?.bins?.length > 0
                 }
                 if (filters.funnel_viz_type === FunnelVizType.Trends) {
-                    return results?.length > 0
+                    return results?.length > 0 && stepsWithCount?.[0]?.labels
                 }
                 return false
             },
@@ -448,8 +459,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         apiParams: [
-            (s) => [s.filters, s.conversionWindowInDays, featureFlagLogic.selectors.featureFlags],
-            (filters, conversionWindowInDays, featureFlags) => {
+            (s) => [s.filters, s.conversionWindow, featureFlagLogic.selectors.featureFlags],
+            (filters, conversionWindow, featureFlags) => {
                 /* TODO: Related to #4329. We're mixing `from_dashboard` as both which causes hard to manage code:
                     a) a boolean-based hash param to determine if the insight is saved in a dashboard (when viewing insights page)
                     b) dashboard ID passed as a filter in certain kind of insights when viewing in the dashboard page
@@ -460,7 +471,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     ...(props.refresh ? { refresh: true } : {}),
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
-                    funnel_window_days: conversionWindowInDays,
+                    funnel_window_interval: conversionWindow.funnel_window_interval,
+                    funnel_window_interval_unit: conversionWindow.funnel_window_interval_unit,
                     ...(!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? { breakdown: null, breakdown_type: null } : {}),
                 }
             },
@@ -613,10 +625,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 actions.setFilters(filters, true)
             }
         },
-        loadConversionWindow: async ({ days }) => {
-            actions.setConversionWindowInDays(days)
-            actions.loadResults()
-        },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
             personsModalLogic.actions.loadPeople({
                 action: { id: step.action_id, name: step.name, properties: [], type: step.type },
@@ -633,6 +641,9 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadResults()
         },
         setBinCount: async () => {
+            actions.loadResults()
+        },
+        setConversionWindow: async () => {
             actions.loadResults()
         },
     }),

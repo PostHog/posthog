@@ -397,30 +397,32 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_breakdown_conditions(self) -> str:
         if self._filter.breakdown:
-            if self._filter.funnel_step_breakdown:
-                values = self._parse_breakdown_prop_value()
-            else:
-                limit = self._filter.breakdown_limit_or_default
-                first_entity = next(x for x in self._filter.entities if x.order == 0)
-                if not first_entity:
-                    ValidationError("An entity with order 0 was not provided")
-                values = []
-                if self._filter.breakdown_type == "person":
-                    values = get_breakdown_person_prop_values(
-                        self._filter, first_entity, "count(*)", self._team.pk, limit
-                    )
-                elif self._filter.breakdown_type == "event":
-                    values = get_breakdown_event_prop_values(
-                        self._filter, first_entity, "count(*)", self._team.pk, limit
-                    )
+            limit = self._filter.breakdown_limit_or_default
+            first_entity = self._filter.entities[0]
+
+            values = []
+            if self._filter.breakdown_type == "person":
+                values = get_breakdown_person_prop_values(
+                    self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                )
+                # people pagination sets the offset param, which is common across filters
+                # and gives us the wrong breakdown values here, so we override it.
+            elif self._filter.breakdown_type == "event":
+                values = get_breakdown_event_prop_values(
+                    self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                )
+                # We assume breakdown values remain stable across the funnel, so using
+                # just the first entity to get breakdown values is ok.
 
             self.params.update({"breakdown_values": values})
-            return "prop IN %(breakdown_values)s"
-        else:
-            return ""
 
-    def _get_breakdown_prop(self) -> str:
+        return ""
+
+    def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            return ", prop"
+            if group_remaining and self._filter.breakdown_type != "cohort":
+                return ", if(has(%(breakdown_values)s, prop), prop, 'Other') as prop"
+            else:
+                return ", prop"
         else:
             return ""
