@@ -5,7 +5,7 @@ import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Tabs, Row, Col, Card, Button, Tooltip, Alert } from 'antd'
+import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -432,10 +432,7 @@ function FunnelInsight(): JSX.Element {
         isLoading,
         filters: { funnel_viz_type },
         areFiltersValid,
-        filtersDirty,
-        clickhouseFeaturesEnabled,
     } = useValues(funnelLogic({}))
-    const { loadResults } = useActions(funnelLogic({}))
 
     const renderFunnel = (): JSX.Element => {
         if (!areFiltersValid) {
@@ -451,23 +448,8 @@ function FunnelInsight(): JSX.Element {
         <div
             className={clsx('funnel-insights-container', {
                 'non-empty-state': (isValidFunnel && areFiltersValid) || isLoading,
-                'dirty-state': filtersDirty && !clickhouseFeaturesEnabled,
             })}
         >
-            {filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled ? (
-                <div className="dirty-label">
-                    <Alert
-                        message={
-                            <>
-                                The filters have changed.{' '}
-                                <Button onClick={loadResults}>Click to recalculate the funnel.</Button>
-                            </>
-                        }
-                        type="warning"
-                        showIcon
-                    />
-                </div>
-            ) : null}
             {isLoading && <Loading />}
             {renderFunnel()}
         </div>
