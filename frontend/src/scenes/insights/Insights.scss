@@ -208,22 +208,6 @@
         position: relative;
         margin-bottom: 0;
     }
-    &.dirty-state {
-        position: relative;
-        .dirty-label {
-            justify-content: flex-start;
-            padding-top: 12%;
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            top: 10px;
-            z-index: 2;
-        }
-        .funnel-bar-graph {
-            z-index: 1;
-            filter: blur(2px);
-        }
-    }
 }
 
 .funnel-tab-btn-popover {

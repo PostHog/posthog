@@ -431,10 +431,7 @@ function FunnelInsight(): JSX.Element {
         isLoading,
         filters: { funnel_viz_type },
         areFiltersValid,
-        filtersDirty,
-        clickhouseFeaturesEnabled,
     } = useValues(funnelLogic({}))
-    const showDirtyState = filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled
 
     const renderFunnel = (): JSX.Element => {
         if (!areFiltersValid) {
@@ -450,10 +447,8 @@ function FunnelInsight(): JSX.Element {
         <div
             className={clsx('funnel-insights-container', {
                 'non-empty-state': (isValidFunnel && areFiltersValid) || isLoading,
-                'dirty-state': showDirtyState,
             })}
         >
-            {showDirtyState && <div className="dirty-label" />}
             {isLoading && <Loading />}
             {renderFunnel()}
         </div>
