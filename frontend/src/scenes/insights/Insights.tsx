@@ -5,7 +5,7 @@ import { isMobile } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Row, Col, Card, Button, Input } from 'antd'
+import { Row, Col, Card, Input } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -48,6 +48,8 @@ import { Description } from 'lib/components/Description/Description'
 import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
 import { userLogic } from 'scenes/userLogic'
+import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
+
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
 }
@@ -326,19 +328,11 @@ export function Insights(): JSX.Element {
                                     >
                                         <FunnelCanvasLabel />
                                         <FunnelHistogramHeader />
-                                        {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
-                                            <div className="text-muted-alt">
-                                                Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}{' '}
-                                                &bull;
-                                                <Button
-                                                    size="small"
-                                                    type="link"
-                                                    onClick={() => loadResults(true)}
-                                                    style={{ margin: 0 }}
-                                                >
-                                                    <span style={{ fontSize: 14 }}>Refresh</span>
-                                                </Button>
-                                            </div>
+                                        {lastRefresh && (
+                                            <ComputationTimeWithRefresh
+                                                lastRefresh={lastRefresh}
+                                                loadResults={loadResults}
+                                            />
                                         )}
                                     </Row>
                                     {showErrorMessage ? (

@@ -13,7 +13,7 @@ from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFun
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
-from posthog.api.utils import format_next_absolute_url, format_next_url
+from posthog.api.utils import format_next_url, format_offset_absolute_url
 from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.models import Event, Filter, Person
@@ -30,14 +30,27 @@ class ClickhousePersonViewSet(PersonViewSet):
         if request.user.is_anonymous or not request.user.team:
             return Response(data=[])
 
-        results, next_url = self.calculate_funnel_persons(request)["result"]
+        results_package = self.calculate_funnel_persons(request)
 
-        return Response(data={"results": [{"people": results, "count": len(results)}], "next": next_url})
+        if not results_package:
+            return Response(data=[])
 
-    @cached_function()
-    def calculate_funnel_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str]]]:
+        people, next_url, initial_url = results_package["result"]
+
+        return Response(
+            data={
+                "results": [{"people": people, "count": len(people)}],
+                "next": next_url,
+                "initial": initial_url,
+                "is_cached": results_package.get("is_cached"),
+                "last_refresh": results_package.get("last_refresh"),
+            }
+        )
+
+    @cached_function
+    def calculate_funnel_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not request.user.team:
-            return {"result": ([], None)}
+            return {"result": ([], None, None)}
 
         team = request.user.team
         filter = Filter(request=request)
@@ -46,12 +59,13 @@ class ClickhousePersonViewSet(PersonViewSet):
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             funnel_class = ClickhouseFunnelTrendsPersons
 
-        results, should_paginate = funnel_class(filter, team).run()
+        people, should_paginate = funnel_class(filter, team).run()
         limit = filter.limit if filter.limit else 100
-        next_url = format_next_absolute_url(request, filter.offset, limit) if should_paginate else None
+        next_url = format_offset_absolute_url(request, filter.offset + limit) if should_paginate else None
+        initial_url = format_offset_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (results, next_url)}
+        return {"result": (people, next_url, initial_url)}
 
     def get_properties(self, request: Request):
         rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})

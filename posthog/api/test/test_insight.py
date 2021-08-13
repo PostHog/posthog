@@ -262,12 +262,18 @@ def insight_test_factory(event_factory, person_factory):
         def test_nonexistent_cohort_is_handled(self):
             response_nonexistent_property = self.client.get(
                 f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
-            ).json()
+            )
             response_nonexistent_cohort = self.client.get(
                 f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
-            ).json()  # This should not throw an error, just act like there's no event matches
+            )  # This should not throw an error, just act like there's no event matches
 
-            self.assertEqual(response_nonexistent_cohort, response_nonexistent_property)  # Both cases just empty
+            response_nonexistent_property_data = response_nonexistent_property.json()
+            response_nonexistent_cohort_data = response_nonexistent_cohort.json()
+            response_nonexistent_property_data.pop("last_refresh")
+            response_nonexistent_cohort_data.pop("last_refresh")
+            self.assertEqual(
+                response_nonexistent_property_data, response_nonexistent_cohort_data
+            )  # Both cases just empty
 
         def test_cohort_without_match_group_works(self):
             whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
@@ -280,8 +286,12 @@ def insight_test_factory(event_factory, person_factory):
             )  # This should not throw an error, just act like there's no event matches
 
             self.assertEqual(response_nonexistent_property.status_code, 200)
+            response_nonexistent_property_data = response_nonexistent_property.json()
+            response_cohort_without_match_groups_data = response_cohort_without_match_groups.json()
+            response_nonexistent_property_data.pop("last_refresh")
+            response_cohort_without_match_groups_data.pop("last_refresh")
             self.assertEqual(
-                response_nonexistent_property.json(), response_cohort_without_match_groups.json()
+                response_nonexistent_property_data, response_cohort_without_match_groups_data
             )  # Both cases just empty
 
         def test_precalculated_cohort_works(self):
@@ -305,7 +315,11 @@ def insight_test_factory(event_factory, person_factory):
                 )
 
             self.assertEqual(response_precalculated_cohort.status_code, 200)
-            self.assertEqual(response_precalculated_cohort.json(), response_user_property.json())
+            response_user_property_data = response_user_property.json()
+            response_precalculated_cohort_data = response_precalculated_cohort.json()
+            response_user_property_data.pop("last_refresh")
+            response_precalculated_cohort_data.pop("last_refresh")
+            self.assertEqual(response_user_property_data, response_precalculated_cohort_data)
 
         def test_insight_trends_breakdown_pagination(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):

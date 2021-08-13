@@ -211,7 +211,6 @@ export const insightLogic = kea<insightLogicType>({
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
-            actions.setLastRefresh(null)
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
