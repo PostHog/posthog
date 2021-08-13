@@ -91,7 +91,9 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         funnel_from_step,
         funnel_to_step,
         properties_global,
+        properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
+        properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
         properties_all: properties_global.concat(properties_local), // Global and local properties together
     }
 }
