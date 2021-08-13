@@ -40,7 +40,7 @@ export interface TrendPeople {
     day: string | number
     label: string
     action: ActionFilter | 'session'
-    breakdown_value?: string
+    breakdown_value?: string | number
     next?: string
     loadingMore?: boolean
     funnelStep?: number
@@ -51,9 +51,9 @@ interface PeopleParamType {
     label: string
     date_to?: string | number
     date_from?: string | number
-    breakdown_value?: string
+    breakdown_value?: string | number
     target_date?: number | string
-    lifecycle_type?: string
+    lifecycle_type?: string | number
 }
 
 function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {

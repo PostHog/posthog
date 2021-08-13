@@ -1,11 +1,11 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 
-import { isMobile, Loading } from 'lib/utils'
+import { isMobile } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Tabs, Row, Col, Card, Button, Tooltip, Alert } from 'antd'
+import { Row, Col, Card, Input } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -18,18 +18,18 @@ import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './Insigh
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic, logicFromInsight } from './insightLogic'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { DownOutlined, UpOutlined } from '@ant-design/icons'
+import { DownOutlined, UpOutlined, EditOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import { ErrorMessage, FunnelEmptyState, FunnelInvalidFiltersEmptyState, TimeOut } from './EmptyStates'
+import { ErrorMessage, TimeOut } from './EmptyStates'
 import { People } from 'scenes/funnels/People'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { FunnelVizType, HotKeys, ViewType } from '~/types'
+import { FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -40,25 +40,28 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
-import clsx from 'clsx'
-import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
+import { ObjectTags } from 'lib/components/ObjectTags'
+import './Insights.scss'
+import { Description } from 'lib/components/Description/Description'
+import { FunnelInsight } from './FunnelInsight'
+import { InsightsNav } from './InsightsNav'
+import { userLogic } from 'scenes/userLogic'
+import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
 }
 
 dayjs.extend(relativeTime)
-const { TabPane } = Tabs
-
-function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
-    return !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
-}
 
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
-    const [{ fromItem }] = useState(router.values.hashParams)
+    const {
+        hashParams: { fromItem },
+    } = useValues(router)
+
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
     const {
@@ -69,8 +72,21 @@ export function Insights(): JSX.Element {
         showTimeoutMessage,
         showErrorMessage,
         controlsCollapsed,
+        insight,
+        insightName,
+        insightLoading,
+        insightMode,
+        lastInsightModeSource,
     } = useValues(insightLogic)
-    const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
+    const {
+        setActiveView,
+        toggleControlsCollapsed,
+        saveNewTag,
+        deleteTag,
+        updateInsight,
+        setInsightMode,
+        setInsight,
+    } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
     const { areFiltersValid } = useValues(funnelLogic)
@@ -81,15 +97,30 @@ export function Insights(): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
-
+    const { user } = useValues(userLogic)
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
-    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
+    const { loadResults } = useActions(
+        logicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
+    )
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
         reportHotkeyNavigation('insights', hotkey)
     }
+
+    const nameInputRef = useRef<Input | null>(null)
+    const descriptionInputRef = useRef<HTMLInputElement | null>(null)
+
+    useEffect(() => {
+        if (insightMode === ItemMode.Edit) {
+            if (lastInsightModeSource === InsightEventSource.AddDescription) {
+                setTimeout(() => descriptionInputRef.current?.focus(), 10)
+            } else if (!isMobile()) {
+                setTimeout(() => nameInputRef.current?.focus(), 10)
+            }
+        }
+    }, [insightMode])
 
     useKeyboardHotkeys({
         t: {
@@ -98,8 +129,8 @@ export function Insights(): JSX.Element {
         f: {
             action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
         },
-        s: {
-            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
+        o: {
+            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 'o'),
         },
         r: {
             action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
@@ -112,6 +143,11 @@ export function Insights(): JSX.Element {
         },
         l: {
             action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
+        },
+        escape: {
+            // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
+            action: () => setInsightMode({ mode: null, source: InsightEventSource.Hotkey }),
+            disabled: insightMode !== ItemMode.Edit,
         },
     })
 
@@ -135,118 +171,67 @@ export function Insights(): JSX.Element {
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />
-            <PageHeader title="Insights" />
-            <Row justify="space-between" align="middle" className="top-bar">
-                <Tabs
-                    activeKey={activeView}
-                    style={{
-                        overflow: 'visible',
+
+            {insightMode === ItemMode.Edit ? (
+                <Input
+                    placeholder="Insight name (e.g. Weekly KPIs)"
+                    value={insightName}
+                    size="large"
+                    style={{ maxWidth: 400, margin: '16px 0' }}
+                    onChange={(e) => {
+                        setInsight({ ...insight, name: e.target.value }) // To update the input immediately
+                        updateInsight({ name: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
                     }}
-                    className="top-bar"
-                    onChange={(key) => setActiveView(key as ViewType)}
-                    animated={false}
-                    tabBarExtraContent={{
-                        right: (
-                            <Button
-                                type={activeView === ViewType.HISTORY ? 'primary' : undefined}
-                                data-attr="insight-history-button"
-                                onClick={() => setActiveView(ViewType.HISTORY)}
-                            >
-                                History
-                            </Button>
-                        ),
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            setInsightMode({ mode: null, source: InsightEventSource.InputEnter })
+                        }
                     }}
-                >
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-trends-tab">
-                                Trends
-                                <InsightHotkey hotkey="t" />
-                            </span>
-                        }
-                        key={ViewType.TRENDS}
-                    />
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-funnels-tab">
-                                Funnels
-                                <InsightHotkey hotkey="f" />
-                            </span>
-                        }
-                        key={ViewType.FUNNELS}
-                    />
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-sessions-tab">
-                                Sessions
-                                <InsightHotkey hotkey="s" />
-                            </span>
-                        }
-                        key={ViewType.SESSIONS}
-                    />
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-retention-tab">
-                                Retention
-                                <InsightHotkey hotkey="r" />
-                            </span>
-                        }
-                        key={ViewType.RETENTION}
-                    />
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-path-tab">
-                                User Paths
-                                <InsightHotkey hotkey="p" />
-                            </span>
-                        }
-                        key={ViewType.PATHS}
-                    />
-                    <TabPane
-                        tab={
-                            <Tooltip
-                                placement="bottom"
-                                title={
-                                    <>
-                                        Stickiness shows you how many days users performed an action repeatedly within a
-                                        timeframe.
-                                        <br />
-                                        <br />
-                                        <i>
-                                            Example: If a user performed an action on Monday and again on Friday, it
-                                            would be shown as "2 days".
-                                        </i>
-                                    </>
+                    ref={nameInputRef}
+                    tabIndex={0}
+                />
+            ) : (
+                <Row style={{ alignItems: 'baseline' }}>
+                    <PageHeader title={'Insights'} />
+                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
+                        user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                            <EditOutlined
+                                style={{ paddingLeft: 16 }}
+                                onClick={() =>
+                                    setInsightMode({ mode: ItemMode.Edit, source: InsightEventSource.InsightHeader })
                                 }
-                                data-attr="insight-stickiness-tab"
-                            >
-                                Stickiness
-                                <InsightHotkey hotkey="i" />
-                            </Tooltip>
-                        }
-                        key={ViewType.STICKINESS}
-                    />
-                    <TabPane
-                        tab={
-                            <Tooltip
-                                placement="bottom"
-                                title={
-                                    <>
-                                        Lifecycle will show you new, resurrected, returning and dormant users so you
-                                        understand how your user base is composed. This can help you understand where
-                                        your user growth is coming from.
-                                    </>
-                                }
-                                data-attr="insight-lifecycle-tab"
-                            >
-                                Lifecycle
-                                <InsightHotkey hotkey="l" />
-                            </Tooltip>
-                        }
-                        key={ViewType.LIFECYCLE}
-                    />
-                </Tabs>
-            </Row>
+                            />
+                        )}
+                </Row>
+            )}
+
+            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                <Row>
+                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                        <Col style={{ width: '100%' }}>
+                            <div className="mb" data-attr="insight-tags">
+                                <ObjectTags
+                                    tags={insight.tags || []}
+                                    onTagSave={saveNewTag}
+                                    onTagDelete={deleteTag}
+                                    saving={insightLoading}
+                                    tagsAvailable={[]}
+                                />
+                            </div>
+                            <Description
+                                item={insight}
+                                itemMode={insightMode}
+                                setItemMode={(mode, source) => setInsightMode({ mode, source })}
+                                triggerItemUpdate={updateInsight}
+                                descriptionInputRef={descriptionInputRef}
+                            />
+                        </Col>
+                    )}
+                </Row>
+            )}
+
+            <InsightsNav />
+
             <Row gutter={16}>
                 {activeView === ViewType.HISTORY ? (
                     <Col span={24}>
@@ -313,7 +298,7 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            <FunnelSecondaryTabs />
+                            {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
                         <Col span={24} lg={verticalLayout ? 17 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
@@ -343,19 +328,11 @@ export function Insights(): JSX.Element {
                                     >
                                         <FunnelCanvasLabel />
                                         <FunnelHistogramHeader />
-                                        {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
-                                            <div className="text-muted-alt">
-                                                Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}{' '}
-                                                &bull;
-                                                <Button
-                                                    size="small"
-                                                    type="link"
-                                                    onClick={() => loadResults(true)}
-                                                    style={{ margin: 0 }}
-                                                >
-                                                    <span style={{ fontSize: 14 }}>Refresh</span>
-                                                </Button>
-                                            </div>
+                                        {lastRefresh && (
+                                            <ComputationTimeWithRefresh
+                                                lastRefresh={lastRefresh}
+                                                loadResults={loadResults}
+                                            />
                                         )}
                                     </Row>
                                     {showErrorMessage ? (
@@ -396,6 +373,7 @@ export function Insights(): JSX.Element {
                             {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] &&
                                 preflight?.is_clickhouse_enabled &&
                                 activeView === ViewType.FUNNELS &&
+                                !showErrorMessage &&
                                 allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
@@ -421,58 +399,6 @@ export function Insights(): JSX.Element {
                 )}
             </Row>
             <NPSPrompt />
-        </div>
-    )
-}
-
-function FunnelInsight(): JSX.Element {
-    const {
-        isValidFunnel,
-        isLoading,
-        filters: { funnel_viz_type },
-        areFiltersValid,
-        filtersDirty,
-        clickhouseFeaturesEnabled,
-    } = useValues(funnelLogic({}))
-    const { loadResults } = useActions(funnelLogic({}))
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const renderFunnel = (): JSX.Element => {
-        if (isValidFunnel) {
-            return <Funnel filters={{ funnel_viz_type }} />
-        }
-        if (!areFiltersValid) {
-            return <FunnelInvalidFiltersEmptyState />
-        }
-        return isLoading ? <div style={{ height: 50 }} /> : <FunnelEmptyState />
-    }
-
-    return (
-        <div
-            className={clsx('funnel-insights-container', {
-                'non-empty-state':
-                    isValidFunnel &&
-                    areFiltersValid &&
-                    (!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] || funnel_viz_type === FunnelVizType.Trends),
-                'dirty-state': filtersDirty && !clickhouseFeaturesEnabled,
-            })}
-        >
-            {filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled ? (
-                <div className="dirty-label">
-                    <Alert
-                        message={
-                            <>
-                                The filters have changed.{' '}
-                                <Button onClick={loadResults}>Click to recalculate the funnel.</Button>
-                            </>
-                        }
-                        type="warning"
-                        showIcon
-                    />
-                </div>
-            ) : null}
-            {isLoading && <Loading />}
-            {renderFunnel()}
         </div>
     )
 }

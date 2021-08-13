@@ -77,7 +77,6 @@ else:
 
 
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
-
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])

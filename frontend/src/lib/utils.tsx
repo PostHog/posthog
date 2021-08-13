@@ -3,7 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
-import { EventType, FilterType, ActionFilter, IntervalType } from '~/types'
+import { EventType, FilterType, ActionFilter, IntervalType, ItemMode } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
@@ -12,17 +12,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS, WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
-
-const SI_PREFIXES: { value: number; symbol: string }[] = [
-    { value: 1e18, symbol: 'E' },
-    { value: 1e15, symbol: 'P' },
-    { value: 1e12, symbol: 'T' },
-    { value: 1e9, symbol: 'G' },
-    { value: 1e6, symbol: 'M' },
-    { value: 1e3, symbol: 'k' },
-    { value: 1, symbol: '' },
-]
-const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
+import { DashboardEventSource } from './utils/eventUsageLogic'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -109,6 +99,28 @@ export function percentage(division: number): string {
               maximumFractionDigits: 2,
           })
         : ''
+}
+
+export function editingToast(
+    item: string,
+    setItemMode: (mode: ItemMode | null, source: DashboardEventSource) => void
+): any {
+    return toast(
+        <>
+            <h1>{item} edit mode</h1>
+            <p>Tap below when finished.</p>
+            <div className="text-right">
+                <Button>Finish editing</Button>
+            </div>
+        </>,
+        {
+            type: 'info',
+            autoClose: false,
+            onClick: () => setItemMode(null, DashboardEventSource.Toast),
+            closeButton: false,
+            className: 'drag-items-toast accent-border',
+        }
+    )
 }
 
 export function errorToast(title?: string, message?: string, errorDetail?: string, errorCode?: string): void {
@@ -633,21 +645,6 @@ export function dateFilterToText(
     return name
 }
 
-export function humanizeNumber(number: number | null, digits: number = 1): string {
-    if (number === null) {
-        return '-'
-    }
-    // adapted from https://stackoverflow.com/a/9462382/624476
-    let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
-    for (const currentPrefix of SI_PREFIXES) {
-        if (number >= currentPrefix.value) {
-            matchingPrefix = currentPrefix
-            break
-        }
-    }
-    return (number / matchingPrefix.value).toFixed(digits).replace(TRAILING_ZERO_REGEX, '$1') + matchingPrefix.symbol
-}
-
 export function copyToClipboard(value: string, description?: string): boolean {
     if (!navigator.clipboard) {
         toast.info('Oops! Clipboard capabilities are only available over HTTPS or localhost.')
@@ -878,7 +875,11 @@ export function pluralize(count: number, singular: string, plural?: string, incl
 /** Return a number in a compact format, with a SI suffix if applicable.
  *  Server-side equivalent: utils.py#compact_number.
  */
-export function compactNumber(value: number): string {
+export function compactNumber(value: number | null): string {
+    if (value === null) {
+        return '-'
+    }
+
     value = parseFloat(value.toPrecision(3))
     let magnitude = 0
     while (Math.abs(value) >= 1000) {
