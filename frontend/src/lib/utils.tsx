@@ -3,7 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
-import { EventType, FilterType, ActionFilter, IntervalType } from '~/types'
+import { EventType, FilterType, ActionFilter, IntervalType, ItemMode } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
@@ -12,6 +12,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS, WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
+import { DashboardEventSource } from './utils/eventUsageLogic'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -98,6 +99,28 @@ export function percentage(division: number): string {
               maximumFractionDigits: 2,
           })
         : ''
+}
+
+export function editingToast(
+    item: string,
+    setItemMode: (mode: ItemMode | null, source: DashboardEventSource) => void
+): any {
+    return toast(
+        <>
+            <h1>{item} edit mode</h1>
+            <p>Tap below when finished.</p>
+            <div className="text-right">
+                <Button>Finish editing</Button>
+            </div>
+        </>,
+        {
+            type: 'info',
+            autoClose: false,
+            onClick: () => setItemMode(null, DashboardEventSource.Toast),
+            closeButton: false,
+            className: 'drag-items-toast accent-border',
+        }
+    )
 }
 
 export function errorToast(title?: string, message?: string, errorDetail?: string, errorCode?: string): void {

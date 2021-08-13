@@ -1,17 +1,19 @@
 import { BuiltLogic, kea, Logic } from 'kea'
-import { toParams, fromParams } from 'lib/utils'
+import { toParams, fromParams, errorToast, clearDOMTextSelection, editingToast } from 'lib/utils'
 import posthog from 'posthog-js'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from '../trends/trendsLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { Entity, FilterType, FunnelVizType, PropertyFilter, ViewType } from '~/types'
+import { DashboardItemType, Entity, FilterType, FunnelVizType, ItemMode, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
+import api from 'lib/api'
+import { toast } from 'react-toastify'
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -72,6 +74,8 @@ export const insightLogic = kea<insightLogicType>({
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
         setNotFirstLoad: () => {},
         toggleControlsCollapsed: true,
+        saveNewTag: (tag: string) => ({ tag }),
+        deleteTag: (tag: string) => ({ tag }),
     }),
 
     reducers: {
@@ -151,6 +155,49 @@ export const insightLogic = kea<insightLogicType>({
                 startQuery: (state, { queryId }) => ({ ...state, [queryId]: new Date().getTime() }),
             },
         ],
+        lastInsightModeSource: [
+            null as InsightEventSource | null,
+            {
+                setInsightMode: (_, { source }) => source,
+            },
+        ],
+    },
+    loaders: ({ values, actions }) => ({
+        insight: {
+            __default: { tags: [] } as Partial<DashboardItemType>,
+            loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
+            updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
+                if (!Object.entries(payload).length) {
+                    return
+                }
+                await breakpoint(700)
+                return await api.update(`api/insight/${values.insight.id}`, payload)
+            },
+            setInsight: (insight) => insight,
+        },
+        insightMode: [
+            ItemMode.View,
+            {
+                setInsightMode: ({ mode }) => {
+                    if (mode === ItemMode.Edit) {
+                        clearDOMTextSelection()
+                        setTimeout(
+                            () =>
+                                editingToast('Insight', (insightMode, source) => {
+                                    actions.setInsightMode({ mode: insightMode, source })
+                                }),
+                            100
+                        )
+                    } else {
+                        toast.dismiss()
+                    }
+                    return mode
+                },
+            },
+        ],
+    }),
+    selectors: {
+        insightName: [(s) => [s.insight], (insight) => insight?.name],
     },
     listeners: ({ actions, values }) => ({
         setAllFilters: async (filters, breakpoint) => {
@@ -164,7 +211,6 @@ export const insightLogic = kea<insightLogicType>({
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
-            actions.setLastRefresh(null)
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
@@ -229,6 +275,17 @@ export const insightLogic = kea<insightLogicType>({
         toggleControlsCollapsed: async () => {
             eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
         },
+        saveNewTag: ({ tag }) => {
+            if (values.insight.tags?.includes(tag)) {
+                errorToast(undefined, 'Oops! Your insight already has that tag.')
+                return
+            }
+            actions.updateInsight({ tags: [...(values.insight.tags || []), tag] })
+        },
+        deleteTag: async ({ tag }, breakpoint) => {
+            await breakpoint(100)
+            actions.updateInsight({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
+        },
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }) => {
@@ -259,9 +316,12 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_: any, searchParams: Record<string, any>) => {
+        '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (searchParams.insight && searchParams.insight !== values.activeView) {
                 actions.updateActiveView(searchParams.insight)
+            }
+            if (hashParams.fromItem) {
+                actions.loadInsight(hashParams.fromItem)
             }
         },
     }),
@@ -270,6 +330,7 @@ export const insightLogic = kea<insightLogicType>({
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
+            toast.dismiss()
         },
     }),
 })

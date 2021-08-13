@@ -37,7 +37,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
-    @cached_function()
+    @cached_function
     def calculate_trends(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
@@ -54,7 +54,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         self._refresh_dashboard(request=request)
         return {"result": result}
 
-    @cached_function()
+    @cached_function
     def calculate_session(self, request: Request) -> Dict[str, Any]:
         return {
             "result": ClickhouseSessions().run(
@@ -62,7 +62,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             )
         }
 
-    @cached_function()
+    @cached_function
     def calculate_path(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
@@ -74,7 +74,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         response = self.calculate_funnel(request)
         return Response(response)
 
-    @cached_function()
+    @cached_function
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
@@ -98,7 +98,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         else:
             return {"result": funnel_order_class(team=team, filter=filter).run()}
 
-    @cached_function()
+    @cached_function
     def calculate_retention(self, request: Request) -> Dict[str, Any]:
         team = self.team
         data = {}

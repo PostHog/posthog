@@ -85,6 +85,7 @@ export default {
         '^~/(.*)$': '<rootDir>/$1',
         '^lib/(.*)$': '<rootDir>/lib/$1',
         '^scenes/(.*)$': '<rootDir>/scenes/$1',
+        '^.+\\.(css|less|scss)$': 'babel-jest',
     },
 
     // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader
