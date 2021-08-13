@@ -20,7 +20,6 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
         }),
         duplicateDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
         refreshAllDashboardItems: (filters: Partial<FilterType>) => filters,
-        refreshDashboardItem: (item: DashboardItemType) => ({ item }),
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {

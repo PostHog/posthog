@@ -174,7 +174,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 const queryId = uuid()
                 const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
                 let response
                 try {
@@ -210,7 +210,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                         null,
                         e
                     )
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false)
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     return []
                 }
                 breakpoint()

@@ -116,8 +116,8 @@ export const dashboardLogic = kea({
                         i.id === id
                             ? {
                                   ...i,
-                                  ...(refreshing == null ? { refreshing } : {}),
-                                  ...(last_refresh ? { last_refresh } : {}),
+                                  ...(refreshing != null ? { refreshing } : {}),
+                                  ...(last_refresh != null ? { last_refresh } : {}),
                               }
                             : i
                     ),

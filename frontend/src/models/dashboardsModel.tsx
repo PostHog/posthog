@@ -16,10 +16,12 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
         updateDashboardItem: (item: DashboardItemType) => ({ item }),
+        // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
+        // to dashboard items in dashboards
         updateDashboardRefreshStatus: (
-            id: number | undefined,
-            refreshing: boolean,
-            last_refresh: string | null = null
+            id: number | undefined | null,
+            refreshing: boolean | null,
+            last_refresh: string | null
         ) => ({
             id,
             refreshing,

@@ -71,7 +71,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 const queryId = uuid()
                 const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
                 let res
                 const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
@@ -80,7 +80,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false)
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     return []
                 }
                 breakpoint()
