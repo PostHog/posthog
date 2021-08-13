@@ -58,7 +58,7 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                                 hideMathSelector
                                 hideFilter
                                 buttonCopy="Add graph series"
-                                filters={{ events: [filters.target_entity] }}
+                                filters={{ events: [filters.target_entity] }} // retention filters use target and returning entity instead of events
                                 setFilters={(newFilters: FilterType) => {
                                     if (newFilters.events && newFilters.events.length > 0) {
                                         setFilters({ target_entity: newFilters.events[0] })
