@@ -471,6 +471,7 @@ export interface DashboardItemType {
     dashboard: number
     result: any | null
     updated_at: string
+    tags: string[]
 }
 
 export interface DashboardType {
@@ -898,6 +899,11 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
+}
+
+export enum ItemMode { // todo: consolidate this and dashboardmode
+    Edit = 'edit',
+    View = 'view',
 }
 
 export enum DashboardMode { // Default mode is null

@@ -5,13 +5,14 @@ import { SessionFilter } from 'lib/components/SessionsFilter'
 import { trendsLogic } from '../../trends/trendsLogic'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { FilterType, ViewType } from '~/types'
-import { Col, Row, Skeleton } from 'antd'
+import { Col, Row, Skeleton, Tooltip } from 'antd'
 import { TestAccountFilter } from '../TestAccountFilter'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { BaseTabProps } from '../Insights'
 import { InsightTitle } from './InsightTitle'
 import { InsightActionBar } from './InsightActionBar'
 import { GlobalFiltersTitle } from '../common'
+import { InfoCircleOutlined } from '@ant-design/icons'
 
 export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
@@ -46,6 +47,15 @@ export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
                     horizontalUI
                     customRowPrefix=""
                 />
+                <Row className="mt">
+                    <span className="text-muted">
+                        Sessions are calculated based on the events you specify above. After 30min of inactivity a new
+                        session will be counted.{' '}
+                        <Tooltip title="Example: If you select a Pageview event, the session will include all pageviews that happened in sequence without a break longer than 30min in between. Its duration will be the time taken from the first to the last event, or 0 if there was only 1 event.">
+                            <InfoCircleOutlined />
+                        </Tooltip>
+                    </span>
+                </Row>
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                 <GlobalFiltersTitle unit="actions/events" />
