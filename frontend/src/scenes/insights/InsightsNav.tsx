@@ -1,10 +1,11 @@
-import { Button, Row, Tabs, Tooltip } from 'antd'
+import { Button, Row, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { isMobile } from 'lib/utils'
 import React from 'react'
 import { HotKeys, ViewType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { ClockCircleOutlined } from '@ant-design/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const { TabPane } = Tabs
 

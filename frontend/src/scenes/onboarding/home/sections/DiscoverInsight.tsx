@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { Avatar, Card, Divider, List, Tooltip, Typography, Collapse } from 'antd'
+import { Avatar, Card, Divider, List, Typography, Collapse } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const { Panel } = Collapse
 

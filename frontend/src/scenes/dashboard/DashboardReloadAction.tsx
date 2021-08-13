@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
-import { Checkbox, Dropdown, Menu, Radio, Space, Tooltip } from 'antd'
+import { Checkbox, Dropdown, Menu, Radio, Space } from 'antd'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DownOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 import clsx from 'clsx'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)

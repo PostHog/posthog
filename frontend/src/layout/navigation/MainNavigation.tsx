@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Layout, Menu, Modal, Popover, Tooltip } from 'antd'
+import { Layout, Menu, Modal, Popover } from 'antd'
 import {
     ApiFilled,
     ClockCircleFilled,
@@ -40,6 +40,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Tooltip } from 'lib/components/Tooltip'
 
 // to show the right page in the sidebar
 const sceneOverride: Partial<Record<Scene, string>> = {

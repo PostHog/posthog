@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { CheckOutlined, WarningOutlined } from '@ant-design/icons'
-import { Tooltip } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface BadgeProps {
     icon?: JSX.Element

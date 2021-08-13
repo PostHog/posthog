@@ -1,9 +1,10 @@
-import { Avatar, Card, Divider, List, Tooltip, Typography, Space } from 'antd'
+import { Avatar, Card, Divider, List, Typography, Space } from 'antd'
 
 import React from 'react'
 import { useActions } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TiledIconModuleProps } from '~/types'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const { Paragraph } = Typography
 

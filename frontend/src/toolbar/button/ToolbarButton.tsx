@@ -17,7 +17,7 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { QuestionOutlined } from '@ant-design/icons'
-import { Tooltip } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const HELP_URL =
     'https://posthog.com/docs/tutorials/toolbar?utm_medium=in-product&utm_source=in-product&utm_campaign=toolbar-help-button'

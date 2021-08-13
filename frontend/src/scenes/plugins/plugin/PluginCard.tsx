@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -29,6 +29,7 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
