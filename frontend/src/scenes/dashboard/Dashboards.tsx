@@ -42,6 +42,14 @@ export function Dashboards(): JSX.Element {
                     </span>
                 )
             },
+            sorter: {
+                multiple: 20,
+                compare: (a, b) => {
+                    const intValue = +a.pinned + +b.pinned
+                    return intValue !== 1 ? 0 : +a.pinned < +b.pinned ? -1 : 1
+                },
+            },
+            defaultSortOrder: 'descend',
         },
         {
             title: 'Dashboard',
@@ -54,6 +62,11 @@ export function Dashboards(): JSX.Element {
                     </Link>
                 )
             },
+            sorter: {
+                multiple: 10,
+                compare: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
+            },
+            defaultSortOrder: 'ascend',
         },
         {
             title: 'Description',
