@@ -159,7 +159,11 @@ export function ActionFilterRow({
                         )}
                     </Col>
                 )}
-                {customRowPrefix ? <Col>{customRowPrefix}</Col> : <>{horizontalUI && <Col>Showing</Col>}</>}
+                {customRowPrefix !== undefined ? (
+                    <Col>{customRowPrefix}</Col>
+                ) : (
+                    <>{horizontalUI && <Col>Showing</Col>}</>
+                )}
                 <Col
                     style={fullWidth ? {} : { maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}
                     flex={fullWidth ? 'auto' : undefined}

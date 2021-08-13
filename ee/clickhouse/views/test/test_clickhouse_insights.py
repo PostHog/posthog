@@ -259,13 +259,16 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        response_data.pop("last_refresh")
         self.assertEqual(
-            response.json(),
+            response_data,
             {
+                "is_cached": False,
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
-                }
+                },
             },
         )
 
@@ -307,13 +310,16 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        response_data.pop("last_refresh")
         self.assertEqual(
-            response.json(),
+            response_data,
             {
+                "is_cached": False,
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
-                }
+                },
             },
         )
 
@@ -355,13 +361,16 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        response_data.pop("last_refresh")
         self.assertEqual(
-            response.json(),
+            response_data,
             {
+                "is_cached": False,
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
-                }
+                },
             },
         )
 

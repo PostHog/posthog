@@ -193,7 +193,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         try {
                             const result = await pollFunnel<FunnelStep[] | FunnelStep[][]>({
                                 ...apiParams,
-                                ...(refresh ? { refresh } : {}),
+                                refresh,
                                 // Time to convert requires steps funnel api to be called for now. Remove once two api's are functionally separated
                                 funnel_viz_type:
                                     filters.funnel_viz_type === FunnelVizType.TimeToConvert
