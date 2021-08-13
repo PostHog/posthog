@@ -1,4 +1,5 @@
 import { isBreakpoint, kea } from 'kea'
+import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, objectsEqual, sum, uuid } from 'lib/utils'
@@ -35,7 +36,6 @@ import { cleanBinResult, formatDisplayPercentage, getLastFilledStep, getReferenc
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import equal from 'fast-deep-equal'
 
 function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
@@ -173,7 +173,6 @@ export const funnelLogic = kea<funnelLogicType>({
             EMPTY_FUNNEL_RESULTS as LoadedRawFunnelResults,
             {
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
-                    await breakpoint(250)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
                         // TODO: cache timeConversionResults? how does this cachedResults work?
                         return {
@@ -186,6 +185,18 @@ export const funnelLogic = kea<funnelLogicType>({
                     if (!values.areFiltersValid) {
                         return EMPTY_FUNNEL_RESULTS
                     }
+
+                    // Don't load results if layout was the only thing changed
+                    if (
+                        equal(
+                            Object.assign({}, values.filters, { layout: undefined }),
+                            Object.assign({}, values.lastAppliedFilters, { layout: undefined })
+                        )
+                    ) {
+                        return values.rawResults
+                    }
+
+                    await breakpoint(250)
 
                     const { apiParams, eventCount, actionCount, interval, histogramStep, filters, binCount } = values
 
