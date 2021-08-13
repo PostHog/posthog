@@ -15,15 +15,13 @@ export function FunnelCanvasLabel(): JSX.Element | null {
     const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { allFilters } = useValues(insightLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
-    const showTotal = allFilters.funnel_viz_type === FunnelVizType.Steps
-    const showAverage = allFilters.funnel_viz_type !== FunnelVizType.Trends && !allFilters.breakdown
 
     if (allFilters.insight !== 'FUNNELS') {
         return null
     }
 
     const labels = [
-        ...(showTotal
+        ...(allFilters.funnel_viz_type === FunnelVizType.Steps
             ? [
                   <>
                       <span className="text-muted-alt">
@@ -36,7 +34,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                   </>,
               ]
             : []),
-        ...(showAverage
+        ...(allFilters.funnel_viz_type !== FunnelVizType.Trends && !allFilters.breakdown
             ? [
                   <>
                       <span className="text-muted-alt">
