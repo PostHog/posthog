@@ -150,6 +150,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             (featureFlags, eventsLoaded, propertiesLoaded) =>
                 !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
         ],
+        actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
+        actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
     },
     events: ({ actions, props }) => ({
         afterMount: () => props.dashboardItemId && actions.loadResults(),
