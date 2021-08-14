@@ -43,7 +43,7 @@ export function InsightActionBar({
                         reportInsightsTabReset()
                     }}
                 >
-                    <Tooltip placement="bottom" title="Reset all filters">
+                    <Tooltip placement="top" title="Reset all filters">
                         <Button type="link" icon={<ClearOutlined />} className="btn-reset">
                             {showButtonLabels && 'Reset'}
                         </Button>

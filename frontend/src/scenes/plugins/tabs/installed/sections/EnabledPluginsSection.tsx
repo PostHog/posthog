@@ -122,7 +122,7 @@ export function EnabledPluginSection(): JSX.Element {
                     </>
                 )
             }
-            placement="bottom"
+            placement="top"
         >
             <Button
                 icon={<OrderedListOutlined />}

@@ -153,7 +153,7 @@ export function CommunityIcons(): JSX.Element {
                         reportProjectHomeItemClicked('community', tile.title)
                     }}
                 >
-                    <Tooltip placement="bottom" title={tile.hoverText ? tile.hoverText : ''}>
+                    <Tooltip placement="top" title={tile.hoverText ? tile.hoverText : ''}>
                         <List.Item className="insight-container" key={tile.title}>
                             <Avatar
                                 size={55}

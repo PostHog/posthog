@@ -358,7 +358,7 @@ export function FeatureFlag(): JSX.Element {
                                                 </div>
                                             ) : (
                                                 <Slider
-                                                    tooltipPlacement="bottom"
+                                                    tooltipPlacement="top"
                                                     tipFormatter={(value) => value + '%'}
                                                     tooltipVisible
                                                     value={group.rollout_percentage}
