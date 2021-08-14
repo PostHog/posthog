@@ -25,7 +25,9 @@ import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
-    const { filters, filtersLoading } = useValues(retentionTableLogic({ dashboardItemId: null }))
+    const { filters, filtersLoading, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
+        retentionTableLogic({ dashboardItemId: null })
+    )
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
 
     const screens = useBreakpoint()
@@ -59,7 +61,7 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                                 hideMathSelector
                                 hideFilter
                                 buttonCopy="Add graph series"
-                                filters={filters}
+                                filters={actionFilterTargetEntity} // retention filters use target and returning entity instead of events
                                 setFilters={(newFilters: FilterType) => {
                                     if (newFilters.events && newFilters.events.length > 0) {
                                         setFilters({ target_entity: newFilters.events[0] })
@@ -118,14 +120,14 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                                 hideMathSelector
                                 hideFilter
                                 buttonCopy="Add graph series"
-                                filters={filters}
+                                filters={actionFilterReturningEntity}
                                 setFilters={(newFilters: FilterType) => {
                                     if (newFilters.events && newFilters.events.length > 0) {
-                                        setFilters({ target_entity: newFilters.events[0] })
+                                        setFilters({ returning_entity: newFilters.events[0] })
                                     } else if (newFilters.actions && newFilters.actions.length > 0) {
-                                        setFilters({ target_entity: newFilters.actions[0] })
+                                        setFilters({ returning_entity: newFilters.actions[0] })
                                     } else {
-                                        setFilters({ target_entity: null })
+                                        setFilters({ returning_entity: null })
                                     }
                                 }}
                                 typeKey="retention-table-returning"
