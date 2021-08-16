@@ -44,6 +44,7 @@ class Entity(PropertyMixin):
         self.math = data.get("math")
         self.math_property = data.get("math_property")
 
+        self._action: Optional[Action] = None
         self._data = data  # push data to instance object so mixins are handled properly
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
             # It won't be an int if it's an event, but mypy...
@@ -92,8 +93,13 @@ class Entity(PropertyMixin):
             raise ValueError(
                 f"Action can only be fetched for entities of type {TREND_FILTER_TYPE_ACTIONS}, not {self.type}!"
             )
+
+        if self._action:
+            return self._action
+
         try:
-            return Action.objects.get(id=self.id)
+            self._action = Action.objects.get(id=self.id)
+            return self._action
         except:
             raise ValidationError(f"Action ID {self.id} does not exist!")
 
