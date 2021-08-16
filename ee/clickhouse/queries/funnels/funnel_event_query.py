@@ -10,7 +10,12 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 class FunnelEventQuery(ClickhouseEventQuery):
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
         _fields = (
-            f"{self.EVENT_TABLE_ALIAS}.event as event, {self.EVENT_TABLE_ALIAS}.team_id as team_id, {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id, {self.EVENT_TABLE_ALIAS}.timestamp as timestamp, {self.EVENT_TABLE_ALIAS}.properties as properties, {self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
+            f"{self.EVENT_TABLE_ALIAS}.event as event, "
+            + f"{self.EVENT_TABLE_ALIAS}.team_id as team_id, "
+            + f"{self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id, "
+            + f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp, "
+            + f"{self.EVENT_TABLE_ALIAS}.properties as properties, "
+            + f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
             + (
