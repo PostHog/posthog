@@ -1,9 +1,8 @@
-from typing import Dict, List, Literal, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 from django.forms.models import model_to_dict
-from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.models.property import TableAndProperty, extract_tables_and_properties
+from ee.clickhouse.materialized_columns.columns import TableAndProperty
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
@@ -103,6 +102,8 @@ def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team
 
 
 def get_action_tables_and_properties(action: Action) -> Set[TableAndProperty]:
+    from ee.clickhouse.models.property import extract_tables_and_properties
+
     result = set()
 
     for step in action.steps():

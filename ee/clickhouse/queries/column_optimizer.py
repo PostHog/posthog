@@ -1,9 +1,8 @@
 from typing import List, Set
 
-from ee.clickhouse.materialized_columns import get_materialized_columns
-from ee.clickhouse.materialized_columns.columns import ColumnName
+from ee.clickhouse.materialized_columns.columns import ColumnName, TableAndProperty, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties
-from ee.clickhouse.models.property import TableAndProperty, extract_tables_and_properties
+from ee.clickhouse.models.property import extract_tables_and_properties
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property

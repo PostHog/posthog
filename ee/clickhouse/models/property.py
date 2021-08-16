@@ -1,10 +1,10 @@
 import re
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import ColumnName, PropertyName, get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import PropertyName, TableAndProperty, get_materialized_columns
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
@@ -14,9 +14,6 @@ from posthog.models.event import Selector
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
-
-TableWithProperties = Literal["events", "person"]
-TableAndProperty = Tuple[TableWithProperties, str]
 
 
 def parse_prop_clauses(

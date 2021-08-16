@@ -1,7 +1,7 @@
 import re
 from datetime import timedelta
 from functools import wraps
-from typing import Dict, no_type_check
+from typing import Dict, Literal, Tuple, no_type_check
 
 from django.utils.timezone import now
 
@@ -10,6 +10,8 @@ from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
 
 PropertyName = str
 ColumnName = str
+TableWithProperties = Literal["events", "person"]
+TableAndProperty = Tuple[TableWithProperties, str]
 
 
 def cache_for(cache_time: timedelta):
