@@ -1004,26 +1004,22 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 1},],
         }
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnel(filter, self.team)
-        self.assertRaises(ValidationError, funnel.run)
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnel(filter, self.team))
 
         filter = filter.with_data(
             {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 2}]}
         )
-        funnel = ClickhouseFunnel(filter, self.team)
-        self.assertRaises(ValidationError, funnel.run)
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnel(filter, self.team))
 
         filter = filter.with_data(
             {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 2, "funnel_to_step": 1}]}
         )
-        funnel = ClickhouseFunnel(filter, self.team)
-        self.assertRaises(ValidationError, funnel.run)
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnel(filter, self.team))
 
         filter = filter.with_data(
             {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 2}]}
         )
-        funnel = ClickhouseFunnel(filter, self.team)
-        self.assertRaises(ValidationError, funnel.run)
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnel(filter, self.team))
 
     def test_funnel_exclusion_no_end_event(self):
         filters = {
