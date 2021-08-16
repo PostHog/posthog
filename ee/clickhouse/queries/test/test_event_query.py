@@ -8,6 +8,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.cohort import Cohort
+from posthog.models.element import Element
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.person import Person
@@ -43,18 +44,25 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         _create_event(event="viewed", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
 
-    def test_basic_event_filter(self):
-        filter = Filter(
-            data={
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
-                "events": [{"id": "viewed", "order": 0},],
-            }
-        )
-
-        entity = Entity({"id": "viewed", "type": "events"})
+    def _run_query(self, filter: Filter, entity=None):
+        entity = entity or filter.entities[0]
 
         query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
+
+        sync_execute(query, params)
+
+        return query
+
+    def test_basic_event_filter(self):
+        query = self._run_query(
+            Filter(
+                data={
+                    "date_from": "2021-05-01 00:00:00",
+                    "date_to": "2021-05-07 00:00:00",
+                    "events": [{"id": "viewed", "order": 0},],
+                }
+            )
+        )
 
         correct = """
         SELECT e.timestamp as timestamp,
@@ -67,8 +75,6 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         """
 
         self.assertEqual(sqlparse.format(query, reindent=True), sqlparse.format(correct, reindent=True))
-
-        sync_execute(query, params)
 
     def test_person_properties_filter(self):
         filter = Filter(
@@ -109,15 +115,12 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity_prop_query, entity_prop_query_params = TrendsEventQuery(
-            filter=filter, entity=entity, team_id=self.team.pk
-        ).get_query()
+        entity_prop_query = self._run_query(filter, entity)
 
         # global queries and enttiy queries should be the same
         self.assertEqual(
             sqlparse.format(global_prop_query, reindent=True), sqlparse.format(entity_prop_query, reindent=True)
         )
-        sync_execute(entity_prop_query, entity_prop_query_params)
 
     def test_event_properties_filter(self):
         filter = Filter(
@@ -152,16 +155,12 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity_prop_query, entity_prop_query_params = TrendsEventQuery(
-            filter=filter, entity=entity, team_id=self.team.pk
-        ).get_query()
+        entity_prop_query = self._run_query(filter, entity)
 
         # global queries and enttiy queries should be the same
         self.assertEqual(
             sqlparse.format(global_prop_query, reindent=True), sqlparse.format(entity_prop_query, reindent=True)
         )
-
-        sync_execute(entity_prop_query, entity_prop_query_params)
 
     # just smoke test making sure query runs because no new functions are used here
     def test_cohort_filter(self):
@@ -176,10 +175,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity = Entity({"id": "viewed", "type": "events",})
-
-        query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
-        sync_execute(query, params)
+        self._run_query(filter)
 
     # just smoke test making sure query runs because no new functions are used here
     def test_entity_filtered_by_cohort(self):
@@ -205,8 +201,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "foo"})
         _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:01:00Z")
 
-        query, params = TrendsEventQuery(filter=filter, entity=filter.entities[0], team_id=self.team.pk).get_query()
-        sync_execute(query, params)
+        self._run_query(filter)
 
     # smoke test make sure query is formatted and runs
     def test_static_cohort_filter(self):
@@ -221,10 +216,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity = Entity({"id": "viewed", "type": "events",})
-
-        query, params = TrendsEventQuery(filter=filter, entity=entity, team_id=self.team.pk).get_query()
-        sync_execute(query, params)
+        self._run_query(filter)
 
     def test_account_filters(self):
         person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
@@ -242,8 +234,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(data={"events": [{"id": "event_name", "order": 0},], "filter_test_accounts": True})
 
-        query, params = TrendsEventQuery(filter=filter, entity=filter.entities[0], team_id=self.team.pk).get_query()
-        sync_execute(query, params)
+        self._run_query(filter)
 
     def test_denormalised_props(self):
         filters = {
@@ -281,6 +272,62 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = Filter(data=filters)
-        query, params = TrendsEventQuery(filter=filter, entity=filter.entities[0], team_id=self.team.pk).get_query()
-        sync_execute(query, params)
+        query = self._run_query(filter)
         self.assertIn("mat_test_prop", query)
+
+    def test_element(self):
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"attr": "some_other_val"},
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/a-url",
+                    attr_class=["small"],
+                    text="bla bla",
+                    attributes={},
+                    nth_child=1,
+                    nth_of_type=0,
+                ),
+                Element(tag_name="button", attr_class=["btn", "btn-primary"], nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="label", nth_child=0, nth_of_type=0, attr_id="nested",),
+            ],
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="whatever",
+            properties={"attr": "some_val"},
+            elements=[
+                Element(
+                    tag_name="a",
+                    href="/a-url",
+                    attr_class=["small"],
+                    text="bla bla",
+                    attributes={},
+                    nth_child=1,
+                    nth_of_type=0,
+                ),
+                Element(tag_name="button", attr_class=["btn", "btn-secondary"], nth_child=0, nth_of_type=0),
+                Element(tag_name="div", nth_child=0, nth_of_type=0),
+                Element(tag_name="img", nth_child=0, nth_of_type=0, attr_id="nested",),
+            ],
+        )
+
+        filter = Filter(
+            data={
+                "events": [{"id": "event_name", "order": 0},],
+                "properties": [{"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"}],
+            }
+        )
+
+        self._run_query(filter)
+
+        self._run_query(
+            filter.with_data(
+                {"properties": [{"key": "tag_name", "value": [], "operator": "exact", "type": "element"}],}
+            )
+        )

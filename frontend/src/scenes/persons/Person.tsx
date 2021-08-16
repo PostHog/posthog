@@ -115,7 +115,7 @@ export function Person(): JSX.Element {
                                     </div>
                                 )}
                                 <div className="text-center mt">
-                                    <a onClick={() => setMergeModalOpen(true)}>
+                                    <a onClick={() => setMergeModalOpen(true)} data-attr="merge-person-button">
                                         <MergeCellsOutlined /> Merge person
                                     </a>
                                 </div>

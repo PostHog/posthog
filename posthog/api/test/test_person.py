@@ -259,7 +259,7 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             mock_capture_internal.assert_has_calls(
                 [
                     mock.call(
-                        {"event": "$create_alias", "properties": {"alias": "3"}},
+                        {"event": "$create_alias", "properties": {"alias": "2"}},
                         "1",
                         None,
                         None,
@@ -268,7 +268,7 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
                         self.team.id,
                     ),
                     mock.call(
-                        {"event": "$create_alias", "properties": {"alias": "2"}},
+                        {"event": "$create_alias", "properties": {"alias": "3"}},
                         "1",
                         None,
                         None,

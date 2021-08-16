@@ -183,7 +183,6 @@ export function DashboardItem({
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
     const { dashboards } = useValues(dashboardsModel)
-    /* FIXME (see #5454): const { refreshStatus } = useValues(dashboardLogic) */
     const { renameDashboardItem } = useActions(dashboardItemsModel)
 
     const _type: DisplayedType =
@@ -333,6 +332,7 @@ export function DashboardItem({
                                                 }}
                                             >
                                                 <Tooltip
+                                                    placement="left"
                                                     title={
                                                         <i>
                                                             Last updated:{' '}
@@ -490,27 +490,23 @@ export function DashboardItem({
                 )}
 
                 <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
-                    {
-                        /* FIXME (see #5454): !refreshStatus[item.id]?.loading && */ Element ? (
-                            <Alert.ErrorBoundary message="Error rendering graph!">
-                                {(dashboardMode === DashboardMode.Public || preventLoading) &&
-                                !results &&
-                                !item.result ? (
-                                    <Skeleton />
-                                ) : (
-                                    <Element
-                                        dashboardItemId={item.id}
-                                        filters={filters}
-                                        color={color}
-                                        theme={color === 'white' ? 'light' : 'dark'}
-                                        inSharedMode={dashboardMode === DashboardMode.Public}
-                                    />
-                                )}
-                            </Alert.ErrorBoundary>
-                        ) : (
-                            <Loading />
-                        )
-                    }
+                    {Element ? (
+                        <Alert.ErrorBoundary message="Error rendering graph!">
+                            {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (
+                                <Skeleton />
+                            ) : (
+                                <Element
+                                    dashboardItemId={item.id}
+                                    filters={filters}
+                                    color={color}
+                                    theme={color === 'white' ? 'light' : 'dark'}
+                                    inSharedMode={dashboardMode === DashboardMode.Public}
+                                />
+                            )}
+                        </Alert.ErrorBoundary>
+                    ) : (
+                        <Loading />
+                    )}
                 </div>
                 {footer}
             </div>
