@@ -1,4 +1,4 @@
-import { Button, Input, Tooltip } from 'antd'
+import { Button, Input } from 'antd'
 import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
@@ -15,6 +15,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Owner } from './Owner'
 import { VolumeTableRecordDescription } from './definitions/VolumeTableRecordDescription'
+import { Tooltip } from 'lib/components/Tooltip'
 
 type EventTableType = 'event' | 'property'
 

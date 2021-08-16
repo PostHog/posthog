@@ -1,8 +1,8 @@
-import { Tooltip } from 'antd'
 import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 import { organizationLogic } from '../../scenes/organizationLogic'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from '../constants'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface RestrictedComponentProps {
     isRestricted: boolean

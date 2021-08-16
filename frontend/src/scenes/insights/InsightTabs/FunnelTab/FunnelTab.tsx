@@ -3,7 +3,7 @@ import { useValues, useActions, useMountedLogic } from 'kea'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Button, Row, Tooltip } from 'antd'
+import { Button, Row } from 'antd'
 import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)

@@ -1,5 +1,5 @@
 import { isMobile, Loading } from 'lib/utils'
-import { Button, Dropdown, Input, Menu, Select, Tooltip } from 'antd'
+import { Button, Dropdown, Input, Menu, Select } from 'antd'
 import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -27,6 +27,7 @@ import { dashboardsLogic } from './dashboardsLogic'
 import { urls } from 'scenes/sceneLogic'
 import { Description } from 'lib/components/Description/Description'
 import { userLogic } from 'scenes/userLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)

@@ -174,6 +174,7 @@ export interface ActionStepType {
     text?: string
     url?: string
     url_matching?: ActionStepUrlMatching
+    isNew?: string
 }
 
 export interface ElementType {

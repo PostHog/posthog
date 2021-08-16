@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Table, Tooltip } from 'antd'
+import { Table } from 'antd'
 import { humanFriendlyDetailedTime, colonDelimitedDiff } from '~/lib/utils'
 import { EventDetails } from 'scenes/events'
 import { Property } from 'lib/components/Property'
@@ -12,6 +12,7 @@ import { ANTD_EXPAND_BUTTON_WIDTH } from 'lib/components/ResizableTable'
 import { MATCHING_EVENT_ICON_SIZE } from 'scenes/sessions/SessionsView'
 import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { InfoCircleOutlined, MonitorOutlined } from '@ant-design/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function SessionDetails({ session }: { session: SessionType }): JSX.Element {
     const { filteredSessionEvents } = useValues(sessionsTableLogic)

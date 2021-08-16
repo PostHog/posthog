@@ -1,8 +1,8 @@
-import { Avatar, Card, Divider, Image, List, Spin, Tooltip, Typography, Collapse } from 'antd'
+import { Avatar, Card, Divider, Image, List, Spin, Typography, Collapse } from 'antd'
 import React, { useState } from 'react'
-
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useActions, useValues } from 'kea'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const { Title } = Typography
 
@@ -153,7 +153,7 @@ export function CommunityIcons(): JSX.Element {
                         reportProjectHomeItemClicked('community', tile.title)
                     }}
                 >
-                    <Tooltip placement="bottom" title={tile.hoverText ? tile.hoverText : ''}>
+                    <Tooltip placement="top" title={tile.hoverText ? tile.hoverText : ''}>
                         <List.Item className="insight-container" key={tile.title}>
                             <Avatar
                                 size={55}

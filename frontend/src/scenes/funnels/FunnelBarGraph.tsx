@@ -1,7 +1,7 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import { humanFriendlyDuration } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Button, ButtonProps, Popover, Tooltip } from 'antd'
+import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
@@ -23,6 +23,7 @@ import {
     formatDisplayPercentage,
 } from './funnelUtils'
 import { ChartParams } from '~/types'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface BarProps {
     percentage: number

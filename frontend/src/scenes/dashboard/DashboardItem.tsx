@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Menu, Tooltip, Alert, Button, Skeleton } from 'antd'
+import { Dropdown, Menu, Alert, Button, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { RefObject, useEffect, useState } from 'react'
@@ -39,6 +39,7 @@ import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, View
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
+import { Tooltip } from 'lib/components/Tooltip'
 
 dayjs.extend(relativeTime)
 

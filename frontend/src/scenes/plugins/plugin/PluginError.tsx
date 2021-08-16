@@ -36,7 +36,7 @@ export function PluginError({ error, reset }: { error: PluginErrorType; reset?: 
                 </>
             }
             trigger="click"
-            placement="bottom"
+            placement="top"
         >
             <Tag color="red" style={{ cursor: 'pointer' }}>
                 ERROR
