@@ -43,27 +43,7 @@ def _create_event(**kwargs):
 
 class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_person)):  # type: ignore
     maxDiff = None
-
-    def test_funnel_query_with_denormalized_breakdown(self):
-        filter = Filter(
-            data={
-                "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}],
-                "insight": INSIGHT_FUNNELS,
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-08",
-                "funnel_window_days": 7,
-                "breakdown_type": "event",
-                "breakdown": "some_breakdown_val",
-                "breakdown_limit": 5,
-            }
-        )
-
-        materialize("events", "some_breakdown_val")
-
-        funnel = ClickhouseFunnel(filter, self.team)
-
-        self.assertNotIn("json", funnel.get_query().lower())
-        funnel.run()
+    pass
 
 
 class TestFunnelConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_person)):  # type: ignore
