@@ -1,10 +1,15 @@
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import PropertyName, TableAndProperty, get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import (
+    PropertyName,
+    TableAndProperty,
+    TableWithProperties,
+    get_materialized_columns,
+)
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
@@ -192,7 +197,7 @@ def property_table(property: Property) -> str:
 
 
 def get_property_string_expr(
-    table: TableAndProperty, property_name: PropertyName, var: str, prop_var: str, allow_denormalized_props: bool
+    table: TableWithProperties, property_name: PropertyName, var: str, prop_var: str, allow_denormalized_props: bool
 ) -> Tuple[str, bool]:
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
