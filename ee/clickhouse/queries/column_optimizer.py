@@ -1,7 +1,7 @@
 from typing import List, Set
 
 from ee.clickhouse.materialized_columns import get_materialized_columns
-from ee.clickhouse.materialized_columns.columns import ColumnName, PropertyName
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.action import get_action_tables_and_properties
 from ee.clickhouse.models.property import TableAndProperty, extract_tables_and_properties
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -11,11 +11,11 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 
 
-class MaterializedColumnFilter:
+class ColumnOptimizer:
     """
     This class is responsible for figuring out what columns can and should be materialized based on the query filter.
 
-    This speeds
+    This speeds up queries since clickhouse ends up selecting less data.
     """
 
     def __init__(self, filter: Filter, team_id: int):

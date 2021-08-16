@@ -1,13 +1,13 @@
 from typing import Any, Dict, Tuple
 
-from ee.clickhouse.materialized_columns.filter import MaterializedColumnFilter
+from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 
 class FunnelEventQuery(ClickhouseEventQuery):
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
-        column_filter = MaterializedColumnFilter(self._filter, self._team_id)
+        column_filter = ColumnOptimizer(self._filter, self._team_id)
         _fields = (
             f"{self.EVENT_TABLE_ALIAS}.event as event, "
             + f"{self.EVENT_TABLE_ALIAS}.team_id as team_id, "
