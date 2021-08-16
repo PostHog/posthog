@@ -7,7 +7,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 class FunnelEventQuery(ClickhouseEventQuery):
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
-        column_filter = ColumnOptimizer(self._filter, self._team_id)
+        column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         _fields = (
             f"{self.EVENT_TABLE_ALIAS}.event as event, "
             + f"{self.EVENT_TABLE_ALIAS}.team_id as team_id, "
@@ -15,7 +15,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
             + f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp, "
             + (
                 f"{self.EVENT_TABLE_ALIAS}.properties as properties, "
-                if column_filter.should_query_event_properties_column
+                if column_optimizer.should_query_event_properties_column
                 else ""
             )
             + f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
@@ -25,7 +25,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 " ".join(
                     [
                         f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
-                        for column_name in column_filter.event_columns_to_query
+                        for column_name in column_optimizer.event_columns_to_query
                     ]
                 )
             )
