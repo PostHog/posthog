@@ -45,8 +45,9 @@ export function Dashboards(): JSX.Element {
             sorter: {
                 multiple: 20,
                 compare: (a, b) => {
-                    const intValue = +a.pinned + +b.pinned
-                    return intValue !== 1 ? 0 : +a.pinned < +b.pinned ? -1 : 1
+                    const aAsInt = a.pinned ? 1 : 0
+                    const bAsInt = b.pinned ? 1 : 0
+                    return aAsInt + bAsInt !== 1 ? 0 : aAsInt < bAsInt ? -1 : 1
                 },
             },
             defaultSortOrder: 'descend',
