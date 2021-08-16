@@ -187,6 +187,15 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
 
                     // Don't load results if layout was the only thing changed
+                    console.log(
+                        'refresh',
+                        refresh,
+                        !refresh &&
+                            equal(
+                                Object.assign({}, values.filters, { layout: undefined }),
+                                Object.assign({}, values.lastAppliedFilters, { layout: undefined })
+                            )
+                    )
                     if (
                         !refresh &&
                         equal(
@@ -660,13 +669,13 @@ export const funnelLogic = kea<funnelLogicType>({
             })
         },
         changeHistogramStep: async () => {
-            actions.loadResults()
+            actions.loadResults(true)
         },
         setBinCount: async () => {
-            actions.loadResults()
+            actions.loadResults(true)
         },
         setConversionWindow: async () => {
-            actions.loadResults()
+            actions.loadResults(true)
         },
     }),
     actionToUrl: ({ values, props }) => ({
