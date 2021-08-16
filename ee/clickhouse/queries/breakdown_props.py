@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, cast
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
@@ -81,7 +81,7 @@ def get_breakdown_event_prop_values(
     entity_params, entity_format_params = populate_entity_params(entity)
 
     value_expression, _ = get_property_string_expr(
-        "events", filter.breakdown, "%(key)s", "properties", allow_denormalized_props=True
+        "events", cast(str, filter.breakdown), "%(key)s", "properties", allow_denormalized_props=True
     )
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
