@@ -165,7 +165,6 @@ export const funnelLogic = kea<funnelLogicType>({
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
-        values: [preflightLogic, ['preflight']],
     },
 
     loaders: ({ props, values }) => ({
@@ -389,7 +388,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         clickhouseFeaturesEnabled: [
-            () => [selectors.preflight],
+            () => [preflightLogic.selectors.preflight],
             // Controls auto-calculation of results and ability to break down values
             (preflight): boolean => !!preflight?.is_clickhouse_enabled,
         ],
