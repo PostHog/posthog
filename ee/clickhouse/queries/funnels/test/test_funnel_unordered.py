@@ -520,13 +520,13 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 1},],
         }
         filter = Filter(data=filters)
-        self.assertRaises(ValidationError, lambda: ClickhouseFunnelUnordered(filter, self.team))
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnelUnordered(filter, self.team).run())
 
         # partial windows not allowed for unordered
         filter = filter.with_data(
             {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}]}
         )
-        self.assertRaises(ValidationError, lambda: ClickhouseFunnelUnordered(filter, self.team))
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnelUnordered(filter, self.team).run())
 
     def test_funnel_exclusions_full_window(self):
         filters = {
