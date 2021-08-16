@@ -38,23 +38,23 @@ class ColumnOptimizer:
     def properties_used_in_filter(self) -> Set[TableAndProperty]:
         result: Set[TableAndProperty] = set()
 
-        result.extend(extract_tables_and_properties(self._filter.properties))
-        if self._filter.filter_test_accounts:
+        result |= extract_tables_and_properties(self.filter.properties)
+        if self.filter.filter_test_accounts:
             test_account_filters = Team.objects.only("test_account_filters").get(id=self.team_id).test_account_filters
-            result.extend(extract_tables_and_properties([Property(**prop) for prop in test_account_filters]))
+            result |= extract_tables_and_properties([Property(**prop) for prop in test_account_filters])
 
-        if self._filter.breakdown_type == "person":
-            result.add(("person", self._filter.breakdown))
-        elif self._filter.breakdown_type == "event":
-            result.add(("events", self._filter.breakdown))
+        if self.filter.breakdown_type == "person":
+            result.add(("person", self.filter.breakdown))
+        elif self.filter.breakdown_type == "event":
+            result.add(("events", self.filter.breakdown))
 
-        for entity in self._filter.entities:
-            result.extend(extract_tables_and_properties(entity.properties))
+        for entity in self.filter.entities:
+            result |= extract_tables_and_properties(entity.properties)
 
             if entity.math_property:
                 result.add(("events", entity.math_property))
 
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                result.extend(get_action_tables_and_properties(entity.get_action()))
+                result |= get_action_tables_and_properties(entity.get_action())
 
         return result
