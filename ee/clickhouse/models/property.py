@@ -65,7 +65,7 @@ def parse_prop_clauses(
                 params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
-            final.append("AND {}".format(query[0]))
+            final.append(f" AND {query if len(query) > 0 else '1=2'}")
             params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(
@@ -232,7 +232,7 @@ def get_denormalized_property_column(prop, allow_denormalized_props: bool) -> Op
     return columns.get(prop.key)
 
 
-def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
+def filter_element(filters: Dict, prepend: str = "") -> Tuple[str, Dict]:
     params = {}
     conditions = []
 
@@ -275,7 +275,7 @@ def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
             if len(or_conditions) > 0:
                 conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
-    return (conditions, params)
+    return (" AND ".join(conditions), params)
 
 
 def _create_regex(selector: Selector) -> str:
