@@ -6,7 +6,7 @@ import { useDebounce } from 'use-debounce'
 const DEFAULT_DELAY = 500 //ms
 
 type Props = TooltipProps & {
-    isDefaultTooltip: boolean // use Antd's Tooltip without any additional functionality
+    isDefaultTooltip?: boolean // use Antd's Tooltip without any additional functionality
 }
 
 // CAUTION: any changes here will affect tooltips across the entire app.
