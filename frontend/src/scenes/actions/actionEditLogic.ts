@@ -13,7 +13,16 @@ interface NewActionType {
 
 type ActionEditType = ActionType | NewActionType
 
-export const actionEditLogic = kea<actionEditLogicType<ActionEditType>>({
+interface Props {
+    id: string
+    apiURL: string
+    action: ActionEditType
+    temporaryToken: string
+    onSave: (action: ActionType, createNew: boolean) => void
+}
+
+export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
+    props: {} as Props,
     key: (props) => props.id || 'new',
     actions: () => ({
         saveAction: true,
@@ -78,7 +87,7 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditType>>({
             }
 
             toast('Action saved')
-            ;(props.onSave as any)(action, values.createNew)
+            props.onSave(action, values.createNew)
             actionsModel.actions.loadActions() // reload actions so they are immediately available
         },
     }),
