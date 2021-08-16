@@ -29,7 +29,7 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 }
 
 export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
-    const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
+    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
@@ -39,10 +39,6 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
-
-    if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
-        return null
-    }
 
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
@@ -195,6 +191,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             style={{ marginTop: '1rem' }}
             scroll={indexedResults && indexedResults.length > 0 ? { x: indexedResults[0].data.length * 160 } : {}}
             data-attr="insights-table-graph"
+            loading={resultsLoading}
         />
     )
 }
