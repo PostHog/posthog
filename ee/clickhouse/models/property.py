@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from django.utils import timezone
 
@@ -14,6 +14,9 @@ from posthog.models.event import Selector
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
+
+TableWithProperties = Literal["events", "person"]
+TableAndProperty = Tuple[TableWithProperties, str]
 
 
 def parse_prop_clauses(
@@ -192,7 +195,7 @@ def property_table(property: Property) -> str:
 
 
 def get_property_string_expr(
-    table: str, property_name: PropertyName, var: str, prop_var: str, allow_denormalized_props: bool
+    table: TableAndProperty, property_name: PropertyName, var: str, prop_var: str, allow_denormalized_props: bool
 ) -> Tuple[str, bool]:
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
@@ -289,3 +292,13 @@ def _create_regex(selector: Selector) -> str:
         if tag.direct_descendant:
             regex += ".*"
     return regex
+
+
+def extract_tables_and_properties(props: List[Property]) -> Set[TableAndProperty]:
+    result: Set[TableAndProperty] = set()
+    for prop in props:
+        if prop.type == "person":
+            result.add(("person", prop.key))
+        elif prop.type == "event":
+            result.add(("events", prop.key))
+    return result

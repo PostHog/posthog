@@ -1,20 +1,23 @@
 from typing import Any, Dict, Tuple
 
-from django.conf import settings
-
-from ee.clickhouse.materialized_columns import get_materialized_columns
+from ee.clickhouse.materialized_columns.filter import MaterializedColumnFilter
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 
 class FunnelEventQuery(ClickhouseEventQuery):
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
+        column_filter = MaterializedColumnFilter(self._filter, self._team_id)
         _fields = (
             f"{self.EVENT_TABLE_ALIAS}.event as event, "
             + f"{self.EVENT_TABLE_ALIAS}.team_id as team_id, "
             + f"{self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id, "
             + f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp, "
-            + f"{self.EVENT_TABLE_ALIAS}.properties as properties, "
+            + (
+                f"{self.EVENT_TABLE_ALIAS}.properties as properties, "
+                if column_filter.should_query_event_properties_column
+                else ""
+            )
             + f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
@@ -22,7 +25,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 " ".join(
                     [
                         f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
-                        for column_name in get_materialized_columns("events").values()
+                        for column_name in column_filter.event_columns_to_query
                     ]
                 )
             )
