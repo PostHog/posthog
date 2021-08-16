@@ -5,7 +5,7 @@ import os
 from typing import Dict, List
 
 from posthog.constants import RDBMS
-from posthog.settings import PRIMARY_DB, TEST
+from posthog.settings import AUTHENTICATION_BACKENDS, PRIMARY_DB, TEST
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -24,6 +24,16 @@ if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: List[str] = os.environ[
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
     ].split(",")
+
+AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + (
+    "social_core.backends.google.GoogleOAuth2",
+    "ee.api.authentication.OIDC",
+)
+
+OIDC_ENDPOINT = os.getenv("OIDC_ENDPOINT")
+SOCIAL_AUTH_OIDC_KEY = os.getenv("OIDC_KEY")
+SOCIAL_AUTH_OIDC_SECRET = os.getenv("OIDC_SECRET")
+
 
 # ClickHouse and Kafka
 KAFKA_ENABLED = PRIMARY_DB == RDBMS.CLICKHOUSE and not TEST
