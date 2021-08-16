@@ -9,8 +9,6 @@ import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { InsightTitle } from '../InsightTitle'
 import { SaveOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -18,7 +16,6 @@ import { Tooltip } from 'lib/components/Tooltip'
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
@@ -44,7 +41,7 @@ export function FunnelTab(): JSX.Element {
                     ) : undefined
                 }
             />
-            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && <ToggleButtonChartFilter />}
+            <ToggleButtonChartFilter />
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
@@ -58,9 +55,9 @@ export function FunnelTab(): JSX.Element {
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     buttonCopy="Add funnel step"
-                    showSeriesIndicator={!isStepsEmpty && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    showSeriesIndicator={!isStepsEmpty}
                     seriesIndicatorType="numeric"
-                    fullWidth={featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    fullWidth
                     sortable
                     showNestedArrow={true}
                 />
