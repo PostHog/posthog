@@ -173,7 +173,13 @@ export const createProcessEventTests = (
         expect((await hub.db.fetchPersons()).length).toEqual(2)
         const [person0, person1] = await hub.db.fetchPersons()
 
-        await eventsProcessor.mergePeople(person0, person1)
+        await eventsProcessor.mergePeople({
+            mergeInto: person0,
+            mergeIntoDistinctId: 'person_0',
+            otherPerson: person1,
+            otherPersonDistinctId: 'person_1',
+            totalMergeAttempts: 0,
+        })
 
         if (database === 'clickhouse') {
             await delayUntilEventIngested(async () =>

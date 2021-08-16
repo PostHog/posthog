@@ -649,3 +649,9 @@ export class IllegalOperationError extends Error {
         super(operation)
     }
 }
+
+// For errors we want to explicitly throw
+// concerning race conditions across threads
+export class RaceConditionError extends Error {
+    name = 'RaceConditionError'
+}

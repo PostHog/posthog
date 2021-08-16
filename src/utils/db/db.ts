@@ -44,6 +44,7 @@ import {
     castTimestampOrNow,
     clickHouseTimestampToISO,
     escapeClickHouseString,
+    RaceConditionError,
     sanitizeSqlIdentifier,
     tryTwice,
     UUID,
@@ -595,17 +596,42 @@ export class DB {
     }
 
     public async moveDistinctIds(source: Person, target: Person): Promise<void> {
-        const movedDistinctIdResult = await this.postgresQuery(
-            `
-                UPDATE posthog_persondistinctid
-                SET person_id = $1
-                WHERE person_id = $2
-                  AND team_id = $3
-                RETURNING *
-            `,
-            [target.id, source.id, target.team_id],
-            'updateDistinctIdPerson'
-        )
+        let movedDistinctIdResult: QueryResult<any> | null = null
+        try {
+            movedDistinctIdResult = await this.postgresQuery(
+                `
+                    UPDATE posthog_persondistinctid
+                    SET person_id = $1
+                    WHERE person_id = $2
+                      AND team_id = $3
+                    RETURNING *
+                `,
+                [target.id, source.id, target.team_id],
+                'updateDistinctIdPerson'
+            )
+        } catch (error) {
+            if (
+                error.message.includes(
+                    'insert or update on table "posthog_persondistinctid" violates foreign key constraint'
+                )
+            ) {
+                // this is caused by a race condition where the _target_ person was deleted after fetching but
+                // before the update query ran and will trigger a retry with updated persons
+                throw new RaceConditionError(
+                    'Failed trying to move distinct IDs because target person no longer exists.'
+                )
+            }
+
+            throw error
+        }
+
+        // this is caused by a race condition where the _source_ person was deleted after fetching but
+        // before the update query ran and will trigger a retry with updated persons
+        if (movedDistinctIdResult.rows.length === 0) {
+            throw new RaceConditionError(
+                `Failed trying to move distinct IDs because the source person no longer exists.`
+            )
+        }
 
         if (this.kafkaProducer) {
             for (const row of movedDistinctIdResult.rows) {
