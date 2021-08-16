@@ -14,7 +14,7 @@ import { Loading } from 'lib/utils'
 export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const logic = funnelLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
-    const { filters, areFiltersValid, isLoading, isValidFunnel } = useValues(logic)
+    const { filters, areFiltersValid, resultsLoading, isValidFunnel } = useValues(logic)
     const { loadResults } = useActions(logic)
     const funnel_viz_type = filters.funnel_viz_type || props.filters.funnel_viz_type
 
@@ -25,7 +25,7 @@ export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
     if (!areFiltersValid) {
         return <FunnelInvalidFiltersEmptyState />
     }
-    if (isLoading) {
+    if (resultsLoading) {
         return <Loading />
     }
     if (!isValidFunnel) {

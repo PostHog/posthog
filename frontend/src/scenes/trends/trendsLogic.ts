@@ -24,6 +24,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 interface TrendResponse {
     result: TrendResult[]
@@ -171,7 +172,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 cache.abortController = new AbortController()
 
                 const queryId = uuid()
+                const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
                 let response
                 try {
@@ -207,6 +210,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                         null,
                         e
                     )
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     return []
                 }
                 breakpoint()
@@ -216,6 +220,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     (values.filters.insight as ViewType) || ViewType.TRENDS,
                     response.last_refresh
                 )
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, response.last_refresh)
 
                 return response
             },
