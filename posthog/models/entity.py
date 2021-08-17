@@ -7,6 +7,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.settings import TEST
 
 
 class Entity(PropertyMixin):
@@ -94,7 +95,7 @@ class Entity(PropertyMixin):
                 f"Action can only be fetched for entities of type {TREND_FILTER_TYPE_ACTIONS}, not {self.type}!"
             )
 
-        if self._action:
+        if self._action and not TEST:
             return self._action
 
         try:
