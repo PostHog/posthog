@@ -24,6 +24,8 @@ class ColumnOptimizer:
 
     @cached_property
     def materialized_event_columns_to_query(self) -> List[ColumnName]:
+        "Returns a list of event table columns containing materialized properties that this query needs"
+
         materialized_columns = get_materialized_columns("events")
         return [
             materialized_columns[property_name]
@@ -37,6 +39,7 @@ class ColumnOptimizer:
 
     @cached_property
     def should_query_elements_chain_column(self) -> bool:
+        "Returns whether this query uses elements_chain"
         has_element_type_property = lambda properties: any(prop.type == "element" for prop in properties)
 
         if has_element_type_property(self.filter.properties):
@@ -48,10 +51,14 @@ class ColumnOptimizer:
             if has_element_type_property(properties):
                 return True
 
+        # Both entities and funnel exclusions can contain nested elements_chain inclusions
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
             if has_element_type_property(entity.properties):
                 return True
 
+            # :TRICKY: Action definition may contain elements_chain usage
+            #
+            # See ee/clickhouse/models/action.py#format_action_filter for an example
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 if uses_elements_chain(entity.get_action()):
                     return True
@@ -60,6 +67,7 @@ class ColumnOptimizer:
 
     @cached_property
     def properties_used_in_filter(self) -> Set[Tuple[PropertyName, PropertyType]]:
+        "Returns list of properties + types that this query would use"
         result: Set[Tuple[PropertyName, PropertyType]] = set()
 
         result |= extract_tables_and_properties(self.filter.properties)
@@ -67,17 +75,28 @@ class ColumnOptimizer:
             test_account_filters = Team.objects.only("test_account_filters").get(id=self.team_id).test_account_filters
             result |= extract_tables_and_properties([Property(**prop) for prop in test_account_filters])
 
+        # Some breakdown types read properties
+        #
+        # See ee/clickhouse/queries/trends/breakdown.py#_format_breakdown_query or
+        # ee/clickhouse/queries/breakdown_props.py#get_breakdown_event_prop_values
         if self.filter.breakdown_type in ["event", "person"]:
             # :TRICKY: We only support string breakdown for event/person properties
             assert isinstance(self.filter.breakdown, str)
             result.add((self.filter.breakdown, self.filter.breakdown_type))
 
+        # Both entities and funnel exclusions can contain nested property filters
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
             result |= extract_tables_and_properties(entity.properties)
 
+            # Math properties are also implicitly used.
+            #
+            # See ee/clickhouse/queries/trends/util.py#process_math
             if entity.math_property:
                 result.add((entity.math_property, "event"))
 
+            # :TRICKY: If action contains property filters, these need to be included
+            #
+            # See ee/clickhouse/models/action.py#format_action_filter for an example
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 result |= get_action_tables_and_properties(entity.get_action())
 
