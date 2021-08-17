@@ -13,7 +13,10 @@ class TestUser(BaseTest):
 
         # One org, one team, anonymized
         organization, team, user = User.objects.bootstrap(
-            organization_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True,
+            organization_name="Test Org",
+            email="test_org@posthog.com",
+            password="12345678",
+            anonymize_data=True,
         )
 
         with self.settings(EE_AVAILABLE=True, MULTI_TENANCY=True):
@@ -53,7 +56,7 @@ class TestUser(BaseTest):
             self.assertEqual(
                 user.get_analytics_metadata(),
                 {
-                    "realm": "hosted",
+                    "realm": "hosted-postgres",
                     "is_ee_available": False,
                     "email_opt_in": True,
                     "anonymize_data": False,
