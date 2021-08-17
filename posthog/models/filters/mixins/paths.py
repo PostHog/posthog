@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Literal, Optional, Tuple
 
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, PAGEVIEW_EVENT, PATH_TYPE, SCREEN_EVENT, START_POINT
 from posthog.models.filters.mixins.common import BaseParamMixin
@@ -7,7 +7,7 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict
 
 class PathTypeMixin(BaseParamMixin):
     @cached_property
-    def path_type(self) -> Optional[str]:
+    def path_type(self) -> Optional[Literal["$pageview", "$autocapture", "$screen", "custom_event"]]:
         return self._data.get(PATH_TYPE, None)
 
     @include_dict
