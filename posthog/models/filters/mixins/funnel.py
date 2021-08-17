@@ -97,7 +97,7 @@ class FunnelWindowMixin(BaseParamMixin):
             dict_part[FUNNEL_WINDOW_INTERVAL_UNIT] = self.funnel_window_interval_unit
         return dict_part
 
-    def funnel_window_interval_unit_ch(self) -> str:
+    def funnel_window_interval_unit_ch(self) -> Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]:
         if self.funnel_window_interval_unit is None:
             return "DAY"
 
