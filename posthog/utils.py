@@ -39,6 +39,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import push_scope
 
+from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -80,11 +81,15 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
         at = timezone.now()
 
     period_end: datetime.datetime = datetime.datetime.combine(
-        at - datetime.timedelta(timezone.now().weekday() + 1), datetime.time.max, tzinfo=pytz.UTC,
+        at - datetime.timedelta(timezone.now().weekday() + 1),
+        datetime.time.max,
+        tzinfo=pytz.UTC,
     )  # very end of the previous Sunday
 
     period_start: datetime.datetime = datetime.datetime.combine(
-        period_end - datetime.timedelta(6), datetime.time.min, tzinfo=pytz.UTC,
+        period_end - datetime.timedelta(6),
+        datetime.time.min,
+        tzinfo=pytz.UTC,
     )  # very start of the previous Monday
 
     return (period_start, period_end)
@@ -292,7 +297,7 @@ def append_data(dates_filled: List, interval=None, math="sum") -> Dict[str, Any]
 
 
 def get_ip_address(request: HttpRequest) -> str:
-    """ use requestobject to fetch client machine's IP Address """
+    """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
     if x_forwarded_for:
         ip = x_forwarded_for.split(",")[0]
@@ -317,7 +322,8 @@ def convert_property_value(input: Union[str, bool, dict, list, int]) -> str:
 
 
 def get_compare_period_dates(
-    date_from: datetime.datetime, date_to: datetime.datetime,
+    date_from: datetime.datetime,
+    date_to: datetime.datetime,
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     new_date_to = date_from
     diff = date_to - date_from
@@ -548,10 +554,10 @@ def get_instance_realm() -> str:
     """
     if settings.MULTI_TENANCY:
         return "cloud"
-    elif os.getenv("HELM_INSTALL_INFO", False):
+    elif is_clickhouse_enabled():
         return "hosted-clickhouse"
     else:
-        return "hosted"
+        return "hosted-postgres"
 
 
 def get_can_create_org() -> bool:
@@ -593,7 +599,9 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
     google: bool = False
 
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
-        settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
+        settings,
+        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
+        None,
     ):
         if settings.MULTI_TENANCY:
             google = True
@@ -752,4 +760,15 @@ def str_to_bool(value: Any) -> bool:
 
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
+    print(
+        "\n".join(
+            (
+                "",
+                "🔻" * highlight_length,
+                *warning_lines,
+                "🔺" * highlight_length,
+                "",
+            )
+        ),
+        file=sys.stderr,
+    )
