@@ -265,7 +265,6 @@ export const funnelLogic = kea<funnelLogicType>({
                             loadFunnelResults(),
                             loadBinsResults(),
                         ])
-                        console.log({ result, timeConversionResults }, props)
                         breakpoint()
                         if (!props.dashboardItemId) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
