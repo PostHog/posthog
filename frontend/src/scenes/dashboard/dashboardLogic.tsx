@@ -9,7 +9,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType } from '~/types'
-import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
+import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
 
