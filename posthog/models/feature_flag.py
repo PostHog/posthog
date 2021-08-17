@@ -1,5 +1,5 @@
 import hashlib
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL
@@ -39,11 +39,17 @@ class FeatureFlag(models.Model):
     def distinct_id_matches(self, distinct_id: str) -> bool:
         return FeatureFlagMatcher(distinct_id, self).is_match()
 
+    def get_variant_for_distinct_id(self, distinct_id: str) -> Optional[str]:
+        return FeatureFlagMatcher(distinct_id, self).get_matching_variant()
+
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(group.get("properties", [])) for group in self.groups)
+        variants_count = len(self.variants)
 
         return {
             "groups_count": len(self.groups),
+            "has_variants": variants_count > 0,
+            "variants_count": variants_count,
             "has_filters": filter_count > 0,
             "has_rollout_percentage": any(group.get("rollout_percentage") for group in self.groups),
             "filter_count": filter_count,
@@ -53,6 +59,14 @@ class FeatureFlag(models.Model):
     @property
     def groups(self):
         return self.get_filters().get("groups", [])
+
+    @property
+    def variants(self):
+        return self.get_filters().get("multivariate", {}).get("variants", [])
+
+    @property
+    def fallback_variant_key(self) -> Optional[str]:
+        return self.get_filters().get("multivariate", {}).get("fallback_variant_key", None)
 
     def get_filters(self):
         if "groups" in self.filters:
@@ -75,6 +89,15 @@ class FeatureFlagMatcher:
     def is_match(self):
         return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.groups))
 
+    def get_matching_variant(self) -> Optional[str]:
+        if not self.is_match:
+            return self.fallback_variant_key
+
+        for variant in self.variant_lookup_table:
+            if self._hash_md5 >= variant.value_min and self._hash_md5 < variant.value_max:
+                return variant.key
+        return self.fallback_variant_key
+
     def is_group_match(self, group: Dict, group_index: int):
         rollout_percentage = group.get("rollout_percentage")
         if len(group.get("properties", [])) > 0:
@@ -90,6 +113,20 @@ class FeatureFlagMatcher:
 
     def _match_distinct_id(self, group_index: int) -> bool:
         return len(self.query_groups) > 0 and self.query_groups[0][group_index]
+
+    # Define contiguous sub-domains within [0, 1].
+    # By looking up a random hash value, you can find the associated variant key.
+    # e.g. the first of two variants with 50% rollout percentage will have value_max: 0.5
+    # and the second will have value_min: 0.5 and value_max: 1.0
+    @property
+    def variant_lookup_table(self):
+        lookup_table = []
+        value_min = 0
+        for variant in enumerate(self.variants):
+            value_max = value_min + variant.rollout_percentage / 100
+            lookup_table.append({"value_min": value_min, "value_max": value_max, "key": variant.key})
+            value_min = value_max
+        return lookup_table
 
     @cached_property
     def query_groups(self) -> List[List[bool]]:
@@ -123,6 +160,14 @@ class FeatureFlagMatcher:
     def _hash(self) -> float:
         hash_key = "%s.%s" % (self.feature_flag.key, self.distinct_id)
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
+        return hash_val / __LONG_SCALE__
+
+    # This function is like _hash above, but uses MD5 instead of SHA.
+    # The hashing algorithm is not important, we just want to have a different distinct value.
+    @cached_property
+    def _hash_md5(self) -> float:
+        hash_key = "%s.%s" % (self.feature_flag.key, self.distinct_id)
+        hash_val = int(hashlib.md5(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
 
