@@ -7,16 +7,24 @@ from posthog.utils import is_valid_regex
 
 ValueT = Union[str, int, List[str]]
 PropertyType = Literal["event", "person", "cohort", "element"]
+OperatorType = Literal[
+    "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
+]
 
 
 class Property:
     key: str
-    operator: Optional[str]
+    operator: Optional[OperatorType]
     value: ValueT
     type: PropertyType
 
     def __init__(
-        self, key: str, value: ValueT, operator: Optional[str] = None, type: Optional[PropertyType] = None, **kwargs
+        self,
+        key: str,
+        value: ValueT,
+        operator: Optional[OperatorType] = None,
+        type: Optional[PropertyType] = None,
+        **kwargs,
     ) -> None:
         self.key = key
         self.value = value
