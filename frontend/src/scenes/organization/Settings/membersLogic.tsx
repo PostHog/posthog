@@ -21,10 +21,7 @@ export const membersLogic = kea<membersLogicType>({
         members: {
             __default: [],
             loadMembers: async () => {
-                const allMembers = (await api.get('api/organizations/@current/members/')).results
-                return allMembers.filter(
-                    (member: OrganizationMemberType) => !member.user.email.endsWith('posthogbot.user')
-                )
+                return (await api.get('api/organizations/@current/members/')).results
             },
             removeMember: async (member) => {
                 await api.delete(`api/organizations/@current/members/${member.user_id}/`)
