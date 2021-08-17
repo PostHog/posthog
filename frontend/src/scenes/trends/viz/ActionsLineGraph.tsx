@@ -29,7 +29,7 @@ export function ActionsLineGraph({
     const { loadPeople } = useActions(personsModalLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
 
-    return indexedResults && !resultsLoading ? (
+    return indexedResults && indexedResults[0]?.data && !resultsLoading ? (
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
             <LineGraph
                 data-attr="trend-line-graph"
