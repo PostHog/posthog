@@ -26,15 +26,13 @@ class ColumnOptimizer:
         materialized_columns = get_materialized_columns("events")
         return [
             materialized_columns[property_name]
-            for property_name, type in self.properties_used_in_filter
-            if type == "event" and property_name in materialized_columns
+            for property_name, type in self._used_properties_with_type("event")
+            if property_name in materialized_columns
         ]
 
     @cached_property
     def should_query_event_properties_column(self) -> bool:
-        return len(self.materialized_event_columns_to_query) != len(
-            [1 for _, type in self.properties_used_in_filter if type == "event"]
-        )
+        return len(self.materialized_event_columns_to_query) != len(self._used_properties_with_type("event"))
 
     @cached_property
     def properties_used_in_filter(self) -> Set[Tuple[PropertyName, PropertyType]]:
@@ -60,3 +58,6 @@ class ColumnOptimizer:
                 result |= get_action_tables_and_properties(entity.get_action())
 
         return result
+
+    def _used_properties_with_type(self, property_type: PropertyType) -> Set[Tuple[PropertyName, PropertyType]]:
+        return set((name, type) for name, type in self.properties_used_in_filter if type == property_type)
