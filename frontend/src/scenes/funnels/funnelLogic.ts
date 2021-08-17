@@ -304,6 +304,9 @@ export const funnelLogic = kea<funnelLogicType>({
             {
                 funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
                 funnel_window_interval: 14,
+            } as {
+                funnel_window_interval_unit: FunnelConversionWindowTimeUnit
+                funnel_window_interval: number
             },
             {
                 setConversionWindow: (
