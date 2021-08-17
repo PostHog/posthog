@@ -25,7 +25,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 " ".join(
                     [
                         f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
-                        for column_name in column_optimizer.event_columns_to_query
+                        for column_name in column_optimizer.materialized_event_columns_to_query
                     ]
                 )
             )

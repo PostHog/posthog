@@ -22,7 +22,7 @@ class ColumnOptimizer:
         self.team_id = team_id
 
     @cached_property
-    def event_columns_to_query(self) -> List[ColumnName]:
+    def materialized_event_columns_to_query(self) -> List[ColumnName]:
         materialized_columns = get_materialized_columns("events")
         return [
             materialized_columns[property_name]
@@ -32,7 +32,9 @@ class ColumnOptimizer:
 
     @cached_property
     def should_query_event_properties_column(self) -> bool:
-        return len(self.event_columns_to_query) != len(self.properties_used_in_filter)
+        return len(self.materialized_event_columns_to_query) != len(
+            [1 for _, type in self.properties_used_in_filter if type == "event"]
+        )
 
     @cached_property
     def properties_used_in_filter(self) -> Set[Tuple[PropertyName, PropertyType]]:
