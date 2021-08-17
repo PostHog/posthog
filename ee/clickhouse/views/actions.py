@@ -30,7 +30,7 @@ from ee.clickhouse.sql.person import (
 from ee.clickhouse.sql.trends.volume import PERSONS_ACTIVE_USER_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.api.utils import get_target_entity
-from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
+from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -127,6 +127,8 @@ def _handle_date_interval(filter: Filter) -> Filter:
         )
     elif filter.interval == "week":
         data.update({"date_to": (date_from + relativedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")})
+    elif filter.interval == "day":
+        data.update({"date_to": (date_from + timedelta(days=1))})
     elif filter.interval == "hour":
         data.update({"date_to": date_from + timedelta(hours=1)})
     elif filter.interval == "minute":
@@ -136,7 +138,8 @@ def _handle_date_interval(filter: Filter) -> Filter:
 
 def _process_content_sql(team: Team, entity: Entity, filter: Filter):
 
-    filter = _handle_date_interval(filter)
+    if filter.display != TRENDS_CUMULATIVE:
+        filter = _handle_date_interval(filter)
 
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
     entity_sql, entity_params = format_entity_filter(entity=entity)
