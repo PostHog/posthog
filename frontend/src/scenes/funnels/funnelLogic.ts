@@ -255,6 +255,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             loadFunnelResults(),
                             loadBinsResults(),
                         ])
+                        console.log({ result, timeConversionResults }, props)
                         breakpoint()
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                         dashboardsModel.actions.updateDashboardRefreshStatus(
@@ -706,6 +707,11 @@ export const funnelLogic = kea<funnelLogicType>({
                     actions.setFilters(cleanedParams, true, false)
                 }
             }
+        },
+    }),
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadResults()
         },
     }),
 })
