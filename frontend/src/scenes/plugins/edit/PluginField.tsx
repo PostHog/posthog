@@ -39,7 +39,7 @@ export function PluginField({
     ) : fieldConfig.type === 'string' ? (
         <Input value={value} onChange={onChange} autoFocus={editingSecret} className="ph-ignore-input" />
     ) : fieldConfig.type === 'choice' ? (
-        <Select dropdownMatchSelectWidth={false} value={value} onChange={onChange}>
+        <Select dropdownMatchSelectWidth={false} value={value} onChange={onChange} showSearch>
             {fieldConfig.choices.map((choice) => (
                 <Select.Option value={choice} key={choice}>
                     {choice}
