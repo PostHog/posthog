@@ -1,19 +1,16 @@
-import { BuiltLogic, kea, Logic } from 'kea'
+import { kea } from 'kea'
 import { toParams, fromParams, errorToast, clearDOMTextSelection, editingToast } from 'lib/utils'
 import posthog from 'posthog-js'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
-import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { trendsLogic } from '../trends/trendsLogic'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { DashboardItemType, Entity, FilterType, FunnelVizType, ItemMode, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
-export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
+
+export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
 InsightLogic maintains state for changing between insight features
@@ -33,18 +30,6 @@ interface UrlParams {
     display?: string
     events?: Entity[]
     actions?: Entity[]
-}
-
-export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
-    if (insight === ViewType.FUNNELS) {
-        return funnelLogic(logicProps)
-    } else if (insight === ViewType.RETENTION) {
-        return retentionTableLogic(logicProps)
-    } else if (insight === ViewType.PATHS) {
-        return pathsLogic(logicProps)
-    } else {
-        return trendsLogic(logicProps)
-    }
 }
 
 export const insightLogic = kea<insightLogicType>({
@@ -176,16 +161,19 @@ export const insightLogic = kea<insightLogicType>({
             setInsight: (insight) => insight,
         },
         insightMode: [
-            ItemMode.View,
+            ItemMode.View as ItemMode,
             {
                 setInsightMode: ({ mode }) => {
                     if (mode === ItemMode.Edit) {
                         clearDOMTextSelection()
                         setTimeout(
                             () =>
-                                editingToast('Insight', (insightMode, source) => {
-                                    actions.setInsightMode({ mode: insightMode, source })
-                                }),
+                                editingToast(
+                                    'Insight',
+                                    (insightMode: ItemMode | null, source: DashboardEventSource | null) => {
+                                        actions.setInsightMode({ mode: insightMode, source })
+                                    }
+                                ),
                             100
                         )
                     } else {
