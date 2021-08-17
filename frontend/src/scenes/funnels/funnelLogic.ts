@@ -90,6 +90,7 @@ export const funnelLogic = kea<funnelLogicType>({
         cachedResults?: any
         preventLoading?: boolean
         refresh?: boolean
+        exclusionFilters?: Partial<FilterType>
     },
 
     key: (props) => {
@@ -274,10 +275,7 @@ export const funnelLogic = kea<funnelLogicType>({
             {
                 funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
                 funnel_window_interval: 14,
-            } as {
-                funnel_window_interval_unit: FunnelConversionWindowTimeUnit
-                funnel_window_interval: number
-            },
+            } as FunnelConversionWindow,
             {
                 setConversionWindow: (
                     state,
