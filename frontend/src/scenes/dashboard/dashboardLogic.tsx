@@ -89,55 +89,67 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 }),
             },
         ],
-        allItems: {
-            [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: (state, { item }) => {
-                return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
-            },
-            updateLayouts: (state, { layouts }) => {
-                const itemLayouts: Record<string, any> = {}
-                state?.items.forEach((item) => {
-                    itemLayouts[item.id] = {}
-                })
-
-                Object.entries(layouts).forEach(([col, layout]) => {
-                    layout.forEach((layoutItem) => {
-                        if (!itemLayouts[layoutItem.i]) {
-                            itemLayouts[layoutItem.i] = {}
-                        }
-                        itemLayouts[layoutItem.i][col] = layoutItem
+        allItems: [
+            null as DashboardType | null,
+            {
+                [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: (state, { item }) => {
+                    return { ...state, items: state?.items.map((i) => (i.id === item.id ? item : i)) }
+                },
+                updateLayouts: (state, { layouts }) => {
+                    const itemLayouts: Record<string, Partial<Record<string, Layout>>> = {}
+                    state?.items.forEach((item) => {
+                        itemLayouts[item.id] = {}
                     })
-                })
 
-                return { ...state, items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.id] })) }
+                    Object.entries(layouts).forEach(([col, layout]) => {
+                        layout.forEach((layoutItem) => {
+                            if (!itemLayouts[layoutItem.i]) {
+                                itemLayouts[layoutItem.i] = {}
+                            }
+                            itemLayouts[layoutItem.i][col] = layoutItem
+                        })
+                    })
+
+                    return { ...state, items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.id] })) }
+                },
+                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
+                    return { ...state, items: state?.items.map((i) => (i.id === item.id ? item : i)) }
+                },
+                [dashboardsModel.actionTypes.updateDashboardRefreshStatus]: (
+                    state,
+                    { id, refreshing, last_refresh }
+                ) => {
+                    // If not a dashboard item, don't do anything.
+                    if (!id) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        items: state?.items.map((i) =>
+                            i.id === id
+                                ? {
+                                      ...i,
+                                      ...(refreshing != null ? { refreshing } : {}),
+                                      ...(last_refresh != null ? { last_refresh } : {}),
+                                  }
+                                : i
+                        ),
+                    }
+                },
+                updateItemColor: (state, { id, color }) => {
+                    return { ...state, items: state?.items.map((i) => (i.id === id ? { ...i, color } : i)) }
+                },
+                [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }) => {
+                    return {
+                        ...state,
+                        items:
+                            item.dashboard === parseInt(props.id.toString())
+                                ? [...(state?.items || []), item]
+                                : state?.items,
+                    }
+                },
             },
-            [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
-                return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
-            },
-            [dashboardsModel.actionTypes.updateDashboardRefreshStatus]: (state, { id, refreshing, last_refresh }) => {
-                // If not a dashboard item, don't do anything.
-                if (!id) {
-                    return state
-                }
-                return {
-                    ...state,
-                    items: state.items.map((i) =>
-                        i.id === id
-                            ? {
-                                  ...i,
-                                  ...(refreshing != null ? { refreshing } : {}),
-                                  ...(last_refresh != null ? { last_refresh } : {}),
-                              }
-                            : i
-                    ),
-                }
-            },
-            updateItemColor: (state, { id, color }) => {
-                return { ...state, items: state?.items.map((i) => (i.id === id ? { ...i, color } : i)) }
-            },
-            [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }) => {
-                return { ...state, items: item.dashboard === parseInt(props.id) ? [...state.items, item] : state.items }
-            },
-        },
+        ],
         refreshStatus: [
             {} as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
             {
