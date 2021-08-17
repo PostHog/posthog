@@ -135,6 +135,13 @@ const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
 export const funnelLogic = kea<funnelLogicType>({
+    props: {} as {
+        dashboardItemId?: number
+        filters?: Partial<FilterType>
+        cachedResults?: any
+        preventLoading?: boolean
+    },
+
     key: (props) => {
         return props.dashboardItemId || 'insight_funnel'
     },
