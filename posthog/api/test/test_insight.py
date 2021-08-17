@@ -261,7 +261,7 @@ def insight_test_factory(event_factory, person_factory):
 
         def test_nonexistent_cohort_is_handled(self):
             response_nonexistent_property = self.client.get(
-                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
             )
             response_nonexistent_cohort = self.client.get(
                 f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
@@ -279,7 +279,7 @@ def insight_test_factory(event_factory, person_factory):
             whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
 
             response_nonexistent_property = self.client.get(
-                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
             )
             response_cohort_without_match_groups = self.client.get(
                 f"/api/insight/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':whatever_cohort_without_match_groups.pk}])}"
