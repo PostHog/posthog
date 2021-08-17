@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { DashboardItemType, SavedInsightsTabs } from '~/types'
+import { DashboardItemType, SavedInsightsTabs, InsightType, UserBasicType } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 
 interface InsightsResult {
@@ -24,7 +24,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                             saved: true,
                             ...(values.tab === SavedInsightsTabs.Yours && { user: true }),
                             ...(values.tab === SavedInsightsTabs.Favorites && { favorited: true }),
-                            search: values.searchTerm
+                            ...(values.searchTerm && { search: values.searchTerm }),
+                            ...(values.insightType !== 'All types' && { insight: values.insightType }),
+                            ...(values.createdBy !== 'All users' && { created_by: values.createdBy?.id }),
                         })
                 )
                 return response
@@ -37,13 +39,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                 )
                 return { ...values.insights, results: updatedInsights }
             },
-            searchInsights: async (term: string) => await api.get(`api/insight/?search=${term}`)
         },
         layoutView: [
             'list',
             {
                 setLayoutView: (view: string) => view,
-            }
+            },
         ],
         tab: [
             SavedInsightsTabs.All,
@@ -52,14 +53,26 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                     console.log('tab!', tab)
                     return tab
                 },
-            }
+            },
         ],
         searchTerm: [
             '',
             {
                 setSearchTerm: (term: string) => term,
-            }
-        ]
+            },
+        ],
+        insightType: [
+            'All types',
+            {
+                setInsightType: (type: InsightType | 'All types') => type.toUpperCase(),
+            },
+        ],
+        createdBy: [
+            null as Partial<UserBasicType> | null | 'All users',
+            {
+                setCreatedBy: (user: Partial<UserBasicType> | 'All users') => user,
+            },
+        ],
     }),
     selectors: {
         nextResult: [(s) => [s.insights], (insights) => insights.next],
@@ -81,7 +94,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             if (term === '') {
                 actions.loadInsights()
             }
-        }
+        },
+        setInsightType: () => {
+            actions.loadInsights()
+        },
+        setCreatedBy: () => {
+            actions.loadInsights()
+        },
     }),
     events: ({ actions }) => ({
         afterMount: () => {

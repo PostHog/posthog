@@ -135,7 +135,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
     filter_backends = [DjangoFilterBackend, TermSearchFilterBackend]
-    filterset_fields = ["short_id"]
+    filterset_fields = ["short_id", "created_by"]
     search_fields = ["name"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:

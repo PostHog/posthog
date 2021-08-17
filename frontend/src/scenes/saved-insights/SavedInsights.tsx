@@ -1,4 +1,4 @@
-import { Button, Col, Input, Row, Table, Tabs } from 'antd'
+import { Button, Col, Input, Row, Select, Table, Tabs } from 'antd'
 import { ColumnType } from 'antd/lib/table'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -20,12 +20,26 @@ import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
 import { router } from 'kea-router'
+import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 const { TabPane } = Tabs
 
 export function SavedInsights(): JSX.Element {
-    const { loadInsights, updateFavoritedInsight, loadPaginatedInsights, setLayoutView, setSearchTerm, setTab } = useActions(savedInsightsLogic)
-    const { insights, count, offset, nextResult, previousResult, insightsLoading, layoutView, searchTerm } = useValues(savedInsightsLogic)
+    const {
+        loadInsights,
+        updateFavoritedInsight,
+        loadPaginatedInsights,
+        setLayoutView,
+        setSearchTerm,
+        setTab,
+        setInsightType,
+        setCreatedBy,
+    } = useActions(savedInsightsLogic)
+    const { insights, count, offset, nextResult, previousResult, insightsLoading, layoutView, searchTerm } = useValues(
+        savedInsightsLogic
+    )
     const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const insightTypes = ['All types', 'Trends', 'Funnels', 'Retention', 'Paths', 'Sessions', 'Stickiness', 'Lifecycle']
+    const { members } = useValues(membersLogic)
 
     const columns = [
         {
@@ -95,16 +109,50 @@ export function SavedInsights(): JSX.Element {
                 <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
                 <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
             </Tabs>
-            <Row style={{paddingBottom: 16}}>
-                <Input.Search
-                    allowClear
-                    enterButton
-                    placeholder="Search for insights"
-                    style={{ width: 240 }}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    value={searchTerm}
-                    onSearch={() => loadInsights()}
-                />
+            <Row style={{ paddingBottom: 16, justifyContent: 'space-between' }}>
+                <Col>
+                    <Input.Search
+                        allowClear
+                        enterButton
+                        placeholder="Search for insights"
+                        style={{ width: 240 }}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        value={searchTerm || ''}
+                        onSearch={() => loadInsights()}
+                    />
+                </Col>
+                <Col>
+                    Type
+                    <Select defaultValue="All types" style={{ paddingLeft: 8, width: 120 }} onChange={setInsightType}>
+                        {insightTypes.map((type, index) => (
+                            <Select.Option key={index} value={type}>
+                                {type}
+                            </Select.Option>
+                        ))}
+                    </Select>
+                </Col>
+                <Col>
+                    Last modified
+                    <Select defaultValue="All time" style={{ paddingLeft: 8, width: 120 }} onChange={() => {}}></Select>
+                </Col>
+                <Col>
+                    Created by
+                    <Select
+                        defaultValue="All users"
+                        style={{ paddingLeft: 8, width: 120 }}
+                        onChange={(userId) => {
+                            const createdBy = userId === 'All users' ? undefined : userId
+                            setCreatedBy({ id: createdBy })
+                        }}
+                    >
+                        <Select.Option value={'All users'}>All users</Select.Option>
+                        {members.map((member) => (
+                            <Select.Option key={member.user_id} value={member.user_id}>
+                                {member.user_first_name}
+                            </Select.Option>
+                        ))}
+                    </Select>
+                </Col>
             </Row>
             <Row className="list-or-card-layout">
                 Showing {!previousResult ? 1 : nextResult ? offset - 15 : count - (insights?.results.length || 0)} -{' '}
@@ -120,67 +168,78 @@ export function SavedInsights(): JSX.Element {
                     </Button>
                 </div>
             </Row>
-            {layoutView === 'list' ? 
-            <Table
-                loading={insightsLoading}
-                columns={columns}
-                dataSource={insights.results}
-                pagination={false}
-                rowKey="id"
-                footer={() => (
-                    <Row className="footer-pagination">
-                        <span className="text-muted-alt">
-                            Showing{' '}
-                            {!previousResult ? 1 : nextResult ? offset - 15 : count - (insights?.results.length || 0)} -{' '}
-                            {nextResult ? offset : count} of {count} insights
-                        </span>
-                        <LeftOutlined
-                            style={{ paddingRight: 16 }}
-                            className={`${!previousResult ? 'paginate-disabled' : ''}`}
-                            onClick={() => {
-                                previousResult && loadPaginatedInsights(previousResult)
-                            }}
-                        />
-                        <RightOutlined
-                            className={`${!nextResult ? 'paginate-disabled' : ''}`}
-                            onClick={() => {
-                                nextResult && loadPaginatedInsights(nextResult)
-                            }}
-                        />
-                    </Row>
-                )}
-            /> : <Row gutter={[16, 16]}>
-                {insights && insights.results.map((insight: DashboardItemType, index: number) => (
-                <Col xs={24} sm={12} md={insights.results.length > 1 ? 8 : 12} key={insight.id} style={{ height: 270 }}>
-
-                    <DashboardItem
-                        item={{ ...insight, color: null }}
-                        key={insight.id + '_user'}
-                        // saveDashboardItem={updateInsight}
-                        loadDashboardItems={() => {
-                            loadInsights()
-                            // loadSavedInsights()
-                            // loadTeamInsights()
-                        }}
-                        // saveDashboardItem={updateInsight}
-                        dashboardMode={null}
-                        onClick={() => {
-                            const _type: DisplayedType =
-                                    insight.filters.insight === ViewType.RETENTION
-                                        ? 'RetentionContainer'
-                                        : insight.filters.display
-                                router.actions.push(displayMap[_type].link(insight))
-                        }}
-                        preventLoading={true}
-                        // footer={<div>ehh??</div>}
-                        index={index}
-                        isOnEditMode={false}
-                    />
-                </Col>
-                ))}
-            </Row>
-            }
+            {layoutView === 'list' ? (
+                <Table
+                    loading={insightsLoading}
+                    columns={columns}
+                    dataSource={insights.results}
+                    pagination={false}
+                    rowKey="id"
+                    footer={() => (
+                        <Row className="footer-pagination">
+                            <span className="text-muted-alt">
+                                Showing{' '}
+                                {!previousResult
+                                    ? 1
+                                    : nextResult
+                                    ? offset - 15
+                                    : count - (insights?.results.length || 0)}{' '}
+                                - {nextResult ? offset : count} of {count} insights
+                            </span>
+                            <LeftOutlined
+                                style={{ paddingRight: 16 }}
+                                className={`${!previousResult ? 'paginate-disabled' : ''}`}
+                                onClick={() => {
+                                    previousResult && loadPaginatedInsights(previousResult)
+                                }}
+                            />
+                            <RightOutlined
+                                className={`${!nextResult ? 'paginate-disabled' : ''}`}
+                                onClick={() => {
+                                    nextResult && loadPaginatedInsights(nextResult)
+                                }}
+                            />
+                        </Row>
+                    )}
+                />
+            ) : (
+                <Row gutter={[16, 16]}>
+                    {insights &&
+                        insights.results.map((insight: DashboardItemType, index: number) => (
+                            <Col
+                                xs={24}
+                                sm={12}
+                                md={insights.results.length > 1 ? 8 : 12}
+                                key={insight.id}
+                                style={{ height: 270 }}
+                            >
+                                <DashboardItem
+                                    item={{ ...insight, color: null }}
+                                    key={insight.id + '_user'}
+                                    // saveDashboardItem={updateInsight}
+                                    loadDashboardItems={() => {
+                                        loadInsights()
+                                        // loadSavedInsights()
+                                        // loadTeamInsights()
+                                    }}
+                                    // saveDashboardItem={updateInsight}
+                                    dashboardMode={null}
+                                    onClick={() => {
+                                        const _type: DisplayedType =
+                                            insight.filters.insight === ViewType.RETENTION
+                                                ? 'RetentionContainer'
+                                                : insight.filters.display
+                                        router.actions.push(displayMap[_type].link(insight))
+                                    }}
+                                    preventLoading={true}
+                                    // footer={<div>ehh??</div>}
+                                    index={index}
+                                    isOnEditMode={false}
+                                />
+                            </Col>
+                        ))}
+                </Row>
+            )}
         </div>
-        
     )
 }
