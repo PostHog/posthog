@@ -1,7 +1,7 @@
 import datetime
 import json
 import re
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
@@ -40,6 +40,7 @@ from posthog.utils import relative_date_parse, str_to_bool
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
 BreakdownType = Literal["event", "person", "cohort"]
+IntervalType = Literal["minute", "hour", "day", "week", "month"]
 
 
 class IntervalMixin(BaseParamMixin):
@@ -48,7 +49,7 @@ class IntervalMixin(BaseParamMixin):
     SUPPORTED_INTERVAL_TYPES = ["minute", "hour", "day", "week", "month"]
 
     @cached_property
-    def interval(self) -> str:
+    def interval(self) -> IntervalType:
         interval_candidate = self._data.get(INTERVAL)
         if not interval_candidate:
             return "day"
@@ -57,11 +58,11 @@ class IntervalMixin(BaseParamMixin):
         interval_candidate = interval_candidate.lower()
         if interval_candidate not in self.SUPPORTED_INTERVAL_TYPES:
             raise ValueError(f"Interval {interval_candidate} does not belong to SUPPORTED_INTERVAL_TYPES!")
-        return interval_candidate
+        return cast(IntervalType, interval_candidate)
 
     @include_dict
     def interval_to_dict(self):
-        return {"interval": self.interval} if self.interval else {}
+        return {"interval": self.interval}
 
 
 class SelectorMixin(BaseParamMixin):
