@@ -173,6 +173,7 @@ export const funnelLogic = kea<funnelLogicType>({
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
         values: [preflightLogic, ['preflight']],
+        logic: [insightLogic],
     },
 
     loaders: ({ props, values }) => ({
@@ -255,9 +256,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     const queryId = uuid()
                     const dashboardItemId = props.dashboardItemId as number | undefined
 
-                    if (!props.dashboardItemId) {
-                        insightLogic.actions.startQuery(queryId)
-                    }
+                    insightLogic.actions.startQuery(queryId)
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
                     try {
@@ -266,9 +265,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             loadBinsResults(),
                         ])
                         breakpoint()
-                        if (!props.dashboardItemId) {
-                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
-                        }
+                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                         dashboardsModel.actions.updateDashboardRefreshStatus(
                             dashboardItemId,
                             false,
@@ -277,9 +274,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         return { results: result.result, timeConversionResults, filters }
                     } catch (e) {
                         if (!isBreakpoint(e)) {
-                            if (!props.dashboardItemId) {
-                                insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
-                            }
+                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                             dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                             console.error(e)
                         }
