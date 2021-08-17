@@ -1,5 +1,5 @@
 import datetime
-from typing import Dict, Optional, Union
+from typing import Dict, Literal, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -142,7 +142,7 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
 
 class FunnelLayoutMixin(BaseParamMixin):
     @cached_property
-    def layout(self) -> Optional[str]:
+    def layout(self) -> Optional[Literal["horizontal", "vertical"]]:
         return self._data.get(FUNNEL_LAYOUT)
 
     @include_dict
