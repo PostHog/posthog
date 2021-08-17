@@ -1,9 +1,10 @@
-from typing import List, Set, Tuple
+from typing import List, Set, Tuple, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
 from ee.clickhouse.models.property import extract_tables_and_properties
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property, PropertyName, PropertyType
@@ -47,7 +48,7 @@ class ColumnOptimizer:
             if has_element_type_property(properties):
                 return True
 
-        for entity in self.filter.entities:
+        for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
             if has_element_type_property(entity.properties):
                 return True
 
@@ -71,7 +72,7 @@ class ColumnOptimizer:
             assert isinstance(self.filter.breakdown, str)
             result.add((self.filter.breakdown, self.filter.breakdown_type))
 
-        for entity in self.filter.entities:
+        for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
             result |= extract_tables_and_properties(entity.properties)
 
             if entity.math_property:

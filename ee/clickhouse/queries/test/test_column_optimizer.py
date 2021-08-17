@@ -90,6 +90,12 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             {("$current_url", "event"), ("$browser", "person")},
         )
 
+        filter = BASE_FILTER.with_data({"exclusions": [{"id": action.id, "type": "actions"}]})
+        self.assertEqual(
+            ColumnOptimizer(filter, self.team.id).properties_used_in_filter,
+            {("$current_url", "event"), ("$browser", "person")},
+        )
+
     def test_materialized_columns_checks(self):
         optimizer = lambda: ColumnOptimizer(FILTER_WITH_PROPERTIES, self.team.id)
 
@@ -137,6 +143,11 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             action=action, event="$autocapture", tag_name="button", text="Pay $10",
         )
 
+        self.assertEqual(
+            ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
+        )
+
+        filter = BASE_FILTER.with_data({"exclusions": [{"id": action.id, "type": "actions"}]})
         self.assertEqual(
             ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
         )
