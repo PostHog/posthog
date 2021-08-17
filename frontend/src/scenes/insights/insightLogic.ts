@@ -161,7 +161,7 @@ export const insightLogic = kea<insightLogicType>({
             setInsight: (insight) => insight,
         },
         insightMode: [
-            ItemMode.View,
+            ItemMode.View as ItemMode,
             {
                 setInsightMode: ({ mode }) => {
                     if (mode === ItemMode.Edit) {
