@@ -1,10 +1,11 @@
 from typing import List, Set
 
-from ee.clickhouse.materialized_columns.columns import ColumnName, TableAndProperty, get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import ColumnName, PropertyAndType, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties
 from ee.clickhouse.models.property import extract_tables_and_properties
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters import Filter
+from posthog.models.filters.mixins.base import BreakdownType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
 from posthog.models.team import Team
@@ -26,8 +27,8 @@ class ColumnOptimizer:
         materialized_columns = get_materialized_columns("events")
         return [
             materialized_columns[property_name]
-            for table, property_name in self.properties_used_in_filter
-            if table == "events" and property_name in materialized_columns
+            for property_name, type in self.properties_used_in_filter
+            if type == "event" and property_name in materialized_columns
         ]
 
     @cached_property
@@ -35,24 +36,24 @@ class ColumnOptimizer:
         return len(self.event_columns_to_query) != len(self.properties_used_in_filter)
 
     @cached_property
-    def properties_used_in_filter(self) -> Set[TableAndProperty]:
-        result: Set[TableAndProperty] = set()
+    def properties_used_in_filter(self) -> Set[PropertyAndType]:
+        result: Set[PropertyAndType] = set()
 
         result |= extract_tables_and_properties(self.filter.properties)
         if self.filter.filter_test_accounts:
             test_account_filters = Team.objects.only("test_account_filters").get(id=self.team_id).test_account_filters
             result |= extract_tables_and_properties([Property(**prop) for prop in test_account_filters])
 
-        if self.filter.breakdown_type == "person":
-            result.add(("person", self.filter.breakdown))
-        elif self.filter.breakdown_type == "event":
-            result.add(("events", self.filter.breakdown))
+        if self.filter.breakdown_type in ["event", "person"]:
+            # :TRICKY: We only support string breakdown for event/person properties
+            assert isinstance(self.filter.breakdown, str)
+            result.add((self.filter.breakdown, self.filter.breakdown_type))
 
         for entity in self.filter.entities:
             result |= extract_tables_and_properties(entity.properties)
 
             if entity.math_property:
-                result.add(("events", entity.math_property))
+                result.add((entity.math_property, "event"))
 
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 result |= get_action_tables_and_properties(entity.get_action())

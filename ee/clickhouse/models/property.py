@@ -5,8 +5,8 @@ from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import (
+    PropertyAndType,
     PropertyName,
-    TableAndProperty,
     TableWithProperties,
     get_materialized_columns,
 )
@@ -187,7 +187,7 @@ def prop_filter_json_extract(
         )
 
 
-def property_table(property: Property) -> str:
+def property_table(property: Property) -> TableWithProperties:
     if property.type == "event":
         return "events"
     elif property.type == "person":
@@ -296,11 +296,5 @@ def _create_regex(selector: Selector) -> str:
     return regex
 
 
-def extract_tables_and_properties(props: List[Property]) -> Set[TableAndProperty]:
-    result: Set[TableAndProperty] = set()
-    for prop in props:
-        if prop.type == "person":
-            result.add(("person", prop.key))
-        elif prop.type == "event":
-            result.add(("events", prop.key))
-    return result
+def extract_tables_and_properties(props: List[Property]) -> Set[PropertyAndType]:
+    return set((prop.key, prop.type) for prop in props)

@@ -6,12 +6,13 @@ from typing import Dict, Literal, Tuple, no_type_check
 from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
+from posthog.models.property import PropertyType
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
 
 PropertyName = str
 ColumnName = str
 TableWithProperties = Literal["events", "person"]
-TableAndProperty = Tuple[TableWithProperties, str]
+PropertyAndType = Tuple[str, PropertyType]
 
 
 def cache_for(cache_time: timedelta):
