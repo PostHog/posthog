@@ -136,7 +136,7 @@ const isStepsEmpty = (filters: FilterType): boolean =>
 
 export const funnelLogic = kea<funnelLogicType>({
     key: (props) => {
-        return props.dashboardItemId || 'some_funnel'
+        return props.dashboardItemId || 'insight_funnel'
     },
 
     actions: () => ({
@@ -200,8 +200,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
 
                     await breakpoint(250)
-
-                    const { apiParams, eventCount, actionCount, interval, histogramStep, filters, binCount } = values
 
                     async function loadFunnelResults(): Promise<FunnelResult<FunnelStep[] | FunnelStep[][]>> {
                         try {
