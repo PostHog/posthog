@@ -1,22 +1,17 @@
 import re
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import (
-    PropertyAndType,
-    PropertyName,
-    TableWithProperties,
-    get_materialized_columns,
-)
+from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyName, PropertyType
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -296,5 +291,5 @@ def _create_regex(selector: Selector) -> str:
     return regex
 
 
-def extract_tables_and_properties(props: List[Property]) -> Set[PropertyAndType]:
+def extract_tables_and_properties(props: List[Property]) -> Set[Tuple[PropertyName, PropertyType]]:
     return set((prop.key, prop.type) for prop in props)

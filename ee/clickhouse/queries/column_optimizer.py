@@ -1,13 +1,12 @@
-from typing import List, Set
+from typing import List, Set, Tuple
 
-from ee.clickhouse.materialized_columns.columns import ColumnName, PropertyAndType, get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties
 from ee.clickhouse.models.property import extract_tables_and_properties
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters import Filter
-from posthog.models.filters.mixins.base import BreakdownType
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyName, PropertyType
 from posthog.models.team import Team
 
 
@@ -36,8 +35,8 @@ class ColumnOptimizer:
         return len(self.event_columns_to_query) != len(self.properties_used_in_filter)
 
     @cached_property
-    def properties_used_in_filter(self) -> Set[PropertyAndType]:
-        result: Set[PropertyAndType] = set()
+    def properties_used_in_filter(self) -> Set[Tuple[PropertyName, PropertyType]]:
+        result: Set[Tuple[PropertyName, PropertyType]] = set()
 
         result |= extract_tables_and_properties(self.filter.properties)
         if self.filter.filter_test_accounts:

@@ -2,10 +2,10 @@ from typing import Dict, List, Set, Tuple
 
 from django.forms.models import model_to_dict
 
-from ee.clickhouse.materialized_columns.columns import PropertyAndType
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
+from posthog.models.property import PropertyName, PropertyType
 
 
 def format_action_filter(
@@ -101,10 +101,10 @@ def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team
     return entity_filter, params
 
 
-def get_action_tables_and_properties(action: Action) -> Set[PropertyAndType]:
+def get_action_tables_and_properties(action: Action) -> Set[Tuple[PropertyName, PropertyType]]:
     from ee.clickhouse.models.property import extract_tables_and_properties
 
-    result: Set[PropertyAndType] = set()
+    result: Set[Tuple[PropertyName, PropertyType]] = set()
 
     for action_step in action.steps.all():
         if action_step.url:
