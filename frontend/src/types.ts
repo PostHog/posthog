@@ -810,6 +810,7 @@ export interface FunnelRequestParams extends FilterType {
 export interface LoadedRawFunnelResults {
     results: FunnelStep[] | FunnelStep[][]
     timeConversionResults: FunnelsTimeConversionBins
+    filters: Partial<FilterType>
 }
 
 export interface FunnelStepWithConversionMetrics extends FunnelStep {
