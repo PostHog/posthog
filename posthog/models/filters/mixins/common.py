@@ -1,7 +1,7 @@
 import datetime
 import json
 import re
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
@@ -39,6 +39,7 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse, str_to_bool
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
+BreakdownType = Literal["event", "person", "cohort"]
 
 
 class IntervalMixin(BaseParamMixin):
@@ -144,7 +145,7 @@ class BreakdownMixin(BaseParamMixin):
 
 class BreakdownTypeMixin(BaseParamMixin):
     @cached_property
-    def breakdown_type(self) -> Optional[str]:
+    def breakdown_type(self) -> Optional[BreakdownType]:
         return self._data.get(BREAKDOWN_TYPE, None)
 
     @include_dict
