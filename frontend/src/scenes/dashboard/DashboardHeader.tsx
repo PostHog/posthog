@@ -38,10 +38,14 @@ export function DashboardHeader(): JSX.Element {
     const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const { user } = useValues(userLogic)
-    const [newName, setNewName] = useState(dashboard.name) // Used to update the input immediately, debouncing API calls
+    const [newName, setNewName] = useState(dashboard?.name || null) // Used to update the input immediately, debouncing API calls
 
     const nameInputRef = useRef<Input | null>(null)
     const descriptionInputRef = useRef<HTMLInputElement | null>(null)
+
+    if (!dashboard) {
+        return <div />
+    }
 
     const actionsDefault = (
         <>
@@ -181,7 +185,7 @@ export function DashboardHeader(): JSX.Element {
                         {dashboardMode === DashboardMode.Edit ? (
                             <Input
                                 placeholder="Dashboard name (e.g. Weekly KPIs)"
-                                value={newName}
+                                value={newName || ''}
                                 size="large"
                                 style={{ maxWidth: 400 }}
                                 onChange={(e) => {
@@ -199,7 +203,7 @@ export function DashboardHeader(): JSX.Element {
                         ) : (
                             <div className="dashboard-select">
                                 <Select
-                                    value={dashboard?.id || null}
+                                    value={(dashboard?.id || undefined) as number | 'new' | undefined}
                                     onChange={(id) => {
                                         if (id === 'new') {
                                             addNewDashboard()

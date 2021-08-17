@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { toParams, fromParams, errorToast, clearDOMTextSelection, editingToast } from 'lib/utils'
 import posthog from 'posthog-js'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import { DashboardItemType, Entity, FilterType, FunnelVizType, ItemMode, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
@@ -168,9 +168,12 @@ export const insightLogic = kea<insightLogicType>({
                         clearDOMTextSelection()
                         setTimeout(
                             () =>
-                                editingToast('Insight', (insightMode, source) => {
-                                    actions.setInsightMode({ mode: insightMode, source })
-                                }),
+                                editingToast(
+                                    'Insight',
+                                    (insightMode: ItemMode | null, source: DashboardEventSource | null) => {
+                                        actions.setInsightMode({ mode: insightMode, source })
+                                    }
+                                ),
                             100
                         )
                     } else {

@@ -30,7 +30,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -222,7 +222,9 @@ export function Insights(): JSX.Element {
                             <Description
                                 item={insight}
                                 itemMode={insightMode}
-                                setItemMode={(mode, source) => setInsightMode({ mode, source })}
+                                setItemMode={(mode: ItemMode | null, source: DashboardEventSource | null) =>
+                                    setInsightMode({ mode, source })
+                                }
                                 triggerItemUpdate={updateInsight}
                                 descriptionInputRef={descriptionInputRef}
                             />
