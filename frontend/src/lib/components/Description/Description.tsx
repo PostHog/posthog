@@ -1,15 +1,17 @@
 import { Card, Input } from 'antd'
 import React, { Ref, useState } from 'react'
 import { EditOutlined } from '@ant-design/icons'
-import { DashboardItemType, ItemMode } from '~/types'
+import { DashboardItemType, DashboardMode, ItemMode } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import './Description.scss'
 import { TextAreaRef } from 'antd/lib/input/TextArea'
 
 interface DescriptionInterface {
     item: Partial<DashboardItemType>
-    itemMode: ItemMode
-    setItemMode: (mode: ItemMode | null, eventSource: DashboardEventSource) => void
+    itemMode: ItemMode | DashboardMode | null
+    setItemMode:
+        | ((mode: ItemMode | null, eventSource: DashboardEventSource) => void)
+        | ((mode: DashboardMode | null, eventSource: DashboardEventSource) => void)
     triggerItemUpdate: (description: Partial<DashboardItemType>) => void
     descriptionInputRef: Ref<TextAreaRef> | undefined
 }
@@ -45,7 +47,7 @@ export function Description({
             ) : (
                 <div
                     className="edit-box"
-                    onClick={() => setItemMode(ItemMode.Edit, DashboardEventSource.AddDescription)}
+                    onClick={() => setItemMode(ItemMode.Edit as any, DashboardEventSource.AddDescription)}
                 >
                     {item.description ? (
                         <span>{item.description}</span>
