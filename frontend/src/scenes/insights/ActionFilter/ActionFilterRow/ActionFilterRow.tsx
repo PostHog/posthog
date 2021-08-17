@@ -2,7 +2,15 @@ import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Col, Row, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
-import { ActionFilter, EntityType, EntityTypes, PropertyFilter, PropertyFilterValue, SelectOption } from '~/types'
+import {
+    ActionFilter,
+    EntityType,
+    EntityTypes,
+    FunnelExclusionEntityFilter,
+    PropertyFilter,
+    PropertyFilterValue,
+    SelectOption,
+} from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EVENT_MATH_TYPE, FEATURE_FLAGS, MATHS, PROPERTY_MATH_TYPE } from 'lib/constants'
@@ -47,8 +55,14 @@ export interface ActionFilterRowProps {
     horizontalUI?: boolean
     fullWidth?: boolean
     filterCount: number
-    customRowPrefix?: string | JSX.Element | ((row: ActionFilter, index: number) => JSX.Element) // Custom prefix element to show in each row
-    customRowSuffix?: string | JSX.Element | ((row: ActionFilter, index: number) => JSX.Element) // Custom suffix element to show in each row
+    customRowPrefix?:
+        | string
+        | JSX.Element
+        | ((row: ActionFilter | FunnelExclusionEntityFilter, index: number) => JSX.Element) // Custom prefix element to show in each row
+    customRowSuffix?:
+        | string
+        | JSX.Element
+        | ((row: ActionFilter | FunnelExclusionEntityFilter, index: number) => JSX.Element) // Custom suffix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     groupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter

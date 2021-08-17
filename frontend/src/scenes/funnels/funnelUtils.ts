@@ -1,9 +1,10 @@
-import { compactNumber } from 'lib/utils'
+import { clamp, compactNumber } from 'lib/utils'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
 import api from 'lib/api'
 import {
     FilterType,
+    FunnelExclusionEntityFilter,
     FunnelRequestParams,
     FunnelResult,
     FunnelStep,
@@ -158,3 +159,33 @@ export async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParam
 
 export const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
+
+export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelExclusionEntityFilter[] | undefined => {
+    if (!filters.exclusions) {
+        return filters.exclusions
+    }
+
+    console.log('BEFORE CLEAN EXCLUSIONS', filters.exclusions)
+
+    const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
+    console.log(
+        'AFTER CLEAN EXCLUSIONS',
+        filters.exclusions.map((event) => ({
+            ...event,
+            ...{ funnel_from_step: event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0 },
+            ...{ funnel_to_step: event.funnel_to_step ? clamp(event.funnel_from_step, 1, lastIndex) : lastIndex },
+        }))
+    )
+    return filters.exclusions.map((event) => {
+        const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
+        return {
+            ...event,
+            ...{ funnel_from_step },
+            ...{
+                funnel_to_step: event.funnel_to_step
+                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
+                    : lastIndex,
+            },
+        }
+    })
+}

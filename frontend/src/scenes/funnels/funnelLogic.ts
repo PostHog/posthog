@@ -2,7 +2,7 @@ import { isBreakpoint, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, objectsEqual, sum, uuid } from 'lib/utils'
+import { autocorrectInterval, sum, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -35,6 +35,7 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import {
     aggregateBreakdownResult,
     cleanBinResult,
+    deepCleanFunnelExclusionEvents,
     EMPTY_FUNNEL_RESULTS,
     formatDisplayPercentage,
     getLastFilledStep,
@@ -75,7 +76,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
             ? { funnel_step_breakdown: filters.funnel_step_breakdown }
             : {}),
         ...(filters.bin_count && filters.bin_count !== BinCountAuto ? { bin_count: filters.bin_count } : {}),
-        ...(filters.exclusions ? { exclusions: filters.exclusions } : {}),
+        exclusions: deepCleanFunnelExclusionEvents(filters),
         interval: autocorrectInterval(filters),
         breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
         breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
@@ -261,7 +262,7 @@ export const funnelLogic = kea<funnelLogicType>({
         exclusionFilters: [
             (props.exclusionFilters || { type: EntityTypes.EVENTS }) as FilterType,
             {
-                setEventExclusionFilters: (state, { filters }) => ({ ...state, ...filters }),
+                setEventExclusionFilters: (state, { filters }) => ({ ...state, ...filters, type: EntityTypes.EVENTS }),
                 setOneEventExclusionFilter: (state, { eventFilter, index }) => ({
                     ...state,
                     events: state.events ? state.events.map((e, e_i) => (e_i === index ? eventFilter : e)) : [],
@@ -421,10 +422,14 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         areFiltersValid: [
-            () => [selectors.filters],
-            (filters) => {
-                return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
+            () => [selectors.numberOfSeries],
+            (numberOfSeries) => {
+                return numberOfSeries > 1
             },
+        ],
+        numberOfSeries: [
+            () => [selectors.filters],
+            (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
         conversionMetrics: [
             () => [selectors.stepsWithCount, selectors.histogramStep],
@@ -573,6 +578,13 @@ export const funnelLogic = kea<funnelLogicType>({
                 return binCount
             },
         ],
+        exclusionDefaultStepRange: [
+            () => [selectors.numberOfSeries, selectors.areFiltersValid],
+            (numberOfSeries, areFiltersValid): Omit<FunnelExclusionEntityFilter, 'id' | 'name'> => ({
+                funnel_from_step: 0,
+                funnel_to_step: areFiltersValid ? numberOfSeries - 1 : 1,
+            }),
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -641,10 +653,16 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadResults()
         },
         setEventExclusionFilters: () => {
-            actions.setFilters(values.exclusionFilters, true, true)
+            actions.setFilters(
+                {
+                    ...values.filters,
+                    exclusions: values.exclusionFilters.events as FunnelExclusionEntityFilter[],
+                },
+                true
+            )
         },
         setOneEventExclusionFilter: () => {
-            actions.setFilters(values.exclusionFilters, true, true)
+            actions.setEventExclusionFilters(values.exclusionFilters)
         },
     }),
     actionToUrl: ({ values, props }) => ({
@@ -668,7 +686,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 const currentParams = cleanFunnelParams(values.filters, true)
                 const paramsToCheck = cleanFunnelParams(searchParams, true)
 
-                if (!objectsEqual(currentParams, paramsToCheck)) {
+                if (!equal(currentParams, paramsToCheck)) {
                     const cleanedParams = cleanFunnelParams(searchParams)
                     if (isStepsEmpty(cleanedParams)) {
                         const event = getDefaultEventName()
@@ -682,6 +700,7 @@ export const funnelLogic = kea<funnelLogicType>({
                         ]
                     }
                     actions.setFilters(cleanedParams, true, false)
+                    actions.setEventExclusionFilters({ events: cleanedParams.exclusions })
                 }
             }
         },

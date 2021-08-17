@@ -332,9 +332,9 @@ export type EntityFilter = {
     order?: number
 }
 
-export type FunnelExclusionEntityFilter = EntityFilter & {
-    funnel_from_step?: number
-    funnel_to_step?: number
+export interface FunnelExclusionEntityFilter extends EntityFilter {
+    funnel_from_step: number
+    funnel_to_step: number
 }
 
 export interface EntityWithProperties extends Entity {

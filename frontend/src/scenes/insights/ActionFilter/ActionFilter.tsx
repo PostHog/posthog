@@ -14,6 +14,7 @@ export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
     filters: Optional<FilterType, 'type'>
     typeKey: string
+    addFilterDefaultOptions?: Record<string, any>
     hideMathSelector?: boolean
     hidePropertySelector?: boolean
     buttonCopy: string // Text copy for the action button to add more events/actions (graph series)
@@ -37,6 +38,7 @@ export function ActionFilter({
     setFilters,
     filters,
     typeKey,
+    addFilterDefaultOptions = {},
     hideMathSelector,
     hidePropertySelector = false,
     buttonCopy = '',
@@ -55,7 +57,7 @@ export function ActionFilter({
     showNestedArrow = false,
     groupTypes,
 }: ActionFilterProps): JSX.Element {
-    const logic = entityFilterLogic({ setFilters, filters, typeKey })
+    const logic = entityFilterLogic({ setFilters, filters, typeKey, addFilterDefaultOptions })
 
     const { localFilters } = useValues(logic)
     const { addFilter, setLocalFilters } = useActions(logic)
