@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns import get_materialized_columns
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
@@ -46,12 +47,42 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self._filter = self._filter.with_data(new_limit)
             self.params.update(new_limit)
 
+        self._update_filters()
+
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
             return []
 
         results = self._exec_query()
         return self._format_results(results)
+
+    def _update_filters(self):
+        # format default dates
+        data: Dict[str, Any] = {}
+        if not self._filter._date_from:
+            data.update({"date_from": relative_date_parse("-7d")})
+        if not self._filter._date_to:
+            data.update({"date_to": timezone.now()})
+
+        if self._filter.breakdown and not self._filter.breakdown_type:
+            data.update({"breakdown_type": "event"})
+
+        for exclusion in self._filter.exclusions:
+            if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
+                raise ValidationError("Exclusion event needs to define funnel steps")
+
+            if exclusion.funnel_from_step >= exclusion.funnel_to_step:
+                raise ValidationError("Exclusion event range is invalid. End of range should be greater than start.")
+
+            if exclusion.funnel_from_step >= len(self._filter.entities) - 1:
+                raise ValidationError(
+                    "Exclusion event range is invalid. Start of range is greater than number of steps."
+                )
+
+            if exclusion.funnel_to_step > len(self._filter.entities) - 1:
+                raise ValidationError("Exclusion event range is invalid. End of range is greater than number of steps.")
+
+        self._filter = self._filter.with_data(data)
 
     def _format_single_funnel(self, results, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
@@ -92,34 +123,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return self._format_single_funnel(results[0])
 
     def _exec_query(self) -> List[Tuple]:
-
-        # format default dates
-        data: Dict[str, Any] = {}
-        if not self._filter._date_from:
-            data.update({"date_from": relative_date_parse("-7d")})
-        if not self._filter._date_to:
-            data.update({"date_to": timezone.now()})
-
-        if self._filter.breakdown and not self._filter.breakdown_type:
-            data.update({"breakdown_type": "event"})
-
-        for exclusion in self._filter.exclusions:
-            if exclusion.funnel_from_step is None or exclusion.funnel_to_step is None:
-                raise ValidationError("Exclusion event needs to define funnel steps")
-
-            if exclusion.funnel_from_step >= exclusion.funnel_to_step:
-                raise ValidationError("Exclusion event range is invalid. End of range should be greater than start.")
-
-            if exclusion.funnel_from_step >= len(self._filter.entities) - 1:
-                raise ValidationError(
-                    "Exclusion event range is invalid. Start of range is greater than number of steps."
-                )
-
-            if exclusion.funnel_to_step > len(self._filter.entities) - 1:
-                raise ValidationError("Exclusion event range is invalid. End of range is greater than number of steps.")
-
-        self._filter = self._filter.with_data(data)
-
         query = self.get_query()
         return sync_execute(query, self.params)
 
@@ -376,11 +379,15 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) AS prop"
             elif self._filter.breakdown_type == "event":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
+                column_name = get_materialized_columns("events").get(self._filter.breakdown)
+                if column_name is not None:
+                    return f", {column_name} AS prop"
+                else:
+                    return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) AS prop"
             elif self._filter.breakdown_type == "cohort":
-                return ", value as prop"
+                return ", value AS prop"
 
         return ""
 

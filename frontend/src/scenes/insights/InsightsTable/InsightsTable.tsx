@@ -1,5 +1,6 @@
 import React from 'react'
-import { Dropdown, Menu, Skeleton, Table, Tooltip } from 'antd'
+import { Dropdown, Menu, Skeleton, Table } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
@@ -121,7 +122,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         width: 200,
     })
 
-    if (indexedResults && indexedResults.length > 0) {
+    if (indexedResults?.length > 0) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
                 <DateDisplay

@@ -1,10 +1,11 @@
-import { InputNumber, Row, Select, Tooltip } from 'antd'
+import { InputNumber, Row, Select } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { pluralize } from 'lib/utils'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindowTimeUnit } from '~/types'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],

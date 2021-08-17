@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -17,7 +17,7 @@ class Entity(PropertyMixin):
     """
 
     id: Union[int, str]
-    type: str
+    type: Literal["events", "actions"]
     order: Optional[int]
     name: Optional[str]
     math: Optional[str]

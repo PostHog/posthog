@@ -1,4 +1,4 @@
-import { Button, Card, Col, Input, Row, Tooltip } from 'antd'
+import { Button, Card, Col, Input, Row } from 'antd'
 import React, { useEffect, useState } from 'react'
 import { DownloadOutlined, SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
@@ -10,6 +10,7 @@ import { AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface TableConfigInterface {
     exportUrl?: string

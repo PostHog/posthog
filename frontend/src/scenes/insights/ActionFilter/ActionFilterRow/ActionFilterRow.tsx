@@ -1,6 +1,7 @@
 import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Col, Row, Select, Tooltip } from 'antd'
+import { Button, Col, Row, Select } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 import { ActionFilter, EntityType, EntityTypes, PropertyFilter, PropertyFilterValue, SelectOption } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'

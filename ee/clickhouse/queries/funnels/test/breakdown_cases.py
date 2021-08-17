@@ -1,3 +1,4 @@
+from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.cohort import Cohort
@@ -1130,5 +1131,26 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_p
             self.assertEqual(result[0][0]["breakdown_value"], cohort.pk)
             self.assertCountEqual(self._get_people_at_step(filter, 1, cohort.pk), [person.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, cohort.pk), [])
+
+        def test_funnel_query_with_denormalized_breakdown(self):
+            filter = Filter(
+                data={
+                    "events": [{"id": "sign up", "order": 0}, {"id": "play movie", "order": 1}],
+                    "insight": INSIGHT_FUNNELS,
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-08",
+                    "funnel_window_days": 7,
+                    "breakdown_type": "event",
+                    "breakdown": "some_breakdown_val",
+                    "breakdown_limit": 5,
+                }
+            )
+
+            materialize("events", "some_breakdown_val")
+
+            funnel = ClickhouseFunnel(filter, self.team)
+
+            self.assertNotIn("json", funnel.get_query().lower())
+            funnel.run()
 
     return TestFunnelBreakdown
