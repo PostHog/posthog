@@ -1,6 +1,7 @@
 import { RawOrganization } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
+import { getByAge } from '../../utils/utils'
 
 type OrganizationCache<T> = Map<RawOrganization['id'], [T, number]>
 
@@ -14,7 +15,7 @@ export class OrganizationManager {
     }
 
     public async fetchOrganization(organizationId: RawOrganization['id']): Promise<RawOrganization | null> {
-        const cachedOrganization = this.getByAge(this.organizationCache, organizationId)
+        const cachedOrganization = getByAge(this.organizationCache, organizationId)
         if (cachedOrganization) {
             return cachedOrganization
         }
@@ -27,15 +28,5 @@ export class OrganizationManager {
         } finally {
             clearTimeout(timeout)
         }
-    }
-
-    private getByAge<K, V>(cache: Map<K, [V, number]>, key: K, maxAgeMs = 30_000): V | undefined {
-        if (cache.has(key)) {
-            const [value, age] = cache.get(key)!
-            if (Date.now() - age <= maxAgeMs) {
-                return value
-            }
-        }
-        return undefined
     }
 }

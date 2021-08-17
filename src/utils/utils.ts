@@ -650,6 +650,57 @@ export class IllegalOperationError extends Error {
     }
 }
 
+export function getByAge<K, V>(cache: Map<K, [V, number]>, key: K, maxAgeMs = 30_000): V | undefined {
+    if (cache.has(key)) {
+        const [value, age] = cache.get(key)!
+        if (Date.now() - age <= maxAgeMs) {
+            return value
+        }
+    }
+    return undefined
+}
+
+// Equivalent of Python's string.ascii_letters
+export function getAsciiLetters(): string {
+    const LOWERCASE_START_POINT = 97 // ASCII 'a'
+    const UPPERCASE_START_POINT = 65 // ASCII 'A'
+
+    const lowercaseLetters = Array.from({ length: 26 }).map((_, i) => String.fromCharCode(LOWERCASE_START_POINT + i))
+    const uppercaseLetters = Array.from({ length: 26 }).map((_, i) => String.fromCharCode(UPPERCASE_START_POINT + i))
+
+    return `${lowercaseLetters.join('')}${uppercaseLetters.join('')}`
+}
+
+// Equivalent of Python's string.digits
+export function getAllDigits(): string {
+    return Array.from({ length: 10 })
+        .map((_, i) => i)
+        .join('')
+}
+
+export function generateRandomToken(nBytes: number): string {
+    return intToBase(Number.parseInt(randomBytes(nBytes).toString('hex'), 16), 62)
+}
+
+export function intToBase(num: number, base: number): string {
+    if (base > 62) {
+        throw new IllegalOperationError('Cannot convert integer to base above 62')
+    }
+    const alphabet = getAllDigits() + getAsciiLetters()
+    if (num < 0) {
+        return '-' + intToBase(-num, base)
+    }
+    let value = ''
+    while (num != 0) {
+        const oldNum = num
+        num = Math.floor(oldNum / alphabet.length)
+        const index = oldNum % alphabet.length
+        value = alphabet[index] + value
+    }
+
+    return value || '0'
+}
+
 // For errors we want to explicitly throw
 // concerning race conditions across threads
 export class RaceConditionError extends Error {

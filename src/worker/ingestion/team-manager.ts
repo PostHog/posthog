@@ -4,7 +4,7 @@ import { Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
-import { UUIDT } from '../../utils/utils'
+import { getByAge, UUIDT } from '../../utils/utils'
 
 type TeamCache<T> = Map<TeamId, [T, number]>
 
@@ -22,7 +22,7 @@ export class TeamManager {
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
-        const cachedTeam = this.getByAge(this.teamCache, teamId)
+        const cachedTeam = getByAge(this.teamCache, teamId)
         if (cachedTeam) {
             return cachedTeam
         }
@@ -120,15 +120,5 @@ export class TeamManager {
             eventPropertiesCache = new Set(eventProperties.rows.map((r) => r.name))
             this.eventPropertiesCache.set(teamId, eventPropertiesCache)
         }
-    }
-
-    private getByAge<K, V>(cache: Map<K, [V, number]>, key: K, maxAgeMs = 30_000): V | undefined {
-        if (cache.has(key)) {
-            const [value, age] = cache.get(key)!
-            if (Date.now() - age <= maxAgeMs) {
-                return value
-            }
-        }
-        return undefined
     }
 }
