@@ -18,7 +18,11 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 if column_optimizer.should_query_event_properties_column
                 else ""
             )
-            + f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
+            + (
+                f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
+                if column_optimizer.should_query_elements_chain_column
+                else ""
+            )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
             + (

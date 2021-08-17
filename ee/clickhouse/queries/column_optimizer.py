@@ -35,6 +35,32 @@ class ColumnOptimizer:
         return len(self.materialized_event_columns_to_query) != len(self._used_properties_with_type("event"))
 
     @cached_property
+    def should_query_elements_chain_column(self) -> bool:
+        has_element_type_property = lambda properties: any(prop.type == "element" for prop in properties)
+
+        if has_element_type_property(self.filter.properties):
+            return True
+
+        if self.filter.filter_test_accounts:
+            test_account_filters = Team.objects.only("test_account_filters").get(id=self.team_id).test_account_filters
+            properties = [Property(**prop) for prop in test_account_filters]
+            if has_element_type_property(properties):
+                return True
+
+        for entity in self.filter.entities:
+            if has_element_type_property(entity.properties):
+                return True
+
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                properties = list(
+                    Property(**prop) for step in entity.get_action().steps.all() for prop in step.properties
+                )
+                if has_element_type_property(properties):
+                    return True
+
+        return False
+
+    @cached_property
     def properties_used_in_filter(self) -> Set[Tuple[PropertyName, PropertyType]]:
         result: Set[Tuple[PropertyName, PropertyType]] = set()
 

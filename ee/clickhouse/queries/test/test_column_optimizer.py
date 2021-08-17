@@ -5,38 +5,23 @@ from posthog.models import Action, ActionStep
 from posthog.models.filters import Filter
 from posthog.test.base import APIBaseTest
 
-BASE_FILTER = Filter({"events": [{"id": "$pageview", "type": "events", "order": 0}]})
+PROPERTIES_OF_ALL_TYPES = [
+    {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
+    {"key": "person_prop", "value": "efg", "type": "person"},
+    {"key": "id", "value": 1, "type": "cohort"},
+    {"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"},
+]
 
+BASE_FILTER = Filter({"events": [{"id": "$pageview", "type": "events", "order": 0}]})
 FILTER_BY_TEST_ACCOUNTS = BASE_FILTER.with_data({"filter_test_accounts": True})
-FILTER_WITH_PROPERTIES = BASE_FILTER.with_data(
-    {
-        "properties": [
-            {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
-            {"key": "person_prop", "value": "efg", "type": "person"},
-            {"key": "id", "value": 1, "type": "cohort"},
-            {"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"},
-        ]
-    }
-)
+FILTER_WITH_PROPERTIES = BASE_FILTER.with_data({"properties": PROPERTIES_OF_ALL_TYPES})
 
 
 class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.team.test_account_filters = [
-            {"key": "email", "type": "person", "value": "posthog.com", "operator": "not_icontains"},
-            {
-                "key": "$host",
-                "type": "event",
-                "value": ["127.0.0.1:3000", "127.0.0.1:5000", "localhost:5000", "localhost:8000"],
-                "operator": "is_not",
-            },
-            {"key": "distinct_id", "type": "event", "value": "posthog.com", "operator": "not_icontains"},
-        ]
+        self.team.test_account_filters = PROPERTIES_OF_ALL_TYPES
         self.team.save()
-
-    def column_optimizer(self, filter: Filter):
-        return ColumnOptimizer(filter, self.team.id)
 
     def test_properties_used_in_filter(self):
         properties_used_in_filter = lambda filter: ColumnOptimizer(filter, self.team.id).properties_used_in_filter
@@ -44,7 +29,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(properties_used_in_filter(BASE_FILTER), set())
         self.assertEqual(
             properties_used_in_filter(FILTER_BY_TEST_ACCOUNTS),
-            {("$host", "event"), ("distinct_id", "event"), ("email", "person")},
+            {("event_prop", "event"), ("person_prop", "person"), ("id", "cohort"), ("tag_name", "element")},
         )
         self.assertEqual(
             properties_used_in_filter(FILTER_WITH_PROPERTIES),
@@ -70,12 +55,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
                         "order": 0,
                         "math": "sum",
                         "math_property": "numeric_prop",
-                        "properties": [
-                            {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
-                            {"key": "person_prop", "value": "efg", "type": "person"},
-                            {"key": "id", "value": 1, "type": "cohort"},
-                            {"key": "tag_name", "value": ["label"], "operator": "exact", "type": "element"},
-                        ],
+                        "properties": PROPERTIES_OF_ALL_TYPES,
                     }
                 ]
             }
@@ -120,3 +100,24 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(optimizer().materialized_event_columns_to_query, ["mat_event_prop"])
         self.assertEqual(optimizer().should_query_event_properties_column, False)
+
+    def test_should_query_element_chain_column(self):
+        should_query_elements_chain_column = lambda filter: ColumnOptimizer(
+            filter, self.team.id
+        ).should_query_elements_chain_column
+
+        self.assertEqual(should_query_elements_chain_column(BASE_FILTER), False)
+
+        self.assertEqual(should_query_elements_chain_column(FILTER_BY_TEST_ACCOUNTS), True)
+
+        self.team.test_account_filters = PROPERTIES_OF_ALL_TYPES[:2]  # Without the element filter
+        self.team.save()
+
+        self.assertEqual(should_query_elements_chain_column(FILTER_BY_TEST_ACCOUNTS), False)
+
+        self.assertEqual(should_query_elements_chain_column(FILTER_WITH_PROPERTIES), True)
+
+        filter = Filter(
+            data={"events": [{"id": "$pageview", "type": "events", "order": 0, "properties": PROPERTIES_OF_ALL_TYPES,}]}
+        )
+        self.assertEqual(should_query_elements_chain_column(filter), True)
