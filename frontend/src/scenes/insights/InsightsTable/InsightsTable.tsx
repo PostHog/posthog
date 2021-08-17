@@ -1,5 +1,5 @@
 import React from 'react'
-import { Dropdown, Menu, Table, Tooltip } from 'antd'
+import { Dropdown, Menu, Skeleton, Table, Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
@@ -181,6 +181,10 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         })
     }
 
+    if (resultsLoading) {
+        return <Skeleton active paragraph={{ rows: 4 }} />
+    }
+
     return (
         <Table
             dataSource={indexedResults}
@@ -191,7 +195,6 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             style={{ marginTop: '1rem' }}
             scroll={indexedResults && indexedResults.length > 0 ? { x: indexedResults[0].data.length * 160 } : {}}
             data-attr="insights-table-graph"
-            loading={resultsLoading}
         />
     )
 }
