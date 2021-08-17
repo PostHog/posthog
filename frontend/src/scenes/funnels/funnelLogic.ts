@@ -20,7 +20,6 @@ import {
     ViewType,
     FunnelStepWithNestedBreakdown,
     FunnelTimeConversionMetrics,
-    FunnelRequestParams,
     LoadedRawFunnelResults,
     FlattenedFunnelStep,
     FunnelStepWithConversionMetrics,
@@ -32,72 +31,22 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import { cleanBinResult, formatDisplayPercentage, getLastFilledStep, getReferenceStep } from './funnelUtils'
+import {
+    aggregateBreakdownResult,
+    cleanBinResult,
+    EMPTY_FUNNEL_RESULTS,
+    formatDisplayPercentage,
+    getLastFilledStep,
+    getReferenceStep,
+    isBreakdownFunnelResults,
+    isStepsEmpty,
+    isValidBreakdownParameter,
+    pollFunnel,
+} from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
-
-function aggregateBreakdownResult(
-    breakdownList: FunnelStep[][],
-    breakdownProperty?: string | number | number[]
-): FunnelStepWithNestedBreakdown[] {
-    if (breakdownList.length) {
-        return breakdownList[0].map((step, i) => ({
-            ...step,
-            count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
-            breakdown: breakdownProperty,
-            nested_breakdown: breakdownList.reduce(
-                (allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]],
-                []
-            ),
-            average_conversion_time: null,
-            people: [],
-        }))
-    }
-    return []
-}
-
-function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): results is FunnelStep[][] {
-    return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
-}
-
-// breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
-function isValidBreakdownParameter(breakdown: FunnelRequestParams['breakdown']): boolean {
-    return ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) || Array.isArray(breakdown)
-}
-
-function wait(ms = 1000): Promise<any> {
-    return new Promise((resolve) => {
-        setTimeout(resolve, ms)
-    })
-}
-
-const SECONDS_TO_POLL = 3 * 60
-
-const EMPTY_FUNNEL_RESULTS = {
-    results: [],
-    timeConversionResults: {
-        bins: [],
-        average_conversion_time: 0,
-    },
-}
-
-async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Promise<FunnelResult<T>> {
-    // Tricky: This API endpoint has wildly different return types depending on parameters.
-    const { refresh, ...bodyParams } = apiParams
-    let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
-    const start = window.performance.now()
-    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
-        await wait()
-        result = await api.create('api/insight/funnel', bodyParams)
-    }
-    // if endpoint is still loading after 3 minutes just return default
-    if (result.loading) {
-        throw { status: 0, statusText: 'Funnel timeout' }
-    }
-    return result
-}
 
 export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
     const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
@@ -125,14 +74,13 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
             ? { funnel_step_breakdown: filters.funnel_step_breakdown }
             : {}),
         ...(filters.bin_count && filters.bin_count !== BinCountAuto ? { bin_count: filters.bin_count } : {}),
+        ...(filters.exclusions ? { exclusions: filters.exclusions } : {}),
         interval: autocorrectInterval(filters),
         breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
         breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
         insight: ViewType.FUNNELS,
     }
 }
-const isStepsEmpty = (filters: FilterType): boolean =>
-    [...(filters.actions || []), ...(filters.events || [])].length === 0
 
 export const funnelLogic = kea<funnelLogicType>({
     key: (props) => {
@@ -146,6 +94,7 @@ export const funnelLogic = kea<funnelLogicType>({
             refresh,
             mergeWithExisting,
         }),
+        setEventExclusionFilters: (filters: Partial<FilterType>) => ({ filters }),
         saveFunnelInsight: (name: string) => ({ name }),
         setConversionWindow: (conversionWindow: FunnelConversionWindow) => ({ conversionWindow }),
         openPersonsModal: (
@@ -291,6 +240,13 @@ export const funnelLogic = kea<funnelLogicType>({
                 setFilters: (state, { filters, mergeWithExisting }) =>
                     mergeWithExisting ? { ...state, ...filters } : filters,
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
+                setEventExclusionFilters: (state, { filters }) => ({ ...state, exclusions: filters.events }),
+            },
+        ],
+        exclusionFilters: [
+            (props.exclusionFilters || { type: EntityTypes.EVENTS }) as FilterType,
+            {
+                setEventExclusionFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
         people: {

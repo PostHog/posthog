@@ -328,6 +328,13 @@ export type EntityFilter = {
     order?: number
 }
 
+export type FunnelExclusionEntityFilter =
+    | EntityFilter
+    | {
+          funnel_from_step?: number
+          funnel_to_step?: number
+      }
+
 export interface EntityWithProperties extends Entity {
     properties: Record<string, any>
 }
@@ -641,6 +648,7 @@ export interface FilterType {
     path_type?: PathType
     start_point?: string | number
     stickiness_days?: number
+    type?: EntityType
     entity_id?: string | number
     entity_type?: EntityType
     entity_math?: string
@@ -659,6 +667,7 @@ export interface FilterType {
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     compare?: boolean
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
+    exclusions?: FunnelExclusionEntityFilter[] // used in funnel exclusion filters
 }
 
 export interface SystemStatusSubrows {

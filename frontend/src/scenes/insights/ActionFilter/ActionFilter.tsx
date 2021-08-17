@@ -8,6 +8,7 @@ import { PlusCircleOutlined } from '@ant-design/icons'
 import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -23,11 +24,13 @@ export interface ActionFilterProps {
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     showOr?: boolean // Whether to show the "OR" label after each filter
     hideFilter?: boolean // Hide local filtering (currently used for retention insight)
-    customRowPrefix?: string | JSX.Element // Custom prefix element to show in each ActionFilterRow
+    customRowPrefix?: string | JSX.Element | ((row: ActionFilterType, index: number) => JSX.Element) // Custom prefix element to show in each ActionFilterRow
+    customRowSuffix?: string | JSX.Element | ((row: ActionFilterType, index: number) => JSX.Element) // Custom suffix element to show in each ActionFilterRow
     customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
     fullWidth?: boolean
     showNestedArrow?: boolean // show nested arrows to the left of property filter buttons
+    groupTypes?: TaxonomicFilterGroupType[]
 }
 
 export function ActionFilter({
@@ -47,8 +50,10 @@ export function ActionFilter({
     horizontalUI = false,
     fullWidth = false,
     customRowPrefix,
+    customRowSuffix,
     customActions,
     showNestedArrow = false,
+    groupTypes,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey })
 
@@ -80,9 +85,13 @@ export function ActionFilter({
         hideMathSelector,
         hidePropertySelector,
         customRowPrefix,
+        customRowSuffix,
         hasBreakdown: !!filters.breakdown,
         fullWidth,
+        groupTypes,
     }
+
+    console.log('LOCAL FILTERS', localFilters)
 
     return (
         <div>

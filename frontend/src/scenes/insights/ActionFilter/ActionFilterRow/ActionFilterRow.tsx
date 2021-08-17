@@ -46,9 +46,11 @@ export interface ActionFilterRowProps {
     horizontalUI?: boolean
     fullWidth?: boolean
     filterCount: number
-    customRowPrefix?: string | JSX.Element // Custom prefix element to show in each row
+    customRowPrefix?: string | JSX.Element | ((row: ActionFilter, index: number) => JSX.Element) // Custom prefix element to show in each row
+    customRowSuffix?: string | JSX.Element | ((row: ActionFilter, index: number) => JSX.Element) // Custom suffix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
+    groupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
 }
 
 export function ActionFilterRow({
@@ -66,8 +68,10 @@ export function ActionFilterRow({
     fullWidth = false,
     filterCount,
     customRowPrefix,
+    customRowSuffix,
     hasBreakdown,
     showNestedArrow = false,
+    groupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -160,7 +164,9 @@ export function ActionFilterRow({
                     </Col>
                 )}
                 {customRowPrefix !== undefined ? (
-                    <Col>{customRowPrefix}</Col>
+                    <Col>
+                        {typeof customRowPrefix === 'function' ? customRowPrefix(filter, index) : customRowPrefix}
+                    </Col>
                 ) : (
                     <>{horizontalUI && <Col>Showing</Col>}</>
                 )}
@@ -187,7 +193,7 @@ export function ActionFilterRow({
                                         })
                                     }}
                                     onClose={() => selectFilter(null)}
-                                    groupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                                    groupTypes={groupTypes}
                                 />
                             }
                             visible={dropDownCondition}
@@ -241,6 +247,11 @@ export function ActionFilterRow({
                         </>
                     )}
                 </Col>
+                {customRowSuffix !== undefined && (
+                    <Col>
+                        {typeof customRowSuffix === 'function' ? customRowSuffix(filter, index) : customRowSuffix}
+                    </Col>
+                )}
                 {!hideMathSelector && (
                     <>
                         {horizontalUI && <Col>counted by</Col>}

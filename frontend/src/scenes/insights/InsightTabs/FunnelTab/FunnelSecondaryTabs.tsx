@@ -13,6 +13,7 @@ import { CloseButton } from 'lib/components/CloseButton'
 import { BreakdownType, FunnelVizType } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
+import { FunnelExclusionsFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelExclusionsFilter'
 
 export function FunnelSecondaryTabs(): JSX.Element | null {
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
@@ -23,6 +24,18 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
             <Card className="funnel-options" data-attr="funnel-options">
                 <h4 className="secondary">Options</h4>
                 <FunnelConversionWindowFilter />
+            </Card>
+            <Card className="funnel-exclusion-options" data-attr="funnel-exclusion-options">
+                <h4 className="secondary">
+                    Exclusions
+                    <Tooltip
+                        placement="right"
+                        title="Exclude users who did not complete specific events from your funnel, or specific steps of your funnel."
+                    >
+                        <InfoCircleOutlined className="info-indicator" />
+                    </Tooltip>
+                </h4>
+                <FunnelExclusionsFilter />
             </Card>
             <Card style={{ marginTop: 16 }}>
                 <GlobalFiltersTitle unit="steps" />
