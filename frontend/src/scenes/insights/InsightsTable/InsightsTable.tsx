@@ -1,5 +1,6 @@
 import React from 'react'
-import { Dropdown, Menu, Table, Tooltip } from 'antd'
+import { Dropdown, Menu, Table } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'

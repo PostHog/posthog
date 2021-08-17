@@ -1,10 +1,10 @@
 import React from 'react'
-import { Card, Row, Tooltip } from 'antd'
+import { Card, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { SavedFunnels } from 'scenes/insights/SavedCard'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-
+import { Tooltip } from 'lib/components/Tooltip'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'

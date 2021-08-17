@@ -69,7 +69,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         date_params: Dict[str, Any] = {}
         interval_annotation = get_trunc_func_ch(self._filter.interval)
         _, _, round_interval = get_time_diff(
-            self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team_id
+            self._filter.interval, self._filter.date_from, self._filter.date_to, team_id=self._team_id
         )
         _, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
         parsed_date_from = date_from_clause(interval_annotation, round_interval)

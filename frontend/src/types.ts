@@ -176,6 +176,7 @@ export interface ActionStepType {
     text?: string
     url?: string
     url_matching?: ActionStepUrlMatching
+    isNew?: string
 }
 
 export interface ElementType {
@@ -498,6 +499,8 @@ export interface DashboardType {
     tags: string[]
 }
 
+export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
+
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -633,8 +636,8 @@ export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
     interval?: IntervalType
-    date_from?: string
-    date_to?: string
+    date_from?: string | null
+    date_to?: string | null
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
@@ -772,7 +775,7 @@ export interface FunnelResult<ResultType = FunnelStep[]> {
 }
 
 export interface FunnelsTimeConversionBins {
-    bins: [number, number][] | []
+    bins: [number, number][]
     average_conversion_time: number
 }
 
@@ -821,6 +824,7 @@ export interface FunnelRequestParams extends FilterType {
 export interface LoadedRawFunnelResults {
     results: FunnelStep[] | FunnelStep[][]
     timeConversionResults: FunnelsTimeConversionBins
+    filters: Partial<FilterType>
 }
 
 export interface FunnelStepWithConversionMetrics extends FunnelStep {

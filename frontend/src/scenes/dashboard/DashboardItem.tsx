@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Menu, Tooltip, Alert, Button, Skeleton } from 'antd'
+import { Dropdown, Menu, Alert, Button, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { RefObject, useEffect, useState } from 'react'
@@ -30,7 +30,7 @@ import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { logicFromInsight } from 'scenes/insights/insightLogic'
+import { logicFromInsight } from 'scenes/insights/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
@@ -39,6 +39,7 @@ import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, View
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
+import { Tooltip } from 'lib/components/Tooltip'
 
 dayjs.extend(relativeTime)
 

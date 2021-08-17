@@ -1,7 +1,8 @@
 import React from 'react'
-import { Tooltip, Input } from 'antd'
+import { Input } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import { copyToClipboard } from 'lib/utils'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface InlineProps {
     children?: JSX.Element | string

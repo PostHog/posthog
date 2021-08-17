@@ -180,12 +180,12 @@ def add_person_properties_annotations(team_id: int, breakdown: str) -> Dict[str,
 def aggregate_by_interval(
     events: QuerySet, team_id: int, entity: Entity, filter: Filter, breakdown: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], QuerySet]:
-    interval = filter.interval if filter.interval else "day"
+    interval = filter.interval
     interval_annotation = get_interval_annotation(interval)
     filtered_events = events.filter(
         filter_events(team_id, filter, entity, interval_annotation=interval_annotation[interval])
     )
-    values = [interval]
+    values: List[str] = [interval]
     if breakdown:
         if filter.breakdown_type == "cohort":
             cohort_annotations = add_cohort_annotations(

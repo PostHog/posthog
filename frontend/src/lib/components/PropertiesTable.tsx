@@ -1,12 +1,13 @@
 import React, { CSSProperties, useMemo, useState } from 'react'
 
 import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
-import { Dropdown, Input, Menu, Popconfirm, Table, Tooltip } from 'antd'
+import { Dropdown, Input, Menu, Popconfirm, Table } from 'antd'
 import { NumberOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
-import { IconExternalLink, IconText } from 'lib/components/icons'
-import './PropertiesTable.scss'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { IconExternalLink, IconText } from 'lib/components/icons'
+import { Tooltip } from 'lib/components/Tooltip'
+import './PropertiesTable.scss'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'

@@ -1,5 +1,6 @@
 import React from 'react'
-import { Tag, Tooltip } from 'antd'
+import { Tag } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function CommunityPluginTag({ isCommunity }: { isCommunity?: boolean }): JSX.Element {
     return (

@@ -1,8 +1,9 @@
-import { Card, Progress, Tooltip } from 'antd'
+import { Card, Progress } from 'antd'
 import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 import React from 'react'
 import { billingLogic } from './billingLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function CurrentUsage(): JSX.Element | null {
     const { eventAllocation, percentage, strokeColor, billing } = useValues(billingLogic)
