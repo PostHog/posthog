@@ -1,21 +1,22 @@
 import json
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 from django.db.models import Exists, OuterRef, Q
 
 from posthog.utils import is_valid_regex
 
 ValueT = Union[str, int, List[str]]
+PropertyType = Literal["event", "person", "cohort", "element"]
 
 
 class Property:
     key: str
     operator: Optional[str]
     value: ValueT
-    type: str
+    type: PropertyType
 
     def __init__(
-        self, key: str, value: ValueT, operator: Optional[str] = None, type: Optional[str] = None, **kwargs
+        self, key: str, value: ValueT, operator: Optional[str] = None, type: Optional[PropertyType] = None, **kwargs
     ) -> None:
         self.key = key
         self.value = value
