@@ -6,7 +6,6 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { Kafka, logLevel } from 'kafkajs'
 import { DateTime } from 'luxon'
-import * as schedule from 'node-schedule'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
@@ -24,6 +23,7 @@ import { InternalMetrics } from '../internal-metrics'
 import { killProcess } from '../kill'
 import { status } from '../status'
 import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
+import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { PluginMetricsManager } from './../plugin-metrics'
 import { DB } from './db'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
@@ -161,6 +161,7 @@ export async function createHub(
     const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, statsd)
     const teamManager = new TeamManager(db)
     const organizationManager = new OrganizationManager(db)
+    const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const actionManager = new ActionManager(db)
     await actionManager.prepare()
 
@@ -186,6 +187,7 @@ export async function createHub(
 
         teamManager,
         organizationManager,
+        pluginsApiKeyManager,
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         hookCannon: new HookCommander(db, teamManager, organizationManager, statsd),

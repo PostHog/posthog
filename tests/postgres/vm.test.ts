@@ -698,6 +698,81 @@ test('fetch via require', async () => {
     expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
 })
 
+test('posthog.api', async () => {
+    const indexJs = `
+        async function processEvent (event, meta) {
+            event.properties = {}
+            const getResponse = await posthog.api.get('/api/event')
+            event.properties.get = await getResponse.json()
+            await posthog.api.get('/api/event', { data: { url: 'param' } })
+            await posthog.api.post('/api/event', { data: { a: 1 }})
+            await posthog.api.put('/api/event', { data: { b: 2 } })
+            await posthog.api.delete('/api/event')
+
+            // test auth defaults override
+            await posthog.api.get('/api/event', { projectApiKey: 'token', personalApiKey: 'secret' })
+            return event
+        }
+    `
+    await resetTestDatabase(indexJs)
+    const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'fetched',
+    }
+
+    await vm.methods.processEvent!(event)
+
+    expect(event.properties?.get).toEqual({ hello: 'world' })
+    expect((fetch as any).mock.calls.length).toEqual(6)
+    expect((fetch as any).mock.calls).toEqual([
+        [
+            'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+            {
+                headers: { Authorization: expect.stringContaining('Bearer phx_') },
+                method: 'GET',
+            },
+        ],
+        [
+            'https://app.posthog.com/api/event?url=param&token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+            {
+                headers: { Authorization: expect.stringContaining('Bearer phx_') },
+                method: 'GET',
+            },
+        ],
+        [
+            'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+            {
+                headers: { Authorization: expect.stringContaining('Bearer phx_') },
+                method: 'POST',
+                body: JSON.stringify({ a: 1 }),
+            },
+        ],
+        [
+            'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+            {
+                headers: { Authorization: expect.stringContaining('Bearer phx_') },
+                method: 'PUT',
+                body: JSON.stringify({ b: 2 }),
+            },
+        ],
+        [
+            'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
+            {
+                headers: { Authorization: expect.stringContaining('Bearer phx_') },
+                method: 'DELETE',
+            },
+        ],
+        [
+            'https://app.posthog.com/api/event?token=token',
+            {
+                headers: { Authorization: 'Bearer secret' },
+                method: 'GET',
+            },
+        ],
+    ])
+})
+
 test('attachments', async () => {
     const indexJs = `
         async function processEvent (event, meta) {

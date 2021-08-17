@@ -4,9 +4,9 @@ import { Hub, PluginConfig, RawEventMessage } from 'types'
 
 import { Client } from '../../../utils/celery/client'
 import { UUIDT } from '../../../utils/utils'
+import { ApiExtension, createApi } from './api'
 
 const { version } = require('../../../../package.json')
-
 interface InternalData {
     distinct_id: string
     event: string
@@ -18,6 +18,7 @@ interface InternalData {
 
 export interface DummyPostHog {
     capture(event: string, properties?: Record<string, any>): void
+    api: ApiExtension
 }
 
 export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPostHog {
@@ -81,5 +82,6 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
             }
             sendEvent(data)
         },
+        api: createApi(server, pluginConfig),
     }
 }

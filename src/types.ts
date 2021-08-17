@@ -21,6 +21,7 @@ import { HookCommander } from './worker/ingestion/hooks'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { EventsProcessor } from './worker/ingestion/process-event'
 import { TeamManager } from './worker/ingestion/team-manager'
+import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
 
 export enum LogLevel {
@@ -129,6 +130,7 @@ export interface Hub extends PluginsServerConfig {
     // tools
     teamManager: TeamManager
     organizationManager: OrganizationManager
+    pluginsApiKeyManager: PluginsApiKeyManager
     actionManager: ActionManager
     actionMatcher: ActionMatcher
     hookCannon: HookCommander
