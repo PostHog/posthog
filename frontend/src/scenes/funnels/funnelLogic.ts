@@ -140,6 +140,7 @@ export const funnelLogic = kea<funnelLogicType>({
         filters?: Partial<FilterType>
         cachedResults?: any
         preventLoading?: boolean
+        refresh?: boolean
     },
 
     key: (props) => {

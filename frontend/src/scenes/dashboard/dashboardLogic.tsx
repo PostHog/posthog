@@ -93,7 +93,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
             null as DashboardType | null,
             {
                 [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: (state, { item }) => {
-                    return { ...state, items: state?.items.map((i) => (i.id === item.id ? item : i)) }
+                    return {
+                        ...state,
+                        items: state?.items.map((i) => (i.id === item.id ? item : i)) || [],
+                    } as DashboardType
                 },
                 updateLayouts: (state, { layouts }) => {
                     const itemLayouts: Record<string, Partial<Record<string, Layout>>> = {}
@@ -110,10 +113,18 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         })
                     })
 
-                    return { ...state, items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.id] })) }
+                    return {
+                        ...state,
+                        items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.id] })),
+                    } as DashboardType
                 },
                 [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
-                    return { ...state, items: state?.items.map((i) => (i.id === item.id ? item : i)) }
+                    return state
+                        ? ({
+                              ...state,
+                              items: state?.items.map((i) => (i.id === item.id ? item : i)) || [],
+                          } as DashboardType)
+                        : null
                 },
                 [dashboardsModel.actionTypes.updateDashboardRefreshStatus]: (
                     state,
@@ -134,19 +145,22 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                   }
                                 : i
                         ),
-                    }
+                    } as DashboardType
                 },
                 updateItemColor: (state, { id, color }) => {
-                    return { ...state, items: state?.items.map((i) => (i.id === id ? { ...i, color } : i)) }
+                    return {
+                        ...state,
+                        items: state?.items.map((i) => (i.id === id ? { ...i, color } : i)),
+                    } as DashboardType
                 },
-                [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }) => {
+                [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }): DashboardType => {
                     return {
                         ...state,
                         items:
                             item.dashboard === parseInt(props.id.toString())
                                 ? [...(state?.items || []), item]
                                 : state?.items,
-                    }
+                    } as DashboardType
                 },
             },
         ],
