@@ -21,6 +21,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
 import { router } from 'kea-router'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
+import { normalizeColumnTitle } from 'lib/components/Table/utils'
 const { TabPane } = Tabs
 
 export function SavedInsights(): JSX.Element {
@@ -99,7 +100,21 @@ export function SavedInsights(): JSX.Element {
             sorter: (a: DashboardItemType, b: DashboardItemType) =>
                 new Date(a.updated_at) > new Date(b.updated_at) ? 1 : -1,
         },
-        createdByColumn(insights.results) as ColumnType<DashboardItemType>,
+        {
+            title: normalizeColumnTitle('Created by'),
+            render: function Render(_: any, item: any) {
+                return (
+                    <div style={{ maxWidth: 250, width: 'auto' }}>
+                        {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
+                    </div>
+                )
+            },
+            sorter: (a: Record<string, any>, b: Record<string, any>) =>
+                (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
+                    b.created_by?.first_name || b.created_by?.email || ''
+                ),
+        },
+        // createdByColumn(insights.results) as ColumnType<DashboardItemType>,
     ]
 
     return (
