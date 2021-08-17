@@ -165,12 +165,12 @@ class BreakdownValueMixin(BaseParamMixin):
 
 class InsightMixin(BaseParamMixin):
     @cached_property
-    def insight(self) -> str:
+    def insight(self) -> Literal["TRENDS", "SESSIONS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]:
         return self._data.get(INSIGHT, INSIGHT_TRENDS).upper()
 
     @include_dict
     def insight_to_dict(self):
-        return {"insight": self.insight} if self.insight else {}
+        return {"insight": self.insight}
 
 
 class DisplayDerivedMixin(InsightMixin):
