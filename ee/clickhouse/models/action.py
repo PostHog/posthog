@@ -5,7 +5,7 @@ from django.forms.models import model_to_dict
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
-from posthog.models.property import PropertyName, PropertyType
+from posthog.models.property import Property, PropertyName, PropertyType
 
 
 def format_action_filter(
@@ -112,3 +112,12 @@ def get_action_tables_and_properties(action: Action) -> Set[Tuple[PropertyName, 
         result |= extract_tables_and_properties(Filter(data={"properties": action_step.properties}).properties)
 
     return result
+
+
+def uses_elements_chain(action: Action) -> bool:
+    for action_step in action.steps.all():
+        if any(Property(**prop).type == "element" for prop in action_step.properties):
+            return True
+        if any(getattr(action_step, attribute) is not None for attribute in ["selector", "tag_name", "href", "text"]):
+            return True
+    return False

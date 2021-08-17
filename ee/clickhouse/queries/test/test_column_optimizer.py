@@ -121,3 +121,22 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             data={"events": [{"id": "$pageview", "type": "events", "order": 0, "properties": PROPERTIES_OF_ALL_TYPES,}]}
         )
         self.assertEqual(should_query_elements_chain_column(filter), True)
+
+    def test_should_query_element_chain_column_with_actions(self):
+        action = Action.objects.create(team=self.team)
+        step1 = ActionStep.objects.create(
+            event="$autocapture", action=action, url="https://example.com/donate", url_matching=ActionStep.EXACT,
+        )
+
+        filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
+        self.assertEqual(
+            ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, False,
+        )
+
+        ActionStep.objects.create(
+            action=action, event="$autocapture", tag_name="button", text="Pay $10",
+        )
+
+        self.assertEqual(
+            ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column, True,
+        )

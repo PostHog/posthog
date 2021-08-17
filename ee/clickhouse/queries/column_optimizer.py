@@ -1,7 +1,7 @@
 from typing import List, Set, Tuple
 
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
-from ee.clickhouse.models.action import get_action_tables_and_properties
+from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
 from ee.clickhouse.models.property import extract_tables_and_properties
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters import Filter
@@ -52,10 +52,7 @@ class ColumnOptimizer:
                 return True
 
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                properties = list(
-                    Property(**prop) for step in entity.get_action().steps.all() for prop in step.properties
-                )
-                if has_element_type_property(properties):
+                if uses_elements_chain(entity.get_action()):
                     return True
 
         return False
