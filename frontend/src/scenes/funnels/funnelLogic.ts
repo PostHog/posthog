@@ -723,9 +723,11 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
     }),
-    events: ({ actions }) => ({
+    events: ({ actions, values }) => ({
         afterMount: () => {
-            actions.loadResults()
+            if (values.areFiltersValid) {
+                actions.loadResults()
+            }
         },
     }),
 })
