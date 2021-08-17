@@ -16,7 +16,8 @@ import { Paths } from 'scenes/paths/Paths'
 
 import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { insightLogic, logicFromInsight } from './insightLogic'
+import { insightLogic } from './insightLogic'
+import { logicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { DownOutlined, UpOutlined, EditOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
@@ -29,7 +30,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -221,7 +222,9 @@ export function Insights(): JSX.Element {
                             <Description
                                 item={insight}
                                 itemMode={insightMode}
-                                setItemMode={(mode, source) => setInsightMode({ mode, source })}
+                                setItemMode={(mode: ItemMode | null, source: DashboardEventSource | null) =>
+                                    setInsightMode({ mode, source })
+                                }
                                 triggerItemUpdate={updateInsight}
                                 descriptionInputRef={descriptionInputRef}
                             />

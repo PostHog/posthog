@@ -66,7 +66,7 @@ export function DashboardReloadAction(): JSX.Element {
                         <Menu.ItemGroup title="Refresh interval">
                             <Radio.Group
                                 onChange={(e) => {
-                                    setAutoRefresh(true, e.target.value)
+                                    setAutoRefresh(true, parseInt(e.target.value))
                                 }}
                                 value={autoRefresh.interval}
                                 style={{ width: '100%' }}

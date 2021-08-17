@@ -1,7 +1,7 @@
 import datetime
 import json
 import re
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union, cast
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
@@ -34,7 +34,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.models.entity import Entity, ExclusionEntity
-from posthog.models.filters.mixins.base import BaseParamMixin
+from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType, IntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -47,7 +47,7 @@ class IntervalMixin(BaseParamMixin):
     SUPPORTED_INTERVAL_TYPES = ["minute", "hour", "day", "week", "month"]
 
     @cached_property
-    def interval(self) -> str:
+    def interval(self) -> IntervalType:
         interval_candidate = self._data.get(INTERVAL)
         if not interval_candidate:
             return "day"
@@ -56,11 +56,11 @@ class IntervalMixin(BaseParamMixin):
         interval_candidate = interval_candidate.lower()
         if interval_candidate not in self.SUPPORTED_INTERVAL_TYPES:
             raise ValueError(f"Interval {interval_candidate} does not belong to SUPPORTED_INTERVAL_TYPES!")
-        return interval_candidate
+        return cast(IntervalType, interval_candidate)
 
     @include_dict
     def interval_to_dict(self):
-        return {"interval": self.interval} if self.interval else {}
+        return {"interval": self.interval}
 
 
 class SelectorMixin(BaseParamMixin):
@@ -144,7 +144,7 @@ class BreakdownMixin(BaseParamMixin):
 
 class BreakdownTypeMixin(BaseParamMixin):
     @cached_property
-    def breakdown_type(self) -> Optional[str]:
+    def breakdown_type(self) -> Optional[BreakdownType]:
         return self._data.get(BREAKDOWN_TYPE, None)
 
     @include_dict
@@ -164,22 +164,33 @@ class BreakdownValueMixin(BaseParamMixin):
 
 class InsightMixin(BaseParamMixin):
     @cached_property
-    def insight(self) -> str:
+    def insight(self) -> Literal["TRENDS", "SESSIONS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]:
         return self._data.get(INSIGHT, INSIGHT_TRENDS).upper()
 
     @include_dict
     def insight_to_dict(self):
-        return {"insight": self.insight} if self.insight else {}
+        return {"insight": self.insight}
 
 
 class DisplayDerivedMixin(InsightMixin):
     @cached_property
-    def display(self) -> str:
+    def display(
+        self,
+    ) -> Literal[
+        "ActionsLineGraphLinear",
+        "ActionsLineGraphCumulative",
+        "ActionsTable",
+        "ActionsPieChart",
+        "ActionsBarChart",
+        "ActionsBarChartValue",
+        "PathsViz",
+        "FunnelViz",
+    ]:
         return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
 
     @include_dict
     def display_to_dict(self):
-        return {"display": self.display} if self.display else {}
+        return {"display": self.display}
 
 
 class SessionMixin(BaseParamMixin):
