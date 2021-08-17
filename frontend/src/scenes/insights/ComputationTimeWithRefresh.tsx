@@ -1,7 +1,8 @@
-import { Button, Tooltip } from 'antd'
+import { Button } from 'antd'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import React, { useEffect, useState } from 'react'
+import { Tooltip } from 'lib/components/Tooltip'
 
 dayjs.extend(relativeTime)
 

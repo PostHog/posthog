@@ -2,7 +2,7 @@
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration } from 'lib/utils'
 import React from 'react'
-import { Button, Tooltip } from 'antd'
+import { Button } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
@@ -10,6 +10,7 @@ import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType } from '~/types'
 import { formatDisplayPercentage } from './funnelUtils'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)

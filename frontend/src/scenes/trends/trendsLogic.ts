@@ -28,6 +28,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 
 interface TrendResponse {
     result: TrendResult[]
+    filters: FilterType
     next?: string
 }
 
@@ -176,6 +177,8 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 insightLogic.actions.startQuery(queryId)
                 dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
+                const { filters } = values
+
                 let response
                 try {
                     if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
@@ -222,7 +225,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 )
                 dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, response.last_refresh)
 
-                return response
+                return { ...response, filters }
             },
         },
     }),
@@ -318,6 +321,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             (featureFlags, eventsLoaded, propertiesLoaded) =>
                 !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
         ],
+        loadedFilters: [(selectors) => [selectors._results], (response) => response.filters],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
         loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
@@ -376,9 +380,11 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             }
             actions.setBreakdownValuesLoading(true)
 
+            const { filters } = values
             const response = await api.get(values.loadMoreBreakdownUrl)
             actions.loadResultsSuccess({
                 result: [...values.results, ...(response.result ? response.result : [])],
+                filters: filters,
                 next: response.next,
             })
             actions.setBreakdownValuesLoading(false)
@@ -454,7 +460,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
 
                 Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams))
 
-                if (!objectsEqual(cleanSearchParams, values.filters)) {
+                if (!objectsEqual(cleanSearchParams, values.loadedFilters)) {
                     actions.setFilters(cleanSearchParams, false)
                 } else {
                     insightLogic.actions.setAllFilters(values.filters)

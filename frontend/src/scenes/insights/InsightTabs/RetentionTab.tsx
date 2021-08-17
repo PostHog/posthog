@@ -9,7 +9,7 @@ import {
     retentionOptionDescriptions,
     defaultFilters,
 } from 'scenes/retention/retentionTableLogic'
-import { Select, Tooltip, Row, Col, Skeleton } from 'antd'
+import { Select, Row, Col, Skeleton } from 'antd'
 
 import { FilterType, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
@@ -22,6 +22,7 @@ import { InsightTitle } from './InsightTitle'
 import { InsightActionBar } from './InsightActionBar'
 import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
     const { filters, filtersLoading, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(

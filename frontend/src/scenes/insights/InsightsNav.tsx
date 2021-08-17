@@ -1,10 +1,11 @@
-import { Button, Row, Tabs, Tooltip } from 'antd'
+import { Button, Row, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { isMobile } from 'lib/utils'
 import React from 'react'
 import { HotKeys, ViewType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { ClockCircleOutlined } from '@ant-design/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const { TabPane } = Tabs
 
@@ -79,7 +80,7 @@ export function InsightsNav(): JSX.Element {
                 <TabPane
                     tab={
                         <Tooltip
-                            placement="bottom"
+                            placement="top"
                             title="View average and distribution of session durations."
                             data-attr="insight-sessions-tab"
                         >
@@ -92,7 +93,7 @@ export function InsightsNav(): JSX.Element {
                 <TabPane
                     tab={
                         <Tooltip
-                            placement="bottom"
+                            placement="top"
                             title={
                                 <>
                                     Stickiness shows you how many days users performed an action repeatedly within a
@@ -116,7 +117,7 @@ export function InsightsNav(): JSX.Element {
                 <TabPane
                     tab={
                         <Tooltip
-                            placement="bottom"
+                            placement="top"
                             title={
                                 <>
                                     Lifecycle will show you new, resurrected, returning and dormant users so you
