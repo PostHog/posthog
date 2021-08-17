@@ -1,4 +1,4 @@
-import { Button, Col, Row, Table, Tabs } from 'antd'
+import { Button, Col, Input, Row, Table, Tabs } from 'antd'
 import { ColumnType } from 'antd/lib/table'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -6,7 +6,7 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { createdByColumn } from 'lib/components/Table/Table'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, SavedInsightsParamOptions } from '~/types'
+import { DashboardItemType, SavedInsightsTabs, ViewType } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
 import {
     StarOutlined,
@@ -18,11 +18,13 @@ import {
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
+import { router } from 'kea-router'
 const { TabPane } = Tabs
 
 export function SavedInsights(): JSX.Element {
-    const { loadInsights, updateFavoritedInsight, loadPaginatedInsights } = useActions(savedInsightsLogic)
-    const { insights, count, offset, nextResult, previousResult, insightsLoading } = useValues(savedInsightsLogic)
+    const { loadInsights, updateFavoritedInsight, loadPaginatedInsights, setLayoutView, setSearchTerm, setTab } = useActions(savedInsightsLogic)
+    const { insights, count, offset, nextResult, previousResult, insightsLoading, layoutView, searchTerm } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
 
     const columns = [
@@ -88,25 +90,37 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <Tabs defaultActiveKey="1" style={{ borderColor: '#D9D9D9' }} onChange={(key) => loadInsights(key)}>
-                <TabPane tab="All Insights" key={SavedInsightsParamOptions.All} />
-                <TabPane tab="Your Insights" key={SavedInsightsParamOptions.Yours} />
-                <TabPane tab="Favorites" key={SavedInsightsParamOptions.Favorites} />
+            <Tabs defaultActiveKey="1" style={{ borderColor: '#D9D9D9' }} onChange={(tab) => setTab(tab)}>
+                <TabPane tab="All Insights" key={SavedInsightsTabs.All} />
+                <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
+                <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
             </Tabs>
+            <Row style={{paddingBottom: 16}}>
+                <Input.Search
+                    allowClear
+                    enterButton
+                    placeholder="Search for insights"
+                    style={{ width: 240 }}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    value={searchTerm}
+                    onSearch={() => loadInsights()}
+                />
+            </Row>
             <Row className="list-or-card-layout">
                 Showing {!previousResult ? 1 : nextResult ? offset - 15 : count - (insights?.results.length || 0)} -{' '}
                 {nextResult ? offset : count} of {count} insights
                 <div>
-                    <Button>
+                    <Button onClick={() => setLayoutView('list')}>
                         <UnorderedListOutlined />
                         List
                     </Button>
-                    <Button>
+                    <Button onClick={() => setLayoutView('card')}>
                         <AppstoreFilled />
                         Card
                     </Button>
                 </div>
             </Row>
+            {layoutView === 'list' ? 
             <Table
                 loading={insightsLoading}
                 columns={columns}
@@ -135,7 +149,38 @@ export function SavedInsights(): JSX.Element {
                         />
                     </Row>
                 )}
-            />
+            /> : <Row gutter={[16, 16]}>
+                {insights && insights.results.map((insight: DashboardItemType, index: number) => (
+                <Col xs={24} sm={12} md={insights.results.length > 1 ? 8 : 12} key={insight.id} style={{ height: 270 }}>
+
+                    <DashboardItem
+                        item={{ ...insight, color: null }}
+                        key={insight.id + '_user'}
+                        // saveDashboardItem={updateInsight}
+                        loadDashboardItems={() => {
+                            loadInsights()
+                            // loadSavedInsights()
+                            // loadTeamInsights()
+                        }}
+                        // saveDashboardItem={updateInsight}
+                        dashboardMode={null}
+                        onClick={() => {
+                            const _type: DisplayedType =
+                                    insight.filters.insight === ViewType.RETENTION
+                                        ? 'RetentionContainer'
+                                        : insight.filters.display
+                                router.actions.push(displayMap[_type].link(insight))
+                        }}
+                        preventLoading={true}
+                        // footer={<div>ehh??</div>}
+                        index={index}
+                        isOnEditMode={false}
+                    />
+                </Col>
+                ))}
+            </Row>
+            }
         </div>
+        
     )
 }

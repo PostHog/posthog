@@ -230,7 +230,7 @@ export enum PropertyOperator {
     IsNotSet = 'is_not_set',
 }
 
-export enum SavedInsightsParamOptions {
+export enum SavedInsightsTabs {
     All = 'all',
     Yours = 'yours',
     Favorites = 'favorites',
