@@ -175,12 +175,23 @@ class InsightMixin(BaseParamMixin):
 
 class DisplayDerivedMixin(InsightMixin):
     @cached_property
-    def display(self) -> str:
+    def display(
+        self,
+    ) -> Literal[
+        "ActionsLineGraphLinear",
+        "ActionsLineGraphCumulative",
+        "ActionsTable",
+        "ActionsPieChart",
+        "ActionsBarChart",
+        "ActionsBarChartValue",
+        "PathsViz",
+        "FunnelViz",
+    ]:
         return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
 
     @include_dict
     def display_to_dict(self):
-        return {"display": self.display} if self.display else {}
+        return {"display": self.display}
 
 
 class SessionMixin(BaseParamMixin):
