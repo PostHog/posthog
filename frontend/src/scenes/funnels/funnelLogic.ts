@@ -255,7 +255,9 @@ export const funnelLogic = kea<funnelLogicType>({
                     const queryId = uuid()
                     const dashboardItemId = props.dashboardItemId as number | undefined
 
-                    insightLogic.actions.startQuery(queryId)
+                    if (!props.dashboardItemId) {
+                        insightLogic.actions.startQuery(queryId)
+                    }
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
                     try {
@@ -265,7 +267,9 @@ export const funnelLogic = kea<funnelLogicType>({
                         ])
                         console.log({ result, timeConversionResults }, props)
                         breakpoint()
-                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                        if (!props.dashboardItemId) {
+                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                        }
                         dashboardsModel.actions.updateDashboardRefreshStatus(
                             dashboardItemId,
                             false,
@@ -274,7 +278,9 @@ export const funnelLogic = kea<funnelLogicType>({
                         return { results: result.result, timeConversionResults, filters }
                     } catch (e) {
                         if (!isBreakpoint(e)) {
-                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                            if (!props.dashboardItemId) {
+                                insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                            }
                             dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                             console.error(e)
                         }
@@ -633,8 +639,10 @@ export const funnelLogic = kea<funnelLogicType>({
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
-            insightLogic.actions.setAllFilters(cleanedParams)
-            insightLogic.actions.setLastRefresh(null)
+            if (!props.dashboardItemId) {
+                insightLogic.actions.setAllFilters(cleanedParams)
+                insightLogic.actions.setLastRefresh(null)
+            }
         },
         saveFunnelInsight: async ({ name }) => {
             await api.create('api/insight', {
@@ -645,7 +653,9 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadFunnels()
         },
         clearFunnel: async () => {
-            insightLogic.actions.setAllFilters({})
+            if (!props.dashboardItemId) {
+                insightLogic.actions.setAllFilters({})
+            }
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters) => {
             if (props.dashboardItemId) {
