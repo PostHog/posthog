@@ -4,7 +4,7 @@ import { pluralize } from 'lib/utils'
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelConversionWindowTimeUnit } from '~/types'
+import { FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
@@ -17,7 +17,7 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
 export function FunnelConversionWindowFilter(): JSX.Element {
     const { conversionWindow } = useValues(funnelLogic)
     const { setConversionWindow } = useActions(funnelLogic)
-    const [localConversionWindow, setLocalConversionWindow] = useState(conversionWindow)
+    const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
 
     const options = Object.keys(TIME_INTERVAL_BOUNDS).map((unit) => ({
         label: pluralize(conversionWindow.funnel_window_interval, unit, `${unit}s`, false),

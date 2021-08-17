@@ -26,6 +26,7 @@ import {
     BinCountValue,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
+    FunnelExclusionEntityFilter,
 } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, FunnelLayout, BinCountAuto } from 'lib/constants'
@@ -95,6 +96,10 @@ export const funnelLogic = kea<funnelLogicType>({
             mergeWithExisting,
         }),
         setEventExclusionFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setOneEventExclusionFilter: (eventFilter: FunnelExclusionEntityFilter, index: number) => ({
+            eventFilter,
+            index,
+        }),
         saveFunnelInsight: (name: string) => ({ name }),
         setConversionWindow: (conversionWindow: FunnelConversionWindow) => ({ conversionWindow }),
         openPersonsModal: (
@@ -240,13 +245,16 @@ export const funnelLogic = kea<funnelLogicType>({
                 setFilters: (state, { filters, mergeWithExisting }) =>
                     mergeWithExisting ? { ...state, ...filters } : filters,
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
-                setEventExclusionFilters: (state, { filters }) => ({ ...state, exclusions: filters.events }),
             },
         ],
         exclusionFilters: [
             (props.exclusionFilters || { type: EntityTypes.EVENTS }) as FilterType,
             {
                 setEventExclusionFilters: (state, { filters }) => ({ ...state, ...filters }),
+                setOneEventExclusionFilter: (state, { eventFilter, index }) => ({
+                    ...state,
+                    events: state.events ? state.events.map((e, e_i) => (e_i === index ? eventFilter : e)) : [],
+                }),
             },
         ],
         people: {
@@ -623,6 +631,12 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         setConversionWindow: async () => {
             actions.loadResults()
+        },
+        setEventExclusionFilters: () => {
+            actions.setFilters(values.exclusionFilters, true, true)
+        },
+        setOneEventExclusionFilter: () => {
+            actions.setFilters(values.exclusionFilters, true, true)
         },
     }),
     actionToUrl: ({ values, props }) => ({

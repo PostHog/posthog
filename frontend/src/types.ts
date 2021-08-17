@@ -31,6 +31,7 @@ export type AvailableFeatures =
 export interface ColumnConfig {
     active: string[] | 'DEFAULT'
 }
+
 export interface UserType {
     uuid: string
     date_joined: string
@@ -121,6 +122,7 @@ export interface PropertyUsageType {
     usage_count: number
     volume: number
 }
+
 export interface TeamBasicType {
     id: number
     uuid: string
@@ -307,6 +309,7 @@ export type SessionsPropertyFilter =
     | EventTypePropertyFilter
 
 export type EntityType = 'actions' | 'events' | 'new_entity'
+
 export interface Entity {
     id: string | number
     name: string
@@ -328,12 +331,10 @@ export type EntityFilter = {
     order?: number
 }
 
-export type FunnelExclusionEntityFilter =
-    | EntityFilter
-    | {
-          funnel_from_step?: number
-          funnel_to_step?: number
-      }
+export type FunnelExclusionEntityFilter = EntityFilter & {
+    funnel_from_step?: number
+    funnel_to_step?: number
+}
 
 export interface EntityWithProperties extends Entity {
     properties: Record<string, any>
@@ -507,6 +508,7 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
 }
+
 export interface PluginType {
     id: number
     plugin_type: PluginInstallationType
@@ -599,6 +601,7 @@ export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 // NB! Keep InsightType and ViewType in sync!
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+
 export enum ViewType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
@@ -850,9 +853,11 @@ export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
 }
+
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
 }
+
 export interface FeatureFlagType {
     id: number | null
     key: string
@@ -1032,6 +1037,7 @@ export interface TiledIconModuleProps {
 }
 
 export type EventOrPropType = EventDefinition & PropertyDefinition
+
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
