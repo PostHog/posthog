@@ -75,7 +75,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                                     step={step}
                                     sendStep={sendStep}
                                     item="url"
-                                    extra_options={<URLMatching step={step} />}
+                                    extra_options={<URLMatching step={step} sendStep={sendStep} />}
                                     label="URL"
                                 />
                                 {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
@@ -235,7 +235,7 @@ function AutocaptureFields({
                 step={step}
                 sendStep={sendStep}
                 item="url"
-                extra_options={<URLMatching step={step} />}
+                extra_options={<URLMatching step={step} sendStep={sendStep} />}
                 label="Page URL"
                 caption="Elements will match only when triggered from the URL (particularly useful if you have non-unique elements in different pages)."
             />
