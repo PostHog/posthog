@@ -12,14 +12,14 @@ class FunnelEventQuery(ClickhouseEventQuery):
             f"{self.EVENT_TABLE_ALIAS}.event as event, "
             + f"{self.EVENT_TABLE_ALIAS}.team_id as team_id, "
             + f"{self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id, "
-            + f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp, "
+            + f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp"
             + (
-                f"{self.EVENT_TABLE_ALIAS}.properties as properties, "
+                f", {self.EVENT_TABLE_ALIAS}.properties as properties"
                 if column_optimizer.should_query_event_properties_column
                 else ""
             )
             + (
-                f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
+                f", {self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
                 if column_optimizer.should_query_elements_chain_column
                 else ""
             )

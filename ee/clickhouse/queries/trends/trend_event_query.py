@@ -21,7 +21,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         _fields = (
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp"
             + (
-                f"{self.EVENT_TABLE_ALIAS}.properties as properties, "
+                f", {self.EVENT_TABLE_ALIAS}.properties as properties"
                 if column_optimizer.should_query_event_properties_column
                 else ""
             )
