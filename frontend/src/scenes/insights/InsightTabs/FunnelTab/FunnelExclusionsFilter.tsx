@@ -7,7 +7,7 @@ import { DeleteOutlined } from '@ant-design/icons'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ANTD_TOOLTIP_PLACEMENTS, clamp } from 'lib/utils'
+import { ANTD_TOOLTIP_PLACEMENTS, areObjectValuesEmpty, clamp } from 'lib/utils'
 import { FunnelExclusionEntityFilter, ActionFilter as ActionFilterType } from '~/types'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
@@ -32,7 +32,7 @@ function ExclusionRowSuffix({
     }
 
     const [localStepRange, setLocalStepRange] = useState<Omit<FunnelExclusionEntityFilter, 'id' | 'name'>>(
-        persistedStepRange ?? exclusionDefaultStepRange
+        !areObjectValuesEmpty(persistedStepRange) ? persistedStepRange : exclusionDefaultStepRange
     )
 
     const setExclusionRowValue = (): void => {
@@ -96,7 +96,7 @@ function ExclusionRowSuffix({
                         onBlur={onBlur}
                     >
                         {Array.from(Array(numberOfSeries).keys())
-                            .slice(localStepRange.funnel_from_step + 1)
+                            .slice((localStepRange.funnel_from_step ?? 0) + 1)
                             .map((stepIndex) => (
                                 <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
                                     Step {stepIndex + 1}

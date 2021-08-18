@@ -14,6 +14,7 @@ import {
     median,
     humanFriendlyDuration,
     colonDelimitedDuration,
+    areObjectValuesEmpty,
 } from './utils'
 
 describe('capitalizeFirstLetter()', () => {
@@ -256,5 +257,19 @@ describe('colonDelimitedDuration()', () => {
         expect(colonDelimitedDuration('')).toEqual('')
         expect(colonDelimitedDuration(null)).toEqual('')
         expect(colonDelimitedDuration(undefined)).toEqual('')
+    })
+})
+
+describe('areObjectValuesEmpty()', () => {
+    it('returns correct value for objects with empty values', () => {
+        expect(areObjectValuesEmpty({ a: '', b: null, c: undefined })).toEqual(true)
+        expect(areObjectValuesEmpty({ a: undefined, b: undefined })).toEqual(true)
+        expect(areObjectValuesEmpty({})).toEqual(true)
+    })
+    it('returns correct value for objects with at least one non-empty value', () => {
+        expect(areObjectValuesEmpty({ a: '', b: null, c: 'hello' })).toEqual(false)
+        expect(areObjectValuesEmpty({ a: true, b: 'hello' })).toEqual(false)
+        expect(areObjectValuesEmpty('hello')).toEqual(false)
+        expect(areObjectValuesEmpty(null)).toEqual(false)
     })
 })
