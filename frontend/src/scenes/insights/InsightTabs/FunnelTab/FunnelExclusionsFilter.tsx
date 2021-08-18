@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Button, Col, Row, Select } from 'antd'
+import { Button, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import equal from 'fast-deep-equal'
 import clsx from 'clsx'
@@ -9,7 +9,7 @@ import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ANTD_TOOLTIP_PLACEMENTS, areObjectValuesEmpty, clamp } from 'lib/utils'
-import { FunnelExclusionEntityFilter, ActionFilter as ActionFilterType } from '~/types'
+import { FunnelExclusionEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
 
 import './FunnelExclusionsFilter.scss'
 
@@ -17,10 +17,12 @@ function ExclusionRowSuffix({
     filter,
     index,
     onClose,
+    isVertical = false,
 }: {
     filter: ActionFilterType | FunnelExclusionEntityFilter
     index: number
-    onClose: () => void
+    onClose?: () => void
+    isVertical?: boolean
 }): JSX.Element | null {
     const { exclusionFilters, exclusionDefaultStepRange, areFiltersValid, numberOfSeries } = useValues(funnelLogic)
     const { setOneEventExclusionFilter } = useActions(funnelLogic)
@@ -57,10 +59,11 @@ function ExclusionRowSuffix({
     }, [exclusionDefaultStepRange])
 
     return (
-        <Row justify="space-between" align="middle" className="funnel-exclusion-row-wrapper">
-            <Col className="funnel-exclusion-selectors">
+        <Row justify="space-between" align="middle" className="funnel-exclusion-row-wrapper" wrap={false}>
+            {isVertical && <div className="funnel-exclusion-spacing-arrow">&#8627;</div>}
+            <div className="funnel-exclusion-selectors">
                 <div className="funnel-exclusion-funnel_from_step-selector">
-                    between{' '}
+                    between
                     <Select
                         defaultValue={0}
                         disabled={!areFiltersValid}
@@ -82,7 +85,7 @@ function ExclusionRowSuffix({
                     </Select>
                 </div>
                 <div className="funnel-exclusion-funnel_to_step-selector">
-                    and{' '}
+                    and
                     <Select
                         defaultValue={(localStepRange.funnel_from_step ?? 0) + 1}
                         disabled={!areFiltersValid}
@@ -103,18 +106,17 @@ function ExclusionRowSuffix({
                             ))}
                     </Select>
                 </div>
-            </Col>
-            <Col>
-                <Button
-                    type="link"
-                    onClick={onClose}
-                    className="row-action-btn delete"
-                    data-attr="delete-prop-exclusion-filter"
-                    title="Delete event exclusion series"
-                >
-                    <DeleteOutlined />
-                </Button>
-            </Col>
+            </div>
+            <div className="flex-spacer" />
+            <Button
+                type="link"
+                onClick={onClose}
+                className="row-action-btn delete"
+                data-attr="delete-prop-exclusion-filter"
+                title="Delete event exclusion series"
+            >
+                <DeleteOutlined />
+            </Button>
         </Row>
     )
 }
@@ -124,7 +126,7 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
     const { setEventExclusionFilters } = useActions(funnelLogic)
     const ref = useRef(null)
     const [width] = useSize(ref)
-    const isVerticalLayout = !!width && width < 500 // If filter container shrinks below 500px, initiate verticality
+    const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
 
     return (
         <ActionFilter
@@ -132,7 +134,12 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             setFilters={setEventExclusionFilters}
             filters={exclusionFilters}
             typeKey="funnel-exclusions-filter"
-            addFilterDefaultOptions={exclusionDefaultStepRange}
+            addFilterDefaultOptions={{
+                id: '$pageview',
+                name: '$pageview',
+                type: EntityTypes.EVENTS,
+                ...exclusionDefaultStepRange,
+            }}
             disabled={!areFiltersValid}
             buttonCopy="Add exclusion"
             groupTypes={[exclusionFilters.type as TaxonomicFilterGroupType]}
@@ -143,7 +150,7 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             fullWidth
             rowClassName={clsx('funnel-exclusions-filter-row', { vertical: isVerticalLayout })}
             customRowSuffix={(filter, index, onClose) => (
-                <ExclusionRowSuffix filter={filter} index={index} onClose={onClose} />
+                <ExclusionRowSuffix filter={filter} index={index} onClose={onClose} isVertical={isVerticalLayout} />
             )}
         />
     )

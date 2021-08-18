@@ -21,11 +21,11 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
 
     return (
         <>
-            <Card className="funnel-options" data-attr="funnel-options">
+            <Card className="insight-controls funnel-options" data-attr="funnel-options">
                 <h4 className="secondary">Options</h4>
                 <FunnelConversionWindowFilter />
             </Card>
-            <Card style={{ marginTop: 16 }} data-attr="funnel-exclusion-options">
+            <Card className="insight-controls" style={{ marginTop: 16 }} data-attr="funnel-exclusion-options">
                 <h4 className="secondary">
                     Exclusion Steps
                     <Tooltip
@@ -37,7 +37,7 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
                 </h4>
                 <FunnelExclusionsFilter />
             </Card>
-            <Card style={{ marginTop: 16 }}>
+            <Card className="insight-controls" style={{ marginTop: 16 }}>
                 <GlobalFiltersTitle unit="steps" />
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
@@ -89,7 +89,11 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
                     </>
                 )}
             </Card>
-            <Card title={<Row align="middle">Funnels Saved in Project</Row>} style={{ marginTop: 16 }}>
+            <Card
+                className="insight-controls"
+                title={<Row align="middle">Funnels Saved in Project</Row>}
+                style={{ marginTop: 16 }}
+            >
                 <SavedFunnels />
             </Card>
         </>
