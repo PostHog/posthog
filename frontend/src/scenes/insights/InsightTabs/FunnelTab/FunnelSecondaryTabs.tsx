@@ -30,7 +30,12 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
                     Exclusion Steps
                     <Tooltip
                         placement="right"
-                        title="Exclude users who completed specific events during the funnel or between two specific steps."
+                        title={
+                            <>
+                                Exclude users who completed the specified event between two specific steps. Note that
+                                these users will be <b>completely excluded from the entire funnel</b>.
+                            </>
+                        }
                     >
                         <InfoCircleOutlined className="info-indicator" />
                     </Tooltip>
