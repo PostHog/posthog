@@ -667,7 +667,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1: Cohort = Cohort.objects.create(
             team=self.team,
-            groups=[{"properties": [{"key": "'id'", "type": "cohort", "value": cohort0.id}]}],
+            groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort0.id}]}],
             name="cohort1",
         )
 
@@ -686,7 +686,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
 
         cohort1: Cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": [{"key": "'id'", "type": "cohort", "value": 666}]}], name="cohort1",
+            team=self.team, groups=[{"properties": [{"key": "id", "type": "cohort", "value": 666}]}], name="cohort1",
         )
 
         cohort1.calculate_people_ch()
@@ -698,3 +698,23 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             ),
         )[0][0]
         self.assertEqual(count_result, 0)
+
+    def test_cohortpeople_with_cyclic_cohort_filter(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+
+        cohort1: Cohort = Cohort.objects.create(
+            team=self.team, groups=[], name="cohort1",
+        )
+        cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
+        cohort1.save()
+
+        cohort1.calculate_people_ch()
+
+        count_result = cast(
+            List[Tuple[int]],
+            sync_execute(
+                "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+            ),
+        )[0][0]
+        self.assertEqual(count_result, 2)
