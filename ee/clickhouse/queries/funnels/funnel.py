@@ -128,7 +128,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         return f"""
         SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {breakdown_query} FROM (
             {formatted_query}
-        ) WHERE step_0 = 1
+        ) WHERE step_0 = 17
         {'AND exclusion = 0' if exclusion_clause else ''}
         SETTINGS allow_experimental_window_functions = 1
         """

@@ -673,11 +673,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1.calculate_people_ch()
 
-        count_result = cast(
-            List[Tuple[int]],
-            sync_execute(
-                "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
-            ),
+        count_result = sync_execute(
+            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
         )[0][0]
         self.assertEqual(count_result, 1)
 
@@ -691,11 +688,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1.calculate_people_ch()
 
-        count_result = cast(
-            List[Tuple[int]],
-            sync_execute(
-                "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
-            ),
+        count_result = sync_execute(
+            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
         )[0][0]
         self.assertEqual(count_result, 0)
 
@@ -711,10 +705,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1.calculate_people_ch()
 
-        count_result = cast(
-            List[Tuple[int]],
-            sync_execute(
-                "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
-            ),
+        count_result = sync_execute(
+            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
         )[0][0]
         self.assertEqual(count_result, 2)

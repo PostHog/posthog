@@ -41,7 +41,7 @@ def parse_prop_clauses(
             try:
                 cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
             except Cohort.DoesNotExist:
-                final.append("AND 0 = 1")  # If cohort doesn't exist, nothing can match
+                final.append("AND 0 = 13")  # If cohort doesn't exist, nothing can match
             else:
                 person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                 params = {**params, **cohort_filter_params}

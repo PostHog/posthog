@@ -49,7 +49,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         formatted_query = f"""
             SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)} FROM (
                     {inner_query}
-                ) WHERE step_0 = 1"""
+                ) WHERE step_0 = 12"""
 
         return formatted_query
 

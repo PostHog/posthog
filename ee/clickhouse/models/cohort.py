@@ -47,7 +47,7 @@ def format_person_query(
 
     if not groups:
         # No person can match a cohort that has no match groups
-        return "8 = 9", {}
+        return "0 = 19", {}
 
     for group_idx, group in enumerate(groups):
         if group.get("action_id") or group.get("event_id"):
@@ -80,15 +80,15 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
             try:
                 prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=cohort.team_id)
             except Cohort.DoesNotExist:
-                return "3 = 4", {}
+                return "0 = 14", {}
             if prop_cohort.pk == cohort.pk:
                 # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
                 # we treat it as satisfied for all persons
-                query += "AND 7 = 7"
+                query += "AND 11 = 11"
             else:
                 person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
                 params.update(cohort_filter_params)
-                query += f"AND person_max.id IN ({person_id_query})"
+                query += f"AND person.id IN ({person_id_query})"
         else:
             filter_query, filter_params = prop_filter_json_extract(
                 prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
