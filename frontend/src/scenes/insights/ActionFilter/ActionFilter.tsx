@@ -6,7 +6,7 @@ import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import posthog from 'posthog-js'
-import { ActionFilter as ActionFilterType, FilterType, Optional } from '~/types'
+import { ActionFilter as ActionFilterType, FilterType, FunnelExclusionEntityFilter, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -25,13 +25,21 @@ export interface ActionFilterProps {
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     showOr?: boolean // Whether to show the "OR" label after each filter
     hideFilter?: boolean // Hide local filtering (currently used for retention insight)
-    customRowPrefix?: string | JSX.Element | ((row: ActionFilterType, index: number) => JSX.Element) // Custom prefix element to show in each ActionFilterRow
-    customRowSuffix?: string | JSX.Element | ((row: ActionFilterType, index: number) => JSX.Element) // Custom suffix element to show in each ActionFilterRow
+    customRowPrefix?:
+        | string
+        | JSX.Element
+        | ((row: ActionFilterType | FunnelExclusionEntityFilter, index: number, onClose: () => void) => JSX.Element) // Custom prefix element to show in each ActionFilterRow
+    customRowSuffix?:
+        | string
+        | JSX.Element
+        | ((row: ActionFilterType | FunnelExclusionEntityFilter, index: number, onClose: () => void) => JSX.Element) // Custom suffix element to show in each ActionFilterRow
+    rowClassName?: string
     customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
     fullWidth?: boolean
     showNestedArrow?: boolean // show nested arrows to the left of property filter buttons
     groupTypes?: TaxonomicFilterGroupType[]
+    hideDeleteBtn?: boolean
 }
 
 export function ActionFilter({
@@ -53,9 +61,11 @@ export function ActionFilter({
     fullWidth = false,
     customRowPrefix,
     customRowSuffix,
+    rowClassName,
     customActions,
     showNestedArrow = false,
     groupTypes,
+    hideDeleteBtn,
 }: ActionFilterProps): JSX.Element {
     const logic = entityFilterLogic({ setFilters, filters, typeKey, addFilterDefaultOptions })
 
@@ -88,12 +98,13 @@ export function ActionFilter({
         hidePropertySelector,
         customRowPrefix,
         customRowSuffix,
+        rowClassName,
         hasBreakdown: !!filters.breakdown,
         fullWidth,
         groupTypes,
+        hideDeleteBtn,
+        disabled,
     }
-
-    console.log('LOCAL FILTERS', localFilters)
 
     return (
         <div>

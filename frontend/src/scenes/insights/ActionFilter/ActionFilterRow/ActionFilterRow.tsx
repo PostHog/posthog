@@ -58,14 +58,17 @@ export interface ActionFilterRowProps {
     customRowPrefix?:
         | string
         | JSX.Element
-        | ((row: ActionFilter | FunnelExclusionEntityFilter, index: number) => JSX.Element) // Custom prefix element to show in each row
+        | ((row: ActionFilter | FunnelExclusionEntityFilter, index: number, onClose: () => void) => JSX.Element) // Custom prefix element to show in each row
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((row: ActionFilter | FunnelExclusionEntityFilter, index: number) => JSX.Element) // Custom suffix element to show in each row
+        | ((row: ActionFilter | FunnelExclusionEntityFilter, index: number, onClose: () => void) => JSX.Element) // Custom suffix element to show in each row
+    rowClassName?: string
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     groupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
+    hideDeleteBtn?: boolean // Choose to hide delete btn. You can use the onClose function passed into customRow{Pre|Suf}fix to render the delete btn anywhere
+    disabled?: boolean
 }
 
 export function ActionFilterRow({
@@ -84,9 +87,12 @@ export function ActionFilterRow({
     filterCount,
     customRowPrefix,
     customRowSuffix,
+    rowClassName,
     hasBreakdown,
     showNestedArrow = false,
+    hideDeleteBtn = false,
     groupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+    disabled = false,
 }: ActionFilterRowProps): JSX.Element {
     const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
@@ -156,8 +162,8 @@ export function ActionFilterRow({
                 </Row>
             )}
 
-            <Row gutter={8} align="middle" className={!horizontalUI ? 'mt' : ''} wrap={!fullWidth}>
-                {horizontalUI && !singleFilter && filterCount > 1 && (
+            <Row gutter={8} align="middle" className={`${!horizontalUI ? 'mt' : ''} ${rowClassName}`} wrap={!fullWidth}>
+                {!hideDeleteBtn && horizontalUI && !singleFilter && filterCount > 1 && (
                     <Col>
                         <Button
                             type="link"
@@ -180,12 +186,15 @@ export function ActionFilterRow({
                 )}
                 {customRowPrefix !== undefined ? (
                     <Col>
-                        {typeof customRowPrefix === 'function' ? customRowPrefix(filter, index) : customRowPrefix}
+                        {typeof customRowPrefix === 'function'
+                            ? customRowPrefix(filter, index, onClose)
+                            : customRowPrefix}
                     </Col>
                 ) : (
                     <>{horizontalUI && <Col>Showing</Col>}</>
                 )}
                 <Col
+                    className="column-filter"
                     style={fullWidth ? {} : { maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}
                     flex={fullWidth ? 'auto' : undefined}
                 >
@@ -220,6 +229,7 @@ export function ActionFilterRow({
                                     onClick={onClick}
                                     block={fullWidth}
                                     ref={setRef}
+                                    disabled={disabled}
                                     style={{
                                         maxWidth: '100%',
                                         display: 'flex',
@@ -263,8 +273,10 @@ export function ActionFilterRow({
                     )}
                 </Col>
                 {customRowSuffix !== undefined && (
-                    <Col>
-                        {typeof customRowSuffix === 'function' ? customRowSuffix(filter, index) : customRowSuffix}
+                    <Col className="column-row-suffix">
+                        {typeof customRowSuffix === 'function'
+                            ? customRowSuffix(filter, index, onClose)
+                            : customRowSuffix}
                     </Col>
                 )}
                 {!hideMathSelector && (
@@ -315,8 +327,8 @@ export function ActionFilterRow({
                         </Button>
                     </Col>
                 )}
-                {!horizontalUI && !singleFilter && (
-                    <Col>
+                {!hideDeleteBtn && !horizontalUI && !singleFilter && (
+                    <Col className="column-delete-btn">
                         <Button
                             type="link"
                             onClick={onClose}

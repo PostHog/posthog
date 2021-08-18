@@ -1,0 +1,54 @@
+@import '~/vars';
+
+.funnel-exclusions-filter-row {
+    display: flex;
+    align-items: flex-start;
+
+    &.vertical {
+        flex-direction: column;
+
+        .column-filter {
+            margin-top: $default_spacing / 4;
+            margin-bottom: $default_spacing / 4;
+            width: 100%;
+        }
+
+        .column-row-suffix {
+            width: 100%;
+            padding: 0;
+
+            .funnel-exclusion-row-wrapper {
+                .funnel-exclusion-selectors {
+                    flex-direction: column;
+                    margin-left: $default_spacing;
+
+                    .funnel-exclusion-funnel_from_step-selector,
+                    .funnel-exclusion-funnel_to_step-selector {
+                        margin-top: $default_spacing / 4;
+                        margin-bottom: $default_spacing / 4;
+                    }
+                }
+            }
+        }
+    }
+
+    .funnel-exclusion-selectors {
+        display: flex;
+        flex-direction: row;
+
+        .funnel-exclusion-funnel_from_step-selector {
+            margin-right: $default_spacing / 4;
+        }
+    }
+
+    .ant-btn.delete {
+        padding: 0 4px;
+        color: $primary;
+
+        &:hover,
+        &:focus,
+        &.visible {
+            border: 1px solid $primary;
+        }
+    }
+}
