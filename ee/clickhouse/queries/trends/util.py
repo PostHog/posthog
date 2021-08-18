@@ -32,7 +32,7 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math in MATH_FUNCTIONS:
         value, _ = get_property_string_expr(
-            "events", cast(str, entity.math_property), "", "", f"JSONExtractRaw(properties, %(e_{entity.index}_math))",
+            "events", cast(str, entity.math_property), f"%(e_{entity.index}_math))", "properties"
         )
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
         params["join_property_key"] = entity.math_property
