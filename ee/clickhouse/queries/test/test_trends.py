@@ -1,11 +1,12 @@
+from unittest.case import skip
 from uuid import uuid4
 
-from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
 
+from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import create_person, create_person_distinct_id
+from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import TRENDS_BAR_VALUE
@@ -15,7 +16,6 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
-from posthog.settings import SHELL_PLUS_PRINT_SQL
 
 
 def _create_action(**kwargs):
@@ -409,6 +409,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             ),
             self.team,
         )
+
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
@@ -714,3 +715,26 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 )
 
         self.assertEqual(res[0]["count"], 1)
+
+    @skip("breakdown queries don't yet use materialized properties properly")
+    def test_breakdown_materialized_columns_queries_right_columns(self):
+        materialize("events", "$some_property")
+
+        self._create_breakdown_events()
+        with self.capture_sql() as sqls:
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response = ClickhouseTrends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "$some_property",
+                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
+                        }
+                    ),
+                    self.team,
+                )
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)
+        self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
