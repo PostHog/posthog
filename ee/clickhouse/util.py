@@ -79,13 +79,14 @@ class ClickhouseTestMixin:
         return self._assertNumQueries(func)
 
     @contextmanager
-    def capture_sql(self):
+    def capture_select_queries(self):
         from ee.clickhouse.client import _annotate_tagged_query
 
         sqls: List[str] = []
 
         def wrapped_method(*args):
-            sqls.append(args[0])
+            if args[0].strip().startswith("SELECT"):
+                sqls.append(args[0])
             return _annotate_tagged_query(*args)
 
         with patch("ee.clickhouse.client._annotate_tagged_query", wraps=wrapped_method) as wrapped_annotate:
