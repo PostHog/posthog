@@ -161,6 +161,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                         "action_id": "user signed up",
                         "average_conversion_time": None,
                         "breakdown": "https://posthog.com/docs/x",
+                        "breakdown_value": "https://posthog.com/docs/x",
                         "count": 1,
                         "median_conversion_time": None,
                         "name": "user signed up",
@@ -172,6 +173,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                         "action_id": "paid",
                         "average_conversion_time": 691200.0,
                         "breakdown": "https://posthog.com/docs/x",
+                        "breakdown_value": "https://posthog.com/docs/x",
                         "count": 1,
                         "median_conversion_time": 691200.0,
                         "name": "paid",
@@ -242,9 +244,10 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             [
                 [
                     {
-                        "action_id": 1,
+                        "action_id": user_signed_up_action.id,
                         "average_conversion_time": None,
                         "breakdown": "https://posthog.com/docs/x",
+                        "breakdown_value": "https://posthog.com/docs/x",
                         "count": 1,
                         "median_conversion_time": None,
                         "name": "user signed up",
@@ -256,6 +259,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
                         "action_id": "paid",
                         "average_conversion_time": 691200.0,
                         "breakdown": "https://posthog.com/docs/x",
+                        "breakdown_value": "https://posthog.com/docs/x",
                         "count": 1,
                         "median_conversion_time": 691200.0,
                         "name": "paid",
