@@ -41,7 +41,6 @@ def determine_compared_filter(filter) -> Filter:
 
 def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
     for entity in trend_entity:
-        days = [i for i in range(len(entity["days"]))]
         labels = [
             "{} {}".format(filter.interval if filter.interval is not None else "day", i)
             for i in range(len(entity["labels"]))
