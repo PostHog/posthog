@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { InsightTitle } from '../InsightTitle'
-import { SaveOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -50,8 +50,33 @@ export function FunnelTab(): JSX.Element {
                 }}
             >
                 <Row justify="space-between" align="middle">
-                    <h4 className="secondary">Steps</h4>
-                    <FunnelStepOrderPicker />
+                    <h4 className="secondary" style={{ marginBottom: 0 }}>
+                        Steps
+                    </h4>
+                    <Row align="middle">
+                        <span className="l5 text-muted-alt mr-025">
+                            <Tooltip
+                                title={
+                                    <ul style={{ paddingLeft: '1.2rem' }}>
+                                        <li>
+                                            <b>Sequential</b> - Step B must happen after Step A, but the previous step
+                                            doesn't have to be step A.
+                                        </li>
+                                        <li>
+                                            <b>Strict Order</b> - Step B must happen directly after Step A.
+                                        </li>
+                                        <li>
+                                            <b>Any Order</b> - Steps can be completed in any sequence.
+                                        </li>
+                                    </ul>
+                                }
+                            >
+                                <InfoCircleOutlined className="info-indicator left" />
+                            </Tooltip>
+                            Step Order
+                        </span>
+                        <FunnelStepOrderPicker />
+                    </Row>
                 </Row>
                 <ActionFilter
                     filters={filters}
