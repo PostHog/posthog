@@ -759,13 +759,32 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
     def test_materialized_filtering_with_action_props(self):
         materialize("events", "key")
+        materialize("events", "$current_url")
 
-        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
-        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
-        _create_event(event="sign up", distinct_id="person3", team=self.team, properties={"key": "val"})
-        action = _create_action(
-            name="sign up",
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
             team=self.team,
+            properties={"key": "val", "$current_url": "/some/page"},
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person2",
+            team=self.team,
+            properties={"key": "val", "$current_url": "/some/page"},
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person3",
+            team=self.team,
+            properties={"key": "val", "$current_url": "/another/page"},
+        )
+
+        action = Action.objects.create(name="sign up", team=self.team)
+        ActionStep.objects.create(
+            action=action,
+            event="sign up",
+            url="/some/page",
             properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
         )
 
@@ -775,7 +794,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 self.team,
             )
 
-        self.assertEqual(response[0]["count"], 3)
+        self.assertEqual(response[0]["count"], 2)
 
         for sql in sqls:
             self.assertNotIn("JSONExtract", sql)

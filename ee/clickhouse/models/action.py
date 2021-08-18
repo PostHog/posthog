@@ -62,6 +62,8 @@ def format_action_filter(
 def filter_event(
     step: ActionStep, prepend: str = "event", index: int = 0, table_name: str = ""
 ) -> Tuple[List[str], Dict]:
+    from ee.clickhouse.models.property import get_property_string_expr
+
     params = {"{}_{}".format(prepend, index): step.event}
     conditions = []
 
@@ -69,20 +71,15 @@ def filter_event(
         table_name += "."
 
     if step.url:
+        value_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", f"{table_name}properties")
         if step.url_matching == ActionStep.EXACT:
-            conditions.append(
-                f"JSONExtractString({table_name}properties, '$current_url') = %({prepend}_prop_val_{index})s"
-            )
+            conditions.append(f"{value_expr} = %({prepend}_prop_val_{index})s")
             params.update({f"{prepend}_prop_val_{index}": step.url})
         elif step.url_matching == ActionStep.REGEX:
-            conditions.append(
-                f"match(JSONExtractString({table_name}properties, '$current_url'), %({prepend}_prop_val_{index})s)"
-            )
+            conditions.append(f"match({value_expr}, %({prepend}_prop_val_{index})s)")
             params.update({f"{prepend}_prop_val_{index}": step.url})
         else:
-            conditions.append(
-                f"JSONExtractString({table_name}properties, '$current_url') LIKE %({prepend}_prop_val_{index})s"
-            )
+            conditions.append(f"{value_expr} LIKE %({prepend}_prop_val_{index})s")
             params.update({f"{prepend}_prop_val_{index}": f"%{step.url}%"})
 
     conditions.append(f"event = %({prepend}_{index})s")
