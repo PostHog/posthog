@@ -24,7 +24,7 @@ import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
 import { ErrorMessage, TimeOut } from './EmptyStates'
-import { People } from 'scenes/funnels/People'
+import { People } from 'scenes/funnels/FunnelPeople'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -366,15 +366,13 @@ export function Insights(): JSX.Element {
                                     </div>
                                 </div>
                             </Card>
-                            {(!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
-                                (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && !preflight?.is_clickhouse_enabled)) &&
+                            {!preflight?.is_clickhouse_enabled &&
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 areFiltersValid &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && <People />}
-                            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] &&
-                                preflight?.is_clickhouse_enabled &&
+                            {preflight?.is_clickhouse_enabled &&
                                 activeView === ViewType.FUNNELS &&
                                 !showErrorMessage &&
                                 allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}

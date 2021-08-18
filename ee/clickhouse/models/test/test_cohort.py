@@ -48,7 +48,7 @@ def _create_person(**kwargs) -> Person:
     distinct_ids = kwargs.pop("distinct_ids")
     person = create_person(uuid=uuid, **kwargs)
     for id in distinct_ids:
-        create_person_distinct_id(0, kwargs["team_id"], id, str(person))
+        create_person_distinct_id(kwargs["team_id"], id, str(person))
     return Person(id=person, uuid=person)
 
 

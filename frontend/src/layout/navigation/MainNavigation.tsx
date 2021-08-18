@@ -91,42 +91,43 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
         undefined,
         true
     )
-
+    const menuItem = (
+        <div className={`menu-item${isActive ? ' menu-item-active' : ''}`} data-attr={`menu-item-${identifier}`}>
+            {icon}
+            <span className="menu-title text-center">{title}</span>
+            {hotkey && (
+                <span className={`hotkey${hotkeyNavigationEngaged ? '' : ' hide'}`}>{hotkey.toUpperCase()}</span>
+            )}
+        </div>
+    )
     return (
         <Link to={to} onClick={handleClick}>
-            <Tooltip
-                title={
-                    tooltip && !isMobile() ? (
-                        <>
-                            <div className="mb-025">
-                                <b>{title}</b>
-                                {hotkey && (
-                                    <>
-                                        <span className="hotkey menu-tooltip-hotkey">G</span>
-                                        <span className="hotkey-plus" />
-                                        <span className="hotkey menu-tooltip-hotkey">{hotkey.toUpperCase()}</span>
-                                    </>
-                                )}
-                            </div>
-                            {tooltip}
-                        </>
-                    ) : undefined
-                }
-                placement="left"
-            >
-                <div
-                    className={`menu-item${isActive ? ' menu-item-active' : ''}`}
-                    data-attr={`menu-item-${identifier}`}
+            {tooltip ? (
+                <Tooltip
+                    title={
+                        !isMobile() ? (
+                            <>
+                                <div className="mb-025">
+                                    <b>{title}</b>
+                                    {hotkey && (
+                                        <>
+                                            <span className="hotkey menu-tooltip-hotkey">G</span>
+                                            <span className="hotkey-plus" />
+                                            <span className="hotkey menu-tooltip-hotkey">{hotkey.toUpperCase()}</span>
+                                        </>
+                                    )}
+                                </div>
+                                {tooltip}
+                            </>
+                        ) : undefined
+                    }
+                    placement="left"
                 >
-                    {icon}
-                    <span className="menu-title text-center">{title}</span>
-                    {hotkey && (
-                        <span className={`hotkey${hotkeyNavigationEngaged ? '' : ' hide'}`}>
-                            {hotkey.toUpperCase()}
-                        </span>
-                    )}
-                </div>
-            </Tooltip>
+                    {menuItem}
+                </Tooltip>
+            ) : (
+                menuItem
+            )}
         </Link>
     )
 }

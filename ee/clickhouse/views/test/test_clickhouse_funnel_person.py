@@ -187,22 +187,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         self.assertEqual(0, len(people))
-        self.assertNotEqual(None, next)
-
-        response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        j = response.json()
-        people = j["results"][0]["people"]
-        next = j["next"]
-        self.assertEqual(0, len(people))
-        self.assertNotEqual(None, next)
-
-        response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        j = response.json()
-        people = j["results"][0]["people"]
-        self.assertEqual(0, len(people))
-        self.assertEqual(None, j["next"])
+        self.assertIsNone(next)
 
     def test_breakdowns(self):
         request_data = {
