@@ -94,8 +94,8 @@ class FeatureFlagMatcher:
             return None
 
         for variant in self.variant_lookup_table:
-            if self._hash_md5 >= variant.value_min and self._hash_md5 < variant.value_max:
-                return variant.key
+            if self._hash_md5 >= variant["value_min"] and self._hash_md5 < variant["value_max"]:
+                return variant["key"]
         return self.feature_flag.fallback_variant_key
 
     def is_group_match(self, group: Dict, group_index: int):
@@ -123,8 +123,9 @@ class FeatureFlagMatcher:
         lookup_table = []
         value_min = 0
         for variant in self.feature_flag.variants:
-            value_max = value_min + variant.rollout_percentage / 100
-            lookup_table.append({"value_min": value_min, "value_max": value_max, "key": variant.key})
+            print(variant)
+            value_max = value_min + variant["rollout_percentage"] / 100
+            lookup_table.append({"value_min": value_min, "value_max": value_max, "key": variant["key"]})
             value_min = value_max
         return lookup_table
 
@@ -171,6 +172,7 @@ class FeatureFlagMatcher:
         return hash_val / __LONG_SCALE__
 
 
+# Return a list of all active flags with truthy values
 def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
@@ -183,4 +185,25 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
                 flags_enabled.append(feature_flag.key)
         except Exception as err:
             capture_exception(err)
+    return flags_enabled
+
+
+# Return a list of with more details about each active flag (including active variant)
+def get_active_feature_flag_details(team: Team, distinct_id: str) -> List[Dict[str, Any]]:
+    flags_enabled = []
+    feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
+        "id", "team_id", "filters", "key", "rollout_percentage",
+    )
+
+    for feature_flag in feature_flags:
+        # try:
+        # distinct_id will always be a string, but data can have non-string values ("Any")
+        if feature_flag.distinct_id_matches(distinct_id):
+            flag_details = {"key": feature_flag.key, "value": True, "multivariate": False}
+            if len(feature_flag.variants) > 0:
+                flag_details["multivariate"] = True
+                flag_details["value"] = feature_flag.get_variant_for_distinct_id(distinct_id)
+            flags_enabled.append(flag_details)
+    # except Exception as err:
+    #     capture_exception(err)
     return flags_enabled

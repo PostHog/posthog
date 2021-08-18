@@ -12,7 +12,7 @@ from statshog.defaults.django import statsd
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.feature_flag import get_active_feature_flag_details, get_active_feature_flags
 from posthog.utils import cors_response, load_data_from_request
 
 from .capture import _get_project_id
@@ -78,6 +78,7 @@ def get_decide(request: HttpRequest):
             request.user.save()
 
     response["featureFlags"] = []
+    response["featureFlagDetails"] = []
     response["sessionRecording"] = False
 
     if request.method == "POST":
@@ -122,6 +123,7 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
         if team:
             response["featureFlags"] = get_active_feature_flags(team, data["distinct_id"])
+            response["featureFlagDetails"] = get_active_feature_flag_details(team, data["distinct_id"])
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
     statsd.incr(
