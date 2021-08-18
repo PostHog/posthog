@@ -6,6 +6,9 @@ import { FunnelStep, FunnelsTimeConversionBins } from '~/types'
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
 
 export function formatDisplayPercentage(percentage: number): string {
+    if (Number.isNaN(percentage)) {
+        percentage = 0
+    }
     // Returns a formatted string properly rounded to ensure consistent results
     return (percentage * 100).toFixed(PERCENTAGE_DISPLAY_PRECISION)
 }
