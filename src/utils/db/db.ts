@@ -52,7 +52,13 @@ import {
 } from '../utils'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresLogsWrapper } from './postgres-logs-wrapper'
-import { chainToElements, hashElements, timeoutGuard, unparsePersonPartial } from './utils'
+import {
+    chainToElements,
+    generatePostgresValuesString,
+    hashElements,
+    timeoutGuard,
+    unparsePersonPartial,
+} from './utils'
 
 export interface LogEntryPayload {
     pluginConfig: PluginConfig
@@ -803,25 +809,48 @@ export class DB {
                 )
 
                 if (insertResult.rows.length > 0) {
+                    const ELEMENTS_TABLE_COLUMN_COUNT = 11
                     const elementGroup = insertResult.rows[0] as ElementGroup
-                    for (const element of cleanedElements) {
-                        await client.query(
-                            'INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-                            [
-                                element.text,
-                                element.tag_name,
-                                element.href,
-                                element.attr_id,
-                                element.nth_child,
-                                element.nth_of_type,
-                                element.attributes || '{}',
-                                element.order,
-                                element.event_id,
-                                element.attr_class,
-                                elementGroup.id,
-                            ]
+                    const values = []
+                    const rowStrings = []
+
+                    for (let rowIndex = 0; rowIndex < cleanedElements.length; ++rowIndex) {
+                        const {
+                            text,
+                            tag_name,
+                            href,
+                            attr_id,
+                            nth_child,
+                            nth_of_type,
+                            attributes,
+                            order,
+                            event_id,
+                            attr_class,
+                        } = cleanedElements[rowIndex]
+
+                        rowStrings.push(generatePostgresValuesString(ELEMENTS_TABLE_COLUMN_COUNT, rowIndex))
+
+                        values.push(
+                            text,
+                            tag_name,
+                            href,
+                            attr_id,
+                            nth_child,
+                            nth_of_type,
+                            attributes || {},
+                            order,
+                            event_id,
+                            attr_class,
+                            elementGroup.id
                         )
                     }
+
+                    await client.query(
+                        `INSERT INTO posthog_element (text, tag_name, href, attr_id, nth_child, nth_of_type, attributes, "order", event_id, attr_class, group_id) VALUES ${rowStrings.join(
+                            ', '
+                        )}`,
+                        values
+                    )
                 }
             })
         } catch (error) {
@@ -893,14 +922,7 @@ export class DB {
             const { id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id } =
                 entries[rowIndex]
 
-            // Creates format: ($1, $2, $3, $4, $5, $6, $7, $8, $9), ($10, $12, $13, $14, $15, $16, $17, $18, $19)
-            rowStrings.push(
-                '(' +
-                    Array.from(Array(LOG_ENTRY_COLUMN_COUNT).keys())
-                        .map((x) => `$${x + 1 + rowIndex * LOG_ENTRY_COLUMN_COUNT}`)
-                        .join(', ') +
-                    ')'
-            )
+            rowStrings.push(generatePostgresValuesString(LOG_ENTRY_COLUMN_COUNT, rowIndex))
 
             values.push(id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id)
         }
