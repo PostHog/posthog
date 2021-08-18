@@ -29,6 +29,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
         "organizations": get_instance_organizations(),
+        "license_keys": get_instance_licenses(),
     }
 
     report["helm"] = get_helm_info_env()
