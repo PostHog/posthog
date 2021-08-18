@@ -12,6 +12,7 @@ import { SaveOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
 import { Tooltip } from 'lib/components/Tooltip'
+import { FunnelStepOrderPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepOrderPicker'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
@@ -50,6 +51,7 @@ export function FunnelTab(): JSX.Element {
             >
                 <Row justify="space-between" align="middle">
                     <h4 className="secondary">Steps</h4>
+                    <FunnelStepOrderPicker />
                 </Row>
                 <ActionFilter
                     filters={filters}
