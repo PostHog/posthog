@@ -10,12 +10,12 @@ from sentry_sdk.api import capture_exception
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_item import DashboardItem
 
-NAME = "Posthog Internal Metrics"
+NAME = "PostHog Internal Metrics"
 CLICKHOUSE_DASHBOARD = {
-    "name": "Clickhouse internal dashboard",
+    "name": "ClickHouse internal dashboard",
     "items": [
         {
-            "name": "Number of insights loaded vs failed",
+            "name": "Number of insights loaded vs. failed",
             "filters": {
                 "events": [
                     {
@@ -47,7 +47,7 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$insight_load_time",
                         "math": "avg",
-                        "name": "Load time (avg)",
+                        "name": "Load time (average)",
                         "type": "event",
                         "order": 0,
                         "properties": [],
@@ -56,7 +56,7 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$insight_load_time",
                         "math": "p90",
-                        "name": "Load time (p90)",
+                        "name": "Load time (90th percentile)",
                         "type": "event",
                         "order": 1,
                         "properties": [],
@@ -65,7 +65,7 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$insight_load_time",
                         "math": "p95",
-                        "name": "Load time (p95)",
+                        "name": "Load time (95th percentile)",
                         "type": "event",
                         "order": 2,
                         "properties": [],
@@ -99,7 +99,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse total queries",
+            "name": "ClickHouse total queries",
             "filters": {
                 "events": [
                     {
@@ -157,7 +157,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse: query time total breakdown (ms)",
+            "name": "ClickHouse: query time total breakdown (ms)",
             "filters": {
                 "events": [
                     {
@@ -180,7 +180,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse mutations count",
+            "name": "ClickHouse mutations count",
             "filters": {
                 "events": [
                     {
@@ -230,7 +230,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse tables part counts",
+            "name": "ClickHouse table part counts",
             "filters": {
                 "events": [
                     {
@@ -280,7 +280,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse table lag (seconds)",
+            "name": "ClickHouse table lag (seconds)",
             "filters": {
                 "events": [
                     {
@@ -302,7 +302,7 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse table row counts",
+            "name": "ClickHouse table row counts",
             "filters": {
                 "events": [
                     {
