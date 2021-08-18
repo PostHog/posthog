@@ -757,7 +757,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.assertNotIn("JSONExtract", sql)
             self.assertNotIn("properties", sql)
 
-    @skip("action filters don't yet use materialized properties properly")
     def test_materialized_filtering_with_action_props(self):
         materialize("events", "key")
 

@@ -43,6 +43,7 @@ def format_action_filter(
                 team_id=action.team.pk if filter_by_team else None,
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
+                allow_denormalized_props=True,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
