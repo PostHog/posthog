@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -24,21 +24,19 @@ MATH_FUNCTIONS = {
 
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
-    param_name = f"e_{entity.index}_math"
-
-    params = {f"e_{entity.index}_math": entity.math_property}
-    value, _ = get_property_string_expr(
-        "events", entity.math_property, f"%({param_name})", "properties", "JSONExtractRaw({prop_var}, {var})",
-    )
-
     aggregate_operation = "count(*)"
     join_condition = ""
+    params = {}
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math in MATH_FUNCTIONS:
+        value, _ = get_property_string_expr(
+            "events", cast(str, entity.math_property), "", "", f"JSONExtractRaw(properties, %(e_{entity.index}_math))",
+        )
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
         params["join_property_key"] = entity.math_property
+        params[f"e_{entity.index}_math"] = entity.math_property
 
     return aggregate_operation, join_condition, params
 
