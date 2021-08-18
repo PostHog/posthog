@@ -241,7 +241,7 @@ export const createProcessEventTests = (
         if (database === 'clickhouse') {
             expect(queryCounter).toBe(10 + 14 /* event & prop definitions */)
         } else if (database === 'postgresql') {
-            expect(queryCounter).toBe(14 + 14 /* event & prop definitions */)
+            expect(queryCounter).toBe(13 + 14 /* event & prop definitions */)
         }
 
         let persons = await hub.db.fetchPersons()
