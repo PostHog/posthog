@@ -31,7 +31,7 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 
 def format_person_query(
-    cohort: Cohort, index: int, custom_match_field: str = "person_id"
+    cohort: Cohort, index: int, *, custom_match_field: str = "person_id"
 ) -> Tuple[str, Dict[str, Any]]:
     filters = []
     params: Dict[str, Any] = {}
@@ -74,7 +74,7 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
     filter = Filter(data=cohort_group)
     params: Dict[str, Any] = {}
 
-    query = ""
+    query_parts = []
     for idx, prop in enumerate(filter.properties):
         if prop.type == "cohort":
             try:
@@ -84,19 +84,19 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
             if prop_cohort.pk == cohort.pk:
                 # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
                 # we treat it as satisfied for all persons
-                query += "AND 11 = 11"
+                query_parts.append("AND 11 = 11")
             else:
                 person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
                 params.update(cohort_filter_params)
-                query += f"AND person.id IN ({person_id_query})"
+                query_parts.append(f"AND person.id IN ({person_id_query})")
         else:
             filter_query, filter_params = prop_filter_json_extract(
                 prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
             )
             params.update(filter_params)
-            query += filter_query
+            query_parts.append(filter_query)
 
-    return query.replace("AND ", "", 1), params
+    return "\n".join(query_parts).replace("AND ", "", 1), params
 
 
 def get_entity_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int):

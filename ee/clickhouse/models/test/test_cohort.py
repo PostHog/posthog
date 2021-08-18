@@ -646,7 +646,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                             team_id
                     HAVING max(is_deleted) = 0)
                 GROUP BY distinct_id)
-                where person_id IN
+                WHERE person_id IN
                     (SELECT person_id
                     FROM person_static_cohort
                     WHERE cohort_id = %(cohort_id_0)s
