@@ -166,10 +166,7 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_can_update_current_organization(self, mock_capture):
-        response = self.client.patch(
-            "/api/users/@me/",
-            {"set_current_organization": str(self.new_org.id)},
-        )
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)},)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["organization"]["id"], str(self.new_org.id))
@@ -320,9 +317,7 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(user.check_password("a_new_password"))
 
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user updated",
-            properties={"updated_attrs": ["password"]},
+            user.distinct_id, "user updated", properties={"updated_attrs": ["password"]},
         )
 
         # User can log in with new password
@@ -335,8 +330,7 @@ class TestUserAPI(APIBaseTest):
         self.client.force_login(user)
 
         response = self.client.patch(
-            "/api/users/@me/",
-            {"password": "a_new_password"},  # note we don't send current password
+            "/api/users/@me/", {"password": "a_new_password"},  # note we don't send current password
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -353,9 +347,7 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(user.check_password("a_new_password"))
 
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user updated",
-            properties={"updated_attrs": ["password"]},
+            user.distinct_id, "user updated", properties={"updated_attrs": ["password"]},
         )
 
         # User can log in with new password
@@ -368,10 +360,7 @@ class TestUserAPI(APIBaseTest):
         user.save()
         self.client.force_login(user)
 
-        response = self.client.patch(
-            "/api/users/@me/",
-            {"password": "a_new_password"},
-        )
+        response = self.client.patch("/api/users/@me/", {"password": "a_new_password"},)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Assert session is still valid
@@ -478,8 +467,7 @@ class TestUserAPILegacy(APIBaseTest):
 
     def test_user_team_update(self):
         response = self.client.patch(
-            "/api/user/",
-            data={"team": {"anonymize_ips": False, "session_recording_opt_in": True}},
+            "/api/user/", data={"team": {"anonymize_ips": False, "session_recording_opt_in": True}},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
