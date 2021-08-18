@@ -393,7 +393,7 @@ class TestSignupAPI(APIBaseTest):
         )
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
-    def test_social_signup_is_disabled_in_cloud(self, mock_request):
+    def test_social_signup_to_existing_org_with_whitelisted_domains_is_disabled_in_cloud(self, mock_request):
         Organization.objects.create(name="Hogflix Movies", domain_whitelist=["hogflix.posthog.com"])
         user_count = User.objects.count()
         org_count = Organization.objects.count()

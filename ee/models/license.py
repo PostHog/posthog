@@ -55,7 +55,7 @@ class License(models.Model):
     ENTERPRISE_FEATURES = [
         "zapier",
         "organizations_projects",
-        "google_login",
+        "sso",  # currently includes Google & OpenID Connect support
         "dashboard_collaboration",
         "ingestion_taxonomy",
     ]  # Base premium features

@@ -1,3 +1,8 @@
+"""
+Functional tests for core authentication.
+Tests for licensed (EE) authentication mechanisms can be found in ee/api/test/test_authentication.py
+"""
+
 from unittest.mock import patch
 
 from rest_framework import status
