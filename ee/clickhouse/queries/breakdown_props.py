@@ -23,11 +23,7 @@ def _get_top_elements(filter: Filter, team_id: int, query: str, limit, params: D
         **params,
     }
 
-    try:
-        top_elements_array_result = sync_execute(query, element_params)
-        top_elements_array = top_elements_array_result[0][0]
-    except:
-        top_elements_array = []
+    top_elements_array = sync_execute(query, element_params)[0][0]
 
     return top_elements_array
 
