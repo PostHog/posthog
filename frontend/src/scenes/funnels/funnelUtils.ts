@@ -165,17 +165,7 @@ export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelExclu
         return filters.exclusions
     }
 
-    console.log('BEFORE CLEAN EXCLUSIONS', filters.exclusions)
-
     const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-    console.log(
-        'AFTER CLEAN EXCLUSIONS',
-        filters.exclusions.map((event) => ({
-            ...event,
-            ...{ funnel_from_step: event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0 },
-            ...{ funnel_to_step: event.funnel_to_step ? clamp(event.funnel_from_step, 1, lastIndex) : lastIndex },
-        }))
-    )
     return filters.exclusions.map((event) => {
         const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
         return {

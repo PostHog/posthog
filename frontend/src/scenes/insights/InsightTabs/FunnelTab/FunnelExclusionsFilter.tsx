@@ -127,8 +127,6 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
     const layoutBreakpoint = getBreakpoint('lg')
     const isVerticalLayout = !!width && width > layoutBreakpoint
 
-    console.log('DEFAULT', exclusionDefaultStepRange)
-
     return (
         <ActionFilter
             setFilters={setEventExclusionFilters}

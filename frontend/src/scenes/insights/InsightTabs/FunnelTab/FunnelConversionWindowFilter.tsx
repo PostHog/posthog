@@ -21,10 +21,11 @@ export function FunnelConversionWindowFilter(): JSX.Element {
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
 
     const options = Object.keys(TIME_INTERVAL_BOUNDS).map((unit) => ({
-        label: pluralize(conversionWindow.funnel_window_interval, unit, `${unit}s`, false),
+        label: pluralize(conversionWindow.funnel_window_interval ?? 7, unit, `${unit}s`, false),
         value: unit,
     }))
-    const intervalBounds = TIME_INTERVAL_BOUNDS[conversionWindow.funnel_window_interval_unit]
+    const intervalBounds =
+        TIME_INTERVAL_BOUNDS[conversionWindow.funnel_window_interval_unit ?? FunnelConversionWindowTimeUnit.Day]
 
     const onChange = (): void => {
         if (
