@@ -329,19 +329,24 @@ $funnel_canvas_background: #fafafa;
 
     &.horizontal {
         .funnel-step {
+            .step-stat {
+                display: flex;
+                align-items: baseline;
+            }
+
             .funnel-conversion-metadata {
                 display: flex;
                 align-items: center;
-                gap: 1rem;
+                justify-content: space-between;
 
                 .funnel-inspect-button {
-                    padding: 0;
+                    padding: 0 4px 0 0;
                     .value-inspector-button-icon {
                         padding-right: 8px;
                     }
                 }
                 .conversion-metadata-caption {
-                    padding-left: 4px;
+                    padding-left: 3px;
                 }
             }
         }

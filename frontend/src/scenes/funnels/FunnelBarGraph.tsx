@@ -514,7 +514,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                 )}
                             </div>
                             <div className="funnel-conversion-metadata funnel-step-metadata">
-                                <div>
+                                <div className="step-stat">
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModal(step, stepIndex + 1)}
@@ -544,7 +544,10 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                         completed step
                                     </div>
                                 </div>
-                                <div style={stepIndex === 0 ? { visibility: 'hidden' } : undefined}>
+                                <div
+                                    className="step-stat"
+                                    style={stepIndex === 0 ? { visibility: 'hidden' } : undefined}
+                                >
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModal(step, -(stepIndex + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
