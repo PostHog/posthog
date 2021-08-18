@@ -28,8 +28,7 @@ import {
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
 } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS, FunnelLayout, BinCountAuto } from 'lib/constants'
+import { FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { cleanBinResult, formatDisplayPercentage, getLastFilledStep, getReferenceStep } from './funnelUtils'
@@ -173,7 +172,6 @@ export const funnelLogic = kea<funnelLogicType>({
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
-        values: [preflightLogic, ['preflight']],
         logic: [insightLogic],
     },
 
@@ -398,10 +396,9 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         clickhouseFeaturesEnabled: [
-            () => [featureFlagLogic.selectors.featureFlags, selectors.preflight],
+            () => [preflightLogic.selectors.preflight],
             // Controls auto-calculation of results and ability to break down values
-            (featureFlags, preflight): boolean =>
-                !!(featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && preflight?.is_clickhouse_enabled),
+            (preflight): boolean => !!preflight?.is_clickhouse_enabled,
         ],
         histogramGraphData: [
             () => [selectors.timeConversionBins],
@@ -489,8 +486,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         apiParams: [
-            (s) => [s.filters, s.conversionWindow, featureFlagLogic.selectors.featureFlags],
-            (filters, conversionWindow, featureFlags) => {
+            (s) => [s.filters, s.conversionWindow],
+            (filters, conversionWindow) => {
                 /* TODO: Related to #4329. We're mixing `from_dashboard` as both which causes hard to manage code:
                     a) a boolean-based hash param to determine if the insight is saved in a dashboard (when viewing insights page)
                     b) dashboard ID passed as a filter in certain kind of insights when viewing in the dashboard page
@@ -503,7 +500,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     ...cleanedParams,
                     funnel_window_interval: conversionWindow.funnel_window_interval,
                     funnel_window_interval_unit: conversionWindow.funnel_window_interval_unit,
-                    ...(!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ? { breakdown: null, breakdown_type: null } : {}),
                 }
             },
         ],
@@ -623,8 +619,7 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         setFilters: ({ refresh }) => {
-            // FUNNEL_BAR_VIZ removes the calculate button on Clickhouse
-            // Query performance is suboptimal on psql
+            // No calculate button on Clickhouse, but query performance is suboptimal on psql
             const { clickhouseFeaturesEnabled } = values
             // If user started from empty state (<2 steps) and added a new step
             const shouldRefresh =
