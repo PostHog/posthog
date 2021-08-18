@@ -13,6 +13,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
+from posthog.settings import EE_AVAILABLE
 from posthog.utils import get_instance_realm, get_machine_id, get_previous_week
 from posthog.version import VERSION
 
@@ -175,3 +176,12 @@ def get_helm_info_env() -> dict:
 
 def get_instance_organizations() -> List[str]:
     return [org.name for org in Organization.objects.all()]
+
+
+def get_instance_licenses() -> List[str]:
+    if EE_AVAILABLE:
+        from ee.models import License
+
+        return [license.key for license in License.objects.all()]
+    else:
+        return []
