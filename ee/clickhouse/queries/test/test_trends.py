@@ -716,6 +716,26 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         self.assertEqual(res[0]["count"], 1)
 
+    def test_materialized_property_filtering(self):
+        materialize("events", "$some_property")
+
+        with self.capture_select_queries() as sqls:
+            self.test_property_filtering()
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)
+
+    def test_materialized_per_entity_filtering(self):
+        materialize("events", "$some_property")
+
+        with self.capture_select_queries() as sqls:
+            self.test_per_entity_filtering()
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)
+
     @skip("breakdown queries don't yet use materialized properties properly")
     def test_materialized_breakdown_queries_right_columns(self):
         materialize("events", "$some_property")
