@@ -1,7 +1,14 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import (
+    COLLAPSING_MERGE_TREE,
+    KAFKA_COLUMNS,
+    REPLACING_MERGE_TREE,
+    STORAGE_POLICY,
+    kafka_engine,
+    table_engine,
+)
 
 DROP_PERSON_TABLE_SQL = f"DROP TABLE person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
@@ -95,33 +102,43 @@ PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
-    id Int64,
     distinct_id VARCHAR,
     person_id UUID,
     team_id Int64,
-    is_deleted Int8 DEFAULT 0
+    _sign Int8 DEFAULT 1,
+    is_deleted Int8 ALIAS if(_sign==-1, 1, 0)
     {extra_fields}
 ) ENGINE = {engine}
 """
 
 PERSONS_DISTINCT_ID_TABLE_SQL = (
     PERSONS_DISTINCT_ID_TABLE_BASE_SQL
-    + """Order By (team_id, distinct_id, person_id, id)
+    + """Order By (team_id, distinct_id, person_id)
 {storage_policy}
 """
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", COLLAPSING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
 
-KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
+# :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
+#    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = """
+CREATE TABLE {table_name} ON CLUSTER {cluster}
+(
+    distinct_id VARCHAR,
+    person_id UUID,
+    team_id Int64,
+    _sign Nullable(Int8),
+    is_deleted Nullable(Int8)
+) ENGINE = {engine}
+""".format(
     table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
-    extra_fields="",
 )
 
 # You must include the database here because of a bug in clickhouse
@@ -130,11 +147,10 @@ PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
 TO {database}.{table_name}
 AS SELECT
-id,
 distinct_id,
 person_id,
 team_id,
-is_deleted,
+coalesce(_sign, if(is_deleted==0, 1, -1)) AS _sign,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
@@ -211,7 +227,7 @@ INSERT INTO person (id, created_at, team_id, properties, is_identified, _timesta
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, 0, now(), 0 VALUES
+INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(sign)s, now(), 0 VALUES
 """
 
 DELETE_PERSON_BY_ID = """
@@ -224,10 +240,6 @@ WHERE distinct_id IN (
     SELECT distinct_id FROM person_distinct_id WHERE person_id=%(id)s AND team_id = %(team_id)s
 )
 AND team_id = %(team_id)s
-"""
-
-DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
-INSERT INTO person_distinct_id (id, distinct_id, person_id, team_id, is_deleted, _timestamp, _offset) SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, 0, now(), 0
 """
 
 PERSON_TREND_SQL = """
