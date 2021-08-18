@@ -83,15 +83,6 @@ class TestCohort(BaseTest):
 
         self.assertCountEqual(list(cohort.people.all()), [person1, person2])
 
-    @pytest.mark.ee
-    def test_clickhouse_empty_query(self):
-        cohort2 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
-        )
-
-        cohort2.calculate_people(use_clickhouse=True)
-        self.assertFalse(Cohort.objects.get().is_calculating)
-
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",

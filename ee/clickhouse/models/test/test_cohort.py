@@ -709,3 +709,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
         )[0][0]
         self.assertEqual(count_result, 2)
+
+    def test_clickhouse_empty_query(self):
+        cohort2 = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
+        )
+
+        cohort2.calculate_people()
+        self.assertFalse(Cohort.objects.get().is_calculating)
