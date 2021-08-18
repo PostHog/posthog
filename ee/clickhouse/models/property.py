@@ -84,7 +84,7 @@ def parse_prop_clauses(
 def prop_filter_json_extract(
     prop: Property, idx: int, prepend: str = "", prop_var: str = "properties", allow_denormalized_props: bool = False
 ) -> Tuple[str, Dict[str, Any]]:
-    # Once all queries are migrated over we can get rid of allow_denormalized_props
+    # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     property_expr, is_denormalized = get_property_string_expr(
         property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
     )
