@@ -25,10 +25,7 @@ if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
     ].split(",")
 
-AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + (
-    "social_core.backends.google.GoogleOAuth2",
-    "ee.api.authentication.OIDC",
-)
+AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + ("social_core.backends.google.GoogleOAuth2",)
 
 # ClickHouse and Kafka
 KAFKA_ENABLED = PRIMARY_DB == RDBMS.CLICKHOUSE and not TEST
