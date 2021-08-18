@@ -1,8 +1,6 @@
 // Antd arrows rotated at convenient angles
 
 .anticon-wraper-arrow {
-    margin: 0 -0.25em;
-
     &.topLeft {
         svg {
             transform: rotate(-45deg);

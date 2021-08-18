@@ -513,65 +513,62 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                     </>
                                 )}
                             </div>
-                            <div className="funnel-conversion-metadata funnel-step-metadata" style={{ height: 90 }}>
-                                <div className="center-flex">
-                                    <ValueInspectorButton
-                                        onClick={() => openPersonsModal(step, stepIndex + 1)}
-                                        disabled={!clickhouseFeaturesEnabled || !!dashboardItemId}
-                                    >
-                                        <span className="value-inspector-button-icon">
-                                            <ArrowRightOutlined style={{ color: 'var(--success)' }} />
-                                        </span>
-                                        <b>{humanizeStepCount(step.count)}</b>
-                                    </ValueInspectorButton>
-                                    <span className="text-muted-alt">
-                                        (
-                                        {formatDisplayPercentage(
-                                            step.order > 0 ? step.count / steps[stepIndex - 1].count : 1
-                                        )}
-                                        %)
-                                    </span>
-                                </div>
-                                <div
-                                    className="text-muted-alt conversion-metadata-caption"
-                                    style={layout === FunnelLayout.horizontal ? { flexGrow: 1 } : { marginBottom: 8 }}
-                                >
-                                    completed step
-                                </div>
-                                {stepIndex !== 0 && (
-                                    <>
-                                        <div className="center-flex">
-                                            <ValueInspectorButton
-                                                onClick={() => openPersonsModal(step, -(stepIndex + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
-                                                disabled={!clickhouseFeaturesEnabled || !!dashboardItemId}
-                                                style={{ paddingRight: '0.25em' }}
-                                            >
-                                                <span
-                                                    className="value-inspector-button-icon"
-                                                    style={{
-                                                        padding: '4px 6px',
-                                                        marginRight: layout === FunnelLayout.horizontal ? 2 : 10,
-                                                    }} // This custom icon requires special handling
-                                                >
-                                                    <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
-                                                </span>
-                                                <b>
-                                                    {humanizeStepCount(
-                                                        step.order > 0 ? steps[stepIndex - 1].count - step.count : 0
-                                                    )}
-                                                </b>
-                                            </ValueInspectorButton>
+                            <div className="funnel-conversion-metadata funnel-step-metadata">
+                                <div>
+                                    <div className="center-flex">
+                                        <ValueInspectorButton
+                                            onClick={() => openPersonsModal(step, stepIndex + 1)}
+                                            disabled={!clickhouseFeaturesEnabled || !!dashboardItemId}
+                                        >
+                                            <span className="value-inspector-button-icon">
+                                                <ArrowRightOutlined style={{ color: 'var(--success)' }} />
+                                            </span>
+                                            <b>{humanizeStepCount(step.count)}</b>
+                                        </ValueInspectorButton>
+                                        {stepIndex > 0 && (
                                             <span className="text-muted-alt">
                                                 (
                                                 {formatDisplayPercentage(
-                                                    step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0
+                                                    step.order > 0 ? step.count / steps[stepIndex - 1].count : 1
                                                 )}
                                                 %)
                                             </span>
-                                        </div>
-                                        <div className="text-muted-alt conversion-metadata-caption">dropped off</div>
-                                    </>
-                                )}
+                                        )}
+                                    </div>
+                                    <div
+                                        className="text-muted-alt conversion-metadata-caption"
+                                        style={
+                                            layout === FunnelLayout.horizontal ? { flexGrow: 1 } : { marginBottom: 8 }
+                                        }
+                                    >
+                                        completed step
+                                    </div>
+                                </div>
+                                <div style={stepIndex === 0 ? { visibility: 'hidden' } : undefined}>
+                                    <div className="center-flex">
+                                        <ValueInspectorButton
+                                            onClick={() => openPersonsModal(step, -(stepIndex + 1))} // dropoff value from step 1 to 2 is -2, 2 to 3 is -3
+                                            disabled={!clickhouseFeaturesEnabled || !!dashboardItemId}
+                                        >
+                                            <span className="value-inspector-button-icon">
+                                                <ArrowBottomRightOutlined style={{ color: 'var(--danger)' }} />
+                                            </span>
+                                            <b>
+                                                {humanizeStepCount(
+                                                    step.order > 0 ? steps[stepIndex - 1].count - step.count : 0
+                                                )}
+                                            </b>
+                                        </ValueInspectorButton>
+                                        <span className="text-muted-alt">
+                                            (
+                                            {formatDisplayPercentage(
+                                                step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0
+                                            )}
+                                            %)
+                                        </span>
+                                    </div>
+                                    <div className="text-muted-alt conversion-metadata-caption">dropped off</div>
+                                </div>
                             </div>
                         </div>
                     </section>
