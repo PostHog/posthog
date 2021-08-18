@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, WEEKLY_ACTIVE
@@ -23,8 +24,16 @@ MATH_FUNCTIONS = {
 
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
-    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity.index}_math)s))"
+    param_name = f"e_{entity.index}_math"
+
     params = {f"e_{entity.index}_math": entity.math_property}
+    value, _ = get_property_string_expr(
+        "events",
+        entity.math_property,
+        f"%({param_name})",
+        "properties",
+        "toFloat64OrNull(JSONExtractRaw({prop_var}, {var}))",
+    )
 
     aggregate_operation = "count(*)"
     join_condition = ""

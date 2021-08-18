@@ -16,18 +16,14 @@ class ClickhousePaths(Paths):
     def _determine_path_type(self, requested_type=None):
         # Default
         event: Optional[str] = "$pageview"
-        path_type, _ = get_property_string_expr(
-            "events", "$current_url", "'$current_url'", "properties", allow_denormalized_props=True
-        )
+        path_type, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
         start_comparator = "path_type"
 
         # determine requested type
         if requested_type:
             if requested_type == SCREEN_EVENT:
                 event = SCREEN_EVENT
-                path_type, _ = get_property_string_expr(
-                    "events", "$screen_name", "'$screen_name'", "properties", allow_denormalized_props=True
-                )
+                path_type, _ = get_property_string_expr("events", "$screen_name", "'$screen_name'", "properties")
             elif requested_type == AUTOCAPTURE_EVENT:
                 event = AUTOCAPTURE_EVENT
                 path_type = "concat('<', {tag_regex}, '> ', {text_regex})".format(
