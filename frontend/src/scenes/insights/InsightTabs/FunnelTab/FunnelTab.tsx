@@ -48,7 +48,9 @@ export function FunnelTab(): JSX.Element {
                     loadResults()
                 }}
             >
-                <h4 className="secondary">Steps</h4>
+                <Row justify="space-between" align="middle">
+                    <h4 className="secondary">Steps</h4>
+                </Row>
                 <ActionFilter
                     filters={filters}
                     setFilters={(newFilters: Record<string, any>): void => setFilters(newFilters, false)}
