@@ -329,16 +329,16 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 
 # Social Auth
 
-SOCIAL_AUTH_POSTGRES_JSONFIELD = True
+SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
-AUTHENTICATION_BACKENDS = (
+AUTHENTICATION_BACKENDS = [
     "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
-)
+]
 
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
