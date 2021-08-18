@@ -1,5 +1,5 @@
 import { isMobile, Loading } from 'lib/utils'
-import { Button, Card, Dropdown, Input, Menu, Select, Tooltip } from 'antd'
+import { Button, Dropdown, Input, Menu, Select } from 'antd'
 import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -24,8 +24,10 @@ import { HotkeyButton } from 'lib/components/HotkeyButton'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { dashboardsLogic } from './dashboardsLogic'
-import { userLogic } from 'scenes/userLogic'
 import { urls } from 'scenes/sceneLogic'
+import { Description } from 'lib/components/Description/Description'
+import { userLogic } from 'scenes/userLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function DashboardHeader(): JSX.Element {
     const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)
@@ -36,11 +38,14 @@ export function DashboardHeader(): JSX.Element {
     const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const { user } = useValues(userLogic)
-    const [newName, setNewName] = useState(dashboard.name) // Used to update the input immediately, debouncing API calls
-    const [newDescription, setNewDescription] = useState(dashboard.description) // Used to update the input immediately, debouncing API calls
+    const [newName, setNewName] = useState(dashboard?.name || null) // Used to update the input immediately, debouncing API calls
 
     const nameInputRef = useRef<Input | null>(null)
     const descriptionInputRef = useRef<HTMLInputElement | null>(null)
+
+    if (!dashboard) {
+        return <div />
+    }
 
     const actionsDefault = (
         <>
@@ -180,7 +185,7 @@ export function DashboardHeader(): JSX.Element {
                         {dashboardMode === DashboardMode.Edit ? (
                             <Input
                                 placeholder="Dashboard name (e.g. Weekly KPIs)"
-                                value={newName}
+                                value={newName || ''}
                                 size="large"
                                 style={{ maxWidth: 400 }}
                                 onChange={(e) => {
@@ -198,7 +203,7 @@ export function DashboardHeader(): JSX.Element {
                         ) : (
                             <div className="dashboard-select">
                                 <Select
-                                    value={dashboard?.id || null}
+                                    value={(dashboard?.id || undefined) as number | 'new' | undefined}
                                     onChange={(id) => {
                                         if (id === 'new') {
                                             addNewDashboard()
@@ -246,40 +251,13 @@ export function DashboardHeader(): JSX.Element {
                             tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
                         />
                     </div>
-                    <Card className="dashboard-description" bordered={!(dashboardMode === DashboardMode.Edit)}>
-                        {dashboardMode === DashboardMode.Edit ? (
-                            <Input.TextArea
-                                placeholder="Add a description to your dashboard that helps others understand it better."
-                                value={newDescription}
-                                onChange={(e) => {
-                                    setNewDescription(e.target.value) // To update the input immediately
-                                    triggerDashboardUpdate({ description: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                        setDashboardMode(null, DashboardEventSource.InputEnter)
-                                    }
-                                }}
-                                ref={descriptionInputRef}
-                                tabIndex={5}
-                                allowClear
-                            />
-                        ) : (
-                            <div
-                                className="edit-box"
-                                onClick={() =>
-                                    setDashboardMode(DashboardMode.Edit, DashboardEventSource.AddDescription)
-                                }
-                            >
-                                {dashboard.description ? (
-                                    <span>{dashboard.description}</span>
-                                ) : (
-                                    <span className="add-description">Add a description...</span>
-                                )}
-                                <EditOutlined />
-                            </div>
-                        )}
-                    </Card>
+                    <Description
+                        item={dashboard}
+                        setItemMode={setDashboardMode}
+                        itemMode={dashboardMode}
+                        triggerItemUpdate={triggerDashboardUpdate}
+                        descriptionInputRef={descriptionInputRef}
+                    />
                 </>
             )}
         </>

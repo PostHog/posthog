@@ -8,9 +8,9 @@ import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTabl
 import { cohortsModel } from '~/models/cohortsModel'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
+import { formatDisplayPercentage, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
-import { humanFriendlyDuration, humanizeNumber } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils'
 import { FlattenedFunnelStep } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
@@ -26,12 +26,20 @@ function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string 
     return getColor(step, 'var(--text-default)', isBreakdown)
 }
 
+function isBreakdownChildType(
+    stepBreakdown: FlattenedFunnelStep['breakdown']
+): stepBreakdown is string | number | undefined {
+    return ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
+}
+
 export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
     const { stepsWithCount, flattenedSteps, filters, steps } = useValues(funnelLogic)
     const { openPersonsModal } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
     const tableScrollBreakpoint = getBreakpoint('lg')
     const columns: ColumnsType<FlattenedFunnelStep> = []
+
+    const EmptyValue = <span className="text-muted-alt">-</span>
 
     columns.push({
         title: '',
@@ -44,6 +52,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
         },
         fixed: 'left',
         width: 30,
+        align: 'center',
     })
 
     columns.push({
@@ -56,9 +65,19 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                     <div style={{ flexGrow: 1, maxWidth: 270, wordBreak: 'break-word' }}>
                         <InsightLabel
                             seriesColor={color}
-                            fallbackName={isBreakdownChild ? formatBreakdownLabel(step.breakdown, cohorts) : step.name}
+                            fallbackName={
+                                isBreakdownChild && isBreakdownChildType(step.breakdown)
+                                    ? formatBreakdownLabel(step.breakdown, cohorts)
+                                    : step.name
+                            }
                             hasMultipleSeries={steps.length > 1}
-                            breakdownValue={step.breakdown === '' ? 'None' : step.breakdown}
+                            breakdownValue={
+                                step.breakdown === ''
+                                    ? 'None'
+                                    : isBreakdownChildType(step.breakdown)
+                                    ? step.breakdown
+                                    : undefined
+                            }
                             hideBreakdown
                             hideIcon={!isBreakdownChild}
                             allowWrap
@@ -75,48 +94,79 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
         title: 'Completed',
         render: function RenderCompleted({}, step: FlattenedFunnelStep): JSX.Element {
             return (
-                <ValueInspectorButton onClick={() => openPersonsModal(step, step.order + 1, step.breakdown)}>
+                <ValueInspectorButton
+                    onClick={() =>
+                        openPersonsModal(
+                            step,
+                            step.order + 1,
+                            step.isBreakdownParent ? undefined : step.breakdown_value
+                        )
+                    }
+                >
                     {step.count}
                 </ValueInspectorButton>
             )
         },
         width: 80,
+        align: 'center',
     })
 
     columns.push({
         title: 'Conversion',
         render: function RenderConversion({}, step: FlattenedFunnelStep): JSX.Element | null {
-            return step.order === 0 ? null : <span>{step.conversionRates.total}%</span>
+            return step.order === 0 ? EmptyValue : <span>{formatDisplayPercentage(step.conversionRates.total)}%</span>
         },
         width: 80,
+        align: 'center',
     })
 
     columns.push({
         title: 'Dropped off',
         render: function RenderDropoff({}, step: FlattenedFunnelStep): JSX.Element | null {
-            return step.order === 0 ? null : (
-                <ValueInspectorButton onClick={() => openPersonsModal(step, -(step.order + 1), step.breakdown)}>
+            return step.order === 0 ? (
+                EmptyValue
+            ) : (
+                <ValueInspectorButton
+                    onClick={() =>
+                        openPersonsModal(
+                            step,
+                            -(step.order + 1),
+                            step.isBreakdownParent ? undefined : step.breakdown_value
+                        )
+                    }
+                >
                     {step.droppedOffFromPrevious}
                 </ValueInspectorButton>
             )
         },
         width: 80,
+        align: 'center',
     })
 
     columns.push({
         title: 'From previous step',
         render: function RenderDropoffFromPrevious({}, step: FlattenedFunnelStep): JSX.Element | null {
-            return step.order === 0 ? null : <span>{humanizeNumber(100 - step.conversionRates.fromPrevious, 2)}%</span>
+            return step.order === 0 ? (
+                EmptyValue
+            ) : (
+                <span>{formatDisplayPercentage(1 - step.conversionRates.fromPrevious)}%</span>
+            )
         },
         width: 80,
+        align: 'center',
     })
 
     columns.push({
         title: 'Average time',
         render: function RenderAverageTime({}, step: FlattenedFunnelStep): JSX.Element {
-            return <span>{humanFriendlyDuration(step.average_conversion_time, 2)}</span>
+            return step.average_conversion_time ? (
+                <span>{humanFriendlyDuration(step.average_conversion_time, 2)}</span>
+            ) : (
+                EmptyValue
+            )
         },
         width: 80,
+        align: 'center',
     })
 
     return stepsWithCount.length > 1 ? (

@@ -380,7 +380,7 @@ def get_trunc_func(period: str) -> Tuple[str, str]:
 class LifecycleTrend:
     def _serialize_lifecycle(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
 
-        period = filter.interval or "day"
+        period = filter.interval
         num_intervals, prev_date_from, date_from, date_to, after_date_to = get_time_diff(
             period, filter.date_from, filter.date_to, team_id
         )
@@ -447,7 +447,7 @@ class LifecycleTrend:
         limit: int = 100,
     ):
         entity = filter.entities[0]
-        period = filter.interval or "day"
+        period = filter.interval
         num_intervals, prev_date_from, date_from, date_to, after_date_to = get_time_diff(
             period, filter.date_from, filter.date_to, team_id
         )

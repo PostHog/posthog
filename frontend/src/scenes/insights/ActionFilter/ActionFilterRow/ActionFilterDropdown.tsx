@@ -9,7 +9,7 @@ import {
     ContainerOutlined,
     QuestionCircleOutlined,
 } from '@ant-design/icons'
-import { Button, Tooltip } from 'antd'
+import { Button } from 'antd'
 import { ActionSelectInfo } from '../../ActionSelectInfo'
 import { RenderInfoProps, SelectBox, SelectedItem } from 'lib/components/SelectBox'
 import { Link } from 'lib/components/Link'
@@ -17,6 +17,7 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { entityFilterLogic } from '../entityFilterLogic'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { router } from 'kea-router'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const getSuggestions = (events: EventDefinition[]): EventDefinition[] => {
     return events

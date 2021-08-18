@@ -1,7 +1,7 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.events import EXTRACT_TAG_REGEX, EXTRACT_TEXT_REGEX
 from ee.clickhouse.sql.paths.path import PATHS_QUERY_FINAL
@@ -10,21 +10,24 @@ from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, SCREEN_EVENT
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.team import Team
 from posthog.queries.paths import Paths
-from posthog.utils import relative_date_parse
 
 
 class ClickhousePaths(Paths):
     def _determine_path_type(self, requested_type=None):
         # Default
         event: Optional[str] = "$pageview"
-        path_type = "JSONExtractString(properties, '$current_url')"
+        path_type, _ = get_property_string_expr(
+            "events", "$current_url", "'$current_url'", "properties", allow_denormalized_props=True
+        )
         start_comparator = "path_type"
 
         # determine requested type
         if requested_type:
             if requested_type == SCREEN_EVENT:
                 event = SCREEN_EVENT
-                path_type = "JSONExtractString(properties, '$screen_name')"
+                path_type, _ = get_property_string_expr(
+                    "events", "$screen_name", "'$screen_name'", "properties", allow_denormalized_props=True
+                )
             elif requested_type == AUTOCAPTURE_EVENT:
                 event = AUTOCAPTURE_EVENT
                 path_type = "concat('<', {tag_regex}, '> ', {text_regex})".format(
@@ -36,8 +39,7 @@ class ClickhousePaths(Paths):
                 path_type = "event"
         return event, path_type, start_comparator
 
-    def calculate_paths(self, filter: PathFilter, team: Team):
-
+    def get_query(self, filter: PathFilter, team: Team) -> Tuple[str, Dict]:
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
@@ -82,6 +84,10 @@ class ClickhousePaths(Paths):
         }
         params = {**params, **prop_filter_params}
 
+        return paths_query, params
+
+    def calculate_paths(self, filter: PathFilter, team: Team):
+        paths_query, params = self.get_query(filter, team)
         rows = sync_execute(paths_query, params)
 
         resp: List[Dict[str, str]] = []

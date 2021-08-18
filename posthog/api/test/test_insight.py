@@ -162,12 +162,36 @@ def insight_test_factory(event_factory, person_factory):
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(response.json()["description"], None)
+            self.assertEqual(response.json()["tags"], [])
 
             objects = DashboardItem.objects.all()
             self.assertEqual(len(objects), 1)
             self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
             self.assertEqual(objects[0].filters["date_from"], "-90d")
             self.assertEqual(len(objects[0].short_id), 8)
+
+        def test_update_insight(self):
+            insight = DashboardItem.objects.create(team=self.team, name="special insight", created_by=self.user,)
+            response = self.client.patch(
+                f"/api/insight/{insight.id}",
+                {
+                    "name": "insight new name",
+                    "tags": ["official", "engineering"],
+                    "description": "Internal system metrics.",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["name"], "insight new name")
+            self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
+            self.assertEqual(response_data["description"], "Internal system metrics.")
+            self.assertEqual(response_data["tags"], ["official", "engineering"])
+
+            insight.refresh_from_db()
+            self.assertEqual(insight.name, "insight new name")
+            self.assertEqual(insight.tags, ["official", "engineering"])
 
         def test_save_new_funnel(self):
 
@@ -237,27 +261,37 @@ def insight_test_factory(event_factory, person_factory):
 
         def test_nonexistent_cohort_is_handled(self):
             response_nonexistent_property = self.client.get(
-                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
-            ).json()
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
+            )
             response_nonexistent_cohort = self.client.get(
                 f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':2137}])}"
-            ).json()  # This should not throw an error, just act like there's no event matches
+            )  # This should not throw an error, just act like there's no event matches
 
-            self.assertEqual(response_nonexistent_cohort, response_nonexistent_property)  # Both cases just empty
+            response_nonexistent_property_data = response_nonexistent_property.json()
+            response_nonexistent_cohort_data = response_nonexistent_cohort.json()
+            response_nonexistent_property_data.pop("last_refresh")
+            response_nonexistent_cohort_data.pop("last_refresh")
+            self.assertEqual(
+                response_nonexistent_property_data, response_nonexistent_cohort_data
+            )  # Both cases just empty
 
         def test_cohort_without_match_group_works(self):
             whatever_cohort_without_match_groups = Cohort.objects.create(team=self.team)
 
             response_nonexistent_property = self.client.get(
-                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'property','key':'foo','value':'barabarab'}])}"
+                f"/api/insight/trend/?events={json.dumps([{'id': '$pageview'}])}&properties={json.dumps([{'type':'event','key':'foo','value':'barabarab'}])}"
             )
             response_cohort_without_match_groups = self.client.get(
                 f"/api/insight/trend/?events={json.dumps([{'id':'$pageview'}])}&properties={json.dumps([{'type':'cohort','key':'id','value':whatever_cohort_without_match_groups.pk}])}"
             )  # This should not throw an error, just act like there's no event matches
 
             self.assertEqual(response_nonexistent_property.status_code, 200)
+            response_nonexistent_property_data = response_nonexistent_property.json()
+            response_cohort_without_match_groups_data = response_cohort_without_match_groups.json()
+            response_nonexistent_property_data.pop("last_refresh")
+            response_cohort_without_match_groups_data.pop("last_refresh")
             self.assertEqual(
-                response_nonexistent_property.json(), response_cohort_without_match_groups.json()
+                response_nonexistent_property_data, response_cohort_without_match_groups_data
             )  # Both cases just empty
 
         def test_precalculated_cohort_works(self):
@@ -281,7 +315,11 @@ def insight_test_factory(event_factory, person_factory):
                 )
 
             self.assertEqual(response_precalculated_cohort.status_code, 200)
-            self.assertEqual(response_precalculated_cohort.json(), response_user_property.json())
+            response_user_property_data = response_user_property.json()
+            response_precalculated_cohort_data = response_precalculated_cohort.json()
+            response_user_property_data.pop("last_refresh")
+            response_precalculated_cohort_data.pop("last_refresh")
+            self.assertEqual(response_user_property_data, response_precalculated_cohort_data)
 
         def test_insight_trends_breakdown_pagination(self):
             with freeze_time("2012-01-14T03:21:34.000Z"):

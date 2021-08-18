@@ -1,6 +1,7 @@
 import React, { useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { Button, Col, Row, Select, Tooltip } from 'antd'
+import { Button, Col, Row, Select } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 import { ActionFilter, EntityType, EntityTypes, PropertyFilter, PropertyFilterValue, SelectOption } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -40,6 +41,7 @@ export interface ActionFilterRowProps {
     hidePropertySelector?: boolean // DEPRECATED: Out of use in the new horizontal UI
     singleFilter?: boolean
     showOr?: boolean
+    hideFilter?: boolean // Hides the local filter options
     showSeriesIndicator?: boolean // Show series badge
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     horizontalUI?: boolean
@@ -58,6 +60,7 @@ export function ActionFilterRow({
     hidePropertySelector,
     singleFilter,
     showOr,
+    hideFilter,
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
     horizontalUI = false,
@@ -157,7 +160,11 @@ export function ActionFilterRow({
                         )}
                     </Col>
                 )}
-                {customRowPrefix ? <Col>{customRowPrefix}</Col> : <>{horizontalUI && <Col>Showing</Col>}</>}
+                {customRowPrefix !== undefined ? (
+                    <Col>{customRowPrefix}</Col>
+                ) : (
+                    <>{horizontalUI && <Col>Showing</Col>}</>
+                )}
                 <Col
                     style={fullWidth ? {} : { maxWidth: `calc(${hideMathSelector ? '100' : '50'}% - 16px)` }}
                     flex={fullWidth ? 'auto' : undefined}
@@ -265,7 +272,7 @@ export function ActionFilterRow({
                         )}
                     </>
                 )}
-                {(horizontalUI || fullWidth) && (
+                {(horizontalUI || fullWidth) && !hideFilter && (
                     <Col>
                         <Button
                             type="link"

@@ -1,6 +1,6 @@
-import { Card, Carousel, Divider, Image, Space, Spin, Tooltip, Typography } from 'antd'
+import { Card, Carousel, Divider, Image, Space, Spin, Typography } from 'antd'
 import React, { useState } from 'react'
-
+import { Tooltip } from 'lib/components/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useActions } from 'kea'
 

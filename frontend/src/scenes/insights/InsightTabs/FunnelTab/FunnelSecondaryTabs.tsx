@@ -1,12 +1,10 @@
 import React from 'react'
-import { Card, Row, Tooltip } from 'antd'
+import { Card, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { SavedFunnels } from 'scenes/insights/SavedCard'
-import { ViewType } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-
+import { Tooltip } from 'lib/components/Tooltip'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -14,18 +12,19 @@ import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { BreakdownType, FunnelVizType } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
 
 export function FunnelSecondaryTabs(): JSX.Element | null {
-    const { activeView } = useValues(insightLogic)
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
-    if (activeView !== ViewType.FUNNELS) {
-        return null
-    }
 
     return (
         <>
-            <Card>
+            <Card className="funnel-options" data-attr="funnel-options">
+                <h4 className="secondary">Options</h4>
+                <FunnelConversionWindowFilter />
+            </Card>
+            <Card style={{ marginTop: 16 }}>
                 <GlobalFiltersTitle unit="steps" />
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}

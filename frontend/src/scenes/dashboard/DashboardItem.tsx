@@ -1,14 +1,13 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Menu, Tooltip, Alert, Button, Skeleton } from 'antd'
+import { Dropdown, Menu, Alert, Button, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { RefObject, useEffect, useState } from 'react'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/viz/ActionsTable'
 import { ActionsPie } from 'scenes/trends/viz/ActionsPie'
-import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { Paths } from 'scenes/paths/Paths'
 import {
     EllipsisOutlined,
@@ -30,19 +29,17 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
-import { logicFromInsight } from 'scenes/insights/insightLogic'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { logicFromInsight } from 'scenes/insights/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
-
-import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Funnel } from 'scenes/funnels/Funnel'
+import { Tooltip } from 'lib/components/Tooltip'
 
 dayjs.extend(relativeTime)
 
@@ -126,7 +123,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     },
     FunnelViz: {
         className: 'funnel',
-        element: FunnelViz,
+        element: Funnel,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
@@ -186,13 +183,7 @@ export function DashboardItem({
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
     const { dashboards } = useValues(dashboardsModel)
-    /* FIXME (see #5454): const { refreshStatus } = useValues(dashboardLogic) */
     const { renameDashboardItem } = useActions(dashboardItemsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
-        displayMap.FunnelViz.element = Funnel
-    }
 
     const _type: DisplayedType =
         item.filters.insight === ViewType.RETENTION
@@ -341,6 +332,7 @@ export function DashboardItem({
                                                 }}
                                             >
                                                 <Tooltip
+                                                    placement="left"
                                                     title={
                                                         <i>
                                                             Last updated:{' '}
@@ -498,27 +490,23 @@ export function DashboardItem({
                 )}
 
                 <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
-                    {
-                        /* FIXME (see #5454): !refreshStatus[item.id]?.loading && */ Element ? (
-                            <Alert.ErrorBoundary message="Error rendering graph!">
-                                {(dashboardMode === DashboardMode.Public || preventLoading) &&
-                                !results &&
-                                !item.result ? (
-                                    <Skeleton />
-                                ) : (
-                                    <Element
-                                        dashboardItemId={item.id}
-                                        filters={filters}
-                                        color={color}
-                                        theme={color === 'white' ? 'light' : 'dark'}
-                                        inSharedMode={dashboardMode === DashboardMode.Public}
-                                    />
-                                )}
-                            </Alert.ErrorBoundary>
-                        ) : (
-                            <Loading />
-                        )
-                    }
+                    {Element ? (
+                        <Alert.ErrorBoundary message="Error rendering graph!">
+                            {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (
+                                <Skeleton />
+                            ) : (
+                                <Element
+                                    dashboardItemId={item.id}
+                                    filters={filters}
+                                    color={color}
+                                    theme={color === 'white' ? 'light' : 'dark'}
+                                    inSharedMode={dashboardMode === DashboardMode.Public}
+                                />
+                            )}
+                        </Alert.ErrorBoundary>
+                    ) : (
+                        <Loading />
+                    )}
                 </div>
                 {footer}
             </div>

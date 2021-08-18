@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns import get_materialized_columns
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
@@ -46,6 +47,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self._filter = self._filter.with_data(new_limit)
             self.params.update(new_limit)
 
+        self._update_filters()
+
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
             return []
@@ -53,46 +56,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         results = self._exec_query()
         return self._format_results(results)
 
-    def _format_single_funnel(self, results, with_breakdown=False):
-        # Format of this is [step order, person count (that reached that step), array of person uuids]
-        steps = []
-        total_people = 0
-
-        for step in reversed(self._filter.entities):
-
-            if results and len(results) > 0:
-                total_people += results[step.order]
-
-            serialized_result = self._serialize_step(step, total_people, [])
-            if cast(int, step.order) > 0:
-                serialized_result.update(
-                    {
-                        "average_conversion_time": results[cast(int, step.order) + len(self._filter.entities) - 1],
-                        "median_conversion_time": results[cast(int, step.order) + len(self._filter.entities) * 2 - 2],
-                    }
-                )
-            else:
-                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
-
-            if with_breakdown:
-                serialized_result.update({"breakdown": results[-1]})
-                # important to not try and modify this value any how - as these are keys for fetching persons
-
-            steps.append(serialized_result)
-
-        return steps[::-1]  #  reverse
-
-    def _format_results(self, results):
-        if not results or len(results) == 0:
-            return []
-
-        if self._filter.breakdown:
-            return [self._format_single_funnel(res, with_breakdown=True) for res in results]
-        else:
-            return self._format_single_funnel(results[0])
-
-    def _exec_query(self) -> List[Tuple]:
-
+    def _update_filters(self):
         # format default dates
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
@@ -120,6 +84,45 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         self._filter = self._filter.with_data(data)
 
+    def _format_single_funnel(self, results, with_breakdown=False):
+        # Format of this is [step order, person count (that reached that step), array of person uuids]
+        steps = []
+        total_people = 0
+
+        for step in reversed(self._filter.entities):
+
+            if results and len(results) > 0:
+                total_people += results[step.order]
+
+            serialized_result = self._serialize_step(step, total_people, [])
+            if cast(int, step.order) > 0:
+                serialized_result.update(
+                    {
+                        "average_conversion_time": results[cast(int, step.order) + len(self._filter.entities) - 1],
+                        "median_conversion_time": results[cast(int, step.order) + len(self._filter.entities) * 2 - 2],
+                    }
+                )
+            else:
+                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
+
+            if with_breakdown:
+                serialized_result.update({"breakdown": results[-1], "breakdown_value": results[-1]})
+                # important to not try and modify this value any how - as these are keys for fetching persons
+
+            steps.append(serialized_result)
+
+        return steps[::-1]  #  reverse
+
+    def _format_results(self, results):
+        if not results or len(results) == 0:
+            return []
+
+        if self._filter.breakdown:
+            return [self._format_single_funnel(res, with_breakdown=True) for res in results]
+        else:
+            return self._format_single_funnel(results[0])
+
+    def _exec_query(self) -> List[Tuple]:
         query = self.get_query()
         return sync_execute(query, self.params)
 
@@ -376,11 +379,15 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) AS prop"
             elif self._filter.breakdown_type == "event":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
+                column_name = get_materialized_columns("events").get(self._filter.breakdown)
+                if column_name is not None:
+                    return f", {column_name} AS prop"
+                else:
+                    return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) AS prop"
             elif self._filter.breakdown_type == "cohort":
-                return ", value as prop"
+                return ", value AS prop"
 
         return ""
 
@@ -397,30 +404,32 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_breakdown_conditions(self) -> str:
         if self._filter.breakdown:
-            if self._filter.funnel_step_breakdown:
-                values = self._parse_breakdown_prop_value()
-            else:
-                limit = self._filter.breakdown_limit_or_default
-                first_entity = next(x for x in self._filter.entities if x.order == 0)
-                if not first_entity:
-                    ValidationError("An entity with order 0 was not provided")
-                values = []
-                if self._filter.breakdown_type == "person":
-                    values = get_breakdown_person_prop_values(
-                        self._filter, first_entity, "count(*)", self._team.pk, limit
-                    )
-                elif self._filter.breakdown_type == "event":
-                    values = get_breakdown_event_prop_values(
-                        self._filter, first_entity, "count(*)", self._team.pk, limit
-                    )
+            limit = self._filter.breakdown_limit_or_default
+            first_entity = self._filter.entities[0]
+
+            values = []
+            if self._filter.breakdown_type == "person":
+                values = get_breakdown_person_prop_values(
+                    self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                )
+                # people pagination sets the offset param, which is common across filters
+                # and gives us the wrong breakdown values here, so we override it.
+            elif self._filter.breakdown_type == "event":
+                values = get_breakdown_event_prop_values(
+                    self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                )
+                # We assume breakdown values remain stable across the funnel, so using
+                # just the first entity to get breakdown values is ok.
 
             self.params.update({"breakdown_values": values})
-            return "prop IN %(breakdown_values)s"
-        else:
-            return ""
 
-    def _get_breakdown_prop(self) -> str:
+        return ""
+
+    def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            return ", prop"
+            if group_remaining and self._filter.breakdown_type != "cohort":
+                return ", if(has(%(breakdown_values)s, prop), prop, 'Other') as prop"
+            else:
+                return ", prop"
         else:
             return ""

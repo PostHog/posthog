@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Tooltip, Row, Skeleton, Checkbox, Col, Button } from 'antd'
+import { Row, Skeleton, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
@@ -19,6 +19,7 @@ import { InsightActionBar } from '../InsightActionBar'
 import { BaseTabProps } from 'scenes/insights/Insights'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface TrendTabProps extends BaseTabProps {
     view: string

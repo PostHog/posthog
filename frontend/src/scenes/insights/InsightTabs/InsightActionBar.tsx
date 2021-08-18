@@ -1,4 +1,4 @@
-import { Button, Popconfirm, Tooltip } from 'antd'
+import { Button, Popconfirm } from 'antd'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import React from 'react'
 import { FilterType, InsightType } from '~/types'
@@ -7,6 +7,7 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface Props {
     variant?: 'header' | 'sidebar' // Header view shows labels on some viewports; sidebar always hides them
@@ -42,7 +43,7 @@ export function InsightActionBar({
                         reportInsightsTabReset()
                     }}
                 >
-                    <Tooltip placement="bottom" title="Reset all filters">
+                    <Tooltip placement="top" title="Reset all filters">
                         <Button type="link" icon={<ClearOutlined />} className="btn-reset">
                             {showButtonLabels && 'Reset'}
                         </Button>

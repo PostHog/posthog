@@ -4,49 +4,57 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { router } from 'kea-router'
 import { toast } from 'react-toastify'
-import React from 'react'
-import { clearDOMTextSelection, toParams } from 'lib/utils'
+import { clearDOMTextSelection, editingToast, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Button } from 'antd'
-import { DashboardMode, ViewType } from '~/types'
+import { DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType } from '~/types'
+import { dashboardLogicType } from './dashboardLogicType'
+import React from 'react'
+import { Layout, Layouts } from 'react-grid-layout'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
-export const dashboardLogic = kea({
+export const dashboardLogic = kea<dashboardLogicType>({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
+
+    props: {} as { id: number; shareToken?: string; internal?: boolean },
 
     key: (props) => props.id,
 
-    actions: () => ({
+    actions: {
         addNewDashboard: true,
+        loadDashboardItems: ({ refresh }: { refresh?: boolean } = {}) => ({ refresh }),
         triggerDashboardUpdate: (payload) => ({ payload }),
-        setIsSharedDashboard: (id, isShared) => ({ id, isShared }), // whether the dashboard is shared or not
+        setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }), // whether the dashboard is shared or not
         // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
-        setDashboardMode: (mode, source) => ({ mode, source }), // see DashboardMode
-        updateLayouts: (layouts) => ({ layouts }),
-        updateContainerWidth: (containerWidth, columns) => ({ containerWidth, columns }),
+        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }), // see DashboardMode
+        updateLayouts: (layouts: Layouts) => ({ layouts }),
+        updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
-        updateItemColor: (id, color) => ({ id, color }),
+        updateItemColor: (id: number, color: string) => ({ id, color }),
         refreshAllDashboardItems: true,
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
-        setDates: (dateFrom, dateTo, reloadDashboard = true) => ({ dateFrom, dateTo, reloadDashboard }),
+        setDates: (dateFrom: string, dateTo: string | null, reloadDashboard = true) => ({
+            dateFrom,
+            dateTo,
+            reloadDashboard,
+        }),
         addGraph: true, // takes the user to insights to add a graph
-        deleteTag: (tag) => ({ tag }),
-        saveNewTag: (tag) => ({ tag }),
-        setAutoRefresh: (enabled, interval) => ({ enabled, interval }),
-        setRefreshStatus: (id, loading = false) => ({ id, loading }), // id represents dashboardItem id's
-        setRefreshError: (id) => ({ id }),
-    }),
+        deleteTag: (tag: string) => ({ tag }),
+        saveNewTag: (tag: string) => ({ tag }),
+        setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
+        setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
+        setRefreshError: (id: number) => ({ id }),
+    },
 
     loaders: ({ actions, props }) => ({
         allItems: [
-            {},
+            null as DashboardType | null,
             {
-                loadDashboardItems: async ({ refresh = undefined } = {}) => {
+                loadDashboardItems: async ({ refresh }: { refresh?: boolean } = {}) => {
                     try {
                         const dashboard = await api.get(
                             `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken, refresh })}`
@@ -72,7 +80,7 @@ export const dashboardLogic = kea({
     }),
     reducers: ({ props }) => ({
         filters: [
-            { date_from: null, date_to: null },
+            { date_from: null, date_to: null } as FilterType,
             {
                 setDates: (state, { dateFrom, dateTo }) => ({
                     ...state,
@@ -81,39 +89,83 @@ export const dashboardLogic = kea({
                 }),
             },
         ],
-        allItems: {
-            [dashboardItemsModel.actions.renameDashboardItemSuccess]: (state, { item }) => {
-                return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
-            },
-            updateLayouts: (state, { layouts }) => {
-                let itemLayouts = {}
-                state.items.forEach((item) => {
-                    itemLayouts[item.id] = {}
-                })
-
-                Object.entries(layouts).forEach(([col, layout]) => {
-                    layout.forEach((layoutItem) => {
-                        if (!itemLayouts[layoutItem.i]) {
-                            itemLayouts[layoutItem.i] = {}
-                        }
-                        itemLayouts[layoutItem.i][col] = layoutItem
+        allItems: [
+            null as DashboardType | null,
+            {
+                [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: (state, { item }) => {
+                    return {
+                        ...state,
+                        items: state?.items.map((i) => (i.id === item.id ? item : i)) || [],
+                    } as DashboardType
+                },
+                updateLayouts: (state, { layouts }) => {
+                    const itemLayouts: Record<string, Partial<Record<string, Layout>>> = {}
+                    state?.items.forEach((item) => {
+                        itemLayouts[item.id] = {}
                     })
-                })
 
-                return { ...state, items: state.items.map((item) => ({ ...item, layouts: itemLayouts[item.id] })) }
+                    Object.entries(layouts).forEach(([col, layout]) => {
+                        layout.forEach((layoutItem) => {
+                            if (!itemLayouts[layoutItem.i]) {
+                                itemLayouts[layoutItem.i] = {}
+                            }
+                            itemLayouts[layoutItem.i][col] = layoutItem
+                        })
+                    })
+
+                    return {
+                        ...state,
+                        items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.id] })),
+                    } as DashboardType
+                },
+                [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item }) => {
+                    return state
+                        ? ({
+                              ...state,
+                              items: state?.items.map((i) => (i.id === item.id ? item : i)) || [],
+                          } as DashboardType)
+                        : null
+                },
+                [dashboardsModel.actionTypes.updateDashboardRefreshStatus]: (
+                    state,
+                    { id, refreshing, last_refresh }
+                ) => {
+                    // If not a dashboard item, don't do anything.
+                    if (!id) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        items: state?.items.map((i) =>
+                            i.id === id
+                                ? {
+                                      ...i,
+                                      ...(refreshing != null ? { refreshing } : {}),
+                                      ...(last_refresh != null ? { last_refresh } : {}),
+                                  }
+                                : i
+                        ),
+                    } as DashboardType
+                },
+                updateItemColor: (state, { id, color }) => {
+                    return {
+                        ...state,
+                        items: state?.items.map((i) => (i.id === id ? { ...i, color } : i)),
+                    } as DashboardType
+                },
+                [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }): DashboardType => {
+                    return {
+                        ...state,
+                        items:
+                            item.dashboard === parseInt(props.id.toString())
+                                ? [...(state?.items || []), item]
+                                : state?.items,
+                    } as DashboardType
+                },
             },
-            [dashboardsModel.actions.updateDashboardItem]: (state, { item }) => {
-                return { ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) }
-            },
-            updateItemColor: (state, { id, color }) => {
-                return { ...state, items: state.items.map((i) => (i.id === id ? { ...i, color } : i)) }
-            },
-            [dashboardItemsModel.actions.duplicateDashboardItemSuccess]: (state, { item }) => {
-                return { ...state, items: item.dashboard === parseInt(props.id) ? [...state.items, item] : state.items }
-            },
-        },
+        ],
         refreshStatus: [
-            {},
+            {} as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
             {
                 setRefreshStatus: (state, { id, loading }) => ({
                     ...state,
@@ -127,25 +179,25 @@ export const dashboardLogic = kea({
             },
         ],
         columns: [
-            null,
+            null as number | null,
             {
                 updateContainerWidth: (_, { columns }) => columns,
             },
         ],
         containerWidth: [
-            null,
+            null as number | null,
             {
                 updateContainerWidth: (_, { containerWidth }) => containerWidth,
             },
         ],
         dashboardMode: [
-            null,
+            null as DashboardMode | null,
             {
                 setDashboardMode: (_, { mode }) => mode,
             },
         ],
         lastDashboardModeSource: [
-            null,
+            null as DashboardEventSource | null,
             {
                 setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
             },
@@ -154,7 +206,7 @@ export const dashboardLogic = kea({
             {
                 interval: AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
                 enabled: false,
-            },
+            } as { interval: number; enabled: boolean },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
@@ -194,22 +246,25 @@ export const dashboardLogic = kea({
                 return dashboards.find((d) => d.id === props.id)
             },
         ],
-        breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 })],
-        cols: [() => [], () => ({ lg: 24, sm: 12, xs: 6, xxs: 2 })],
+        breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 } as Record<DashboardLayoutSize, number>)],
+        cols: [() => [], () => ({ lg: 24, sm: 12, xs: 6, xxs: 2 } as Record<DashboardLayoutSize, number>)],
         sizeKey: [
             (s) => [s.columns, s.cols],
-            (columns, cols) => {
-                const [size] = Object.entries(cols).find(([, value]) => value === columns) || []
+            (columns, cols): DashboardLayoutSize | undefined => {
+                const [size] = (Object.entries(cols).find(([, value]) => value === columns) || []) as [
+                    DashboardLayoutSize,
+                    number
+                ]
                 return size
             },
         ],
         layouts: [
             () => [selectors.items, selectors.cols],
             (items, cols) => {
-                const allLayouts = {}
-                Object.keys(cols).forEach((col) => {
+                const allLayouts: Partial<Record<keyof typeof cols, Layout[]>> = {}
+                ;(Object.keys(cols) as (keyof typeof cols)[]).forEach((col) => {
                     const layouts = items
-                        .filter((i) => !i.deleted)
+                        ?.filter((i) => !i.deleted)
                         .map((item) => {
                             const isRetention =
                                 item.filters.insight === ViewType.RETENTION &&
@@ -228,20 +283,20 @@ export const dashboardLogic = kea({
                             }
                         })
 
-                    const cleanLayouts = layouts.filter(({ y }) => y !== Infinity)
+                    const cleanLayouts = layouts?.filter(({ y }) => y !== Infinity)
 
                     // array of -1 for each column
                     const lowestPoints = Array.from(Array(cols[col])).map(() => -1)
 
                     // set the lowest point for each column
-                    cleanLayouts.forEach(({ x, y, w, h }) => {
+                    cleanLayouts?.forEach(({ x, y, w, h }) => {
                         for (let i = x; i <= x + w - 1; i++) {
                             lowestPoints[i] = Math.max(lowestPoints[i], y + h - 1)
                         }
                     })
 
                     layouts
-                        .filter(({ y }) => y === Infinity)
+                        ?.filter(({ y }) => y === Infinity)
                         .forEach(({ i, w, h }) => {
                             // how low are things in "w" consecutive of columns
                             const segmentCount = cols[col] - w + 1
@@ -262,7 +317,7 @@ export const dashboardLogic = kea({
                                 }
                             })
 
-                            cleanLayouts.push({
+                            cleanLayouts?.push({
                                 i,
                                 x: lowestIndex,
                                 y: lowestDepth + 1,
@@ -280,11 +335,11 @@ export const dashboardLogic = kea({
                 return allLayouts
             },
         ],
-        layout: [(s) => [s.layouts, s.sizeKey], (layouts, sizeKey) => layouts[sizeKey]],
+        layout: [(s) => [s.layouts, s.sizeKey], (layouts, sizeKey) => (sizeKey ? layouts[sizeKey] : undefined)],
         layoutForItem: [
             (s) => [s.layout],
             (layout) => {
-                const layoutForItem = {}
+                const layoutForItem: Record<string, Layout> = {}
                 if (layout) {
                     for (const obj of layout) {
                         layoutForItem[obj.i] = obj
@@ -334,10 +389,10 @@ export const dashboardLogic = kea({
                 placeholder: 'Please enter a name',
                 value: '',
                 error: 'You must enter name',
-                success: (name) => dashboardsModel.actions.addDashboard({ name }),
+                success: (name: string) => dashboardsModel.actions.addDashboard({ name }),
             })
         },
-        [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
+        [dashboardsModel.actionTypes.addDashboardSuccess]: ({ dashboard }) => {
             router.actions.push(`/dashboard/${dashboard.id}`)
         },
         setIsSharedDashboard: ({ id, isShared }) => {
@@ -345,7 +400,9 @@ export const dashboardLogic = kea({
             eventUsageLogic.actions.reportDashboardShareToggled(isShared)
         },
         triggerDashboardUpdate: ({ payload }) => {
-            dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
+            if (values.dashboard) {
+                dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
+            }
         },
         updateLayouts: () => {
             actions.saveLayouts()
@@ -353,24 +410,23 @@ export const dashboardLogic = kea({
         saveLayouts: async (_, breakpoint) => {
             await breakpoint(300)
             await api.update(`api/dashboard_item/layouts`, {
-                items: values.items.map((item) => {
-                    const layouts = {}
-                    Object.entries(item.layouts).forEach(([layoutKey, layout]) => {
-                        const { i, ...rest } = layout // eslint-disable-line
-                        layouts[layoutKey] = rest
-                    })
-                    return { id: item.id, layouts }
-                }),
+                items:
+                    values.items?.map((item) => {
+                        const layouts: Record<string, Layout> = {}
+                        Object.entries(item.layouts).forEach(([layoutKey, layout]) => {
+                            const { i, ...rest } = layout // eslint-disable-line
+                            layouts[layoutKey] = rest
+                        })
+                        return { id: item.id, layouts }
+                    }) || [],
             })
         },
         updateItemColor: ({ id, color }) => {
             api.update(`api/insight/${id}`, { color })
         },
-        refreshAllDashboardItemsManual: async (_, breakpoint) => {
+        refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
             actions.resetInterval()
-            await breakpoint(100)
-
             actions.refreshAllDashboardItems()
         },
         refreshAllDashboardItems: async (_, breakpoint) => {
@@ -410,11 +466,11 @@ export const dashboardLogic = kea({
             actions.updateDashboard(values.filters)
             dashboardItemsModel.actions.refreshAllDashboardItems(values.filters)
         },
-        setDates: ({ reloadDashboard }) => {
+        setDates: ({ dateFrom, dateTo, reloadDashboard }) => {
             if (reloadDashboard) {
                 actions.updateAndRefreshDashboard()
             }
-            eventUsageLogic.actions.reportDashboardDateRangeChanged(values.filters.date_from, values.filters.date_to)
+            eventUsageLogic.actions.reportDashboardDateRangeChanged(dateFrom, dateTo)
         },
         setDashboardMode: async ({ mode, source }) => {
             // Edit mode special handling
@@ -427,22 +483,7 @@ export const dashboardLogic = kea({
                 clearDOMTextSelection()
 
                 if (!cache.draggingToastId) {
-                    cache.draggingToastId = toast(
-                        <>
-                            <h1>Dashboard edit mode</h1>
-                            <p>Tap below when finished.</p>
-                            <div className="text-right">
-                                <Button>Finish editing</Button>
-                            </div>
-                        </>,
-                        {
-                            type: 'info',
-                            autoClose: false,
-                            onClick: () => actions.setDashboardMode(null, DashboardEventSource.Toast),
-                            closeButton: false,
-                            className: 'drag-items-toast accent-border',
-                        }
-                    )
+                    cache.draggingToastId = editingToast('Dashboard', actions.setDashboardMode)
                 }
             } else {
                 // Clean edit mode toast if applicable
@@ -452,17 +493,21 @@ export const dashboardLogic = kea({
                 }
             }
 
-            eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
+            if (mode) {
+                eventUsageLogic.actions.reportDashboardModeToggled(mode, source)
+            }
         },
         addGraph: () => {
-            router.actions.push(
-                `/insights?insight=TRENDS#backTo=${encodeURIComponent(values.dashboard.name)}&backToURL=/dashboard/${
-                    values.dashboard.id
-                }`
-            )
+            if (values.dashboard) {
+                router.actions.push(
+                    `/insights?insight=TRENDS#backTo=${encodeURIComponent(
+                        values.dashboard.name
+                    )}&backToURL=/dashboard/${values.dashboard.id}`
+                )
+            }
         },
         saveNewTag: ({ tag }) => {
-            if (values.dashboard.tags.includes(tag)) {
+            if (values.dashboard?.tags.includes(tag)) {
                 toast.error(
                     // TODO: move to errorToast once #3561 is merged
                     <div>
@@ -472,11 +517,11 @@ export const dashboardLogic = kea({
                 )
                 return
             }
-            actions.triggerDashboardUpdate({ tags: [...values.dashboard.tags, tag] })
+            actions.triggerDashboardUpdate({ tags: [...(values.dashboard?.tags || []), tag] })
         },
         deleteTag: async ({ tag }, breakpoint) => {
             await breakpoint(100)
-            actions.triggerDashboardUpdate({ tags: values.dashboard.tags.filter((_tag) => _tag !== tag) })
+            actions.triggerDashboardUpdate({ tags: values.dashboard?.tags.filter((_tag) => _tag !== tag) || [] })
         },
         setAutoRefresh: () => {
             actions.resetInterval()

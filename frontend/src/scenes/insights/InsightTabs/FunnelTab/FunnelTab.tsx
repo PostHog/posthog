@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -9,15 +9,13 @@ import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { InsightTitle } from '../InsightTitle'
 import { SaveOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, areFiltersValid, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
@@ -43,7 +41,7 @@ export function FunnelTab(): JSX.Element {
                     ) : undefined
                 }
             />
-            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && <ToggleButtonChartFilter />}
+            <ToggleButtonChartFilter />
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
@@ -57,9 +55,9 @@ export function FunnelTab(): JSX.Element {
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     buttonCopy="Add funnel step"
-                    showSeriesIndicator={!isStepsEmpty && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    showSeriesIndicator={!isStepsEmpty}
                     seriesIndicatorType="numeric"
-                    fullWidth={featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    fullWidth
                     sortable
                     showNestedArrow={true}
                 />
@@ -70,26 +68,21 @@ export function FunnelTab(): JSX.Element {
                         <Row style={{ justifyContent: 'flex-end' }}>
                             {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
                                 <div style={{ flexGrow: 1 }}>
-                                    <Button type="primary" onClick={showModal} icon={<SaveOutlined />}>
+                                    <Button type="default" onClick={showModal} icon={<SaveOutlined />}>
                                         Save
                                     </Button>
                                 </div>
                             )}
                             {!isStepsEmpty && (
-                                <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
+                                <Button
+                                    type="link"
+                                    onClick={(): void => clearFunnel()}
+                                    data-attr="save-funnel-clear-button"
+                                >
                                     Clear
                                 </Button>
                             )}
-
-                            <Button
-                                style={{ marginLeft: 4 }}
-                                type="primary"
-                                htmlType="submit"
-                                disabled={!areFiltersValid}
-                                data-attr="save-funnel-button"
-                            >
-                                Calculate
-                            </Button>
+                            <CalculateFunnelButton style={{ marginLeft: 4 }} />
                         </Row>
                     </>
                 )}
@@ -103,5 +96,44 @@ export function FunnelTab(): JSX.Element {
                 onSubmit={onSubmit}
             />
         </div>
+    )
+}
+
+function CalculateFunnelButton({ style }: { style: React.CSSProperties }): JSX.Element {
+    const { filters, areFiltersValid, filtersDirty, clickhouseFeaturesEnabled, isLoading } = useValues(funnelLogic)
+    const [tooltipOpen, setTooltipOpen] = useState(false)
+    const shouldRecalculate = filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled
+
+    // Only show tooltip after 3s of inactivity
+    useEffect(() => {
+        if (shouldRecalculate) {
+            const rerenderInterval = setTimeout(() => {
+                setTooltipOpen(true)
+            }, 3000)
+
+            return () => {
+                clearTimeout(rerenderInterval)
+                setTooltipOpen(false)
+            }
+        } else {
+            setTooltipOpen(false)
+        }
+    }, [shouldRecalculate, filters])
+
+    return (
+        <Tooltip
+            visible={tooltipOpen}
+            title="Your query has changed. Calculate your changes to see updates in the visualization."
+        >
+            <Button
+                style={style}
+                type={shouldRecalculate ? 'primary' : 'default'}
+                htmlType="submit"
+                disabled={!areFiltersValid}
+                data-attr="save-funnel-button"
+            >
+                Calculate
+            </Button>
+        </Tooltip>
     )
 }

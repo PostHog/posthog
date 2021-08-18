@@ -1,5 +1,6 @@
 import React from 'react'
-import { Dropdown, Menu, Table, Tooltip } from 'antd'
+import { Dropdown, Menu, Skeleton, Table } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
@@ -29,7 +30,7 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 }
 
 export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
-    const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
+    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
@@ -39,10 +40,6 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
-
-    if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
-        return null
-    }
 
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
@@ -125,7 +122,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         width: 200,
     })
 
-    if (indexedResults && indexedResults.length > 0) {
+    if (indexedResults?.length > 0) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
                 <DateDisplay
@@ -146,7 +143,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     if (showTotalCount) {
         columns.push({
             title: (
-                <Dropdown overlay={calcColumnMenu} trigger={['click']}>
+                <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]} <DownOutlined />
                     </span>
@@ -163,16 +160,12 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         filters.display === ACTIONS_TABLE ||
                         filters.display === ACTIONS_PIE_CHART)
                 ) {
-                    // Special handling because `count` will contain the last amount, instead of the cumulative sum.
-                    return (
-                        item.aggregated_value?.toLocaleString() ||
-                        item.data.reduce((acc, val) => acc + val, 0).toLocaleString()
-                    )
+                    return (item.count || item.aggregated_value).toLocaleString()
                 }
                 return (
                     <>
                         {count.toLocaleString()}
-                        {item.action && item.action.math === 'dau' && (
+                        {item.action && item.action?.math === 'dau' && (
                             <Tooltip title="Keep in mind this is just the sum of all values in the row, not the unique users across the entire time period (i.e. this number may contain duplicate users).">
                                 <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--primary-alt)' }} />
                             </Tooltip>
@@ -180,11 +173,17 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                     </>
                 )
             },
+            defaultSortOrder: 'descend',
+            sorter: (a, b) => a.count - b.count,
             dataIndex: 'count',
             fixed: 'right',
-            width: 100,
+            width: 120,
             align: 'center',
         })
+    }
+
+    if (resultsLoading) {
+        return <Skeleton active paragraph={{ rows: 4 }} />
     }
 
     return (

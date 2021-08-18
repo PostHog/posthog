@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Card, Dropdown, Switch, Tooltip } from 'antd'
+import { Button, Card, Dropdown, Switch } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -35,6 +35,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Environments, FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (

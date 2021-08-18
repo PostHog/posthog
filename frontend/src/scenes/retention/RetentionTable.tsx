@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { Table, Modal, Button, Spin, Tooltip } from 'antd'
+import { Table, Modal, Button, Spin } from 'antd'
 import { percentage } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { retentionTableLogic } from './retentionTableLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 import {
     RetentionTablePayload,
     RetentionTablePeoplePayload,
