@@ -736,3 +736,28 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         for sql in sqls:
             self.assertNotIn("JSONExtract", sql)
             self.assertNotIn("properties", sql)
+
+    @skip("action filters don't yet use materialized properties properly")
+    def test_materialized_filtering_with_action_props(self):
+        materialize("events", "key")
+
+        _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
+        _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
+        _create_event(event="sign up", distinct_id="person3", team=self.team, properties={"key": "val"})
+        action = _create_action(
+            name="sign up",
+            team=self.team,
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+
+        with self.capture_select_queries() as sqls:
+            response = ClickhouseTrends().run(
+                Filter(data={"date_from": "-14d", "actions": [{"id": action.pk, "type": "actions", "order": 0}],}),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["count"], 3)
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)
