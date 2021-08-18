@@ -27,10 +27,10 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
             </Card>
             <Card style={{ marginTop: 16 }} data-attr="funnel-exclusion-options">
                 <h4 className="secondary">
-                    Exclusions
+                    Exclusion Steps
                     <Tooltip
                         placement="right"
-                        title="Exclude users who did not complete specific events from your funnel, or specific steps of your funnel."
+                        title="Exclude users who completed specific events during the funnel or between two specific steps."
                     >
                         <InfoCircleOutlined className="info-indicator" />
                     </Tooltip>
