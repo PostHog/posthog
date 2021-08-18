@@ -146,15 +146,14 @@ class Cohort(models.Model):
 
             try:
                 recalculate_cohortpeople(self)
-                self.is_calculating = False
                 self.last_calculation = timezone.now()
                 self.errors_calculating = 0
-                self.save()
-            except Exception as err:
-                self.is_calculating = False
+            except Exception as e:
                 self.errors_calculating = F("errors_calculating") + 1
+                raise e
+            finally:
+                self.is_calculating = False
                 self.save()
-                capture_exception(err)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
