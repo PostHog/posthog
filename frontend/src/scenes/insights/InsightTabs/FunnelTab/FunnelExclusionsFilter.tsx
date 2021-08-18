@@ -1,16 +1,15 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Button, Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import equal from 'fast-deep-equal'
 import clsx from 'clsx'
+import useSize from '@react-hook/size'
 import { DeleteOutlined } from '@ant-design/icons'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ANTD_TOOLTIP_PLACEMENTS, areObjectValuesEmpty, clamp } from 'lib/utils'
 import { FunnelExclusionEntityFilter, ActionFilter as ActionFilterType } from '~/types'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
 import './FunnelExclusionsFilter.scss'
 
@@ -123,12 +122,13 @@ function ExclusionRowSuffix({
 export function FunnelExclusionsFilter(): JSX.Element | null {
     const { exclusionFilters, areFiltersValid, exclusionDefaultStepRange } = useValues(funnelLogic)
     const { setEventExclusionFilters } = useActions(funnelLogic)
-    const { width } = useWindowSize()
-    const layoutBreakpoint = getBreakpoint('lg')
-    const isVerticalLayout = !!width && width > layoutBreakpoint
+    const ref = useRef(null)
+    const [width] = useSize(ref)
+    const isVerticalLayout = !!width && width < 500 // If filter container shrinks below 500px, initiate verticality
 
     return (
         <ActionFilter
+            ref={ref}
             setFilters={setEventExclusionFilters}
             filters={exclusionFilters}
             typeKey="funnel-exclusions-filter"
