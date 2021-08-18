@@ -390,7 +390,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         person = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["person3"], properties={"email": "test@gmail.com"}
         )
-        create_person_distinct_id(person.id, self.team.pk, "person1", str(person.uuid))
+        create_person_distinct_id(self.team.pk, "person1", str(person.uuid))
 
         _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
         _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
