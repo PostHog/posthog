@@ -134,3 +134,63 @@ PATHS_QUERY_FINAL = """
 """.format(
     paths_query=paths_query_step_3
 )
+
+
+PATH_ARRAY_QUERY = """
+SELECT if(target_event LIKE %(autocapture_match)s, concat(arrayElement(splitByString('autocapture:', assumeNotNull(source_event)), 1), final_target_element), source_event) final_source_event,
+       if(target_event LIKE %(autocapture_match)s, concat(arrayElement(splitByString('autocapture:', assumeNotNull(target_event)), 1), final_target_element), target_event) final_target_event,
+       event_count,
+       if(target_event LIKE %(autocapture_match)s, arrayElement(splitByString('autocapture:', assumeNotNull(source_event)), 2), NULL) source_event_elements_chain,
+       concat('<', extract(source_event_elements_chain, '^(.*?)[.|:]'), '> ', extract(source_event_elements_chain, 'text="(.*?)"')) final_source_element,
+       if(target_event LIKE %(autocapture_match)s, arrayElement(splitByString('autocapture:', assumeNotNull(target_event)), 2), NULL) target_event_elements_chain,
+       concat('<', extract(target_event_elements_chain, '^(.*?)[.|:]'), '> ', extract(target_event_elements_chain, 'text="(.*?)"')) final_target_element
+FROM (
+    SELECT path_key as source_event,
+       next_path_key as target_event,
+       COUNT(*) AS event_count
+  FROM (
+        SELECT person_id,
+               path,
+               session_index,
+               concat(toString(session_index), '_', path) as path_key,
+               if(session_index + 1 = neighbor(session_index, 1), neighbor(path_key, 1), null) AS next_path_key
+          FROM (
+          
+              SELECT person_id, patha_tuple as path
+                    , session_index
+                    , arrayMap((x, y) -> (x,y), path_basic, time) as stuff
+                    , arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0
+                    , arrayMap((x,y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping
+                    , arraySlice(arrayFilter((x,y)->y, path_basic, mapping), 1, %(event_in_session_limit)s) as pathz_tuple
+                FROM (
+                    SELECT person_id
+                        , path_tuple.1 as path_basic
+                        , path_tuple.2 as time
+                        , session_index
+                        , arrayDifference(timing) as times
+                        , arrayZip(paths, times) as paths_tuple
+                        , arraySplit(x -> if(x.2 < %(session_time_threshold)s, 0, 1), paths_tuple) as session_paths
+                    FROM (
+                            SELECT person_id,
+                                   groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
+                                   groupArray(path_item) as paths
+                            FROM ({path_event_query})
+                            GROUP BY person_id
+                            ORDER BY person_id
+                           )
+                    ARRAY JOIN session_paths AS path_tuple, arrayEnumerate(session_paths) AS session_index
+                )
+                ARRAY JOIN pathz_tuple AS patha_tuple, arrayEnumerate(pathz_tuple) AS session_index
+                {boundary_event_filter}
+               )
+       )
+ WHERE source_event IS NOT NULL
+ GROUP BY source_event,
+          target_event
+ ORDER BY event_count DESC,
+          source_event,
+          target_event
+ LIMIT 20
+)
+
+"""
