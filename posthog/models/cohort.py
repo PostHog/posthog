@@ -109,8 +109,10 @@ class Cohort(models.Model):
             if not use_clickhouse:
                 self.is_calculating = True
                 self.save()
+                persons_query = self._postgres_persons_query()
+            else:
+                persons_query = self._clickhouse_persons_query()
 
-            persons_query = self._clickhouse_persons_query() if use_clickhouse else self._postgres_persons_query()
             try:
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
             except EmptyResultSet:
