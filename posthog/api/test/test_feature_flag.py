@@ -98,6 +98,8 @@ class TestFeatureFlag(APIBaseTest):
             "feature flag created",
             {
                 "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
                 "has_rollout_percentage": True,
                 "has_filters": False,
                 "filter_count": 0,
@@ -122,6 +124,8 @@ class TestFeatureFlag(APIBaseTest):
             "feature flag created",
             {
                 "groups_count": 1,  # 1 is always created by default
+                "has_variants": False,
+                "variants_count": 0,
                 "has_rollout_percentage": False,
                 "has_filters": False,
                 "filter_count": 0,
@@ -171,6 +175,8 @@ class TestFeatureFlag(APIBaseTest):
             "feature flag updated",
             {
                 "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
                 "has_rollout_percentage": True,
                 "has_filters": True,
                 "filter_count": 1,
@@ -196,6 +202,8 @@ class TestFeatureFlag(APIBaseTest):
             "feature flag deleted",
             {
                 "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
                 "has_rollout_percentage": False,
                 "has_filters": False,
                 "filter_count": 0,

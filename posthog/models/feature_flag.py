@@ -91,7 +91,7 @@ class FeatureFlagMatcher:
 
     def get_matching_variant(self) -> Optional[str]:
         if not self.is_match():
-            return self.feature_flag.fallback_variant_key
+            return None
 
         for variant in self.variant_lookup_table:
             if self._hash_md5 >= variant.value_min and self._hash_md5 < variant.value_max:
@@ -122,7 +122,7 @@ class FeatureFlagMatcher:
     def variant_lookup_table(self):
         lookup_table = []
         value_min = 0
-        for index, variant in enumerate(self.feature_flag.variants):
+        for variant in self.feature_flag.variants:
             value_max = value_min + variant.rollout_percentage / 100
             lookup_table.append({"value_min": value_min, "value_max": value_max, "key": variant.key})
             value_min = value_max
