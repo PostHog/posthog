@@ -195,7 +195,7 @@ class ClickhouseTrendsBreakdown:
         return (
             {"values": values_arr, "key": filter.breakdown},
             BREAKDOWN_PROP_JOIN_SQL,
-            {"breakdown_value": breakdown_value},
+            {"breakdown_value_expr": breakdown_value},
             breakdown_value,
         )
 
