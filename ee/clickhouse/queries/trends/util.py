@@ -28,11 +28,7 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
 
     params = {f"e_{entity.index}_math": entity.math_property}
     value, _ = get_property_string_expr(
-        "events",
-        entity.math_property,
-        f"%({param_name})",
-        "properties",
-        "toFloat64OrNull(JSONExtractRaw({prop_var}, {var}))",
+        "events", entity.math_property, f"%({param_name})", "properties", "JSONExtractRaw({prop_var}, {var})",
     )
 
     aggregate_operation = "count(*)"
@@ -41,7 +37,7 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math in MATH_FUNCTIONS:
-        aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}({value})"
+        aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
         params["join_property_key"] = entity.math_property
 
     return aggregate_operation, join_condition, params

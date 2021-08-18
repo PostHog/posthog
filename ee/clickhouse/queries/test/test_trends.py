@@ -717,24 +717,22 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(res[0]["count"], 1)
 
     @skip("breakdown queries don't yet use materialized properties properly")
-    def test_breakdown_materialized_columns_queries_right_columns(self):
+    def test_materialized_breakdown_queries_right_columns(self):
         materialize("events", "$some_property")
 
-        self._create_breakdown_events()
-        with self.capture_sql() as sqls:
-            with freeze_time("2020-01-04T13:01:01Z"):
-                response = ClickhouseTrends().run(
-                    Filter(
-                        data={
-                            "date_from": "-14d",
-                            "breakdown": "$some_property",
-                            "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0}],
-                        }
-                    ),
-                    self.team,
-                )
+        with self.capture_select_queries() as sqls:
+            self.test_breakdown_filtering_limit()
 
         for sql in sqls:
             self.assertNotIn("JSONExtract", sql)
             self.assertNotIn("properties", sql)
-        self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
+
+    def test_materialized_math_queries_right_columns(self):
+        materialize("events", "some_number")
+
+        with self.capture_select_queries() as sqls:
+            self.test_sum_filtering()
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)
