@@ -736,7 +736,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.assertNotIn("JSONExtract", sql)
             self.assertNotIn("properties", sql)
 
-    @skip("breakdown queries don't yet use materialized properties properly")
+    # @skip("breakdown queries don't yet use materialized properties properly")
     def test_materialized_breakdown_queries_right_columns(self):
         materialize("events", "$some_property")
 
