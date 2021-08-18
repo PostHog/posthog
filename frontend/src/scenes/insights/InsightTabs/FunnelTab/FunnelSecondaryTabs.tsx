@@ -25,7 +25,7 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
                 <h4 className="secondary">Options</h4>
                 <FunnelConversionWindowFilter />
             </Card>
-            <Card className="funnel-exclusion-options" data-attr="funnel-exclusion-options">
+            <Card style={{ marginTop: 16 }} data-attr="funnel-exclusion-options">
                 <h4 className="secondary">
                     Exclusions
                     <Tooltip
