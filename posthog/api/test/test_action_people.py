@@ -316,6 +316,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     ENTITY_TYPE: "actions",
                     "interval": "day",
                     ENTITY_ID: sign_up_action.id,
+                    "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
                 },
             ).json()
             event_response = self.client.get(
@@ -326,6 +327,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     ENTITY_TYPE: "events",
                     ENTITY_ID: "sign up",
                     "interval": "day",
+                    "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
                 },
             ).json()
 
