@@ -30,11 +30,11 @@ from posthog.models import Action, Cohort, Filter, Team
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 
-def format_person_query(cohort: Cohort, index: int, **kwargs) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(
+    cohort: Cohort, index: int, custom_match_field: str = "person_id"
+) -> Tuple[str, Dict[str, Any]]:
     filters = []
     params: Dict[str, Any] = {}
-
-    custom_match_field = kwargs.get("custom_match_field", "person_id")
 
     if cohort.is_static:
         return (
@@ -47,7 +47,7 @@ def format_person_query(cohort: Cohort, index: int, **kwargs) -> Tuple[str, Dict
 
     if not groups:
         # No person can match a cohort that has no match groups
-        return "0 = 1", {}
+        return "8 = 9", {}
 
     for group_idx, group in enumerate(groups):
         if group.get("action_id") or group.get("event_id"):
@@ -68,7 +68,7 @@ def format_person_query(cohort: Cohort, index: int, **kwargs) -> Tuple[str, Dict
     return joined_filter, params
 
 
-def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int):
+def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int) -> Tuple[str, Dict[str, Any]]:
     from ee.clickhouse.models.property import prop_filter_json_extract
 
     filter = Filter(data=cohort_group)
@@ -76,11 +76,25 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
 
     query = ""
     for idx, prop in enumerate(filter.properties):
-        filter_query, filter_params = prop_filter_json_extract(
-            prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
-        )
-        params = {**params, **filter_params}
-        query += filter_query
+        if prop.type == "cohort":
+            try:
+                prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=cohort.team_id)
+            except Cohort.DoesNotExist:
+                return "3 = 4", {}
+            if prop_cohort.pk == cohort.pk:
+                # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
+                # we treat it as satisfied for all persons
+                query += "AND 7 = 7"
+            else:
+                person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
+                params.update(cohort_filter_params)
+                query += f"AND person_max.id IN ({person_id_query})"
+        else:
+            filter_query, filter_params = prop_filter_json_extract(
+                prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
+            )
+            params.update(filter_params)
+            query += filter_query
 
     return query.replace("AND ", "", 1), params
 
@@ -187,14 +201,14 @@ def is_precalculated_query(cohort: Cohort) -> bool:
         return False
 
 
-def format_filter_query(cohort: Cohort, index: int = 0) -> Tuple[str, Dict[str, Any]]:
+def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     person_query, params = (
         get_precalculated_query(cohort, index) if is_precalculated else format_person_query(cohort, index)
     )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
-        query=person_query, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+        query=person_query, id_column=id_column, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
     )
     return person_id_query, params
 
