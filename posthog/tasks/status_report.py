@@ -28,7 +28,6 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "realm": get_instance_realm(),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
-        "organizations": get_instance_organizations(),
         "license_keys": get_instance_licenses(),
     }
 
@@ -173,10 +172,6 @@ def get_helm_info_env() -> dict:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
     except Exception:
         return {}
-
-
-def get_instance_organizations() -> List[str]:
-    return [org.name for org in Organization.objects.all()]
 
 
 def get_instance_licenses() -> List[str]:
