@@ -22,10 +22,10 @@ class TestDecide(BaseTest):
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
 
-    def _post_decide(self, data=None, origin="http://127.0.0.1:8000", api_version=1):
+    def _post_decide(self, data=None, origin="http://127.0.0.1:8000", api_version=1, distinct_id="example_id"):
         return self.client.post(
             f"/decide/?v={api_version}",
-            {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": "example_id"})},
+            {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": distinct_id})},
             HTTP_ORIGIN=origin,
         )
 
@@ -192,7 +192,15 @@ class TestDecide(BaseTest):
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertEqual(
                 "second-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # randomly assigned by distinct_id hash
+            )  # assigned by distinct_id hash
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=2, distinct_id="some_other_id")
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # different hash, different variant assigned
 
     def test_feature_flags_v2_fallback(self):
         self.team.app_urls = ["https://example.com"]

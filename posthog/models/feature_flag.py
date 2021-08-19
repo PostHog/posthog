@@ -39,7 +39,7 @@ class FeatureFlag(models.Model):
     def distinct_id_matches(self, distinct_id: str) -> bool:
         return FeatureFlagMatcher(distinct_id, self).is_match()
 
-    def get_variant_for_distinct_id(self, distinct_id: str) -> Optional[str]:
+    def get_variant_for_distinct_id(self, distinct_id: str) -> str:
         return FeatureFlagMatcher(distinct_id, self).get_matching_variant()
 
     def get_analytics_metadata(self) -> Dict:
@@ -65,8 +65,8 @@ class FeatureFlag(models.Model):
         return self.get_filters().get("multivariate", {}).get("variants", [])
 
     @property
-    def fallback_variant_key(self) -> Optional[str]:
-        return self.get_filters().get("multivariate", {}).get("fallback_variant_key", None)
+    def fallback_variant_key(self) -> str:
+        return self.get_filters().get("multivariate", {}).get("fallback_variant_key")
 
     def get_filters(self):
         if "groups" in self.filters:
@@ -89,10 +89,7 @@ class FeatureFlagMatcher:
     def is_match(self):
         return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.groups))
 
-    def get_matching_variant(self) -> Optional[str]:
-        if not self.is_match():
-            return None
-
+    def get_matching_variant(self) -> str:
         for variant in self.variant_lookup_table:
             if self._hash_md5 >= variant["value_min"] and self._hash_md5 < variant["value_max"]:
                 return variant["key"]
@@ -187,7 +184,7 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
     return flags_enabled
 
 
-# Return a list of with more details about each active flag (including active variant)
+# Return a list of active flags (with support for multivariate flags)
 def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Any]:
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
@@ -195,12 +192,12 @@ def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Any]:
     )
 
     for feature_flag in feature_flags:
-        # try:
-        if feature_flag.distinct_id_matches(distinct_id):
-            flags_enabled[feature_flag.key] = True
-            if len(feature_flag.variants) > 0:
-                variant = feature_flag.get_variant_for_distinct_id(distinct_id) or False
-                flags_enabled[feature_flag.key] = variant
-    # except Exception as err:
-    #     capture_exception(err)
+        try:
+            if feature_flag.distinct_id_matches(distinct_id):
+                flags_enabled[feature_flag.key] = True
+                if len(feature_flag.variants) > 0:
+                    variant = feature_flag.get_variant_for_distinct_id(distinct_id) or False
+                    flags_enabled[feature_flag.key] = variant
+        except Exception as err:
+            capture_exception(err)
     return flags_enabled
