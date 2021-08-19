@@ -311,11 +311,8 @@ export function SavedInsights(): JSX.Element {
                                 <DashboardItem
                                     item={{ ...insight, color: null }}
                                     key={insight.id + '_user'}
-                                    // saveDashboardItem={updateInsight}
                                     loadDashboardItems={() => {
                                         loadInsights()
-                                        // loadSavedInsights()
-                                        // loadTeamInsights()
                                     }}
                                     dashboardMode={null}
                                     onClick={() => {
