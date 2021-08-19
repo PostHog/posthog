@@ -165,15 +165,15 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter)), 2)
 
-        filter_selector_exact = Filter(
+        filter_selector_exact_empty = Filter(
             data={"properties": [{"key": "selector", "value": [], "operator": "exact", "type": "element",}]}
         )
-        self.assertEqual(len(self._run_query(filter_selector_exact)), 0)
+        self.assertEqual(len(self._run_query(filter_selector_exact_empty)), 0)
 
-        filter_selector_is_not = Filter(
+        filter_selector_is_not_empty = Filter(
             data={"properties": [{"key": "selector", "value": [], "operator": "is_not", "type": "element",}]}
         )
-        self.assertEqual(len(self._run_query(filter_selector_is_not)), 3)
+        self.assertEqual(len(self._run_query(filter_selector_is_not_empty)), 3)
 
         # tag_name
 

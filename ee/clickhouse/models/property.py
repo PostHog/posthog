@@ -2,6 +2,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from django.utils import timezone
+from rest_framework import exceptions
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
@@ -228,65 +229,94 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
     )
 
 
+def process_ok_values(ok_values: Any, operator: OperatorType) -> List[str]:
+    if operator.endswith("_set"):
+        return [r'[^"]+']
+    else:
+        # Make sure ok_values is a list
+        ok_values = cast(List[str], [str(val) for val in ok_values]) if isinstance(ok_values, list) else [ok_values]
+        # Escape double quote characters, since e.g. text 'foo="bar"' is represented as text="foo=\"bar\""
+        # in the elements chain
+        ok_values = [text.replace('"', r"\"") for text in ok_values]
+        if operator.endswith("icontains"):
+            # Process values for case-insensitive-contains matching by way of regex,
+            # making sure matching scope is limited to between double quotes
+            return [rf'[^"]*{re.escape(text)}[^"]*' for text in ok_values]
+        if operator.endswith("regex"):
+            # Use values as-is in case of regex matching
+            return ok_values
+        # For all other operators escape regex-meaningful sequences
+        return [re.escape(text) for text in ok_values]
+
+
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:
     if not operator:
         operator = "exact"
 
     params = {}
-    or_conditions = []
+    final_conditions = []
 
-    is_negated = operator in NEGATED_OPERATORS
-
-    if filters.get("selector"):
+    if filters.get("selector") is not None:
+        if operator not in ("exact", "is_not"):
+            raise exceptions.ValidationError(
+                'Filtering by element selector only supports operators "equals" and "doesn\'t equal" currently.'
+            )
         selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
-        for idx, query in enumerate(selectors):
-            selector = Selector(query, escape_slashes=False)
-            key = f"{prepend}_{idx}_selector_regex"
-            params[key] = _create_regex(selector)
-            or_conditions.append(f"match(elements_chain, %({key})s)")
-        if or_conditions:
-            final_conditions = f"{'NOT ' if is_negated else ''}({' OR '.join(or_conditions)})"
+        if selectors:
+            combination_conditions = []
+            for idx, query in enumerate(selectors):
+                selector = Selector(query, escape_slashes=False)
+                key = f"{prepend}_{idx}_selector_regex"
+                params[key] = build_selector_regex(selector)
+                combination_conditions.append(f"match(elements_chain, %({key})s)")
+            final_conditions.append(f"({' OR '.join(combination_conditions)})")
+        elif operator not in NEGATED_OPERATORS:
+            # If a non-negated filter has an empty selector list provided, it can't match anything
+            return "0 = 191", {}
 
-    if filters.get("tag_name"):
+    if filters.get("tag_name") is not None:
+        if operator not in ("exact", "is_not"):
+            raise exceptions.ValidationError(
+                'Filtering by element tag only supports operators "equals" and "doesn\'t equal" currently.'
+            )
         tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
-        for idx, tag_name in enumerate(tag_names):
-            key = f"{prepend}_{idx}_tag_name_regex"
-            params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
-            or_conditions.append(f"match(elements_chain, %({key})s)")
-        if or_conditions:
-            final_conditions = f"{'NOT ' if is_negated else ''}({' OR '.join(or_conditions)})"
+        if tag_names:
+            combination_conditions = []
+            for idx, tag_name in enumerate(tag_names):
+                key = f"{prepend}_{idx}_tag_name_regex"
+                params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
+                combination_conditions.append(f"match(elements_chain, %({key})s)")
+            final_conditions.append(f"({' OR '.join(combination_conditions)})")
+        elif operator not in NEGATED_OPERATORS:
+            # If a non-negated filter has an empty tag_name list provided, it can't match anything
+            return "0 = 192", {}
 
     attributes: Dict[str, List] = {}
     for key in ["href", "text"]:
-        if raw_vals := filters.get(key):
-            if operator.endswith("_set"):
-                attributes[key] = [r'[^"]+']
-            else:
-                vals = [raw_vals] if isinstance(raw_vals, str) else cast(List[str], [str(val) for val in raw_vals])
-                vals = [text.replace('"', r"\"") for text in vals]
-                if operator.endswith("icontains"):
-                    attributes[key] = [rf'[^"]*{re.escape(text)}[^"]*' for text in vals]
-                elif operator.endswith("regex"):
-                    attributes[key] = vals
-                else:
-                    attributes[key] = [re.escape(text) for text in vals]
+        if filters.get(key) is not None:
+            attributes[key] = process_ok_values(filters[key], operator)
     if attributes:
-        for key, value_list in attributes.items():
-            for idx, value in enumerate(value_list):
-                optional_flag = "(?i)" if operator.endswith("icontains") else ""
-                params[f"{prepend}_{key}_{idx}_attributes_regex"] = f'{optional_flag}({key}="{value}")'
-                or_conditions.append(f"match(elements_chain, %({prepend}_{key}_{idx}_attributes_regex)s)")
-    if or_conditions:
-        final_conditions = f"{'NOT ' if is_negated else ''}({' OR '.join(or_conditions)})"
+        for key, ok_values in attributes.items():
+            if ok_values:
+                combination_conditions = []
+                for idx, value in enumerate(ok_values):
+                    optional_flag = "(?i)" if operator.endswith("icontains") else ""
+                    params[f"{prepend}_{key}_{idx}_attributes_regex"] = f'{optional_flag}({key}="{value}")'
+                    combination_conditions.append(f"match(elements_chain, %({prepend}_{key}_{idx}_attributes_regex)s)")
+                final_conditions.append(f"({' OR '.join(combination_conditions)})")
+            elif operator not in NEGATED_OPERATORS:
+                # If a non-negated filter has an empty href or text list provided, it can't match anything
+                return "0 = 193", {}
+
+    if final_conditions:
+        return f"{'NOT ' if operator in NEGATED_OPERATORS else ''}({' AND '.join(final_conditions)})", params
     else:
-        final_conditions = "" if is_negated else "0 = 192"
-
-    return final_conditions, params
+        return "", {}
 
 
-def _create_regex(selector: Selector) -> str:
+def build_selector_regex(selector: Selector) -> str:
     regex = r""
-    for idx, tag in enumerate(selector.parts):
+    for tag in selector.parts:
         if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str):
             if tag.data["tag_name"] == "*":
                 regex += ".+"
