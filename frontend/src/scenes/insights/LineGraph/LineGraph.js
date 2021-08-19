@@ -61,6 +61,7 @@ export function LineGraph({
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
     const [annotationInRange, setInRange] = useState(false)
+    const [tooltipVisible, setTooltipVisible] = useState(false)
     const size = useWindowSize()
 
     const annotationsCondition =
@@ -77,6 +78,16 @@ export function LineGraph({
     useEffect(() => {
         buildChart()
     }, [datasets, color, visibilityMap])
+
+    // Hacky! - Chartjs doesn't internally call tooltip callback on mouseout from right border. Let's manually remove tooltips
+    // when the chart is being hovered over. #5061
+    useEffect(() => {
+        const tooltipEl = document.getElementById('ph-graph-tooltip')
+
+        if (tooltipEl && !tooltipVisible) {
+            tooltipEl.style.opacity = 0
+        }
+    }, [tooltipVisible])
 
     // annotation related effects
 
@@ -377,6 +388,11 @@ export function LineGraph({
                         } else {
                             evt.target.style.cursor = 'default'
                         }
+                    }
+                    if (evt.type === 'mouseout') {
+                        setTooltipVisible(false)
+                    } else {
+                        setTooltipVisible(true)
                     }
                 },
             },
