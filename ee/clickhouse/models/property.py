@@ -1,17 +1,17 @@
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from django.utils import timezone
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import ColumnName, PropertyName, get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyName, PropertyType
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -182,7 +182,7 @@ def prop_filter_json_extract(
         )
 
 
-def property_table(property: Property) -> str:
+def property_table(property: Property) -> TableWithProperties:
     if property.type == "event":
         return "events"
     elif property.type == "person":
@@ -192,7 +192,7 @@ def property_table(property: Property) -> str:
 
 
 def get_property_string_expr(
-    table: str, property_name: PropertyName, var: str, prop_var: str, allow_denormalized_props: bool
+    table: TableWithProperties, property_name: PropertyName, var: str, prop_var: str, allow_denormalized_props: bool
 ) -> Tuple[str, bool]:
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
@@ -289,3 +289,7 @@ def _create_regex(selector: Selector) -> str:
         if tag.direct_descendant:
             regex += ".*"
     return regex
+
+
+def extract_tables_and_properties(props: List[Property]) -> Set[Tuple[PropertyName, PropertyType]]:
+    return set((prop.key, prop.type) for prop in props)
