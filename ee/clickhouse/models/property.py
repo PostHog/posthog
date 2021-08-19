@@ -41,7 +41,7 @@ def parse_prop_clauses(
             try:
                 cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
             except Cohort.DoesNotExist:
-                final.append("AND 0 = 1")  # If cohort doesn't exist, nothing can match
+                final.append("AND 0 = 13")  # If cohort doesn't exist, nothing can match
             else:
                 person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                 params = {**params, **cohort_filter_params}
@@ -84,7 +84,7 @@ def parse_prop_clauses(
 def prop_filter_json_extract(
     prop: Property, idx: int, prepend: str = "", prop_var: str = "properties", allow_denormalized_props: bool = False
 ) -> Tuple[str, Dict[str, Any]]:
-    # Once all queries are migrated over we can get rid of allow_denormalized_props
+    # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     property_expr, is_denormalized = get_property_string_expr(
         property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
     )

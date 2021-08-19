@@ -2,6 +2,7 @@ from string import ascii_lowercase
 from uuid import UUID
 
 from ee.clickhouse.materialized_columns import materialize
+from ee.clickhouse.queries.breakdown_props import ALL_USERS_COHORT_ID
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.cohort import Cohort
@@ -1104,16 +1105,21 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 "date_to": "2020-01-08",
                 "funnel_window_days": 7,
                 "breakdown_type": "cohort",
-                "breakdown": [cohort.pk],
+                "breakdown": ["all", cohort.pk],
             }
             filter = Filter(data=filters)
             funnel = ClickhouseFunnel(filter, self.team)
 
             result = funnel.run()
             self.assertEqual(len(result[0]), 3)
-            self.assertEqual(result[0][0]["breakdown"], "test_cohort")
+            self.assertEqual(result[0][0]["breakdown"], "all users")
+            self.assertEqual(len(result[1]), 3)
+            self.assertEqual(result[1][0]["breakdown"], "test_cohort")
             self.assertCountEqual(self._get_people_at_step(filter, 1, cohort.pk), [person.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, cohort.pk), [])
+
+            self.assertCountEqual(self._get_people_at_step(filter, 1, ALL_USERS_COHORT_ID), [person.uuid])
+            self.assertCountEqual(self._get_people_at_step(filter, 2, ALL_USERS_COHORT_ID), [])
 
             # non array
             filters = {

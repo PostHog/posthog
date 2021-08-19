@@ -12,6 +12,8 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 
+ALL_USERS_COHORT_ID = 0
+
 
 def _get_top_elements(filter: Filter, team_id: int, query: str, limit, params: Dict = {}) -> List:
     # use limit of 25 to determine if there are more than 20
@@ -114,7 +116,7 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
         props_to_filter, team_id, prepend="all_cohort_", table_name="all_events"
     )
     query = f"""
-            SELECT DISTINCT distinct_id, 0 as value
+            SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value
             FROM events all_events
             WHERE team_id = {team_id}
             {parsed_date_from}
@@ -137,7 +139,7 @@ def format_breakdown_cohort_join_query(team_id: int, filter: Filter, **kwargs) -
         all_query, all_params = _format_all_query(team_id, filter, entity=entity)
         cohort_queries.append(all_query)
         params = {**params, **all_params}
-        ids.append(0)
+        ids.append(ALL_USERS_COHORT_ID)
     return " UNION ALL ".join(cohort_queries), ids, params
 
 
@@ -152,3 +154,10 @@ def _parse_breakdown_cohorts(cohorts: List[Cohort]) -> Tuple[List[str], Dict]:
         )  # only replace the first top level occurrence
         queries.append(cohort_query)
     return queries, params
+
+
+def get_breakdown_cohort_name(cohort_id: int) -> str:
+    if cohort_id == ALL_USERS_COHORT_ID:
+        return "all users"
+    else:
+        return Cohort.objects.get(pk=cohort_id).name

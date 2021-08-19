@@ -187,7 +187,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         try:
             cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
-            return "0 = 1", {}  # If cohort doesn't exist, nothing can match
+            return "0 = 11", {}  # If cohort doesn't exist, nothing can match
 
         is_precalculated = is_precalculated_query(cohort)
 
