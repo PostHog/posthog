@@ -8,7 +8,7 @@ from posthog.models.team import Team
 class PathEventQuery(ClickhouseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
-            f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp, if({self.EVENT_TABLE_ALIAS}.event = '$pageview', JSONExtractString({self.EVENT_TABLE_ALIAS}.properties, '$current_url'), if({self.EVENT_TABLE_ALIAS}.event = '$autocapture', concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), {self.EVENT_TABLE_ALIAS}.event)) AS path_item"
+            f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp, if(event = '$screen', JSONExtractString({self.EVENT_TABLE_ALIAS}.properties, '$screen_name'), if({self.EVENT_TABLE_ALIAS}.event = '$pageview', JSONExtractString({self.EVENT_TABLE_ALIAS}.properties, '$current_url'), if({self.EVENT_TABLE_ALIAS}.event = '$autocapture', concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), {self.EVENT_TABLE_ALIAS}.event))) AS path_item"
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
         )
 
@@ -24,7 +24,7 @@ class PathEventQuery(ClickhouseEventQuery):
             {self._get_disintct_id_query()}
             {self._get_person_query()}
             WHERE team_id = %(team_id)s
-            AND (event = '$pageview' OR event = '$autocapture' OR NOT event LIKE %(custom_event_match)s)
+            AND (event = '$pageview' OR event = '$screen' OR event = '$autocapture' OR NOT event LIKE %(custom_event_match)s)
             {date_query}
             {prop_query}
             ORDER BY {self.DISTINCT_ID_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.timestamp
