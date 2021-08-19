@@ -2,7 +2,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
@@ -41,7 +41,11 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
+            props_to_filter,
+            team_id,
+            table_name="e",
+            filter_test_accounts=filter.filter_test_accounts,
+            allow_denormalized_props=True,
         )
         aggregate_operation, _, math_params = process_math(entity)
 
@@ -183,14 +187,16 @@ class ClickhouseTrendsBreakdown:
         values_arr = get_breakdown_event_prop_values(
             filter, entity, aggregate_operation, team_id, extra_params=math_params
         )
-        params = {
-            "values": values_arr,
-        }
+
+        # :TRICKY: We only support string breakdown for event/person properties
+        assert isinstance(filter.breakdown, str)
+        breakdown_value, _ = get_property_string_expr("events", filter.breakdown, "%(key)s", "properties")
+
         return (
-            params,
+            {"values": values_arr, "key": filter.breakdown},
             BREAKDOWN_PROP_JOIN_SQL,
-            {},
-            "trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))",
+            {"breakdown_value_expr": breakdown_value},
+            breakdown_value,
         )
 
     def _parse_single_aggregate_result(

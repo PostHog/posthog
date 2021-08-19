@@ -192,7 +192,11 @@ def property_table(property: Property) -> TableWithProperties:
 
 
 def get_property_string_expr(
-    table: TableWithProperties, property_name: PropertyName, var: str, prop_var: str, allow_denormalized_props: bool
+    table: TableWithProperties,
+    property_name: PropertyName,
+    var: str,
+    prop_var: str,
+    allow_denormalized_props: bool = True,
 ) -> Tuple[str, bool]:
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
