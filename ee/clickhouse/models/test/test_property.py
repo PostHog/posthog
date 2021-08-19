@@ -60,19 +60,8 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             event="$pageview", team=self.team, distinct_id="whatever", properties={"attr": "some_val"},
         )
 
-        filter_exact = Filter(data={"properties": [{"key": "attr", "value": "some_val"}],})
-        self.assertEqual(len(self._run_query(filter_exact)), 1)
-
-        filter_regex = Filter(data={"properties": [{"key": "attr", "value": "some_.+_val", "operator": "regex"}],})
-        self.assertEqual(len(self._run_query(filter_regex)), 1)
-
-        filter_icontains = Filter(data={"properties": [{"key": "attr", "value": "Some_Val", "operator": "icontains"}],})
-        self.assertEqual(len(self._run_query(filter_icontains)), 1)
-
-        filter_not_icontains = Filter(
-            data={"properties": [{"key": "attr", "value": "other", "operator": "not_icontains"}],}
-        )
-        self.assertEqual(len(self._run_query(filter_not_icontains)), 1)
+        filter = Filter(data={"properties": [{"key": "attr", "value": "some_val"}],})
+        self.assertEqual(len(self._run_query(filter)), 1)
 
     def test_prop_element(self):
         _create_event(
