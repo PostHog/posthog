@@ -168,7 +168,7 @@ class TestFeatureFlag(APIBaseTest):
                 "has_variants": True,
                 "variants_count": 3,
                 "has_filters": False,
-                "has_rollout_percentage": True,
+                "has_rollout_percentage": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
             },
