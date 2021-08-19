@@ -79,14 +79,18 @@ export function LineGraph({
         buildChart()
     }, [datasets, color, visibilityMap])
 
-    // Hacky! - Chartjs doesn't internally call tooltip callback on mouseout from right border. Let's manually remove tooltips
-    // when the chart is being hovered over. #5061
+    // Hacky! - Chartjs doesn't internally call tooltip callback on mouseout from right border.
+    // Let's manually remove tooltips when the chart is being hovered over. #5061
     useEffect(() => {
-        const tooltipEl = document.getElementById('ph-graph-tooltip')
+        const removeTooltip = () => {
+            const tooltipEl = document.getElementById('ph-graph-tooltip')
 
-        if (tooltipEl && !tooltipVisible) {
-            tooltipEl.style.opacity = 0
+            if (tooltipEl && !tooltipVisible) {
+                tooltipEl.style.opacity = 0
+            }
         }
+        removeTooltip()
+        return removeTooltip // remove tooltip on component unmount
     }, [tooltipVisible])
 
     // annotation related effects
