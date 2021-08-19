@@ -101,14 +101,14 @@ def prop_filter_json_extract(
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND {left} LIKE %(v{prepend}_{idx})s".format(idx=idx, prepend=prepend, left=property_expr),
+            "AND {left} ILIKE %(v{prepend}_{idx})s".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator == "not_icontains":
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND NOT ({left} LIKE %(v{prepend}_{idx})s)".format(idx=idx, prepend=prepend, left=property_expr),
+            "AND NOT ({left} ILIKE %(v{prepend}_{idx})s)".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator in ("regex", "not_regex"):
