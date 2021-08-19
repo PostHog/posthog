@@ -83,15 +83,6 @@ class TestCohort(BaseTest):
 
         self.assertCountEqual(list(cohort.people.all()), [person1, person2])
 
-    @pytest.mark.ee
-    def test_clickhouse_empty_query(self):
-        cohort2 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
-        )
-
-        cohort2.calculate_people(use_clickhouse=True)
-        self.assertFalse(Cohort.objects.get().is_calculating)
-
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(
             team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
@@ -106,7 +97,7 @@ class TestCohort(BaseTest):
         )
 
         with patch("posthog.models.cohort.Cohort._postgres_persons_query") as pp:
-            pp.return_value = lambda x: Exception()
-            cohort2.calculate_people()
+            pp.return_value = ...  # Using ellipsis as a dummy invalid value to crash the function
+            self.assertRaises(AttributeError, cohort2.calculate_people)
         self.assertFalse(Cohort.objects.get().is_calculating)
         self.assertEqual(Cohort.objects.get().errors_calculating, 1)

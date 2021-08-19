@@ -65,8 +65,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         correct = """
-        SELECT e.timestamp as timestamp,
-        e.properties as properties
+        SELECT e.timestamp as timestamp
         FROM events e
         WHERE team_id = %(team_id)s
             AND event = %(event)s
@@ -91,10 +90,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         entity = Entity({"id": "viewed", "type": "events"})
 
-        global_prop_query, global_prop_query_params = TrendsEventQuery(
-            filter=filter, entity=entity, team_id=self.team.pk
-        ).get_query()
-        sync_execute(global_prop_query, global_prop_query_params)
+        self._run_query(filter, entity)
 
         filter = Filter(
             data={
@@ -115,12 +111,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity_prop_query = self._run_query(filter, entity)
-
-        # global queries and enttiy queries should be the same
-        self.assertEqual(
-            sqlparse.format(global_prop_query, reindent=True), sqlparse.format(entity_prop_query, reindent=True)
-        )
+        self._run_query(filter, entity)
 
     def test_event_properties_filter(self):
         filter = Filter(
@@ -134,10 +125,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         entity = Entity({"id": "viewed", "type": "events"})
 
-        global_prop_query, global_prop_query_params = TrendsEventQuery(
-            filter=filter, entity=entity, team_id=self.team.pk
-        ).get_query()
-        sync_execute(global_prop_query, global_prop_query_params)
+        self._run_query(filter, entity)
 
         filter = Filter(
             data={
@@ -155,12 +143,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        entity_prop_query = self._run_query(filter, entity)
-
-        # global queries and enttiy queries should be the same
-        self.assertEqual(
-            sqlparse.format(global_prop_query, reindent=True), sqlparse.format(entity_prop_query, reindent=True)
-        )
+        self._run_query(filter, entity)
 
     # just smoke test making sure query runs because no new functions are used here
     def test_cohort_filter(self):

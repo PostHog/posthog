@@ -251,7 +251,7 @@ $funnel_canvas_background: #fafafa;
                     .value-inspector-button-icon {
                         background-color: $funnel_canvas_background; // Ensures the series line gets cut off
                         padding: 4px 0;
-                        margin-right: 12px;
+                        margin-right: 1rem;
                     }
                 }
 
@@ -268,6 +268,7 @@ $funnel_canvas_background: #fafafa;
                 .ant-btn.funnel-inspect-button {
                     padding: 0;
                     height: unset;
+                    padding-right: 0.25rem;
                 }
             }
 
@@ -328,18 +329,24 @@ $funnel_canvas_background: #fafafa;
 
     &.horizontal {
         .funnel-step {
+            .step-stat {
+                display: flex;
+                align-items: baseline;
+            }
+
             .funnel-conversion-metadata {
                 display: flex;
                 align-items: center;
+                justify-content: space-between;
 
                 .funnel-inspect-button {
-                    padding: 0;
+                    padding: 0 4px 0 0;
                     .value-inspector-button-icon {
                         padding-right: 8px;
                     }
                 }
                 .conversion-metadata-caption {
-                    padding-left: 4px;
+                    padding-left: 3px;
                 }
             }
         }

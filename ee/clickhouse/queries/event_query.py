@@ -152,7 +152,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         if filter_test_accounts:
             test_account_filters = Team.objects.only("test_account_filters").get(id=team_id).test_account_filters
-            filters.extend([Property(**prop) for prop in test_account_filters])
+            filters += [Property(**prop) for prop in test_account_filters]
 
         for idx, prop in enumerate(filters):
             if prop.type == "cohort":
@@ -187,7 +187,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         try:
             cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
-            return "0 = 1", {}  # If cohort doesn't exist, nothing can match
+            return "0 = 11", {}  # If cohort doesn't exist, nothing can match
 
         is_precalculated = is_precalculated_query(cohort)
 

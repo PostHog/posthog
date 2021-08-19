@@ -1,11 +1,11 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 from django.forms.models import model_to_dict
-from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
+from posthog.models.property import Property, PropertyName, PropertyType
 
 
 def format_action_filter(
@@ -43,6 +43,7 @@ def format_action_filter(
                 team_id=action.team.pk if filter_by_team else None,
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
+                allow_denormalized_props=True,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}
@@ -61,6 +62,8 @@ def format_action_filter(
 def filter_event(
     step: ActionStep, prepend: str = "event", index: int = 0, table_name: str = ""
 ) -> Tuple[List[str], Dict]:
+    from ee.clickhouse.models.property import get_property_string_expr
+
     params = {"{}_{}".format(prepend, index): step.event}
     conditions = []
 
@@ -68,21 +71,17 @@ def filter_event(
         table_name += "."
 
     if step.url:
+        value_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", f"{table_name}properties")
+        prop_name = f"{prepend}_prop_val_{index}"
         if step.url_matching == ActionStep.EXACT:
-            conditions.append(
-                f"JSONExtractString({table_name}properties, '$current_url') = %({prepend}_prop_val_{index})s"
-            )
-            params.update({f"{prepend}_prop_val_{index}": step.url})
+            conditions.append(f"{value_expr} = %({prop_name})s")
+            params.update({prop_name: step.url})
         elif step.url_matching == ActionStep.REGEX:
-            conditions.append(
-                f"match(JSONExtractString({table_name}properties, '$current_url'), %({prepend}_prop_val_{index})s)"
-            )
-            params.update({f"{prepend}_prop_val_{index}": step.url})
+            conditions.append(f"match({value_expr}, %({prop_name})s)")
+            params.update({prop_name: step.url})
         else:
-            conditions.append(
-                f"JSONExtractString({table_name}properties, '$current_url') LIKE %({prepend}_prop_val_{index})s"
-            )
-            params.update({f"{prepend}_prop_val_{index}": f"%{step.url}%"})
+            conditions.append(f"{value_expr} LIKE %({prop_name})s")
+            params.update({prop_name: f"%{step.url}%"})
 
     conditions.append(f"event = %({prepend}_{index})s")
 
@@ -99,3 +98,25 @@ def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team
         params = {key: entity.id}
 
     return entity_filter, params
+
+
+def get_action_tables_and_properties(action: Action) -> Set[Tuple[PropertyName, PropertyType]]:
+    from ee.clickhouse.models.property import extract_tables_and_properties
+
+    result: Set[Tuple[PropertyName, PropertyType]] = set()
+
+    for action_step in action.steps.all():
+        if action_step.url:
+            result.add(("$current_url", "event"))
+        result |= extract_tables_and_properties(Filter(data={"properties": action_step.properties}).properties)
+
+    return result
+
+
+def uses_elements_chain(action: Action) -> bool:
+    for action_step in action.steps.all():
+        if any(Property(**prop).type == "element" for prop in action_step.properties):
+            return True
+        if any(getattr(action_step, attribute) is not None for attribute in ["selector", "tag_name", "href", "text"]):
+            return True
+    return False

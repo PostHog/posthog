@@ -1,5 +1,6 @@
 from typing import List, cast
 
+from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from posthog.models.cohort import Cohort
 
@@ -101,7 +102,7 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
                 # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
                 serialized_result.update(
                     {
-                        "breakdown": Cohort.objects.get(pk=result[-1]).name
+                        "breakdown": get_breakdown_cohort_name(result[-1])
                         if self._filter.breakdown_type == "cohort"
                         else result[-1],
                         "breakdown_value": result[-1],

@@ -139,11 +139,12 @@ else:
             try:
                 result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
             except Exception as err:
+                err = wrap_query_error(err)
                 tags["failed"] = True
                 tags["reason"] = type(err).__name__
                 incr("clickhouse_sync_execution_failure", tags=tags)
 
-                raise wrap_query_error(err)
+                raise err
             finally:
                 execution_time = perf_counter() - start_time
 
