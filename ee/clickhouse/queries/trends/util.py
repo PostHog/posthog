@@ -1,8 +1,9 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from rest_framework.exceptions import ValidationError
 
+from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import WEEKLY_ACTIVE
@@ -22,17 +23,19 @@ MATH_FUNCTIONS = {
 
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
-    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity.index}_math)s))"
-    params = {f"e_{entity.index}_math": entity.math_property}
-
     aggregate_operation = "count(*)"
     join_condition = ""
+    params = {}
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math in MATH_FUNCTIONS:
-        aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}({value})"
+        value, _ = get_property_string_expr(
+            "events", cast(str, entity.math_property), f"%(e_{entity.index}_math)s", "properties"
+        )
+        aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
         params["join_property_key"] = entity.math_property
+        params[f"e_{entity.index}_math"] = entity.math_property
 
     return aggregate_operation, join_condition, params
 

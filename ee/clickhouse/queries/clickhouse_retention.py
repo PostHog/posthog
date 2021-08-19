@@ -35,7 +35,7 @@ class ClickhouseRetention(Retention):
     def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
         prop_filters, prop_filter_params = parse_prop_clauses(
-            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts, allow_denormalized_props=True
         )
         target_entity = filter.target_entity
         returning_entity = filter.returning_entity
@@ -152,7 +152,7 @@ class ClickhouseRetention(Retention):
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         trunc_func = get_trunc_func_ch(period)
         prop_filters, prop_filter_params = parse_prop_clauses(
-            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts, allow_denormalized_props=True
         )
 
         returning_entity = filter.returning_entity if filter.selected_interval > 0 else filter.target_entity
@@ -209,7 +209,7 @@ class ClickhouseRetention(Retention):
         period = filter.period
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         trunc_func = get_trunc_func_ch(period)
-        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk)
+        prop_filters, prop_filter_params = parse_prop_clauses(filter.properties, team.pk, allow_denormalized_props=True)
 
         target_query, target_params = self._get_condition(filter.target_entity, table="e")
         target_query_formatted = "AND {target_query}".format(target_query=target_query)

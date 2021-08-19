@@ -65,8 +65,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         correct = """
-        SELECT e.timestamp as timestamp,
-               e.properties as properties
+        SELECT e.timestamp as timestamp
         FROM events e
         WHERE team_id = %(team_id)s
             AND event = %(event)s
