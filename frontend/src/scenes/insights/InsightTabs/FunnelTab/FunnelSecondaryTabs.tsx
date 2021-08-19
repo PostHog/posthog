@@ -29,7 +29,6 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
                 <h4 className="secondary">
                     Exclusion Steps
                     <Tooltip
-                        placement="right"
                         title={
                             <>
                                 Exclude users who completed the specified event between two specific steps. Note that

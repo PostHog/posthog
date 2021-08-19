@@ -56,7 +56,7 @@ function DuplicateStepIndicator(): JSX.Element {
                     </>
                 }
             >
-                <InfoCircleOutlined />
+                <InfoCircleOutlined className="info-indicator" />
             </Tooltip>
         </span>
     )

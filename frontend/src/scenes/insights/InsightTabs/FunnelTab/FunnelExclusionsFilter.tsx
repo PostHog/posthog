@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Button, Row, Select } from 'antd'
+import { Button, Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import equal from 'fast-deep-equal'
-import clsx from 'clsx'
 import useSize from '@react-hook/size'
 import { DeleteOutlined } from '@ant-design/icons'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
@@ -11,18 +10,16 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ANTD_TOOLTIP_PLACEMENTS, areObjectValuesEmpty, clamp } from 'lib/utils'
 import { FunnelExclusionEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
 
-import './FunnelExclusionsFilter.scss'
-
 function ExclusionRowSuffix({
     filter,
     index,
     onClose,
-    isVertical = false,
+    isVertical,
 }: {
     filter: ActionFilterType | FunnelExclusionEntityFilter
     index: number
     onClose?: () => void
-    isVertical?: boolean
+    isVertical: boolean
 }): JSX.Element | null {
     const { exclusionFilters, exclusionDefaultStepRange, areFiltersValid, numberOfSeries } = useValues(funnelLogic)
     const { setOneEventExclusionFilter } = useActions(funnelLogic)
@@ -59,64 +56,89 @@ function ExclusionRowSuffix({
     }, [exclusionDefaultStepRange])
 
     return (
-        <Row justify="space-between" align="middle" className="funnel-exclusion-row-wrapper" wrap={false}>
-            {isVertical && <div className="funnel-exclusion-spacing-arrow">&#8627;</div>}
-            <div className="funnel-exclusion-selectors">
-                <div className="funnel-exclusion-funnel_from_step-selector">
-                    between
-                    <Select
-                        defaultValue={0}
-                        disabled={!areFiltersValid}
-                        dropdownMatchSelectWidth={false}
-                        dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
-                        data-attr="funnel-exclusion-funnel_from_step-selector"
-                        optionLabelProp="label"
-                        value={localStepRange.funnel_from_step}
-                        onChange={(fromStep: number) => onChange(fromStep, localStepRange.funnel_to_step)}
-                        onBlur={onBlur}
-                    >
-                        {Array.from(Array(numberOfSeries).keys())
-                            .slice(0, -1)
-                            .map((stepIndex) => (
-                                <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
-                                    Step {stepIndex + 1}
-                                </Select.Option>
-                            ))}
-                    </Select>
-                </div>
-                <div className="funnel-exclusion-funnel_to_step-selector">
-                    and
-                    <Select
-                        defaultValue={(localStepRange.funnel_from_step ?? 0) + 1}
-                        disabled={!areFiltersValid}
-                        dropdownMatchSelectWidth={false}
-                        dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
-                        data-attr="funnel-exclusion-funnel_to_step-selector"
-                        optionLabelProp="label"
-                        value={localStepRange.funnel_to_step}
-                        onChange={(toStep: number) => onChange(localStepRange.funnel_from_step, toStep)}
-                        onBlur={onBlur}
-                    >
-                        {Array.from(Array(numberOfSeries).keys())
-                            .slice((localStepRange.funnel_from_step ?? 0) + 1)
-                            .map((stepIndex) => (
-                                <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
-                                    Step {stepIndex + 1}
-                                </Select.Option>
-                            ))}
-                    </Select>
-                </div>
-            </div>
-            <div className="flex-spacer" />
+        <Row
+            justify="space-between"
+            align="middle"
+            wrap={false}
+            style={{ margin: `${isVertical ? 4 : 0}px 0`, paddingLeft: 4, width: '100%' }}
+        >
+            between
+            <Select
+                defaultValue={0}
+                disabled={!areFiltersValid}
+                dropdownMatchSelectWidth={false}
+                dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
+                data-attr="funnel-exclusion-funnel_from_step-selector"
+                optionLabelProp="label"
+                value={localStepRange.funnel_from_step}
+                onChange={(fromStep: number) => onChange(fromStep, localStepRange.funnel_to_step)}
+                onBlur={onBlur}
+                style={{ marginLeft: 4, marginRight: 4 }}
+            >
+                {Array.from(Array(numberOfSeries).keys())
+                    .slice(0, -1)
+                    .map((stepIndex) => (
+                        <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
+                            Step {stepIndex + 1}
+                        </Select.Option>
+                    ))}
+            </Select>
+            and
+            <Select
+                defaultValue={(localStepRange.funnel_from_step ?? 0) + 1}
+                disabled={!areFiltersValid}
+                dropdownMatchSelectWidth={false}
+                dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
+                data-attr="funnel-exclusion-funnel_to_step-selector"
+                optionLabelProp="label"
+                value={localStepRange.funnel_to_step}
+                onChange={(toStep: number) => onChange(localStepRange.funnel_from_step, toStep)}
+                onBlur={onBlur}
+                style={{ marginLeft: 4 }}
+            >
+                {Array.from(Array(numberOfSeries).keys())
+                    .slice((localStepRange.funnel_from_step ?? 0) + 1)
+                    .map((stepIndex) => (
+                        <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
+                            Step {stepIndex + 1}
+                        </Select.Option>
+                    ))}
+            </Select>
+            <div style={{ flex: 1 }} />
             <Button
                 type="link"
                 onClick={onClose}
                 className="row-action-btn delete"
                 data-attr="delete-prop-exclusion-filter"
                 title="Delete event exclusion series"
+                style={{ marginLeft: 4 }}
             >
                 <DeleteOutlined />
             </Button>
+        </Row>
+    )
+}
+
+function ExclusionRow({
+    seriesIndicator,
+    filter,
+    suffix,
+    isVertical,
+}: {
+    seriesIndicator?: JSX.Element | string
+    suffix?: JSX.Element | string
+    filter?: JSX.Element | string
+    isVertical?: boolean
+}): JSX.Element {
+    return (
+        <Row wrap={false} align={isVertical ? 'top' : 'middle'} style={{ width: '100%' }}>
+            <Col style={{ padding: `${isVertical ? 5 : 0}px 8px` }}>{seriesIndicator}</Col>
+            <Col flex="auto">
+                <Row align="middle" wrap={isVertical}>
+                    {filter}
+                    {suffix}
+                </Row>
+            </Col>
         </Row>
     )
 }
@@ -148,10 +170,9 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             hideFilter
             hideDeleteBtn
             fullWidth
-            rowClassName={clsx('funnel-exclusions-filter-row', { vertical: isVerticalLayout })}
-            customRowSuffix={(filter, index, onClose) => (
-                <ExclusionRowSuffix filter={filter} index={index} onClose={onClose} isVertical={isVerticalLayout} />
-            )}
+            seriesIndicatorType="alpha"
+            renderRow={(props) => <ExclusionRow {...props} isVertical={isVerticalLayout} />}
+            customRowSuffix={(props) => <ExclusionRowSuffix {...props} isVertical={isVerticalLayout} />}
         />
     )
 }

@@ -28,11 +28,19 @@ export interface ActionFilterProps {
     customRowPrefix?:
         | string
         | JSX.Element
-        | ((row: ActionFilterType | FunnelExclusionEntityFilter, index: number, onClose: () => void) => JSX.Element) // Custom prefix element to show in each ActionFilterRow
+        | ((props: {
+              filter: ActionFilterType | FunnelExclusionEntityFilter
+              index: number
+              onClose: () => void
+          }) => JSX.Element) // Custom prefix element to show in each ActionFilterRow
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((row: ActionFilterType | FunnelExclusionEntityFilter, index: number, onClose: () => void) => JSX.Element) // Custom suffix element to show in each ActionFilterRow
+        | ((props: {
+              filter: ActionFilterType | FunnelExclusionEntityFilter
+              index: number
+              onClose: () => void
+          }) => JSX.Element) // Custom suffix element to show in each ActionFilterRow
     rowClassName?: string
     customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
@@ -40,6 +48,15 @@ export interface ActionFilterProps {
     showNestedArrow?: boolean // show nested arrows to the left of property filter buttons
     groupTypes?: TaxonomicFilterGroupType[]
     hideDeleteBtn?: boolean
+    renderRow?: ({
+        seriesIndicator,
+        prefix,
+        filter,
+        suffix,
+        propertyFiltersButton,
+        deleteButton,
+        orLabel,
+    }: Record<string, JSX.Element | string | undefined>) => JSX.Element
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
@@ -68,6 +85,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             showNestedArrow = false,
             groupTypes,
             hideDeleteBtn,
+            renderRow,
         },
         ref
     ): JSX.Element => {
@@ -108,6 +126,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             groupTypes,
             hideDeleteBtn,
             disabled,
+            renderRow,
         }
 
         return (
