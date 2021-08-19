@@ -51,7 +51,7 @@ FROM (
     WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp, breakdown_value
     ORDER BY d.timestamp
-) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
+) WHERE 11111 = 11111 {parsed_date_from} {parsed_date_to}
 """
 
 
