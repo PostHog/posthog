@@ -155,9 +155,8 @@ def paths_test_factory(paths, event_factory, person_factory):
             event_factory(distinct_id="person_4", event="custom_event_1", team=self.team)
             event_factory(distinct_id="person_4", event="custom_event_2", team=self.team)
 
-            response = paths(team=self.team, filter=filter).run(
-                team=self.team, filter=PathFilter(data={"path_type": "custom_event"})
-            )
+            filter = PathFilter(data={"path_type": "custom_event"})
+            response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
             self.assertEqual(response[0]["source"], "1_custom_event_1", response)
             self.assertEqual(response[0]["target"], "2_custom_event_2")
@@ -211,9 +210,8 @@ def paths_test_factory(paths, event_factory, person_factory):
                 properties={"$screen_name": "/pricing"}, distinct_id="person_4", event="$screen", team=self.team,
             )
 
-            response = paths(team=self.team, filter=filter).run(
-                team=self.team, filter=PathFilter(data={"path_type": "$screen"})
-            )
+            filter = PathFilter(data={"path_type": "$screen"})
+            response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
             self.assertEqual(response[0]["source"], "1_/", response)
             self.assertEqual(response[0]["target"], "2_/pricing")
             self.assertEqual(response[0]["value"], 2)
@@ -287,16 +285,15 @@ def paths_test_factory(paths, event_factory, person_factory):
                 team=self.team,
                 distinct_id="person_2",
                 elements=[
-                    Element(tag_name="a", text="goodbye1", nth_child=2, nth_of_type=0, attr_id="someId",),
+                    Element(tag_name="div", text="goodbye1", nth_child=2, nth_of_type=0, attr_id="someId",),
                     Element(tag_name="div", nth_child=0, nth_of_type=0),
                     # make sure elements don't get double counted if they're part of the same event
                     Element(href="/a-url-2", nth_child=0, nth_of_type=0),
                 ],
             )
+            filter = PathFilter(data={"path_type": "$autocapture"})
 
-            response = paths(team=self.team, filter=filter).run(
-                team=self.team, filter=PathFilter(data={"path_type": "$autocapture"})
-            )
+            response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
             self.assertEqual(response[0]["source"], "1_<a> hello")
             self.assertEqual(response[0]["target"], "2_<a> goodbye")
@@ -307,15 +304,16 @@ def paths_test_factory(paths, event_factory, person_factory):
             self.assertEqual(response[1]["value"], 1)
 
             self.assertEqual(response[2]["source"], "2_<a> goodbye1")
-            self.assertEqual(response[2]["target"], "3_<a> goodbye1")
+            self.assertEqual(response[2]["target"], "3_<div> goodbye1")
             self.assertEqual(response[2]["value"], 1)
 
             elements = self.client.get("/api/paths/elements/").json()
-            self.assertEqual(elements[0]["name"], "<a> goodbye1")  # first since captured twice
-            self.assertEqual(elements[1]["name"], "<a> goodbye")
+            self.assertEqual(elements[0]["name"], "<a> goodbye")  # first since captured twice
+            self.assertEqual(elements[1]["name"], "<a> goodbye1")
             self.assertEqual(elements[2]["name"], "<a> hello")
             self.assertEqual(elements[3]["name"], "<a> hello1")
-            self.assertEqual(len(elements), 4)
+            self.assertEqual(elements[4]["name"], "<div> goodbye1")
+            self.assertEqual(len(elements), 5)
 
         def test_paths_properties_filter(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -439,9 +437,8 @@ def paths_test_factory(paths, event_factory, person_factory):
 
             response = self.client.get("/api/insight/path/?type=%24pageview&start=%2Fpricing").json()
 
-            response = paths(team=self.team, filter=filter).run(
-                team=self.team, filter=PathFilter(data={"path_type": "$pageview", "start_point": "/pricing"}),
-            )
+            filter = PathFilter(data={"path_type": "$pageview", "start_point": "/pricing"})
+            response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
 
             self.assertEqual(len(response), 5)
 
@@ -451,9 +448,8 @@ def paths_test_factory(paths, event_factory, person_factory):
             self.assertTrue(response[3].items() >= {"source": "2_/about", "target": "3_/pricing", "value": 1}.items())
             self.assertTrue(response[4].items() >= {"source": "3_/pricing", "target": "4_/help", "value": 1}.items())
 
-            response = paths(team=self.team, filter=filter).run(
-                team=self.team, filter=PathFilter(data={"path_type": "$pageview", "start_point": "/"}),
-            )
+            filter = PathFilter(data={"path_type": "$pageview", "start_point": "/"})
+            response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
 
             self.assertEqual(len(response), 3)
 
@@ -481,10 +477,8 @@ def paths_test_factory(paths, event_factory, person_factory):
                 event_factory(
                     properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
                 )
-
-            response = paths(team=self.team, filter=filter).run(
-                team=self.team, filter=PathFilter(data={"date_from": "2020-04-13"})
-            )
+            filter = PathFilter(data={"date_from": "2020-04-13"})
+            response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
             self.assertEqual(response[0]["source"], "1_/")
             self.assertEqual(response[0]["target"], "2_/about")

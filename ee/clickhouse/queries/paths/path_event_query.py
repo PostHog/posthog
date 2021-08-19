@@ -1,6 +1,8 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from posthog.models.property import Property
+from posthog.models.team import Team
 
 
 class PathEventQuery(ClickhouseEventQuery):
@@ -20,6 +22,7 @@ class PathEventQuery(ClickhouseEventQuery):
         query = f"""
             SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_disintct_id_query()}
+            {self._get_person_query()}
             WHERE team_id = %(team_id)s
             AND (event = '$pageview' OR event = '$autocapture' OR NOT event LIKE %(custom_event_match)s)
             {date_query}
@@ -33,4 +36,15 @@ class PathEventQuery(ClickhouseEventQuery):
         self._should_join_distinct_ids = True
 
     def _determine_should_join_persons(self) -> None:
-        self._should_join_persons = False
+        if any(self._should_property_join_persons(prop) for prop in self._filter.properties):
+            self._should_join_distinct_ids = True
+            self._should_join_persons = True
+            return
+
+        if self._filter.filter_test_accounts:
+            test_account_filters = Team.objects.only("test_account_filters").get(id=self._team_id).test_account_filters
+            test_filter_props = [Property(**prop) for prop in test_account_filters]
+            if any(self._should_property_join_persons(prop) for prop in test_filter_props):
+                self._should_join_distinct_ids = True
+                self._should_join_persons = True
+                return
