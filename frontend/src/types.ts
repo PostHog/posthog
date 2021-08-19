@@ -673,6 +673,8 @@ export interface FilterType {
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     compare?: boolean
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
+    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
+    funnel_window_interval?: number | undefined // length of conversion window
     exclusions?: FunnelExclusionEntityFilter[] // used in funnel exclusion filters
 }
 
