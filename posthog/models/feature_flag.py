@@ -1,5 +1,5 @@
 import hashlib
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL
@@ -188,8 +188,8 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
 
 
 # Return a list of with more details about each active flag (including active variant)
-def get_active_feature_flags_v2(team: Team, distinct_id: str) -> List[Dict[str, Any]]:
-    flags_enabled = {}
+def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Any]:
+    flags_enabled: Dict[str, Union[bool, str, None]] = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage",
     )
@@ -199,7 +199,7 @@ def get_active_feature_flags_v2(team: Team, distinct_id: str) -> List[Dict[str, 
         if feature_flag.distinct_id_matches(distinct_id):
             flags_enabled[feature_flag.key] = True
             if len(feature_flag.variants) > 0:
-                variant = feature_flag.get_variant_for_distinct_id(distinct_id)
+                variant = feature_flag.get_variant_for_distinct_id(distinct_id) or False
                 flags_enabled[feature_flag.key] = variant
     # except Exception as err:
     #     capture_exception(err)
