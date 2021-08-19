@@ -36,8 +36,6 @@ It's easy and free to get started.
 - **Plays nicely with data warehouses** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built plugins - such as BigQuery, Redshift, Snowflake and S3.
 - **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration) + an [API](https://posthog.com/docs/integrations/api) for anything else.
 
-<br />
-
 ![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/posthog-app-screenshot.png)
 
 <br /><br />
