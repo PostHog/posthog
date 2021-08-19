@@ -54,7 +54,9 @@ export function FunnelTab(): JSX.Element {
                         Steps
                     </h4>
                     <Row align="middle">
-                        <span className="l5 text-muted-alt mr-025">
+                        <span className="l5 text-muted-alt">
+                            <span style={{ marginRight: 5 }}>Step Order</span>
+                            <FunnelStepOrderPicker />
                             <Tooltip
                                 title={
                                     <ul style={{ paddingLeft: '1.2rem' }}>
@@ -72,11 +74,9 @@ export function FunnelTab(): JSX.Element {
                                     </ul>
                                 }
                             >
-                                <InfoCircleOutlined className="info-indicator left" />
+                                <InfoCircleOutlined className="info-indicator" />
                             </Tooltip>
-                            Step Order
                         </span>
-                        <FunnelStepOrderPicker />
                     </Row>
                 </Row>
                 <ActionFilter
