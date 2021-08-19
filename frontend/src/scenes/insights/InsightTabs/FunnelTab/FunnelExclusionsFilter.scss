@@ -9,10 +9,7 @@
         display: flex;
         align-items: center;
         flex-direction: row;
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        margin-top: $default_spacing / 4;
-        margin-bottom: $default_spacing / 4;
+        flex-wrap: wrap;
 
         .funnel-exclusion-funnel_from_step-selector,
         .funnel-exclusion-funnel_to_step-selector {
@@ -24,6 +21,8 @@
             .ant-select {
                 margin-right: $default_spacing / 4;
                 margin-left: $default_spacing / 4;
+                margin-top: $default_spacing / 4;
+                margin-bottom: $default_spacing / 4;
             }
         }
     }
