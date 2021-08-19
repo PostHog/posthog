@@ -609,12 +609,12 @@ export const funnelLogic = kea<funnelLogicType>({
             const shouldRefresh =
                 values.filters?.events?.length === 2 && values.lastAppliedFilters?.events?.length === 1
             // If layout is the only thing that changes
-            const shouldNotRefresh = equal(
+            const onlyLayoutChanged = equal(
                 Object.assign({}, values.filters, { layout: undefined }),
                 Object.assign({}, values.lastAppliedFilters, { layout: undefined })
             )
 
-            if ((refresh || shouldRefresh || clickhouseFeaturesEnabled) && !shouldNotRefresh) {
+            if (!onlyLayoutChanged && (refresh || shouldRefresh || clickhouseFeaturesEnabled)) {
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
