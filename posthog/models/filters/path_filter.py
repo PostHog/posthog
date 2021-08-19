@@ -4,7 +4,15 @@ from django.http.request import HttpRequest
 
 from posthog.constants import INSIGHT_PATHS
 from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters.mixins.common import DateMixin, FilterTestAccountsMixin, InsightMixin, IntervalMixin
+from posthog.models.filters.mixins.common import (
+    BreakdownMixin,
+    BreakdownTypeMixin,
+    DateMixin,
+    EntitiesMixin,
+    FilterTestAccountsMixin,
+    InsightMixin,
+    IntervalMixin,
+)
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
     PropTypeDerivedMixin,
@@ -24,6 +32,10 @@ class PathFilter(
     InsightMixin,
     FilterTestAccountsMixin,
     DateMixin,
+    BreakdownMixin,
+    BreakdownTypeMixin,
+    EntitiesMixin,
+    # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:

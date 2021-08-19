@@ -4,16 +4,16 @@ from typing import List, Tuple
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
-from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT
+from posthog.constants import LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
-from posthog.queries.funnel import Funnel
+from posthog.queries.paths import Paths
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
 
 
-class ClickhousePathBase(ABC, Funnel):
+class ClickhousePathBase:
     _filter: PathFilter
     _team: Team
 
@@ -45,10 +45,10 @@ class ClickhousePathBase(ABC, Funnel):
         return resp
 
     def _exec_query(self) -> List[Tuple]:
-        query = self.get_query()
+        query, _ = self.get_query()
         return sync_execute(query, self.params)
 
-    def get_query(self) -> str:
+    def get_query(self) -> Tuple[str, dict]:
         path_event_query, params = PathEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
         self.params.update(params)
-        return PATH_ARRAY_QUERY.format(path_event_query=path_event_query, boundary_event_filter="")
+        return PATH_ARRAY_QUERY.format(path_event_query=path_event_query, boundary_event_filter=""), self.params

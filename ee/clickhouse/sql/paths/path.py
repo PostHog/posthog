@@ -156,16 +156,16 @@ FROM (
                if(session_index > 1, neighbor(path_key, -1), null) AS last_path_key
           FROM (
           
-              SELECT person_id, patha_tuple as path
+              SELECT person_id, joined_path_item as path
                     , session_index
-                    , arrayMap((x, y) -> (x,y), path_basic, time) as stuff
                     , arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0
                     , arrayMap((x,y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping
-                    , arraySlice(arrayFilter((x,y)->y, path_basic, mapping), 1, %(event_in_session_limit)s) as pathz_tuple
+                    , arrayFilter((x,y) -> y, time, mapping) as timings
+                    , arraySlice(arrayFilter((x,y)->y, path_basic, mapping), 1, %(event_in_session_limit)s) as compact_path
                 FROM (
                     SELECT person_id
-                        , path_tuple.1 as path_basic
-                        , path_tuple.2 as time
+                        , path_time_tuple.1 as path_basic
+                        , path_time_tuple.2 as time
                         , session_index
                         , arrayDifference(timing) as times
                         , arrayZip(paths, times) as paths_tuple
@@ -178,10 +178,12 @@ FROM (
                             GROUP BY person_id
                             ORDER BY person_id
                            )
-                    ARRAY JOIN session_paths AS path_tuple, arrayEnumerate(session_paths) AS session_index
+                    /* this array join splits paths for a single personID per session */
+                    ARRAY JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index
                 )
-                ARRAY JOIN pathz_tuple AS patha_tuple, arrayEnumerate(pathz_tuple) AS session_index
+                ARRAY JOIN compact_path AS joined_path_item, arrayEnumerate(compact_path) AS session_index
                 {boundary_event_filter}
+                ORDER BY person_id, session_index
                )
        )
  WHERE source_event IS NOT NULL

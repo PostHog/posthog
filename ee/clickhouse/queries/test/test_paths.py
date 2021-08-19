@@ -16,19 +16,20 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
+class TestClickhousePathsOld(ClickhouseTestMixin, paths_test_factory(ClickhousePaths, _create_event, Person.objects.create)):  # type: ignore
+    # remove when migrated to new Paths query
+    pass
+
+
 class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePathBase, _create_event, Person.objects.create)):  # type: ignore
     def test_denormalized_properties(self):
         materialize("events", "$current_url")
         materialize("events", "$screen_name")
 
-        query, _ = ClickhousePathBase(team=self.team, filter=filter).get_query(
-            team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})
-        )
+        query, _ = ClickhousePathBase(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
 
-        query, _ = ClickhousePathBase(team=self.team, filter=filter).get_query(
-            team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})
-        )
+        query, _ = ClickhousePathBase(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
 
         self.test_current_url_paths_and_logic()

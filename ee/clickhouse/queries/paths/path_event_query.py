@@ -34,17 +34,3 @@ class PathEventQuery(ClickhouseEventQuery):
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
-
-    def _determine_should_join_persons(self) -> None:
-        if any(self._should_property_join_persons(prop) for prop in self._filter.properties):
-            self._should_join_distinct_ids = True
-            self._should_join_persons = True
-            return
-
-        if self._filter.filter_test_accounts:
-            test_account_filters = Team.objects.only("test_account_filters").get(id=self._team_id).test_account_filters
-            test_filter_props = [Property(**prop) for prop in test_account_filters]
-            if any(self._should_property_join_persons(prop) for prop in test_filter_props):
-                self._should_join_distinct_ids = True
-                self._should_join_persons = True
-                return

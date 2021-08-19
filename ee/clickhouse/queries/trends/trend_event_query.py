@@ -6,6 +6,7 @@ from ee.clickhouse.queries.trends.util import get_active_user_params, populate_e
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models import Entity
+from posthog.models.filters.filter import Filter
 
 
 class TrendsEventQuery(ClickhouseEventQuery):
