@@ -4,7 +4,9 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
+    ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
+    get_breakdown_cohort_name,
     get_breakdown_event_prop_values,
     get_breakdown_person_prop_values,
 )
@@ -21,11 +23,8 @@ from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_PERSON_PROP_JOIN_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
-    NONE_BREAKDOWN_PERSON_PROP_JOIN_SQL,
-    NONE_BREAKDOWN_PROP_JOIN_SQL,
 )
 from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
-from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -229,7 +228,7 @@ class ClickhouseTrendsBreakdown:
             "label": label,
         }
         if filter.breakdown_type == "cohort":
-            additional_values["breakdown_value"] = "all" if breakdown_value == 0 else breakdown_value
+            additional_values["breakdown_value"] = "all" if breakdown_value == ALL_USERS_COHORT_ID else breakdown_value
         else:
             additional_values["breakdown_value"] = breakdown_value
 
@@ -244,9 +243,6 @@ class ClickhouseTrendsBreakdown:
     ) -> str:
         breakdown = breakdown if breakdown and isinstance(breakdown, list) else []
         if breakdown_type == "cohort":
-            if breakdown_value == 0:
-                return "all users"
-            else:
-                return Cohort.objects.get(pk=breakdown_value).name
+            return get_breakdown_cohort_name(breakdown_value)
         else:
             return str(value) or "none"
