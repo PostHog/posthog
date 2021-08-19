@@ -525,15 +525,13 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                                             </span>
                                             <b>{humanizeStepCount(step.count)}</b>
                                         </ValueInspectorButton>
-                                        {stepIndex > 0 && (
-                                            <span className="text-muted-alt">
-                                                (
-                                                {formatDisplayPercentage(
-                                                    step.order > 0 ? step.count / steps[stepIndex - 1].count : 1
-                                                )}
-                                                %)
-                                            </span>
-                                        )}
+                                        <span className="text-muted-alt">
+                                            (
+                                            {formatDisplayPercentage(
+                                                step.order > 0 ? step.count / steps[stepIndex - 1].count : 1
+                                            )}
+                                            %)
+                                        </span>
                                     </div>
                                     <div
                                         className="text-muted-alt conversion-metadata-caption"
