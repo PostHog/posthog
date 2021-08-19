@@ -232,7 +232,7 @@ def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, pr
         operator = "exact"
 
     params = {}
-    conditions = []
+    or_conditions = []
 
     if filters.get("selector"):
         selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
@@ -240,18 +240,18 @@ def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, pr
             selector = Selector(query, escape_slashes=False)
             key = f"{prepend}_{idx}_selector_regex"
             params[key] = _create_regex(selector)
-            conditions.append(f"match(elements_chain, %({key})s)")
-        if len(conditions) > 0:
-            conditions.append("(" + (" OR ".join(conditions)) + ")")
+            or_conditions.append(f"match(elements_chain, %({key})s)")
+        if len(or_conditions) > 0:
+            or_conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
     if filters.get("tag_name"):
         tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
         for idx, tag_name in enumerate(tag_names):
             key = f"{prepend}_{idx}_tag_name_regex"
             params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
-            conditions.append(f"match(elements_chain, %({key})s)")
-        if len(conditions) > 0:
-            conditions.append("(" + (" OR ".join(conditions)) + ")")
+            or_conditions.append(f"match(elements_chain, %({key})s)")
+        if len(or_conditions) > 0:
+            or_conditions.append("(" + (" OR ".join(or_conditions)) + ")")
 
     attributes: Dict[str, List] = {}
     for key in ["href", "text"]:
@@ -272,11 +272,9 @@ def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, pr
             for idx, value in enumerate(value_list):
                 optional_flag = "(?i)" if operator.endswith("icontains") else ""
                 params[f"{prepend}_{key}_{idx}_attributes_regex"] = f'{optional_flag}({key}="{value}")'
-                conditions.append(f"match(elements_chain, %({prepend}_{key}_{idx}_attributes_regex)s)")
-            if len(conditions) > 1:
-                conditions.append(f"({' AND '.join(conditions)})")
-    if conditions:
-        final_conditions = f"{'NOT ' if is_negated else ''}({' OR '.join(conditions)})"
+                or_conditions.append(f"match(elements_chain, %({prepend}_{key}_{idx}_attributes_regex)s)")
+    if or_conditions:
+        final_conditions = f"{'NOT ' if is_negated else ''}({' OR '.join(or_conditions)})"
     else:
         final_conditions = "" if is_negated else "0 = 192"
 

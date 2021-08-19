@@ -74,7 +74,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter_not_icontains)), 1)
 
-    def test_prop_selector_tag_name(self):
+    def test_prop_element(self):
         _create_event(
             event="$autocapture",
             team=self.team,
@@ -199,7 +199,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter)), 2)
 
-        # href
+        # href/text
 
         filter_href_exact = Filter(
             data={"properties": [{"key": "href", "value": ["/a-url"], "operator": "exact", "type": "element"}]}
@@ -245,6 +245,16 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             data={"properties": [{"key": "href", "value": r"/\d+", "operator": "not_regex", "type": "element"}]}
         )
         self.assertEqual(len(self._run_query(filter_href_not_regex)), 2)
+
+        filter_href_is_set = Filter(
+            data={"properties": [{"key": "text", "value": "is_set", "operator": "is_set", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_is_set)), 2)
+
+        filter_href_is_not_set = Filter(
+            data={"properties": [{"key": "text", "value": "is_not_set", "operator": "is_not_set", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_is_not_set)), 1)
 
     def test_prop_ints_saved_as_strings(self):
         _create_event(
