@@ -59,11 +59,12 @@ export function FunnelTab(): JSX.Element {
                                 title={
                                     <ul style={{ paddingLeft: '1.2rem' }}>
                                         <li>
-                                            <b>Sequential</b> - Step B must happen after Step A, but the previous step
-                                            doesn't have to be step A.
+                                            <b>Sequential</b> - Step B must happen after Step A, but any number events
+                                            can happen between A and B.
                                         </li>
                                         <li>
-                                            <b>Strict Order</b> - Step B must happen directly after Step A.
+                                            <b>Strict Order</b> - Step B must happen directly after Step B without any
+                                            events in between.
                                         </li>
                                         <li>
                                             <b>Any Order</b> - Steps can be completed in any sequence.
