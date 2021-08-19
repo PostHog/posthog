@@ -123,7 +123,6 @@ class FeatureFlagMatcher:
         lookup_table = []
         value_min = 0
         for variant in self.feature_flag.variants:
-            print(variant)
             value_max = value_min + variant["rollout_percentage"] / 100
             lookup_table.append({"value_min": value_min, "value_max": value_max, "key": variant["key"]})
             value_min = value_max
@@ -189,21 +188,19 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
 
 
 # Return a list of with more details about each active flag (including active variant)
-def get_active_feature_flag_details(team: Team, distinct_id: str) -> List[Dict[str, Any]]:
-    flags_enabled = []
+def get_active_feature_flags_v2(team: Team, distinct_id: str) -> List[Dict[str, Any]]:
+    flags_enabled = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage",
     )
 
     for feature_flag in feature_flags:
         # try:
-        # distinct_id will always be a string, but data can have non-string values ("Any")
         if feature_flag.distinct_id_matches(distinct_id):
-            flag_details = {"key": feature_flag.key, "value": True, "multivariate": False}
+            flags_enabled[feature_flag.key] = True
             if len(feature_flag.variants) > 0:
-                flag_details["multivariate"] = True
-                flag_details["value"] = feature_flag.get_variant_for_distinct_id(distinct_id)
-            flags_enabled.append(flag_details)
+                variant = feature_flag.get_variant_for_distinct_id(distinct_id)
+                flags_enabled[feature_flag.key] = variant
     # except Exception as err:
     #     capture_exception(err)
     return flags_enabled
