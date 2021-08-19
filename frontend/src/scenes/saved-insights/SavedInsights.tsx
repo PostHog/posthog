@@ -1,10 +1,8 @@
-import { Button, Col, Input, Row, Select, Table, Tabs } from 'antd'
-import { ColumnType } from 'antd/lib/table'
+import { Button, Col, Dropdown, Input, Menu, Row, Select, Table, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { createdByColumn } from 'lib/components/Table/Table'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { deleteWithUndo, humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
 import { DashboardItemType, SavedInsightsTabs, ViewType } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
@@ -15,13 +13,16 @@ import {
     RightOutlined,
     UnorderedListOutlined,
     AppstoreFilled,
+    EllipsisOutlined,
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
-import { router } from 'kea-router'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 const { TabPane } = Tabs
 
 export function SavedInsights(): JSX.Element {
@@ -34,10 +35,23 @@ export function SavedInsights(): JSX.Element {
         setTab,
         setInsightType,
         setCreatedBy,
+        renameInsight,
+        duplicateInsight,
+        addToDashboard,
+        setDates,
     } = useActions(savedInsightsLogic)
-    const { insights, count, offset, nextResult, previousResult, insightsLoading, layoutView, searchTerm } = useValues(
-        savedInsightsLogic
-    )
+    const {
+        insights,
+        count,
+        offset,
+        nextResult,
+        previousResult,
+        insightsLoading,
+        layoutView,
+        searchTerm,
+        dates: { dateFrom, dateTo },
+    } = useValues(savedInsightsLogic)
+    const { dashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const insightTypes = ['All types', 'Trends', 'Funnels', 'Retention', 'Paths', 'Sessions', 'Stickiness', 'Lifecycle']
     const { members } = useValues(membersLogic)
@@ -102,11 +116,69 @@ export function SavedInsights(): JSX.Element {
         },
         {
             title: normalizeColumnTitle('Created by'),
-            render: function Render(_: any, item: any) {
+            render: function Render(_: any, item: DashboardItemType) {
                 return (
-                    <div style={{ maxWidth: 250, width: 'auto' }}>
-                        {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
-                    </div>
+                    <Row style={{ alignItems: 'center' }}>
+                        <div style={{ maxWidth: 250, width: 'auto', paddingRight: 16 }}>
+                            {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
+                        </div>
+                        <Dropdown
+                            placement="bottomRight"
+                            trigger={['click']}
+                            overlay={
+                                <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
+                                    {dashboards.filter((d) => d.id !== item.id).length > 0 ? (
+                                        <Menu.SubMenu
+                                            data-attr={'insight-' + item.id + '-dropdown-move'}
+                                            key="move"
+                                            title="Add to dashboard"
+                                        >
+                                            {dashboards
+                                                .filter((d) => d.id !== item.id)
+                                                .map((dashboard, moveIndex) => (
+                                                    <Menu.Item
+                                                        data-attr={`insight-item-${item.id}-dropdown-move-${moveIndex}`}
+                                                        key={dashboard.id}
+                                                        onClick={() => addToDashboard(item, dashboard.id)}
+                                                    >
+                                                        {dashboard.name}
+                                                    </Menu.Item>
+                                                ))}
+                                        </Menu.SubMenu>
+                                    ) : null}
+                                    <Menu.Item
+                                        onClick={() => renameInsight(item.id)}
+                                        style={{ padding: 8 }}
+                                        data-attr={`insight-item-${item.id}-dropdown-rename`}
+                                    >
+                                        Rename
+                                    </Menu.Item>
+                                    <Menu.Item
+                                        onClick={() => duplicateInsight(item)}
+                                        style={{ padding: 8 }}
+                                        data-attr={`insight-item-${item.id}-dropdown-duplicate`}
+                                    >
+                                        Duplicate
+                                    </Menu.Item>
+                                    <Menu.Item
+                                        onClick={() =>
+                                            deleteWithUndo({
+                                                object: item,
+                                                endpoint: 'insight',
+                                                callback: loadInsights,
+                                            })
+                                        }
+                                        style={{ padding: 8, color: 'var(--danger)' }}
+                                        data-attr={`insight-item-${item.id}-dropdown-remove`}
+                                    >
+                                        Remove
+                                    </Menu.Item>
+                                </Menu>
+                            }
+                        >
+                            <EllipsisOutlined className="insight-dropdown-actions" />
+                        </Dropdown>
+                    </Row>
                 )
             },
             sorter: (a: Record<string, any>, b: Record<string, any>) =>
@@ -114,7 +186,6 @@ export function SavedInsights(): JSX.Element {
                     b.created_by?.first_name || b.created_by?.email || ''
                 ),
         },
-        // createdByColumn(insights.results) as ColumnType<DashboardItemType>,
     ]
 
     return (
@@ -147,8 +218,17 @@ export function SavedInsights(): JSX.Element {
                     </Select>
                 </Col>
                 <Col>
-                    Last modified
-                    <Select defaultValue="All time" style={{ paddingLeft: 8, width: 120 }} onChange={() => {}}></Select>
+                    <div>
+                        <span style={{ paddingRight: 8 }}>Last modified</span>
+                        <DateFilter
+                            defaultValue="All time"
+                            disabled={false}
+                            bordered={true}
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            onChange={setDates}
+                        />
+                    </div>
                 </Col>
                 <Col>
                     Created by
@@ -237,17 +317,15 @@ export function SavedInsights(): JSX.Element {
                                         // loadSavedInsights()
                                         // loadTeamInsights()
                                     }}
-                                    // saveDashboardItem={updateInsight}
                                     dashboardMode={null}
                                     onClick={() => {
                                         const _type: DisplayedType =
                                             insight.filters.insight === ViewType.RETENTION
                                                 ? 'RetentionContainer'
                                                 : insight.filters.display
-                                        router.actions.push(displayMap[_type].link(insight))
+                                        window.open(displayMap[_type].link(insight))
                                     }}
                                     preventLoading={true}
-                                    // footer={<div>ehh??</div>}
                                     index={index}
                                     isOnEditMode={false}
                                 />

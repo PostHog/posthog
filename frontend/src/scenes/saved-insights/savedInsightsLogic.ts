@@ -1,8 +1,11 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { DashboardItemType, SavedInsightsTabs, InsightType, UserBasicType } from '~/types'
+import { DashboardItemType, SavedInsightsTabs, UserBasicType } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
+import { prompt } from 'lib/logic/prompt'
+import { toast } from 'react-toastify'
+import { Dayjs } from 'dayjs'
 
 interface InsightsResult {
     results: DashboardItemType[]
@@ -12,6 +15,20 @@ interface InsightsResult {
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
+    actions: {
+        setInsightType: (type: string) => ({ type }),
+        setCreatedBy: (user: Partial<UserBasicType> | 'All users') => ({ user }),
+        setLayoutView: (view: string) => ({ view }),
+        setTab: (tab: string) => ({ tab }),
+        setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
+            dateFrom,
+            dateTo,
+        }),
+        setSearchTerm: (term: string) => ({ term }),
+        renameInsight: (id: number) => ({ id }),
+        duplicateInsight: (insight: DashboardItemType) => ({ insight }),
+        addToDashboard: (item: DashboardItemType, dashboardId: number) => ({ item, dashboardId }),
+    },
     loaders: ({ values }) => ({
         insights: {
             __default: { results: [], count: 0 } as InsightsResult,
@@ -27,6 +44,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                             ...(values.searchTerm && { search: values.searchTerm }),
                             ...(values.insightType !== 'All types' && { insight: values.insightType }),
                             ...(values.createdBy !== 'All users' && { created_by: values.createdBy?.id }),
+                            ...(values.dates.dateFrom && { date_from: values.dates.dateFrom }),
                         })
                 )
                 return response
@@ -39,41 +57,53 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                 )
                 return { ...values.insights, results: updatedInsights }
             },
+            setInsight: (insight: DashboardItemType) => {
+                const results = values.insights.results.map((i) => (i.id === insight.id ? insight : i))
+                return { ...values.insights, results }
+            },
         },
+    }),
+    reducers: {
         layoutView: [
             'list',
             {
-                setLayoutView: (view: string) => view,
+                setLayoutView: (_, { view }) => view,
             },
         ],
         tab: [
             SavedInsightsTabs.All,
             {
-                setTab: (tab: string) => {
-                    console.log('tab!', tab)
-                    return tab
-                },
+                setTab: (_, { tab }) => tab,
             },
         ],
         searchTerm: [
-            '',
+            '' as string,
             {
-                setSearchTerm: (term: string) => term,
+                setSearchTerm: (_, { term }) => term,
             },
         ],
         insightType: [
             'All types',
             {
-                setInsightType: (type: InsightType | 'All types') => type.toUpperCase(),
+                setInsightType: (_, { type }) => type.toUpperCase(),
             },
         ],
         createdBy: [
             null as Partial<UserBasicType> | null | 'All users',
             {
-                setCreatedBy: (user: Partial<UserBasicType> | 'All users') => user,
+                setCreatedBy: (_, { user }) => user,
             },
         ],
-    }),
+        dates: [
+            {
+                dateFrom: undefined as string | Dayjs | undefined,
+                dateTo: undefined as string | Dayjs | undefined,
+            },
+            {
+                setDates: (_, dates) => dates,
+            },
+        ],
+    },
     selectors: {
         nextResult: [(s) => [s.insights], (insights) => insights.next],
         previousResult: [(s) => [s.insights], (insights) => insights.previous],
@@ -90,8 +120,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
         setTab: () => {
             actions.loadInsights()
         },
-        setSearchTerm: (term) => {
-            if (term === '') {
+        setSearchTerm: ({ term }) => {
+            if (term.length === 0) {
                 actions.loadInsights()
             }
         },
@@ -99,6 +129,26 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             actions.loadInsights()
         },
         setCreatedBy: () => {
+            actions.loadInsights()
+        },
+        renameInsight: async ({ id }) => {
+            prompt({ key: `rename-insight-${id}` }).actions.prompt({
+                title: 'Rename panel',
+                placeholder: 'Please enter the new name',
+                value: name,
+                error: 'You must enter name',
+                success: async (name: string) => {
+                    const insight = await api.update(`api/insight/${id}`, { name })
+                    toast('Successfully renamed item')
+                    actions.setInsight(insight)
+                },
+            })
+        },
+        duplicateInsight: async ({ insight }) => {
+            await api.create('api/insight', insight)
+            actions.loadInsights()
+        },
+        setDates: () => {
             actions.loadInsights()
         },
     }),
