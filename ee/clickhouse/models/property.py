@@ -11,7 +11,7 @@ from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import Property, PropertyName, PropertyType
+from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyName, PropertyType
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -64,7 +64,9 @@ def parse_prop_clauses(
                 )
                 params.update(filter_params)
         elif prop.type == "element":
-            query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
+            query, filter_params = filter_element(
+                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
+            )
             final.append(f" AND {query if len(query) > 0 else '1=2'}")
             params.update(filter_params)
         else:
@@ -101,14 +103,14 @@ def prop_filter_json_extract(
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND {left} LIKE %(v{prepend}_{idx})s".format(idx=idx, prepend=prepend, left=property_expr),
+            "AND {left} ILIKE %(v{prepend}_{idx})s".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator == "not_icontains":
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND NOT ({left} LIKE %(v{prepend}_{idx})s)".format(idx=idx, prepend=prepend, left=property_expr),
+            "AND NOT ({left} ILIKE %(v{prepend}_{idx})s)".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator in ("regex", "not_regex"):
@@ -225,50 +227,60 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
     )
 
 
-def filter_element(filters: Dict, prepend: str = "") -> Tuple[str, Dict]:
+def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:
+    if not operator:
+        operator = "exact"
+
     params = {}
     conditions = []
 
     if filters.get("selector"):
-        or_conditions = []
         selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
         for idx, query in enumerate(selectors):
             selector = Selector(query, escape_slashes=False)
             key = f"{prepend}_{idx}_selector_regex"
             params[key] = _create_regex(selector)
-            or_conditions.append(f"match(elements_chain, %({key})s)")
-        if len(or_conditions) > 0:
-            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+            conditions.append(f"match(elements_chain, %({key})s)")
+        if len(conditions) > 0:
+            conditions.append("(" + (" OR ".join(conditions)) + ")")
 
     if filters.get("tag_name"):
-        or_conditions = []
         tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
         for idx, tag_name in enumerate(tag_names):
             key = f"{prepend}_{idx}_tag_name_regex"
             params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
-            or_conditions.append(f"match(elements_chain, %({key})s)")
-        if len(or_conditions) > 0:
-            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+            conditions.append(f"match(elements_chain, %({key})s)")
+        if len(conditions) > 0:
+            conditions.append("(" + (" OR ".join(conditions)) + ")")
 
     attributes: Dict[str, List] = {}
-
     for key in ["href", "text"]:
-        vals = filters.get(key)
-        if filters.get(key):
-            attributes[key] = [re.escape(vals)] if isinstance(vals, str) else [re.escape(text) for text in filters[key]]
-
-    if len(attributes.keys()) > 0:
-        or_conditions = []
+        if vals := filters.get(key):
+            if operator.endswith("_set"):
+                attributes[key] = [r".*"]
+            else:
+                vals = [vals] if isinstance(vals, str) else vals
+                if operator.endswith("icontains"):
+                    attributes[key] = [f".*{re.escape(text)}.*" for text in vals]
+                elif operator.endswith("regex"):
+                    attributes[key] = vals
+                else:
+                    attributes[key] = [re.escape(text) for text in vals]
+    is_negated = operator in NEGATED_OPERATORS
+    if attributes:
         for key, value_list in attributes.items():
             for idx, value in enumerate(value_list):
-                params["{}_{}_{}_attributes_regex".format(prepend, key, idx)] = ".*?({}).*?".format(
-                    ".*?".join(['{}="{}"'.format(key, value)])
-                )
-                or_conditions.append("match(elements_chain, %({}_{}_{}_attributes_regex)s)".format(prepend, key, idx))
-            if len(or_conditions) > 0:
-                conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+                optional_flag = "(?i)" if operator.endswith("icontains") else ""
+                params[f"{prepend}_{key}_{idx}_attributes_regex"] = f'{optional_flag}({key}="{value}")'
+                conditions.append(f"match(elements_chain, %({prepend}_{key}_{idx}_attributes_regex)s)")
+            if len(conditions) > 1:
+                conditions.append(f"({' AND '.join(conditions)})")
+    if conditions:
+        final_conditions = f"{'NOT ' if is_negated else ''}({' OR '.join(conditions)})"
+    else:
+        final_conditions = "" if is_negated else "0 = 192"
 
-    return (" AND ".join(conditions), params)
+    return final_conditions, params
 
 
 def _create_regex(selector: Selector) -> str:

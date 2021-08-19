@@ -60,8 +60,19 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             event="$pageview", team=self.team, distinct_id="whatever", properties={"attr": "some_val"},
         )
 
-        filter = Filter(data={"properties": [{"key": "attr", "value": "some_val"}],})
-        self.assertEqual(len(self._run_query(filter)), 1)
+        filter_exact = Filter(data={"properties": [{"key": "attr", "value": "some_val"}],})
+        self.assertEqual(len(self._run_query(filter_exact)), 1)
+
+        filter_regex = Filter(data={"properties": [{"key": "attr", "value": "some_.+_val", "operator": "regex"}],})
+        self.assertEqual(len(self._run_query(filter_regex)), 1)
+
+        filter_icontains = Filter(data={"properties": [{"key": "attr", "value": "Some_Val", "operator": "icontains"}],})
+        self.assertEqual(len(self._run_query(filter_icontains)), 1)
+
+        filter_not_icontains = Filter(
+            data={"properties": [{"key": "attr", "value": "other", "operator": "not_icontains"}],}
+        )
+        self.assertEqual(len(self._run_query(filter_not_icontains)), 1)
 
     def test_prop_selector_tag_name(self):
         _create_event(
@@ -85,7 +96,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             ],
         )
         _create_event(
-            event="$pageview",
+            event="$autocapture",
             team=self.team,
             distinct_id="whatever",
             properties={"attr": "some_val"},
@@ -104,18 +115,27 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                 Element(tag_name="img", nth_child=0, nth_of_type=0, attr_id="nested",),
             ],
         )
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="whatever",
+            elements=[
+                Element(tag_name="a", href="/789", nth_child=0, nth_of_type=0,),
+                Element(tag_name="button", attr_class=["btn", "btn-tertiary"], nth_child=0, nth_of_type=0),
+            ],
+        )
 
         # selector
 
         filter = Filter(
             data={"properties": [{"key": "selector", "value": [".btn"], "operator": "exact", "type": "element"}]}
         )
-        self.assertEqual(len(self._run_query(filter)), 2)
+        self.assertEqual(len(self._run_query(filter)), 3)
 
         filter = Filter(
             data={"properties": [{"key": "selector", "value": ".btn", "operator": "exact", "type": "element"}]}
         )
-        self.assertEqual(len(self._run_query(filter)), 2)
+        self.assertEqual(len(self._run_query(filter)), 3)
 
         filter = Filter(
             data={
@@ -178,6 +198,53 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             }
         )
         self.assertEqual(len(self._run_query(filter)), 2)
+
+        # href
+
+        filter_href_exact = Filter(
+            data={"properties": [{"key": "href", "value": ["/a-url"], "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_exact)), 2)
+
+        filter_href_exact_double = Filter(
+            data={"properties": [{"key": "href", "value": ["/a-url", "/789"], "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_exact_double)), 3)
+
+        filter_href_is_not = Filter(
+            data={"properties": [{"key": "href", "value": ["/a-url"], "operator": "is_not", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_is_not)), 1)
+
+        filter_href_is_not_double = Filter(
+            data={"properties": [{"key": "href", "value": ["/a-url", "/789"], "operator": "is_not", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_is_not_double)), 0)
+
+        filter_href_exact_with_tag_name_is_not = Filter(
+            data={
+                "properties": [
+                    {"key": "href", "value": ["/a-url"], "type": "element"},
+                    {"key": "tag_name", "value": ["marquee"], "operator": "is_not", "type": "element"},
+                ]
+            }
+        )
+        self.assertEqual(len(self._run_query(filter_href_exact_with_tag_name_is_not)), 2)
+
+        filter_href_icontains = Filter(
+            data={"properties": [{"key": "href", "value": ["UrL"], "operator": "icontains", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_icontains)), 2)
+
+        filter_href_regex = Filter(
+            data={"properties": [{"key": "href", "value": "/a-.+", "operator": "regex", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_regex)), 2)
+
+        filter_href_not_regex = Filter(
+            data={"properties": [{"key": "href", "value": r"/\d+", "operator": "not_regex", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_not_regex)), 2)
 
     def test_prop_ints_saved_as_strings(self):
         _create_event(
