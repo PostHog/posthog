@@ -1,23 +1,35 @@
-import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import { useValues } from 'kea'
+import React from 'react'
 import { ChartParams, FunnelVizType } from '~/types'
 import { FunnelBarGraph } from './FunnelBarGraph'
 import { FunnelHistogram } from './FunnelHistogram'
 import { funnelLogic } from './funnelLogic'
+import { FunnelEmptyState, FunnelInvalidFiltersEmptyState } from 'scenes/insights/EmptyStates/EmptyStates'
+import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
+import { Loading } from 'lib/utils'
+import './Funnel.scss'
 
 export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
     const logic = funnelLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
-    const { timeConversionBins, filters } = useValues(logic)
-    const { loadResults } = useActions(logic)
-
-    useEffect(() => {
-        loadResults()
-    }, [])
-
+    const { filters, areFiltersValid, resultsLoading, isValidFunnel } = useValues(logic)
     const funnel_viz_type = filters.funnel_viz_type || props.filters.funnel_viz_type
 
+    if (!areFiltersValid) {
+        return <FunnelInvalidFiltersEmptyState />
+    }
+    if (resultsLoading) {
+        return <Loading />
+    }
+    if (!isValidFunnel) {
+        return <FunnelEmptyState />
+    }
+
+    if (funnel_viz_type == FunnelVizType.Trends) {
+        return <FunnelLineGraph {...props} />
+    }
+
     if (funnel_viz_type == FunnelVizType.TimeToConvert) {
-        return timeConversionBins?.bins?.length ? <FunnelHistogram {...props} /> : null
+        return <FunnelHistogram {...props} />
     }
 
     return <FunnelBarGraph {...props} />

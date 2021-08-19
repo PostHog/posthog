@@ -36,7 +36,7 @@ class ClickhouseTrendsBreakdown:
         params: Dict[str, Any] = {"team_id": team_id}
         interval_annotation = get_trunc_func_ch(filter.interval)
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
-            filter.interval or "day", filter.date_from, filter.date_to, team_id
+            filter.interval, filter.date_from, filter.date_to, team_id
         )
         _, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
 
@@ -75,31 +75,19 @@ class ClickhouseTrendsBreakdown:
             "filters": prop_filters if props_to_filter else "",
         }
 
-        _params, _breakdown_filter_params, none_join, none_union = {}, {}, None, None
+        _params, _breakdown_filter_params = {}, {}
 
         if filter.breakdown_type == "cohort":
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_cohort_params(
                 team_id, filter, entity
             )
         elif filter.breakdown_type == "person":
-            (
-                _params,
-                breakdown_filter,
-                _breakdown_filter_params,
-                breakdown_value,
-                none_join,
-            ) = self._breakdown_person_params(
-                "count(*)" if entity.math == "dau" else aggregate_operation, entity, filter, team_id
+            (_params, breakdown_filter, _breakdown_filter_params, breakdown_value,) = self._breakdown_person_params(
+                "count(*)" if entity.math == "dau" else aggregate_operation, math_params, entity, filter, team_id
             )
         else:
-            (
-                _params,
-                breakdown_filter,
-                _breakdown_filter_params,
-                breakdown_value,
-                none_join,
-            ) = self._breakdown_prop_params(
-                "count(*)" if entity.math == "dau" else aggregate_operation, entity, filter, team_id
+            (_params, breakdown_filter, _breakdown_filter_params, breakdown_value,) = self._breakdown_prop_params(
+                "count(*)" if entity.math == "dau" else aggregate_operation, math_params, entity, filter, team_id
             )
 
         if len(_params["values"]) == 0:
@@ -123,7 +111,6 @@ class ClickhouseTrendsBreakdown:
         else:
 
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
-            none_join = none_join.format(**breakdown_filter_params) if none_join else None
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
                 active_user_params = get_active_user_params(filter, entity, team_id)
@@ -149,20 +136,9 @@ class ClickhouseTrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                 )
-                if none_join:
-                    none_union = "UNION ALL " + BREAKDOWN_INNER_SQL.format(
-                        breakdown_filter=none_join,
-                        event_join=join_condition,
-                        aggregate_operation=aggregate_operation,
-                        interval_annotation=interval_annotation,
-                        breakdown_value="'none'",
-                    )
 
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
-                interval=interval_annotation,
-                num_intervals=num_intervals,
-                inner_sql=inner_sql,
-                none_union=none_union if none_union else "",
+                interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql,
             )
             params.update(
                 {
@@ -182,13 +158,17 @@ class ClickhouseTrendsBreakdown:
 
         return params, breakdown_filter, breakdown_filter_params, "value"
 
-    def _breakdown_person_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
-        values_arr = get_breakdown_person_prop_values(filter, entity, aggregate_operation, team_id)
+    def _breakdown_person_params(
+        self, aggregate_operation: str, math_params: Dict, entity: Entity, filter: Filter, team_id: int
+    ):
+        values_arr = get_breakdown_person_prop_values(
+            filter, entity, aggregate_operation, team_id, extra_params=math_params
+        )
         breakdown_filter_params = {
             "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
         }
         params = {
-            "values": [*values_arr, "none"],
+            "values": values_arr,
         }
 
         return (
@@ -196,20 +176,22 @@ class ClickhouseTrendsBreakdown:
             BREAKDOWN_PERSON_PROP_JOIN_SQL,
             breakdown_filter_params,
             "value",
-            None if filter.offset else NONE_BREAKDOWN_PERSON_PROP_JOIN_SQL,
         )
 
-    def _breakdown_prop_params(self, aggregate_operation: str, entity: Entity, filter: Filter, team_id: int):
-        values_arr = get_breakdown_event_prop_values(filter, entity, aggregate_operation, team_id)
+    def _breakdown_prop_params(
+        self, aggregate_operation: str, math_params: Dict, entity: Entity, filter: Filter, team_id: int
+    ):
+        values_arr = get_breakdown_event_prop_values(
+            filter, entity, aggregate_operation, team_id, extra_params=math_params
+        )
         params = {
-            "values": [*values_arr, "none"],
+            "values": values_arr,
         }
         return (
             params,
             BREAKDOWN_PROP_JOIN_SQL,
             {},
             "trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))",
-            None if filter.offset else NONE_BREAKDOWN_PROP_JOIN_SQL,
         )
 
     def _parse_single_aggregate_result(
@@ -239,10 +221,8 @@ class ClickhouseTrendsBreakdown:
         return _parse
 
     def _breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):
-        stripped_value = breakdown_value.strip('"') if isinstance(breakdown_value, str) else breakdown_value
-
         extra_label = self._determine_breakdown_label(
-            breakdown_value, filter.breakdown_type, filter.breakdown, stripped_value
+            breakdown_value, filter.breakdown_type, filter.breakdown, breakdown_value
         )
         label = "{} - {}".format(entity.name, extra_label)
         additional_values = {
@@ -251,7 +231,7 @@ class ClickhouseTrendsBreakdown:
         if filter.breakdown_type == "cohort":
             additional_values["breakdown_value"] = "all" if breakdown_value == 0 else breakdown_value
         else:
-            additional_values["breakdown_value"] = stripped_value
+            additional_values["breakdown_value"] = breakdown_value
 
         return additional_values
 
@@ -269,16 +249,4 @@ class ClickhouseTrendsBreakdown:
             else:
                 return Cohort.objects.get(pk=breakdown_value).name
         else:
-            return str(value) or ""
-
-    def _get_top_elements(self, query: str, filter: Filter, team_id: int, params: Dict = {}) -> List:
-        # use limit of 25 to determine if there are more than 20
-        element_params = {"key": filter.breakdown, "limit": 25, "team_id": team_id, "offset": filter.offset, **params}
-
-        try:
-            top_elements_array_result = sync_execute(query, element_params)
-            top_elements_array = top_elements_array_result[0][0]
-        except:
-            top_elements_array = []
-
-        return top_elements_array
+            return str(value) or "none"

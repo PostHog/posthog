@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { Tooltip, Select, Tabs, Popover, Button } from 'antd'
+import { Select, Tabs, Popover, Button } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 import { useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'

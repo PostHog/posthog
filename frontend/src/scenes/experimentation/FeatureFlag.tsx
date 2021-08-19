@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Tooltip } from 'antd'
+import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse } from 'antd'
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -11,6 +11,7 @@ import './FeatureFlag.scss'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 
@@ -357,7 +358,7 @@ export function FeatureFlag(): JSX.Element {
                                                 </div>
                                             ) : (
                                                 <Slider
-                                                    tooltipPlacement="bottom"
+                                                    tooltipPlacement="top"
                                                     tipFormatter={(value) => value + '%'}
                                                     tooltipVisible
                                                     value={group.rollout_percentage}

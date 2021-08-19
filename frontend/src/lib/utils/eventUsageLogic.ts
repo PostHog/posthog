@@ -1,6 +1,6 @@
 /* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
@@ -15,9 +15,12 @@ import {
     EntityType,
     DashboardItemType,
     ViewType,
+    InsightType,
+    PropertyFilter,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { PersonModalParams } from 'scenes/trends/personsModalLogic'
 
 const keyMappingKeys = Object.keys(keyMapping.event)
 
@@ -29,9 +32,81 @@ export enum DashboardEventSource {
     InputEnter = 'input_enter',
     Toast = 'toast',
     Browser = 'browser',
-    AddDescription = 'add_description',
+    AddDescription = 'add_dashboard_description',
     MainNavigation = 'main_nav',
     DashboardsList = 'dashboards_list',
+}
+
+export enum InsightEventSource {
+    LongPress = 'long_press',
+    MoreDropdown = 'more_dropdown',
+    InsightHeader = 'insight_header',
+    Hotkey = 'hotkey',
+    InputEnter = 'input_enter',
+    Toast = 'toast',
+    Browser = 'browser',
+    AddDescription = 'add_insight_description',
+}
+
+function flattenProperties(properties: PropertyFilter[]): string[] {
+    const output = []
+    for (const prop of properties || []) {
+        if (isPostHogProp(prop.key)) {
+            output.push(prop.key)
+        } else {
+            output.push('redacted') // Custom property names are not reported
+        }
+    }
+    return output
+}
+
+/*
+    Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
+*/
+function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any> {
+    const {
+        display,
+        interval,
+        date_from,
+        date_to,
+        filter_test_accounts,
+        formula,
+        insight,
+        funnel_viz_type,
+        funnel_from_step,
+        funnel_to_step,
+    } = filters
+
+    let properties_local: string[] = []
+    for (const event of filters.events || []) {
+        properties_local = properties_local.concat(flattenProperties(event.properties || []))
+    }
+    for (const action of filters.actions || []) {
+        properties_local = properties_local.concat(flattenProperties(action.properties || []))
+    }
+
+    const properties_global = flattenProperties(filters.properties || [])
+
+    return {
+        insight,
+        display,
+        interval,
+        date_from,
+        date_to,
+        filter_test_accounts,
+        formula,
+        filters_count: filters.properties?.length || 0,
+        events_count: filters.events?.length || 0,
+        actions_count: filters.actions?.length || 0,
+        funnel_viz_type,
+        funnel_from_step,
+        funnel_to_step,
+        properties_global,
+        properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
+        properties_local,
+        properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
+        properties_all: properties_global.concat(properties_local), // Global and local properties together
+    }
 }
 
 export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
@@ -39,7 +114,23 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
-        reportInsightViewed: (filters: Partial<FilterType>, isFirstLoad: boolean) => ({ filters, isFirstLoad }),
+        reportInsightViewed: (
+            filters: Partial<FilterType>,
+            isFirstLoad: boolean,
+            fromDashboard: boolean,
+            delay?: number
+        ) => ({
+            filters,
+            isFirstLoad,
+            fromDashboard,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+        }),
+        reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
+            params,
+            count,
+            hasNext,
+        }),
+        reportCohortCreatedFromPersonModal: (filters: Partial<FilterType>) => ({ filters }),
         reportBookmarkletDragged: true,
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
@@ -110,7 +201,6 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             itemType,
             displayLocation,
         }),
-
         reportEventSearched: (searchTerm: string, extraProps?: Record<string, number>) => ({
             searchTerm,
             extraProps,
@@ -131,6 +221,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportInsightsTabReset: true,
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
+        reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -189,24 +280,18 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightViewed: async ({ filters, isFirstLoad }, breakpoint) => {
-            await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
+        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
+            }
 
-            // Reports `insight viewed` event
-            const { display, interval, date_from, date_to, filter_test_accounts, formula, insight } = filters
+            const { insight } = filters
 
             const properties: Record<string, any> = {
+                ...sanitizeFilterParams(filters),
+                report_delay: delay,
                 is_first_component_load: isFirstLoad,
-                insight,
-                display,
-                interval,
-                date_from,
-                date_to,
-                filter_test_accounts,
-                formula,
-                filters_count: filters.properties?.length || 0,
-                events_count: filters.events?.length || 0,
-                actions_count: filters.actions?.length || 0,
+                from_dashboard: fromDashboard, // Whether the insight is on a dashboard
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
@@ -249,7 +334,27 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 properties.stickiness_days = filters.stickiness_days
             }
 
-            posthog.capture('insight viewed', properties)
+            const eventName = delay ? 'insight analyzed' : 'insight viewed'
+
+            posthog.capture(eventName, properties)
+        },
+        reportPersonModalViewed: async ({ params, count, hasNext }) => {
+            const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params
+            const properties = {
+                ...sanitizeFilterParams(filters),
+                date_from,
+                date_to,
+                funnel_step: funnelStep,
+                has_breakdown_value: Boolean(breakdown_value),
+                save_original: saveOriginal,
+                has_search_term: Boolean(searchTerm),
+                count, // Total count of persons
+                has_next: hasNext, // Whether there are other persons to be loaded (pagination)
+            }
+            posthog.capture('insight person modal viewed', properties)
+        },
+        reportCohortCreatedFromPersonModal: async ({ filters }) => {
+            posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
         reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
             await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
@@ -450,6 +555,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)
+        },
+        reportInsightShortUrlVisited: (props) => {
+            posthog.capture('insight short url visited', props)
         },
     },
 })

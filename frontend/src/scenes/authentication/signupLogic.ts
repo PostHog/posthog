@@ -13,12 +13,19 @@ interface AccountResponse {
 export const signupLogic = kea<signupLogicType<AccountResponse>>({
     actions: {
         setFormStep: (step: 1 | 2) => ({ step }),
+        setInitialEmail: (email: string) => ({ email }),
     },
     reducers: {
         formStep: [
             1,
             {
                 setFormStep: (_, { step }) => step,
+            },
+        ],
+        initialEmail: [
+            '',
+            {
+                setInitialEmail: (_, { email }) => email,
             },
         ],
     },
@@ -45,6 +52,13 @@ export const signupLogic = kea<signupLogicType<AccountResponse>>({
                 if (['email', 'password'].includes(signupResponse?.errorAttribute || '')) {
                     actions.setFormStep(1)
                 }
+            }
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '/signup': ({}, { email }) => {
+            if (email) {
+                actions.setInitialEmail(email)
             }
         },
     }),

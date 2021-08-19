@@ -48,11 +48,13 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "filters",
             "dashboard",
             "color",
+            "description",
             "last_refresh",
             "refreshing",
             "saved",
+            "updated_at",
         ]
-        read_only_fields = ("short_id",)
+        read_only_fields = ("short_id", "updated_at")
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
@@ -84,6 +86,10 @@ class InsightSerializer(InsightBasicSerializer):
             "refreshing",
             "result",
             "created_at",
+            "description",
+            "updated_at",
+            "tags",
+            "favorited",
             "saved",
             "created_by",
         ]
@@ -91,6 +97,7 @@ class InsightSerializer(InsightBasicSerializer):
             "created_by",
             "created_at",
             "short_id",
+            "updated_at",
         )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -161,6 +168,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     queryset = queryset.filter(Q(saved=False))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "favorited":
+                queryset = queryset.filter(Q(favorited=True))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
 
@@ -192,7 +201,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
         return Response({**result, "next": next})
 
-    @cached_function()
+    @cached_function
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
@@ -220,7 +229,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         return Response(self.calculate_session(request))
 
-    @cached_function()
+    @cached_function
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
         result = Sessions().run(filter=SessionsFilter(request=request), team=self.team)
         return {"result": result}
@@ -241,7 +250,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response(result)
 
-    @cached_function()
+    @cached_function
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         refresh = should_refresh(request)
@@ -281,7 +290,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_retention(request)
         return Response(result)
 
-    @cached_function()
+    @cached_function
     def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
@@ -303,7 +312,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_path(request)
         return Response(result)
 
-    @cached_function()
+    @cached_function
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})

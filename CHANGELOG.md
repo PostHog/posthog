@@ -1,5 +1,23 @@
 # Changelog
 
+### 1.27.0 - Monday 26 July 2021
+
+-   New Funnels Experience.
+    -   Funnels have a new bar-chart visualization and show more comprehensive metrics. You can now choose whether to display conversion rates for the full funnel or from each step to the next.
+    -   Breakdowns are now supported on funnels! This allows you to identify how user and event properties (for instance, browser or referral source) affect your conversions.
+    -   Clicking on a funnel step will reveal a list of persons who have continued or dropped off at that step. From there, you can easily view their sessions (provided you have Session Recording enabled) to find unknown problems or opportunities that would otherwise be hidden in the data.
+    -   Going beyond averages, the new **Time to Convert** view shows a distribution of time spent between steps or for the whole funnel.
+-   Revamp of legend table & insight tooltips.
+    -   The legend table for Insights has received a major styling revamp, including nicer formatting for dates and numbers and clearer identification of breakdown values.
+    -   New tooltips allow you to scan and compare multiple values at a glance.
+-   New filter experience.
+    -   It's now easier than ever to find the event, user, or cohort definitions you're looking for when adding a filter to a query. This change also causes Insights to load significantly faster.
+-   Clickhouse is now free to use!
+    -   We have ironed out all the details and have now decided to make the Clickhouse backend **fully free** now, no longer requiring a license nor having any additional restrictions. This comes from our commitment to supporting teams and companies of any size, so you can continue using PostHog for free even if your event volume increases significantly.
+    -   Clickhouse is deployed a bit differently than our traditional deployment options, you can find full deployment instructions in https://github.com/PostHog/charts-clickhouse/
+-   400+ improvements & fixes across the app
+-   **DEPRECATED**. The `/api/user` endpoint has [been deprecated](https://posthog.com/docs/api/user#user--deprecated) for a while and will be removed on the next version (1.28.0).
+
 ### 1.26.0 - Tuesday 15 June 2021
 
 - Feature flags for Node.js and Go

@@ -40,11 +40,11 @@ export function DashboardItems(): JSX.Element {
             rowHeight={50}
             margin={[20, 20]}
             containerPadding={[0, 0]}
-            onLayoutChange={(_: any, newLayouts: any) => {
+            onLayoutChange={(_, newLayouts) => {
                 updateLayouts(newLayouts)
                 triggerResize()
             }}
-            onWidthChange={(containerWidth: any, _: any, newCols: any) => {
+            onWidthChange={(containerWidth, _, newCols) => {
                 updateContainerWidth(containerWidth, newCols)
             }}
             breakpoints={breakpoints}
@@ -58,7 +58,7 @@ export function DashboardItems(): JSX.Element {
                 // Trigger the resize event for funnels, as they won't update their dimensions
                 // when their container is resized and must be recalculated.
                 // Skip this for other types as it slows down the interactions a bit.
-                const item = items.find((i: any) => i.id === parseInt(newItem.i))
+                const item = items?.find((i: any) => i.id === parseInt(newItem.i))
                 if (item?.filters.display === 'FunnelViz') {
                     triggerResize()
                 }
@@ -83,11 +83,11 @@ export function DashboardItems(): JSX.Element {
             }}
             draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content"
         >
-            {items.map((item: DashboardItemType, index: number) => (
+            {items?.map((item: DashboardItemType, index: number) => (
                 <div key={item.id} className="dashboard-item-wrapper">
                     <DashboardItem
                         key={item.id}
-                        dashboardId={dashboard.id}
+                        dashboardId={dashboard?.id}
                         item={item}
                         layout={
                             resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]

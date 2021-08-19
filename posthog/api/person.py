@@ -150,26 +150,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
         )
 
-    @action(methods=["GET"], detail=False)
-    def references(self, request: request.Request, **kwargs) -> response.Response:
-        reference_id = request.GET.get("id", None)
-        offset = request.GET.get("offset", None)
-
-        if not reference_id or not offset:
-            return response.Response({})
-
-        offset_value = int(offset)
-        cached_result = get_safe_cache(reference_id)
-        if cached_result:
-            return response.Response(
-                {
-                    "result": cached_result[offset_value : offset_value + 100],
-                    "offset": offset_value + 100 if len(cached_result) > offset_value + 100 else None,
-                }
-            )
-        else:
-            return response.Response({})
-
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         people = Person.objects.filter(team_id=self.team_id, pk__in=request.data.get("ids"))

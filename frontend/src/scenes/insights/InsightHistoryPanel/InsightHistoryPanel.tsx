@@ -11,6 +11,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { router } from 'kea-router'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 dayjs.extend(relativeTime)
 
 const InsightHistoryType = {

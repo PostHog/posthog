@@ -15,6 +15,17 @@
         }
     }
 
+    .insight-history-button {
+        padding-right: 0;
+        padding-left: 0;
+        border-radius: 0;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        &.active {
+            border-bottom: 2px solid $primary;
+        }
+    }
+
     hr {
         margin: 1rem 0;
     }
@@ -165,6 +176,12 @@
         }
     }
 
+    &.action-message {
+        .illustration-main {
+            color: $primary;
+        }
+    }
+
     .insight-empty-state__wrapper {
         max-width: 600px;
 
@@ -173,6 +190,17 @@
             line-height: 1em;
             text-align: center;
             margin-bottom: 1rem;
+
+            .ant-empty {
+                height: 6rem;
+                margin: 0;
+                .ant-empty-image {
+                    height: 100%;
+                    svg {
+                        width: 6rem;
+                    }
+                }
+            }
         }
 
         h2 {
@@ -187,8 +215,19 @@
 
 .funnel-insights-container {
     &.non-empty-state {
-        height: 300px;
+        min-height: 300px;
         position: relative;
         margin-bottom: 0;
+    }
+}
+
+.funnel-tab-btn-popover {
+    .ant-popover-inner-content {
+        padding: 4px 15px; // same as antd button padding
+
+        button.ant-btn-link {
+            padding: 0;
+            margin: 0 0 0 4px;
+        }
     }
 }

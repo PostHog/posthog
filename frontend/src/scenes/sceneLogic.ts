@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { kea, LogicWrapper } from 'kea'
 import { router } from 'kea-router'
 import { identifierToHuman, delay } from 'lib/utils'
@@ -7,15 +8,17 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { userLogic } from 'scenes/userLogic'
-import { afterLoginRedirect } from 'scenes/authentication/loginLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { ViewType } from '~/types'
+import { userLogic } from './userLogic'
+import { afterLoginRedirect } from './authentication/loginLogic'
 
 export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
-    DashboardInsight = 'dashboardInsight',
     Insights = 'insights',
     InsightRouter = 'insightRouter',
     Cohorts = 'cohorts',
@@ -36,6 +39,7 @@ export enum Scene {
     Annotations = 'annotations',
     Billing = 'billing',
     Plugins = 'plugins',
+    SavedInsights = 'savedInsights',
     // Onboarding / setup routes
     Login = 'login',
     PreflightCheck = 'preflightCheck',
@@ -45,15 +49,6 @@ export enum Scene {
     Ingestion = 'ingestion',
     OnboardingSetup = 'onboardingSetup',
     Home = 'home',
-}
-
-interface LoadedScene {
-    component: () => JSX.Element
-    logic?: LogicWrapper
-}
-
-interface Params {
-    [param: string]: any
 }
 
 const preloadedScenes: Record<string, LoadedScene> = {
@@ -70,8 +65,6 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
-    [Scene.DashboardInsight]: () =>
-        import(/* webpackChunkName: 'dashboardInsight' */ './dashboard-insight/DashboardInsight'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
     [Scene.InsightRouter]: () => import(/* webpackChunkName: 'insightRouter' */ './insights/InsightRouter'),
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './cohorts/Cohorts'),
@@ -102,6 +95,16 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.OnboardingSetup]: () => import(/* webpackChunkName: 'onboardingSetup' */ './onboarding/OnboardingSetup'),
     [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
     [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
+    [Scene.SavedInsights]: () => import(/* webpackChunkName: 'savedInsights' */ './saved-insights/SavedInsights'),
+}
+
+interface LoadedScene {
+    component: () => JSX.Element
+    logic?: LogicWrapper
+}
+
+interface Params {
+    [param: string]: any
 }
 
 interface SceneConfig {
@@ -158,51 +161,94 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
 }
 
-export const redirects: Record<string, string | ((params: Params) => any)> = {
+export const redirects: Record<string, string | ((params: Params) => string)> = {
     '/': '/insights',
+    '/dashboards': '/dashboard', // TODO: For consistency this should be the default, but we should make sure /dashboard keeps working
     '/plugins': '/project/plugins',
     '/actions': '/events/actions',
     '/organization/members': '/organization/settings',
 }
 
-export const routes: Record<string, Scene> = {
-    '/dashboard': Scene.Dashboards,
-    '/dashboard/:id': Scene.Dashboard,
-    '/dashboard_insight/:id': Scene.DashboardInsight,
-    '/action/:id': Scene.Action,
-    '/action': Scene.Action,
-    '/insights': Scene.Insights,
-    '/i/:id': Scene.InsightRouter,
-    '/events': Scene.Events,
-    '/events/*': Scene.Events,
-    '/sessions': Scene.Sessions,
-    '/person/*': Scene.Person,
-    '/persons': Scene.Persons,
-    '/cohorts/:id': Scene.Cohorts,
-    '/cohorts': Scene.Cohorts,
-    '/feature_flags': Scene.FeatureFlags,
-    '/feature_flags/:id': Scene.FeatureFlag,
-    '/annotations': Scene.Annotations,
-    '/project/settings': Scene.ProjectSettings,
-    '/project/plugins': Scene.Plugins,
-    '/project/create': Scene.ProjectCreateFirst,
-    '/organization/settings': Scene.OrganizationSettings,
-    '/organization/billing': Scene.Billing,
-    '/organization/create': Scene.OrganizationCreateFirst,
-    '/instance/licenses': Scene.InstanceLicenses,
-    '/instance/status': Scene.SystemStatus,
-    '/instance/status/:id': Scene.SystemStatus,
-    '/me/settings': Scene.MySettings,
+export const urls = {
+    default: () => '/',
+    notFound: () => '404',
+    dashboards: () => '/dashboard',
+    dashboard: (id: string | number) => `/dashboard/${id}`,
+    createAction: () => `/action`, // TODO: For consistency, this should be `/action/new`
+    action: (id: string | number) => `/action/${id}`,
+    actions: () => '/actions',
+    insights: () => '/insights',
+    insightView: (view: ViewType) => `/insights?insight=${view}`,
+    insightRouter: (id: string) => `/i/${id}`,
+    savedInsights: () => '/saved_insights',
+    events: () => '/events',
+    sessions: () => '/sessions',
+    person: (id: string) => `/person/${id}`,
+    persons: () => '/persons',
+    cohort: (id: string | number) => `/cohorts/${id}`,
+    cohorts: () => '/cohorts',
+    featureFlags: () => '/feature_flags',
+    featureFlag: (id: string | number) => `/feature_flags/${id}`,
+    annotations: () => '/annotations',
+    plugins: () => '/project/plugins',
+    projectCreateFirst: () => '/project/create',
+    projectSettings: () => '/project/settings',
+    mySettings: () => '/me/settings',
+    organizationSettings: () => '/organization/settings',
+    organizationBilling: () => '/organization/billing',
+    organizationCreateFirst: () => '/organization/create',
+    instanceLicenses: () => '/instance/licenses',
+    systemStatus: () => '/instance/status',
+    systemStatusPage: (page: string) => `/instance/status/${page}`,
     // Onboarding / setup routes
-    '/login': Scene.Login,
-    '/preflight': Scene.PreflightCheck,
-    '/signup': Scene.Signup,
-    '/signup/:id': Scene.InviteSignup,
-    '/personalization': Scene.Personalization,
-    '/ingestion': Scene.Ingestion,
-    '/ingestion/*': Scene.Ingestion,
-    '/setup': Scene.OnboardingSetup,
-    '/home': Scene.Home,
+    login: () => '/login',
+    preflight: () => '/preflight',
+    signup: () => '/signup',
+    inviteSignup: (id: string) => `/signup/${id}`,
+    personalization: () => '/personalization',
+    ingestion: () => '/ingestion',
+    onboardingSetup: () => '/setup',
+    home: () => '/home',
+}
+
+export const routes: Record<string, Scene> = {
+    [urls.dashboards()]: Scene.Dashboards,
+    [urls.dashboard(':id')]: Scene.Dashboard,
+    [urls.createAction()]: Scene.Action,
+    [urls.action(':id')]: Scene.Action,
+    [urls.insights()]: Scene.Insights,
+    [urls.insightRouter(':id')]: Scene.InsightRouter,
+    [urls.events()]: Scene.Events,
+    [urls.events() + '/*']: Scene.Events,
+    [urls.sessions()]: Scene.Sessions,
+    [urls.person('*')]: Scene.Person,
+    [urls.persons()]: Scene.Persons,
+    [urls.cohort(':id')]: Scene.Cohorts,
+    [urls.cohorts()]: Scene.Cohorts,
+    [urls.featureFlags()]: Scene.FeatureFlags,
+    [urls.featureFlag(':id')]: Scene.FeatureFlag,
+    [urls.annotations()]: Scene.Annotations,
+    [urls.projectSettings()]: Scene.ProjectSettings,
+    [urls.plugins()]: Scene.Plugins,
+    [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
+    [urls.organizationSettings()]: Scene.OrganizationSettings,
+    [urls.organizationBilling()]: Scene.Billing,
+    [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
+    [urls.instanceLicenses()]: Scene.InstanceLicenses,
+    [urls.systemStatus()]: Scene.SystemStatus,
+    [urls.systemStatusPage(':id')]: Scene.SystemStatus,
+    [urls.mySettings()]: Scene.MySettings,
+    [urls.savedInsights()]: Scene.SavedInsights,
+    // Onboarding / setup routes
+    [urls.login()]: Scene.Login,
+    [urls.preflight()]: Scene.PreflightCheck,
+    [urls.signup()]: Scene.Signup,
+    [urls.inviteSignup(':id')]: Scene.InviteSignup,
+    [urls.personalization()]: Scene.Personalization,
+    [urls.ingestion()]: Scene.Ingestion,
+    [urls.ingestion() + '/*']: Scene.Ingestion,
+    [urls.onboardingSetup()]: Scene.OnboardingSetup,
+    [urls.home()]: Scene.Home,
 }
 
 export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneConfig>>({
@@ -214,7 +260,6 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         loadScene: (scene: Scene, params: Params) => ({ scene, params }),
         // 3. Set the `scene` reducer
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
-
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         hideUpgradeModal: true,
@@ -266,14 +311,15 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
     },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
+        const { featureFlags } = featureFlagLogic.values
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                const redirect = redirects[path]
+                const redirect =
+                    path === '/' && featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? '/saved_insights' : redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
-
         for (const [path, scene] of Object.entries(routes)) {
             mapping[path] = (params) => actions.openScene(scene, params)
         }
@@ -305,7 +351,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
 
             if (scene === Scene.Signup && preflight && !preflight.can_create_org) {
                 // If user is on an already initiated self-hosted instance, redirect away from signup
-                router.actions.replace('/login')
+                router.actions.replace(urls.login())
                 return
             }
 
@@ -315,7 +361,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                     if (scene === Scene.Login) {
                         router.actions.replace(afterLoginRedirect())
                     } else {
-                        router.actions.replace('/')
+                        router.actions.replace(urls.default())
                     }
                     return
                 }
@@ -323,13 +369,13 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 // Redirect to org/project creation if there's no org/project respectively, unless using invite
                 if (scene !== Scene.InviteSignup) {
                     if (!user.organization) {
-                        if (location.pathname !== '/organization/create') {
-                            router.actions.replace('/organization/create')
+                        if (location.pathname !== urls.organizationCreateFirst()) {
+                            router.actions.replace(urls.organizationCreateFirst())
                             return
                         }
                     } else if (!user.team) {
-                        if (location.pathname !== '/project/create') {
-                            router.actions.replace('/project/create')
+                        if (location.pathname !== urls.projectCreateFirst()) {
+                            router.actions.replace(urls.projectCreateFirst())
                             return
                         }
                     } else if (
@@ -338,7 +384,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                         !location.pathname.startsWith('/personalization')
                     ) {
                         // If ingestion tutorial not completed, redirect to it
-                        router.actions.replace('/ingestion')
+                        router.actions.replace(urls.ingestion())
                         return
                     }
                 }

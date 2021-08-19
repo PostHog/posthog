@@ -11,33 +11,29 @@ $dashboard-title-size: 32px;
 
         .left-item {
             flex-grow: 1;
+
+            .dashboard-items-action-icon {
+                margin-right: 6px;
+            }
+
+            .dashboard-items-action-refresh-text {
+                visibility: visible;
+
+                &.hidden {
+                    visibility: hidden;
+                }
+
+                &.completed {
+                    position: absolute;
+                    left: 30px;
+                }
+            }
         }
 
-        .ant-btn {
-            padding-left: 4px !important;
-        }
-    }
-
-    .dashboard-description {
-        margin-bottom: $default_spacing;
-
-        .ant-card-body {
-            padding: $default_spacing / 2 $default_spacing;
-        }
-
-        div:hover {
-            cursor: text;
-        }
-
-        .edit-box {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            column-gap: $default_spacing / 2;
-        }
-
-        .add-description {
-            color: #9c9797;
+        .right-item {
+            .ant-btn {
+                padding-left: 4px !important;
+            }
         }
     }
 
@@ -186,4 +182,9 @@ $dashboard-title-size: 32px;
             justify-content: flex-end;
         }
     }
+}
+
+#auto-refresh-check {
+    padding: 5px 12px;
+    cursor: pointer;
 }

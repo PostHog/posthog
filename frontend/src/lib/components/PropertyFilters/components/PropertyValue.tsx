@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { AutoComplete, Select } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
-import { isOperatorFlag, isOperatorMulti, isOperatorRegex, isValidRegex, toString } from 'lib/utils'
+import { isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator } from '~/types'
 
@@ -41,8 +41,12 @@ function matchesLowerCase(needle?: string, haystack?: string): boolean {
 }
 
 function getValidationError(operator: PropertyOperator, value: any): string | null {
-    if (isOperatorRegex(operator) && !isValidRegex(value)) {
-        return 'Value is not a valid regular expression'
+    if (isOperatorRegex(operator)) {
+        try {
+            new RegExp(value)
+        } catch (e) {
+            return e.message
+        }
     }
     return null
 }
@@ -63,6 +67,7 @@ export function PropertyValue({
 }: PropertyValueProps): JSX.Element {
     const isMultiSelect = operator && isOperatorMulti(operator)
     const [input, setInput] = useState(isMultiSelect ? '' : toString(value))
+    const [shouldBlur, setShouldBlur] = useState(false)
     const [options, setOptions] = useState({} as Record<string, Option>)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
@@ -74,8 +79,6 @@ export function PropertyValue({
             const valueObject = options[propertyKey]?.values?.find((v) => v.id === value)
             if (valueObject) {
                 setInput(toString(valueObject.name))
-            } else {
-                setInput(toString(value))
             }
         }
     }, [value])
@@ -120,6 +123,13 @@ export function PropertyValue({
         loadPropertyValues('')
     }, [propertyKey])
 
+    useEffect(() => {
+        if (input === '' && shouldBlur) {
+            ;(document.activeElement as HTMLElement)?.blur()
+            setShouldBlur(false)
+        }
+    }, [input, shouldBlur])
+
     const displayOptions = (options[propertyKey]?.values || []).filter(
         (option) => input === '' || matchesLowerCase(input, toString(option?.name))
     )
@@ -141,8 +151,10 @@ export function PropertyValue({
         placeholder,
         allowClear: Boolean(value),
         onKeyDown: (e: React.KeyboardEvent) => {
-            if (e.key === 'Escape' && e.target instanceof HTMLElement) {
-                e.target.blur()
+            if (e.key === 'Escape') {
+                setInput('')
+                setShouldBlur(true)
+                return
             }
             if (!isMultiSelect && e.key === 'Enter') {
                 // We have not explicitly selected a dropdown item by pressing the up/down keys; or the ref is unavailable
@@ -152,6 +164,16 @@ export function PropertyValue({
                 ) {
                     setValue(input)
                 }
+            }
+        },
+        handleBlur: () => {
+            if (input != '') {
+                if (Array.isArray(value) && !value.includes(input)) {
+                    setValue([...value, ...[input]])
+                } else if (!Array.isArray(value)) {
+                    setValue(input)
+                }
+                setInput('')
             }
         },
     }

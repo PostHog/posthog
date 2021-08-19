@@ -7,6 +7,10 @@ import {
     RETENTION_RECURRING,
     RETENTION_FIRST_TIME,
     ENTITY_MATCH_TYPE,
+    FunnelLayout,
+    COHORT_DYNAMIC,
+    COHORT_STATIC,
+    BinCountAuto,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -88,6 +92,7 @@ export interface OrganizationType extends OrganizationBasicType {
     teams: TeamBasicType[] | null
     available_features: AvailableFeatures[]
     domain_whitelist: string[]
+    is_member_join_email_enabled: boolean
 }
 
 export interface OrganizationMemberType {
@@ -169,6 +174,7 @@ export interface ActionStepType {
     text?: string
     url?: string
     url_matching?: ActionStepUrlMatching
+    isNew?: string
 }
 
 export interface ElementType {
@@ -222,6 +228,12 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+}
+
+export enum SavedInsightsParamOptions {
+    All = 'all',
+    Yours = 'yours',
+    Favorites = 'favorites',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -344,6 +356,7 @@ export interface CohortGroupType {
 }
 
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
+export type CohortTypeType = typeof COHORT_STATIC | typeof COHORT_DYNAMIC
 
 export interface CohortType {
     count?: number
@@ -372,6 +385,8 @@ export interface InsightHistory {
 export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
+
+export type BinCountValue = number | typeof BinCountAuto
 
 export enum PersonsTabType {
     EVENTS = 'events',
@@ -456,6 +471,8 @@ export interface DashboardItemType {
     is_sample: boolean
     dashboard: number
     result: any | null
+    updated_at: string
+    tags: string[]
 }
 
 export interface DashboardType {
@@ -473,6 +490,8 @@ export interface DashboardType {
     creation_mode: 'default' | 'template' | 'duplicate'
     tags: string[]
 }
+
+export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
 
 export interface OrganizationInviteType {
     id: string
@@ -606,15 +625,15 @@ export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
-    interval?: string // TODO: Move to IntervalType
-    date_from?: string
-    date_to?: string
+    interval?: IntervalType
+    date_from?: string | null
+    date_to?: string | null
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
-    breakdown?: string | null
-    breakdown_value?: string
+    breakdown?: string | number | number[] | null
+    breakdown_value?: string | number
     shown_as?: ShownAsType
     session?: string
     period?: string
@@ -633,13 +652,16 @@ export interface FilterType {
     formula?: any
     filter_test_accounts?: boolean
     from_dashboard?: boolean
+    layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
     funnel_viz_type?: string // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
+    funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     compare?: boolean
+    bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
 }
 
 export interface SystemStatusSubrows {
@@ -725,8 +747,8 @@ export interface FunnelStep {
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: string
-    breakdown_value?: string
+    breakdown?: string | number | number[]
+    breakdown_value?: string | number
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
@@ -741,7 +763,7 @@ export interface FunnelResult<ResultType = FunnelStep[]> {
 }
 
 export interface FunnelsTimeConversionBins {
-    bins: [number, number][] | []
+    bins: [number, number][]
     average_conversion_time: number
 }
 
@@ -767,6 +789,20 @@ export interface FunnelTimeConversionMetrics {
     totalRate: number
 }
 
+export interface FunnelConversionWindow {
+    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit
+    funnel_window_interval?: number | undefined
+}
+
+// https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
+export enum FunnelConversionWindowTimeUnit {
+    Minute = 'minute',
+    Hour = 'hour',
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+}
+
 export interface FunnelRequestParams extends FilterType {
     refresh?: boolean
     from_dashboard?: boolean
@@ -776,6 +812,23 @@ export interface FunnelRequestParams extends FilterType {
 export interface LoadedRawFunnelResults {
     results: FunnelStep[] | FunnelStep[][]
     timeConversionResults: FunnelsTimeConversionBins
+    filters: Partial<FilterType>
+}
+
+export interface FunnelStepWithConversionMetrics extends FunnelStep {
+    droppedOffFromPrevious: number
+    conversionRates: {
+        fromPrevious: number
+        total: number
+        fromBasisStep: number // either fromPrevious or total, depending on FunnelStepReference
+    }
+    nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
+}
+
+export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
+    rowKey: number | string
+    isBreakdownParent?: boolean
+    breakdownIndex?: number
 }
 
 export interface ChartParams {
@@ -850,6 +903,11 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
+}
+
+export enum ItemMode { // todo: consolidate this and dashboardmode
+    Edit = 'edit',
+    View = 'view',
 }
 
 export enum DashboardMode { // Default mode is null
@@ -972,6 +1030,8 @@ export type EventOrPropType = EventDefinition & PropertyDefinition
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus
+    default_event_name: string
+    persisted_feature_flags?: string[]
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

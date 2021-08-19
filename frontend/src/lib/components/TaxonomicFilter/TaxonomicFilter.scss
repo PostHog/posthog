@@ -7,4 +7,10 @@
     .ant-tabs-tab {
         margin-right: 16px;
     }
+
+    &.one-taxonomic-tab {
+        .taxonomic-infinite-list {
+            margin-top: 10px;
+        }
+    }
 }

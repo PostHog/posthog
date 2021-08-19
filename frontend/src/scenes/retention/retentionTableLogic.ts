@@ -24,6 +24,7 @@ import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -68,7 +69,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                     return props.cachedResults
                 }
                 const queryId = uuid()
+                const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+
                 let res
                 const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
                 try {
@@ -76,10 +80,13 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     return []
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, res.last_refresh)
+
                 return res.result
             },
         },
@@ -150,6 +157,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             (featureFlags, eventsLoaded, propertiesLoaded) =>
                 !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
         ],
+        actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
+        actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
     },
     events: ({ actions, props }) => ({
         afterMount: () => props.dashboardItemId && actions.loadResults(),

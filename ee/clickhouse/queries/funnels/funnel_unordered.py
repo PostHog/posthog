@@ -1,4 +1,6 @@
-from typing import List, Union
+from typing import List, cast
+
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 
@@ -14,18 +16,28 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
     1. Given the first event is A, find the furthest everyone went starting from A.
        This finds any B's and C's that happen after A (without ordering them)
     2. Repeat the above, assuming first event to be B, and then C.
-    
+
     Then, the outer query unions the result of (2) and takes the maximum of these.
 
     ## Results
 
     The result format is the same as the basic funnel, i.e. [step, count].
     Here, `step_i` (0 indexed) signifies the number of people that did at least `i+1` steps.
+
+    ## Exclusion Semantics
+    For unordered funnels, exclusion is a bit weird. It means, given all ordering of the steps,
+    how far can you go without seeing an exclusion event.
+    If you see an exclusion event => you're discarded.
+    See test_advanced_funnel_multiple_exclusions_between_steps for details.
     """
 
     def get_query(self):
 
         max_steps = len(self._filter.entities)
+
+        for exclusion in self._filter.exclusions:
+            if exclusion.funnel_from_step != 0 or exclusion.funnel_to_step != max_steps - 1:
+                raise ValidationError("Partial Exclusions not allowed in unordered funnels")
 
         breakdown_clause = self._get_breakdown_prop()
 
@@ -58,11 +70,12 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self.get_sorting_condition(max_steps)
-        breakdown_clause = self._get_breakdown_prop()
+        breakdown_clause = self._get_breakdown_prop(group_remaining=True)
+        exclusion_clause = self._get_exclusion_condition()
 
         for i in range(max_steps):
             inner_query = f"""
-                SELECT 
+                SELECT
                 person_id,
                 timestamp,
                 {partition_select}
@@ -71,23 +84,17 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             """
 
             formatted_query = f"""
-                SELECT *, {sorting_condition} AS steps {self._get_step_times(max_steps)} FROM (
+                SELECT *, {sorting_condition} AS steps {exclusion_clause} {self._get_step_times(max_steps)} FROM (
                         {inner_query}
-                    ) WHERE step_0 = 1"""
+                    ) WHERE step_0 = 1
+                    {'AND exclusion = 0' if exclusion_clause else ''}
+                    """
 
             #  rotate entities by 1 to get new first event
             entities_to_use.append(entities_to_use.pop(0))
             union_queries.append(formatted_query)
 
         return " UNION ALL ".join(union_queries)
-
-    def _get_step_time_names(self, max_steps: int):
-        names = []
-        for i in range(1, max_steps):
-            names.append(f"step_{i}_conversion_time")
-
-        formatted = ",".join(names)
-        return f", {formatted}" if formatted else ""
 
     def _get_step_times(self, max_steps: int):
         conditions: List[str] = []
@@ -109,13 +116,43 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
     def get_sorting_condition(self, max_steps: int):
 
+        conditions = []
+
+        event_times_elements = []
+        for i in range(max_steps):
+            event_times_elements.append(f"latest_{i}")
+
+        conditions.append(f"arraySort([{','.join(event_times_elements)}]) as event_times")
+        # replacement of latest_i for whatever query part requires it, just like conversion_times
         basic_conditions: List[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
-                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY, 1, 0)"
+                f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, 1, 0)"
             )
 
+        conditions.append(f"arraySum([{','.join(basic_conditions)}, 1])")
+
         if basic_conditions:
-            return f"arraySum([{','.join(basic_conditions)}, 1])"
+            return ",".join(conditions)
         else:
             return "1"
+
+    def _get_exclusion_condition(self):
+        if not self._filter.exclusions:
+            return ""
+
+        conditions = []
+        for exclusion_id, exclusion in enumerate(self._filter.exclusions):
+            from_time = f"latest_{exclusion.funnel_from_step}"
+            to_time = f"event_times[{cast(int, exclusion.funnel_to_step) + 1}]"
+            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
+            condition = (
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
+                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, {to_time}), 1, 0)"
+            )
+            conditions.append(condition)
+
+        if conditions:
+            return f", arraySum([{','.join(conditions)}]) as exclusion"
+        else:
+            return ""

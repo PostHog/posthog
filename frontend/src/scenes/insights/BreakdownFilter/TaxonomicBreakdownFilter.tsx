@@ -1,77 +1,82 @@
-import { useValues } from 'kea'
-import { cohortsModel } from '~/models/cohortsModel'
-import React, { useState } from 'react'
-import { Button, Tooltip } from 'antd'
-import { BreakdownType, FilterType, ViewType } from '~/types'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Popup } from 'lib/components/Popup/Popup'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import React from 'react'
+import { Row } from 'antd'
+import { BreakdownType, FilterType } from '~/types'
 import {
     propertyFilterTypeToTaxonomicFilterType,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CloseButton } from 'lib/components/CloseButton'
+import { TaxonomicBreakdownButton } from 'scenes/insights/BreakdownFilter/TaxonomicBreakdownButton'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
-    onChange: (breakdown: string, breakdownType: BreakdownType) => void
+    onChange: (value: string | number | (string | number)[] | null, groupType: BreakdownType | null) => void
 }
 
 export function TaxonomicBreakdownFilter({ filters, onChange }: TaxonomicBreakdownFilterProps): JSX.Element {
-    const { cohorts } = useValues(cohortsModel)
-    const { breakdown, breakdown_type, insight } = filters
-    const [open, setOpen] = useState(false)
-    let label = breakdown
+    const { breakdown, breakdown_type } = filters
 
-    if (breakdown_type === 'cohort' && breakdown) {
-        label = cohorts.filter((c) => c.id == breakdown)[0]?.name || `Cohort #${breakdown}`
+    let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
+    if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
+        breakdownType = TaxonomicFilterGroupType.CohortsWithAllUsers
+    }
+
+    if (breakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers && breakdown) {
+        const breakdownParts = (Array.isArray(breakdown) ? breakdown : [breakdown])
+            .filter((b) => !!b)
+            .map((b) => (b === 'all' ? b : parseInt(`${b}`)))
+
+        return (
+            <>
+                {[...breakdownParts, 0].map((breakdownPart, index) => (
+                    <Row key={index} style={{ marginBottom: 8 }}>
+                        <TaxonomicBreakdownButton
+                            onlyCohorts={index > 0 || breakdownParts.length > 1}
+                            breakdown={breakdownPart}
+                            breakdownType={breakdownType}
+                            onChange={(changedBreakdown) => {
+                                const fullChangedBreakdown = [...breakdownParts, ''] // add empty element in teh end we could change it in `map`
+                                    .map((b, i) => (i === index ? changedBreakdown : b))
+                                    .filter((b) => !!b)
+                                    .map((b) => (b === 'all' ? b : parseInt(`${b}`)))
+
+                                onChange(fullChangedBreakdown, 'cohort')
+                            }}
+                        />
+                        {breakdownPart ? (
+                            <CloseButton
+                                onClick={() => {
+                                    const newParts = breakdownParts.filter((_, i) => i !== index)
+                                    if (newParts.length === 0) {
+                                        onChange(null, null)
+                                    } else {
+                                        onChange(newParts, 'cohort')
+                                    }
+                                }}
+                                style={{ marginTop: 4, marginLeft: 5 }}
+                            />
+                        ) : null}
+                    </Row>
+                ))}
+            </>
+        )
     }
 
     return (
-        <Popup
-            overlay={
-                <TaxonomicFilter
-                    value={breakdown}
-                    groupType={propertyFilterTypeToTaxonomicFilterType(breakdown_type)}
-                    onChange={(groupType, value) => {
-                        const filterType = taxonomicFilterTypeToPropertyFilterType(groupType)
-                        if (value && filterType) {
-                            onChange(value.toString(), filterType as BreakdownType)
-                            setOpen(false)
-                        }
-                    }}
-                    groupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.Cohorts,
-                    ]}
-                />
-            }
-            placement={'bottom-start'}
-            fallbackPlacements={['bottom-end']}
-            visible={open}
-            onClickOutside={() => setOpen(false)}
-        >
-            {({ setRef }) => (
-                <Tooltip
-                    title={
-                        insight === ViewType.STICKINESS &&
-                        'Break down by is not yet available in combination with Stickiness'
+        <TaxonomicBreakdownButton
+            breakdown={(Array.isArray(breakdown) ? breakdown[0] : breakdown) || undefined}
+            breakdownType={breakdownType}
+            onChange={(changedBreakdown, groupType) => {
+                const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(groupType) as BreakdownType
+                if (changedBreakdownType) {
+                    if (groupType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
+                        onChange([changedBreakdown], changedBreakdownType)
+                    } else {
+                        onChange(changedBreakdown, changedBreakdownType)
                     }
-                >
-                    <Button
-                        shape="round"
-                        type={breakdown ? 'primary' : 'default'}
-                        disabled={insight === ViewType.STICKINESS || insight === ViewType.LIFECYCLE}
-                        data-attr="add-breakdown-button"
-                        style={label ? { color: '#fff' } : {}}
-                        onClick={() => setOpen(!open)}
-                        ref={setRef}
-                    >
-                        <PropertyKeyInfo value={label || 'Add breakdown'} />
-                    </Button>
-                </Tooltip>
-            )}
-        </Popup>
+                }
+            }}
+        />
     )
 }

@@ -14,6 +14,9 @@ describe('Actions', () => {
         cy.get('[data-attr=edit-action-input]').type(name)
         cy.get('.ant-radio-group > :nth-child(3)').click()
         cy.get('[data-attr=edit-action-url-input]').type(Cypress.config().baseUrl)
+        cy.wait(300)
+        cy.focused().should('have.attr', 'data-attr', 'edit-action-url-input')
+
         cy.get('[data-attr=save-action-button]').click()
 
         cy.contains('Action saved').should('exist')
@@ -23,8 +26,9 @@ describe('Actions', () => {
 
         cy.contains('Add graph series').click()
         cy.get('[data-attr=trend-element-subject-1]').click()
-        cy.get('[data-attr="select-box-input"]').type(name)
-        cy.contains(name).click()
+        cy.get('[data-attr=taxonomic-filter-searchfield]').type(name)
+        cy.get('[data-attr=taxonomic-tab-actions]').click()
+        cy.get('[data-attr=prop-filter-actions-0]').click()
         cy.get('[data-attr=trend-element-subject-1] span').should('contain', name)
     })
 

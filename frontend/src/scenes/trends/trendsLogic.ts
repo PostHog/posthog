@@ -12,7 +12,6 @@ import {
     ChartDisplayType,
     EntityTypes,
     FilterType,
-    PathType,
     PersonType,
     PropertyFilter,
     TrendResult,
@@ -24,9 +23,12 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 interface TrendResponse {
     result: TrendResult[]
+    filters: FilterType
     next?: string
 }
 
@@ -40,9 +42,10 @@ export interface TrendPeople {
     day: string | number
     label: string
     action: ActionFilter | 'session'
-    breakdown_value?: string
+    breakdown_value?: string | number
     next?: string
     loadingMore?: boolean
+    funnelStep?: number
 }
 
 interface PeopleParamType {
@@ -50,9 +53,9 @@ interface PeopleParamType {
     label: string
     date_to?: string | number
     date_from?: string | number
-    breakdown_value?: string
+    breakdown_value?: string | number
     target_date?: number | string
-    lifecycle_type?: string
+    lifecycle_type?: string | number
 }
 
 function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {
@@ -120,16 +123,9 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     return toAPIParams({ ...params, ...restParams })
 }
 
-function getDefaultFilters(currentFilters: Partial<FilterType>, eventNames: string[]): Partial<FilterType> {
-    /* Opening /insights without any params, will set $pageview as the default event (or
-    the first random event). We load this default events when `currentTeam` is loaded (because that's when
-    `eventNames` become available) and on every view change (through the urlToAction map) */
-    if (!currentFilters.actions?.length && !currentFilters.events?.length && eventNames.length) {
-        const event = eventNames.includes(PathType.PageView)
-            ? PathType.PageView
-            : eventNames.includes(PathType.Screen)
-            ? PathType.Screen
-            : eventNames[0]
+function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterType> {
+    if (!currentFilters.actions?.length && !currentFilters.events?.length) {
+        const event = getDefaultEventName()
 
         const defaultFilters = {
             [EntityTypes.EVENTS]: [
@@ -177,7 +173,11 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 cache.abortController = new AbortController()
 
                 const queryId = uuid()
+                const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+
+                const { filters } = values
 
                 let response
                 try {
@@ -213,6 +213,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                         null,
                         e
                     )
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     return []
                 }
                 breakpoint()
@@ -222,8 +223,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     (values.filters.insight as ViewType) || ViewType.TRENDS,
                     response.last_refresh
                 )
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, response.last_refresh)
 
-                return response
+                return { ...response, filters }
             },
         },
     }),
@@ -319,6 +321,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             (featureFlags, eventsLoaded, propertiesLoaded) =>
                 !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
         ],
+        loadedFilters: [(selectors) => [selectors._results], (response) => response.filters],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
         loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
@@ -352,7 +355,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
 
             let indexedResults
             if (values.filters.insight !== ViewType.LIFECYCLE) {
-                indexedResults = values.results.map((element, index) => {
+                indexedResults = values.results?.map((element, index) => {
                     actions.setVisibilityById({ [`${index}`]: true })
                     return { ...element, id: index }
                 })
@@ -377,15 +380,17 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             }
             actions.setBreakdownValuesLoading(true)
 
+            const { filters } = values
             const response = await api.get(values.loadMoreBreakdownUrl)
             actions.loadResultsSuccess({
                 result: [...values.results, ...(response.result ? response.result : [])],
+                filters: filters,
                 next: response.next,
             })
             actions.setBreakdownValuesLoading(false)
         },
         [eventDefinitionsModel.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            const newFilter = getDefaultFilters(values.filters, eventDefinitionsModel.values.eventNames)
+            const newFilter = getDefaultFilters(values.filters)
             const mergedFilter: Partial<FilterType> = {
                 ...values.filters,
                 ...newFilter,
@@ -453,12 +458,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     cleanSearchParams['compare'] = false
                 }
 
-                Object.assign(
-                    cleanSearchParams,
-                    getDefaultFilters(cleanSearchParams, eventDefinitionsModel.values.eventNames)
-                )
+                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams))
 
-                if (!objectsEqual(cleanSearchParams, values.filters)) {
+                if (!objectsEqual(cleanSearchParams, values.loadedFilters)) {
                     actions.setFilters(cleanSearchParams, false)
                 } else {
                     insightLogic.actions.setAllFilters(values.filters)

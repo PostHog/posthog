@@ -56,10 +56,10 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
-    labels_format = "%a. {day} %B"
+    labels_format = "%-d-%b-%Y"
     if interval == "hour" or interval == "minute":
-        labels_format += ", %H:%M"
-    return date.strftime(labels_format.format(day=date.day))
+        labels_format += " %H:%M"
+    return date.strftime(labels_format)
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -109,25 +109,28 @@ def relative_date_parse(input: str) -> datetime.datetime:
     if not match:
         return date
     if match.group("type") == "h":
-        date = date - relativedelta(hours=int(match.group("number")))
+        date -= relativedelta(hours=int(match.group("number")))
         return date.replace(minute=0, second=0, microsecond=0)
     elif match.group("type") == "d":
         if match.group("number"):
-            date = date - relativedelta(days=int(match.group("number")))
+            date -= relativedelta(days=int(match.group("number")))
+    elif match.group("type") == "w":
+        if match.group("number"):
+            date -= relativedelta(weeks=int(match.group("number")))
     elif match.group("type") == "m":
         if match.group("number"):
-            date = date - relativedelta(months=int(match.group("number")))
+            date -= relativedelta(months=int(match.group("number")))
         if match.group("position") == "Start":
-            date = date - relativedelta(day=1)
+            date -= relativedelta(day=1)
         if match.group("position") == "End":
-            date = date - relativedelta(day=31)
+            date -= relativedelta(day=31)
     elif match.group("type") == "y":
         if match.group("number"):
-            date = date - relativedelta(years=int(match.group("number")))
+            date -= relativedelta(years=int(match.group("number")))
         if match.group("position") == "Start":
-            date = date - relativedelta(month=1, day=1)
+            date -= relativedelta(month=1, day=1)
         if match.group("position") == "End":
-            date = date - relativedelta(month=12, day=31)
+            date -= relativedelta(month=12, day=31)
     return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
@@ -222,7 +225,12 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         from posthog.api.user import UserSerializer
         from posthog.views import preflight_check
 
-        posthog_app_context: Dict = {"current_user": None, "preflight": json.loads(preflight_check(request).getvalue())}
+        posthog_app_context: Dict = {
+            "current_user": None,
+            "preflight": json.loads(preflight_check(request).getvalue()),
+            "default_event_name": get_default_event_name(),
+            "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        }
 
         if request.user.pk:
             user = UserSerializer(request.user, context={"request": request}, many=False)
@@ -234,6 +242,16 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     html = template.render(context, request=request)
     return HttpResponse(html)
+
+
+def get_default_event_name():
+    from posthog.models import EventDefinition
+
+    if EventDefinition.objects.filter(name="$pageview").exists():
+        return "$pageview"
+    elif EventDefinition.objects.filter(name="$screen").exists():
+        return "$screen"
+    return "$pageview"
 
 
 def json_uuid_convert(o):

@@ -7,6 +7,7 @@ import React from 'react'
 import { toast } from 'react-toastify'
 import { dashboardsModelType } from './dashboardsModelType'
 import { DashboardItemType, DashboardType } from '~/types'
+import { urls } from 'scenes/sceneLogic'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     actions: () => ({
@@ -15,6 +16,17 @@ export const dashboardsModel = kea<dashboardsModelType>({
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
         updateDashboardItem: (item: DashboardItemType) => ({ item }),
+        // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
+        // to dashboard items in dashboards
+        updateDashboardRefreshStatus: (
+            id: number | undefined | null,
+            refreshing: boolean | null,
+            last_refresh: string | null
+        ) => ({
+            id,
+            refreshing,
+            last_refresh,
+        }),
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         loadDashboards: true,
@@ -49,11 +61,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
             addDashboard: async ({ name, show, useTemplate }) => {
                 const result = (await api.create('api/dashboard', {
                     name,
-                    pinned: true,
                     use_template: useTemplate,
                 })) as DashboardType
                 if (show) {
-                    router.actions.push(`/dashboard/${result.id}`)
+                    router.actions.push(urls.dashboard(result.id))
                 }
                 return result
             },
@@ -159,7 +170,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
         restoreDashboardSuccess: ({ dashboard }) => {
             toast(`Dashboard "${dashboard.name}" restored!`)
             if (values.redirect) {
-                router.actions.push(`/dashboard/${dashboard.id}`)
+                router.actions.push(urls.dashboard(dashboard.id))
             }
         },
 
@@ -187,9 +198,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
 
             if (values.redirect) {
                 if (nextDashboard) {
-                    router.actions.push(`/dashboard/${nextDashboard.id}`)
+                    router.actions.push(urls.dashboard(nextDashboard.id))
                 } else {
-                    router.actions.push('/dashboard')
+                    router.actions.push(urls.dashboards())
                 }
 
                 await delay(500)

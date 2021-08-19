@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union, cast
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns import get_materialized_columns
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
@@ -14,7 +15,7 @@ from ee.clickhouse.queries.breakdown_props import (
 )
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
-from posthog.constants import FUNNEL_WINDOW_DAYS, LIMIT, TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Entity, Filter, Team
 from posthog.queries.funnel import Funnel
 from posthog.utils import relative_date_parse
@@ -33,13 +34,20 @@ class ClickhouseFunnelBase(ABC, Funnel):
         }
 
         # handle default if window isn't provided
-        if not self._filter.funnel_window_days:
-            self._filter = self._filter.with_data({FUNNEL_WINDOW_DAYS: 14})
+        if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
+            self._filter = self._filter.with_data({FUNNEL_WINDOW_INTERVAL: 14, FUNNEL_WINDOW_INTERVAL_UNIT: "day"})
+
+        if self._filter.funnel_window_days:
+            self._filter = self._filter.with_data(
+                {FUNNEL_WINDOW_INTERVAL: self._filter.funnel_window_days, FUNNEL_WINDOW_INTERVAL_UNIT: "day"}
+            )
 
         if not self._filter.limit:
             new_limit = {LIMIT: 100}
             self._filter = self._filter.with_data(new_limit)
             self.params.update(new_limit)
+
+        self._update_filters()
 
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
@@ -48,46 +56,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         results = self._exec_query()
         return self._format_results(results)
 
-    def _format_single_funnel(self, results, with_breakdown=False):
-        # Format of this is [step order, person count (that reached that step), array of person uuids]
-        steps = []
-        total_people = 0
-
-        for step in reversed(self._filter.entities):
-
-            if results and len(results) > 0:
-                total_people += results[step.order]
-
-            serialized_result = self._serialize_step(step, total_people, [])
-            if step.order > 0:
-                serialized_result.update(
-                    {
-                        "average_conversion_time": results[step.order + len(self._filter.entities) - 1],
-                        "median_conversion_time": results[step.order + len(self._filter.entities) * 2 - 2],
-                    }
-                )
-            else:
-                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
-
-            if with_breakdown:
-                serialized_result.update({"breakdown": results[-1]})
-                # important to not try and modify this value any how - as these are keys for fetching persons
-
-            steps.append(serialized_result)
-
-        return steps[::-1]  #  reverse
-
-    def _format_results(self, results):
-        if not results or len(results) == 0:
-            return []
-
-        if self._filter.breakdown:
-            return [self._format_single_funnel(res, with_breakdown=True) for res in results]
-        else:
-            return self._format_single_funnel(results[0])
-
-    def _exec_query(self) -> List[Tuple]:
-
+    def _update_filters(self):
         # format default dates
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
@@ -115,6 +84,45 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
         self._filter = self._filter.with_data(data)
 
+    def _format_single_funnel(self, results, with_breakdown=False):
+        # Format of this is [step order, person count (that reached that step), array of person uuids]
+        steps = []
+        total_people = 0
+
+        for step in reversed(self._filter.entities):
+
+            if results and len(results) > 0:
+                total_people += results[step.order]
+
+            serialized_result = self._serialize_step(step, total_people, [])
+            if cast(int, step.order) > 0:
+                serialized_result.update(
+                    {
+                        "average_conversion_time": results[cast(int, step.order) + len(self._filter.entities) - 1],
+                        "median_conversion_time": results[cast(int, step.order) + len(self._filter.entities) * 2 - 2],
+                    }
+                )
+            else:
+                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
+
+            if with_breakdown:
+                serialized_result.update({"breakdown": results[-1], "breakdown_value": results[-1]})
+                # important to not try and modify this value any how - as these are keys for fetching persons
+
+            steps.append(serialized_result)
+
+        return steps[::-1]  #  reverse
+
+    def _format_results(self, results):
+        if not results or len(results) == 0:
+            return []
+
+        if self._filter.breakdown:
+            return [self._format_single_funnel(res, with_breakdown=True) for res in results]
+        else:
+            return self._format_single_funnel(results[0])
+
+    def _exec_query(self) -> List[Tuple]:
         query = self.get_query()
         return sync_execute(query, self.params)
 
@@ -134,21 +142,24 @@ class ClickhouseFunnelBase(ABC, Funnel):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
-                for exclusion in self._filter.exclusions:
-                    if exclusion.funnel_from_step + 1 == i:
-                        cols.append(f"exclusion_latest_{exclusion.funnel_from_step}")
+                for exclusion_id, exclusion in enumerate(self._filter.exclusions):
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
+                        cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
             else:
                 duplicate_event = 0
-                if i > 0 and self._filter.entities[i].equals(self._filter.entities[i - 1]):
+                if i > 0 and (
+                    self._filter.entities[i].equals(self._filter.entities[i - 1])
+                    or self._filter.entities[i].is_superset(self._filter.entities[i - 1])
+                ):
                     duplicate_event = 1
                 cols.append(
                     f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
-                for exclusion in self._filter.exclusions:
+                for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
-                    if exclusion.funnel_from_step + 1 == i:
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(
-                            f"min(exclusion_latest_{exclusion.funnel_from_step}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_latest_{exclusion.funnel_from_step}"
+                            f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         )
         return ", ".join(cols)
 
@@ -157,13 +168,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return ""
 
         conditions = []
-        for exclusion in self._filter.exclusions:
+        for exclusion_id, exclusion in enumerate(self._filter.exclusions):
             from_time = f"latest_{exclusion.funnel_from_step}"
             to_time = f"latest_{exclusion.funnel_to_step}"
-            exclusion_time = f"exclusion_latest_{exclusion.funnel_from_step}"
+            exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
             condition = (
                 f"if( {exclusion_time} > {from_time} AND {exclusion_time} < "
-                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_days} DAY, {to_time}), 1, 0)"
+                f"if(isNull({to_time}), {from_time} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 
@@ -180,7 +191,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
         conditions: List[str] = []
         for i in range(1, curr_index):
             conditions.append(f"latest_{i - 1} < latest_{i }")
-            conditions.append(f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_days} DAY")
+            conditions.append(
+                f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}"
+            )
 
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
@@ -205,9 +218,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
             step_cols = self._get_step_col(entity, index, entity_name)
             all_step_cols.extend(step_cols)
 
-        for entity in self._filter.exclusions:
-            step_cols = self._get_step_col(entity, entity.funnel_from_step, entity_name, "exclusion_")
-            # every exclusion entity has the form: exclusion_step_i & timestamp exclusion_latest_i
+        for exclusion_id, entity in enumerate(self._filter.exclusions):
+            step_cols = self._get_step_col(entity, entity.funnel_from_step, entity_name, f"exclusion_{exclusion_id}_")
+            # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
             # where i is the starting step for exclusion on that entity
             all_step_cols.extend(step_cols)
 
@@ -223,8 +236,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 extra_join = self._get_cohort_breakdown_join()
             else:
                 breakdown_conditions = self._get_breakdown_conditions()
-                extra_conditions = "AND prop != ''" if select_prop else ""
-                extra_conditions += f"AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
+                extra_conditions = f" AND {breakdown_conditions}" if breakdown_conditions and select_prop else ""
 
         return FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
@@ -241,8 +253,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         for index in range(length):
             step_conditions.append(f"step_{index} = 1")
 
-        for entity in self._filter.exclusions:
-            step_conditions.append(f"exclusion_step_{entity.funnel_from_step} = 1")
+        for exclusion_id, entity in enumerate(self._filter.exclusions):
+            step_conditions.append(f"exclusion_{exclusion_id}_step_{entity.funnel_from_step} = 1")
 
         return " OR ".join(step_conditions)
 
@@ -299,16 +311,20 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update({"step_num": abs(step_num) - 1})
             conditions.append("steps = %(step_num)s")
 
-        if self._filter.funnel_step_breakdown:
-            prop_vals = (
-                [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
-                if isinstance(self._filter.funnel_step_breakdown, str)
-                else [self._filter.funnel_step_breakdown]
-            )
+        if self._filter.funnel_step_breakdown is not None:
+            prop_vals = self._parse_breakdown_prop_value()
             self.params.update({"breakdown_prop_value": prop_vals})
             conditions.append("prop IN %(breakdown_prop_value)s")
 
         return " AND ".join(conditions)
+
+    def _parse_breakdown_prop_value(self):
+        prop_vals: List[Union[str, int]] = (
+            [val.strip() for val in self._filter.funnel_step_breakdown.split(",")]
+            if isinstance(self._filter.funnel_step_breakdown, str)
+            else [cast(int, self._filter.funnel_step_breakdown)]
+        )
+        return prop_vals
 
     def _get_count_columns(self, max_steps: int):
         cols: List[str] = []
@@ -317,6 +333,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
             cols.append(f"countIf(steps = {i + 1}) step_{i + 1}")
 
         return ", ".join(cols)
+
+    def _get_step_time_names(self, max_steps: int):
+        names = []
+        for i in range(1, max_steps):
+            names.append(f"step_{i}_conversion_time")
+
+        formatted = ",".join(names)
+        return f", {formatted}" if formatted else ""
 
     def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False):
         conditions: List[str] = []
@@ -342,30 +366,34 @@ class ClickhouseFunnelBase(ABC, Funnel):
         formatted = ", ".join(conditions)
         return f", {formatted}" if formatted else ""
 
-    @abstractmethod
-    def get_query(self):
-        pass
+    def get_query(self) -> str:
+        raise NotImplementedError()
 
-    def get_step_counts_query(self):
-        pass
+    def get_step_counts_query(self) -> str:
+        raise NotImplementedError()
 
-    def get_step_counts_without_aggregation_query(self):
-        pass
+    def get_step_counts_without_aggregation_query(self) -> str:
+        raise NotImplementedError()
 
     def _get_breakdown_select_prop(self) -> str:
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) as prop"
+                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) AS prop"
             elif self._filter.breakdown_type == "event":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) as prop"
+                column_name = get_materialized_columns("events").get(self._filter.breakdown)
+                if column_name is not None:
+                    return f", {column_name} AS prop"
+                else:
+                    return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) AS prop"
             elif self._filter.breakdown_type == "cohort":
-                return ", value as prop"
+                return ", value AS prop"
 
         return ""
 
     def _get_cohort_breakdown_join(self) -> str:
-        cohort_queries, _, cohort_params = format_breakdown_cohort_join_query(self._team.pk, self._filter)
+        cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team.pk, self._filter)
+        self.params.update({"breakdown_values": ids})
         self.params.update(cohort_params)
         return f"""
             INNER JOIN (
@@ -376,23 +404,32 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_breakdown_conditions(self) -> str:
         if self._filter.breakdown:
-            limit = 5
-            first_entity = next(x for x in self._filter.entities if x.order == 0)
-            if not first_entity:
-                ValidationError("An entity with order 0 was not provided")
+            limit = self._filter.breakdown_limit_or_default
+            first_entity = self._filter.entities[0]
+
             values = []
             if self._filter.breakdown_type == "person":
-                values = get_breakdown_person_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
+                values = get_breakdown_person_prop_values(
+                    self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                )
+                # people pagination sets the offset param, which is common across filters
+                # and gives us the wrong breakdown values here, so we override it.
             elif self._filter.breakdown_type == "event":
-                values = get_breakdown_event_prop_values(self._filter, first_entity, "count(*)", self._team.pk, limit)
+                values = get_breakdown_event_prop_values(
+                    self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+                )
+                # We assume breakdown values remain stable across the funnel, so using
+                # just the first entity to get breakdown values is ok.
+
             self.params.update({"breakdown_values": values})
 
-            return "prop IN %(breakdown_values)s"
-        else:
-            return ""
+        return ""
 
-    def _get_breakdown_prop(self) -> str:
+    def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            return ", prop"
+            if group_remaining and self._filter.breakdown_type != "cohort":
+                return ", if(has(%(breakdown_values)s, prop), prop, 'Other') as prop"
+            else:
+                return ", prop"
         else:
             return ""

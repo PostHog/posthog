@@ -1,8 +1,12 @@
 import { kea } from 'kea'
-import { PropertyFilterValue } from '~/types'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import { groups } from 'lib/components/TaxonomicFilter/groups'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     props: {} as TaxonomicFilterLogicProps,
@@ -17,7 +21,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (groupType: TaxonomicFilterGroupType, value: PropertyFilterValue, item: any) => ({
+        selectItem: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue | null, item: any) => ({
             groupType,
             value,
             item,
@@ -60,7 +64,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
         groupTypes: [
             () => [(_, props) => props.groupTypes],
-            (groupTypes): TaxonomicFilterGroupType[] => groupTypes || [],
+            (groupTypes): TaxonomicFilterGroupType[] => groupTypes || groups.map((g) => g.type),
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
@@ -72,7 +76,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         selectItem: ({ groupType, value, item }) => {
-            props.onChange?.(groupType, value, item)
+            if (item && value) {
+                props.onChange?.(groupType, value, item)
+            }
         },
 
         moveUp: async (_, breakpoint) => {

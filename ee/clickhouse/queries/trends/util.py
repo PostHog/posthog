@@ -7,7 +7,6 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, WEEKLY_ACTIVE
-from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -24,16 +23,17 @@ MATH_FUNCTIONS = {
 
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
+    value = f"toFloat64OrNull(JSONExtractRaw(properties, %(e_{entity.index}_math)s))"
+    params = {f"e_{entity.index}_math": entity.math_property}
+
     aggregate_operation = "count(*)"
-    params = {}
     join_condition = ""
-    value = "toFloat64OrNull(JSONExtractRaw(properties, '{}'))".format(entity.math_property)
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math in MATH_FUNCTIONS:
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}({value})"
-        params = {"join_property_key": entity.math_property}
+        params["join_property_key"] = entity.math_property
 
     return aggregate_operation, join_condition, params
 
@@ -48,7 +48,7 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     ]
     labels = [
         item.strftime(
-            "%a. %-d %B{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
+            "%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
         )
         for item in stats[0]
     ]
@@ -92,11 +92,11 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
     return params
 
 
-def populate_entity_params(entity: Entity) -> Tuple[Dict, Dict]:
+def populate_entity_params(entity: Entity, table_name: str = "") -> Tuple[Dict, Dict]:
     params, content_sql_params = {}, {}
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
-        action_query, action_params = format_action_filter(action)
+        action_query, action_params = format_action_filter(action, table_name=table_name)
         params = {**action_params}
         content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
     else:

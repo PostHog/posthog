@@ -1,7 +1,6 @@
 from typing import Any, Dict, Tuple
 
-from django.conf import settings
-
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params, populate_entity_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
@@ -24,8 +23,8 @@ class TrendsEventQuery(ClickhouseEventQuery):
             + (
                 " ".join(
                     [
-                        f", {self.EVENT_TABLE_ALIAS}.properties_{prop} as properties_{prop}"
-                        for prop in settings.CLICKHOUSE_DENORMALIZED_PROPERTIES
+                        f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
+                        for column_name in get_materialized_columns("events").values()
                     ]
                 )
             )
@@ -70,7 +69,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         date_params: Dict[str, Any] = {}
         interval_annotation = get_trunc_func_ch(self._filter.interval)
         _, _, round_interval = get_time_diff(
-            self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team_id
+            self._filter.interval, self._filter.date_from, self._filter.date_to, team_id=self._team_id
         )
         _, parsed_date_to, date_params = parse_timestamps(filter=self._filter, team_id=self._team_id)
         parsed_date_from = date_from_clause(interval_annotation, round_interval)
@@ -92,6 +91,6 @@ class TrendsEventQuery(ClickhouseEventQuery):
         return date_filter, date_params
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
-        entity_params, entity_format_params = populate_entity_params(self._entity)
+        entity_params, entity_format_params = populate_entity_params(self._entity, table_name=self.EVENT_TABLE_ALIAS)
 
         return entity_format_params["entity_query"], entity_params

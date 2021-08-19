@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Button, Card, Input, Divider, Select, Skeleton } from 'antd'
+import { Button, Card, Input, Divider, Select, Skeleton, Switch } from 'antd'
 import { UserType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
@@ -56,7 +56,7 @@ function DomainWhitelist({ isRestricted }: RestrictedComponentProps): JSX.Elemen
 
     return (
         <div>
-            <h2 id="name" className="subtitle">
+            <h2 id="domain-whitelist" className="subtitle">
                 Domain Whitelist
             </h2>
             {socialAuthAvailable ? (
@@ -91,7 +91,7 @@ function DomainWhitelist({ isRestricted }: RestrictedComponentProps): JSX.Elemen
                 <div className="text-muted">
                     This feature is only available when social authentication is enabled.{' '}
                     <a
-                        href="https://posthog.com/docs/features/log-in-with-github-gitlab?utm_campaign=domain-whitelist&utm_medium=in-product"
+                        href="https://posthog.com/docs/features/sso?utm_campaign=domain-whitelist&utm_medium=in-product"
                         target="_blank"
                         rel="noopener"
                     >
@@ -99,6 +99,40 @@ function DomainWhitelist({ isRestricted }: RestrictedComponentProps): JSX.Elemen
                     </a>
                 </div>
             )}
+        </div>
+    )
+}
+
+function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Element {
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+
+    return (
+        <div>
+            <h2 id="name" className="subtitle">
+                Notification Preferences
+            </h2>
+            <div>
+                <Switch
+                    // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+                    id="is-member-join-email-enabled-switch"
+                    data-attr="is-member-join-email-enabled-switch"
+                    onChange={(checked) => {
+                        updateOrganization({ is_member_join_email_enabled: checked })
+                    }}
+                    checked={currentOrganization?.is_member_join_email_enabled}
+                    loading={currentOrganizationLoading}
+                    disabled={isRestricted || !currentOrganization}
+                />
+                <label
+                    style={{
+                        marginLeft: '10px',
+                    }}
+                    htmlFor="is-member-join-email-enabled-switch"
+                >
+                    Email all current members when a new member joins
+                </label>
+            </div>
         </div>
     )
 }
@@ -126,6 +160,8 @@ export function OrganizationSettings({ user }: { user: UserType }): JSX.Element 
                 <Invites />
                 <Divider />
                 <Members user={user} />
+                <Divider />
+                <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
             </Card>

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, cast
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from posthog.models.cohort import Cohort
@@ -52,9 +52,14 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         max_steps = len(self._filter.entities)
         breakdown_clause = self._get_breakdown_prop()
 
-        return f"""SELECT person_id, max(steps) AS steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} FROM (
-            {steps_per_person_query}
-        ) GROUP BY person_id {breakdown_clause}
+        return f"""
+            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} FROM (
+                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} FROM (
+                        {steps_per_person_query}
+                )
+            ) GROUP BY person_id, steps {breakdown_clause}
+            HAVING steps = max_steps
+            SETTINGS allow_experimental_window_functions = 1
         """
 
     def _format_results(self, results):
@@ -78,22 +83,29 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
             if result and len(result) > 0:
                 total_people += result[step.order]
-                relevant_people += result[step.order + num_entities]
+                relevant_people += result[cast(int, step.order) + num_entities]
 
             serialized_result = self._serialize_step(step, total_people, relevant_people[0:100])
-            if step.order > 0:
+            if cast(int, step.order) > 0:
                 serialized_result.update(
                     {
-                        "average_conversion_time": result[step.order + num_entities * 2 - 1],
-                        "median_conversion_time": result[step.order + num_entities * 3 - 2],
+                        "average_conversion_time": result[cast(int, step.order) + num_entities * 2 - 1],
+                        "median_conversion_time": result[cast(int, step.order) + num_entities * 3 - 2],
                     }
                 )
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
             if with_breakdown:
+                # breakdown will return a display ready value
+                # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
                 serialized_result.update(
-                    {"breakdown": result[-1] if isinstance(result[-1], str) else Cohort.objects.get(pk=result[-1]).name}
+                    {
+                        "breakdown": Cohort.objects.get(pk=result[-1]).name
+                        if self._filter.breakdown_type == "cohort"
+                        else result[-1],
+                        "breakdown_value": result[-1],
+                    }
                 )
                 # important to not try and modify this value any how - as these are keys for fetching persons
 
@@ -106,13 +118,15 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         max_steps = len(self._filter.entities)
         if max_steps >= 2:
             formatted_query = self.build_step_subquery(2, max_steps)
+            breakdown_query = self._get_breakdown_prop()
         else:
             formatted_query = self._get_inner_event_query()
+            breakdown_query = self._get_breakdown_prop(group_remaining=True)
 
         exclusion_clause = self._get_exclusion_condition()
 
         return f"""
-        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {self._get_breakdown_prop()} FROM (
+        SELECT *, {self._get_sorting_condition(max_steps, max_steps)} AS steps {exclusion_clause} {self._get_step_times(max_steps)} {breakdown_query} FROM (
             {formatted_query}
         ) WHERE step_0 = 1
         {'AND exclusion = 0' if exclusion_clause else ''}
@@ -137,17 +151,18 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
-                for exclusion in self._filter.exclusions:
-                    if exclusion.funnel_from_step + 1 == i:
-                        cols.append(f"exclusion_latest_{exclusion.funnel_from_step}")
+                for exclusion_id, exclusion in enumerate(self._filter.exclusions):
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
+                        cols.append(f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}")
             else:
                 comparison = self._get_comparison_at_step(i, level_index)
                 cols.append(f"if({comparison}, NULL, latest_{i}) as latest_{i}")
 
-                for exclusion in self._filter.exclusions:
-                    if exclusion.funnel_from_step + 1 == i:
+                for exclusion_id, exclusion in enumerate(self._filter.exclusions):
+                    if cast(int, exclusion.funnel_from_step) + 1 == i:
+                        exclusion_identifier = f"exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         cols.append(
-                            f"if(exclusion_latest_{exclusion.funnel_from_step} < latest_{exclusion.funnel_from_step}, NULL, exclusion_latest_{exclusion.funnel_from_step}) as exclusion_latest_{exclusion.funnel_from_step}"
+                            f"if({exclusion_identifier} < latest_{exclusion.funnel_from_step}, NULL, {exclusion_identifier}) as {exclusion_identifier}"
                         )
 
         return ", ".join(cols)
@@ -155,22 +170,22 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
     def build_step_subquery(self, level_index: int, max_steps: int):
         if level_index >= max_steps:
             return f"""
-            SELECT 
+            SELECT
             person_id,
             timestamp,
             {self._get_partition_cols(1, max_steps)}
-            {self._get_breakdown_prop()}
+            {self._get_breakdown_prop(group_remaining=True)}
             FROM ({self._get_inner_event_query()})
             """
         else:
             return f"""
-            SELECT 
+            SELECT
             person_id,
             timestamp,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
             FROM (
-                SELECT 
+                SELECT
                 person_id,
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}

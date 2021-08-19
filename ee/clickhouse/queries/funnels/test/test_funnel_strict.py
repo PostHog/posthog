@@ -6,6 +6,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_strict import ClickhouseFunnelStrict
 from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
+from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
@@ -109,6 +110,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": "Chrome",
+                    "breakdown_value": "Chrome",
                 },
                 {
                     "action_id": "play movie",
@@ -120,6 +122,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": "Chrome",
+                    "breakdown_value": "Chrome",
                 },
             ],
         )
@@ -139,6 +142,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": "Safari",
+                    "breakdown_value": "Safari",
                 },
                 {
                     "action_id": "play movie",
@@ -150,11 +154,18 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                     "average_conversion_time": 3600,
                     "median_conversion_time": 3600,
                     "breakdown": "Safari",
+                    "breakdown_value": "Safari",
                 },
             ],
         )
         self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid])
         self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
+
+
+class TestFunnelStrictStepsConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_event, _create_person)):  # type: ignore
+
+    maxDiff = None
+    pass
 
 
 class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):

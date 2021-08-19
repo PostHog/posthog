@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Popconfirm, Space, Switch, Tag, Tooltip } from 'antd'
+import { Button, Form, Popconfirm, Space, Switch, Tag } from 'antd'
 import { DeleteOutlined, CodeOutlined, LockFilled, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
@@ -18,6 +18,7 @@ import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 import { PluginAboutButton } from '../plugin/PluginCard'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
+import { Tooltip } from 'lib/components/Tooltip'
 
 function EnabledDisabledSwitch({
     value,
@@ -150,6 +151,7 @@ export function PluginDrawer(): JSX.Element {
                                         onConfirm={() => uninstallPlugin(editingPlugin.name)}
                                         okText="Uninstall"
                                         cancelText="Cancel"
+                                        className="plugins-popconfirm"
                                     >
                                         <Button
                                             style={{ color: 'var(--danger)', padding: 4 }}

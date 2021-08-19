@@ -2,13 +2,13 @@ import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Tooltip, Row, Skeleton, Checkbox, Col, Button } from 'antd'
+import { Row, Skeleton, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FilterType, ViewType } from '~/types'
+import { BreakdownType, FilterType, ViewType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -18,13 +18,15 @@ import { InsightTitle } from '../InsightTitle'
 import { InsightActionBar } from '../InsightActionBar'
 import { BaseTabProps } from 'scenes/insights/Insights'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface TrendTabProps extends BaseTabProps {
     view: string
 }
 
 export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
-    const { filters, filtersLoading, numberOfSeries } = useValues(trendsLogic({ dashboardItemId: null, view }))
+    const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
@@ -40,9 +42,9 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const formulaAvailable =
         (!filters.insight || filters.insight === ViewType.TRENDS) &&
-        featureFlags['3275-formulas'] &&
+        featureFlags[FEATURE_FLAGS.FORMULAS] &&
         preflight?.is_clickhouse_enabled
-    const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
+    const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
 
     return (
         <>
@@ -68,7 +70,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                             setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
                             typeKey={'trends_' + view}
                             buttonCopy="Add graph series"
-                            showSeriesIndicator={numberOfSeries > 1}
+                            showSeriesIndicator
                             singleFilter={filters.insight === ViewType.LIFECYCLE}
                             hideMathSelector={filters.insight === ViewType.LIFECYCLE}
                             customRowPrefix={
@@ -125,7 +127,20 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                                     {formulaAvailable && (
                                         <>
                                             <hr />
-                                            <h4 className="secondary">Formula</h4>
+                                            <h4 className="secondary">
+                                                Formula{' '}
+                                                <Tooltip
+                                                    title={
+                                                        <>
+                                                            Apply math operations to your series. You can do operations
+                                                            among series (e.g. <code>A / B</code>) or simple arithmetic
+                                                            operations on a single series (e.g. <code>A / 100</code>)
+                                                        </>
+                                                    }
+                                                >
+                                                    <InfoCircleOutlined />
+                                                </Tooltip>
+                                            </h4>
                                             {isUsingFormulas ? (
                                                 <Row align="middle" gutter={4}>
                                                     <Col>
@@ -151,14 +166,17 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                                                 <Tooltip
                                                     title={
                                                         !formulaEnabled
-                                                            ? 'Please add at least two graph series to use formulas'
+                                                            ? 'Please add at least one graph series to use formulas'
                                                             : undefined
                                                     }
                                                 >
                                                     <Button
-                                                        shape="round"
                                                         onClick={() => setIsUsingFormulas(true)}
                                                         disabled={!formulaEnabled}
+                                                        type="link"
+                                                        style={{ paddingLeft: 0 }}
+                                                        icon={<PlusCircleOutlined />}
+                                                        data-attr="btn-add-formula"
                                                     >
                                                         Add formula
                                                     </Button>
@@ -184,6 +202,13 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                             </h4>
                             {filtersLoading ? (
                                 <Skeleton paragraph={{ rows: 0 }} active />
+                            ) : filters.breakdown_type === 'cohort' && filters.breakdown ? (
+                                <BreakdownFilter
+                                    filters={filters}
+                                    onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                        setFilters({ breakdown, breakdown_type })
+                                    }
+                                />
                             ) : (
                                 <Row align="middle">
                                     <BreakdownFilter

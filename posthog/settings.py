@@ -63,8 +63,18 @@ if E2E_TESTING:
         ("️WARNING! E2E_TESTING is set to `True`. This is a security vulnerability unless you are running tests.")
     )
 
+# These flags will be force-enabled on the frontend **in addition to** flags from `/decide`
+# The features here are released, but the flags are just not yet removed from the code.
+# To ignore this persisted feature flag behavior, set `PERSISTED_FEATURE_FLAGS = 0`
+env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
+PERSISTED_FEATURE_FLAGS = []
+if env_feature_flags != "0" and env_feature_flags.lower() != "false":
+    PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
+        # Add hard-coded feature flags for static releases here
+        "4267-taxonomic-property-filter",
+    ]
+
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
-SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
@@ -477,6 +487,17 @@ TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached r
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
 ]
+
+# shell_plus settings
+# https://django-extensions.readthedocs.io/en/latest/shell_plus.html
+
+SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
+SHELL_PLUS_POST_IMPORTS = [
+    ("posthog.models.filters", ("Filter",)),
+]
+
+if PRIMARY_DB == RDBMS.CLICKHOUSE:
+    SHELL_PLUS_POST_IMPORTS.append(("ee.clickhouse.client", ("sync_execute",)))
 
 
 # Internationalization

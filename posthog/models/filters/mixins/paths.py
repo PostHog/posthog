@@ -1,13 +1,15 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Literal, Optional, Tuple, cast
 
 from posthog.constants import AUTOCAPTURE_EVENT, CUSTOM_EVENT, PAGEVIEW_EVENT, PATH_TYPE, SCREEN_EVENT, START_POINT
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 
+PathType = Literal["$pageview", "$autocapture", "$screen", "custom_event"]
+
 
 class PathTypeMixin(BaseParamMixin):
     @cached_property
-    def path_type(self) -> Optional[str]:
+    def path_type(self) -> Optional[PathType]:
         return self._data.get(PATH_TYPE, None)
 
     @include_dict
@@ -53,12 +55,12 @@ class ComparatorDerivedMixin(PropTypeDerivedMixin):
 
 class TargetEventDerivedMixin(PropTypeDerivedMixin):
     @cached_property
-    def target_event(self) -> Tuple[Optional[str], Dict[str, str]]:
+    def target_event(self) -> Tuple[Optional[PathType], Dict[str, str]]:
         if self.path_type == SCREEN_EVENT:
-            return SCREEN_EVENT, {"event": SCREEN_EVENT}
+            return cast(PathType, SCREEN_EVENT), {"event": SCREEN_EVENT}
         elif self.path_type == AUTOCAPTURE_EVENT:
-            return AUTOCAPTURE_EVENT, {"event": AUTOCAPTURE_EVENT}
+            return cast(PathType, AUTOCAPTURE_EVENT), {"event": AUTOCAPTURE_EVENT}
         elif self.path_type == CUSTOM_EVENT:
             return None, {}
         else:
-            return PAGEVIEW_EVENT, {"event": PAGEVIEW_EVENT}
+            return cast(PathType, PAGEVIEW_EVENT), {"event": PAGEVIEW_EVENT}

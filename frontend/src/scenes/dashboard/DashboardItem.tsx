@@ -1,14 +1,13 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
-import { Dropdown, Menu, Tooltip, Alert, Button, Skeleton } from 'antd'
+import { Dropdown, Menu, Alert, Button, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { RefObject, useEffect, useState } from 'react'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/viz/ActionsTable'
 import { ActionsPie } from 'scenes/trends/viz/ActionsPie'
-import { FunnelViz } from 'scenes/funnels/FunnelViz'
 import { Paths } from 'scenes/paths/Paths'
 import {
     EllipsisOutlined,
@@ -30,19 +29,17 @@ import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
-import { logicFromInsight } from 'scenes/insights/insightLogic'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import { logicFromInsight } from 'scenes/insights/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
-
-import relativeTime from 'dayjs/plugin/relativeTime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Funnel } from 'scenes/funnels/Funnel'
+import { Tooltip } from 'lib/components/Tooltip'
 
 dayjs.extend(relativeTime)
 
@@ -126,7 +123,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     },
     FunnelViz: {
         className: 'funnel',
-        element: FunnelViz,
+        element: Funnel,
         icon: FunnelPlotOutlined,
         viewText: 'View funnel',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
@@ -141,7 +138,7 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
         className: 'retention',
         element: RetentionContainer,
         icon: TableOutlined,
-        viewText: 'View retention',
+        viewText: 'View graph',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
                 `/insights`,
@@ -187,11 +184,6 @@ export function DashboardItem({
     const [showSaveModal, setShowSaveModal] = useState(false)
     const { dashboards } = useValues(dashboardsModel)
     const { renameDashboardItem } = useActions(dashboardItemsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]) {
-        displayMap.FunnelViz.element = Funnel
-    }
 
     const _type: DisplayedType =
         item.filters.insight === ViewType.RETENTION
@@ -326,12 +318,10 @@ export function DashboardItem({
                                     trigger={['click']}
                                     overlay={
                                         <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
-                                            <Menu.Item
-                                                data-attr={'dashboard-item-' + index + '-dropdown-view'}
-                                                icon={<Icon />}
-                                                onClick={() => router.actions.push(link)}
-                                            >
-                                                {viewText}
+                                            <Menu.Item data-attr={'dashboard-item-' + index + '-dropdown-view'}>
+                                                <Link to={link}>
+                                                    <Icon /> {viewText}
+                                                </Link>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
@@ -342,6 +332,7 @@ export function DashboardItem({
                                                 }}
                                             >
                                                 <Tooltip
+                                                    placement="left"
                                                     title={
                                                         <i>
                                                             Last updated:{' '}
@@ -498,7 +489,7 @@ export function DashboardItem({
                     <div style={{ padding: '0 16px', marginBottom: 16, fontSize: 12 }}>{item.description}</div>
                 )}
 
-                <div className="dashboard-item-content" onClickCapture={onClick}>
+                <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
                     {Element ? (
                         <Alert.ErrorBoundary message="Error rendering graph!">
                             {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (

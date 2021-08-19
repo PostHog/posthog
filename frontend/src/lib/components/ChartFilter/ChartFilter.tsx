@@ -28,7 +28,8 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const cumulativeDisabled =
         !!filters.session || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
     const tableDisabled = false
-    const pieDisabled = !!filters.session || filters.insight === ViewType.RETENTION
+    const pieDisabled =
+        !!filters.session || filters.insight === ViewType.RETENTION || filters.insight === ViewType.STICKINESS
     const barDisabled = !!filters.session || filters.insight === ViewType.RETENTION
     const barValueDisabled =
         barDisabled || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION

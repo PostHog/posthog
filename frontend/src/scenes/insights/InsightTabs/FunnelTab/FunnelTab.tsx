@@ -1,31 +1,22 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Button, Row, Tooltip } from 'antd'
+import { Button, Row } from 'antd'
 import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
-import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { InsightTitle } from '../InsightTitle'
-import { SaveOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { SaveOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
-import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
-import { CloseButton } from 'lib/components/CloseButton'
-import { BreakdownType } from '~/types'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic())
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic())
+    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic)
+    const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
     const showModal = (): void => setSavingModal(true)
@@ -36,7 +27,7 @@ export function FunnelTab(): JSX.Element {
     }
 
     return (
-        <div data-attr="funnel-tab">
+        <div data-attr="funnel-tab" className="funnel-tab">
             <InsightTitle
                 actionBar={
                     clickhouseFeaturesEnabled ? (
@@ -50,12 +41,7 @@ export function FunnelTab(): JSX.Element {
                     ) : undefined
                 }
             />
-            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && (
-                <div style={{ paddingBottom: '1rem' }}>
-                    <h4 className="secondary">Graph Type</h4>
-                    <ToggleButtonChartFilter />
-                </div>
-            )}
+            <ToggleButtonChartFilter />
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
@@ -69,76 +55,34 @@ export function FunnelTab(): JSX.Element {
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     buttonCopy="Add funnel step"
-                    showSeriesIndicator={!isStepsEmpty && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    showSeriesIndicator={!isStepsEmpty}
                     seriesIndicatorType="numeric"
-                    fullWidth={featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    fullWidth
                     sortable
+                    showNestedArrow={true}
                 />
-                <hr />
-                <GlobalFiltersTitle unit="steps" />
-                <PropertyFilters
-                    pageKey={`EditFunnel-property`}
-                    propertyFilters={filters.properties || []}
-                    onChange={(anyProperties) => {
-                        setFilters({
-                            properties: anyProperties.filter(isValidPropertyFilter),
-                        })
-                    }}
-                />
-                <TestAccountFilter filters={filters} onChange={setFilters} />
-                {clickhouseFeaturesEnabled && (
-                    <>
-                        <hr />
-                        <h4 className="secondary">
-                            Breakdown by
-                            <Tooltip
-                                placement="right"
-                                title="Use breakdown to see the aggregation (total volume, active users, etc.) for each value of that property. For example, breaking down by Current URL with total volume will give you the event volume for each URL your users have visited."
-                            >
-                                <InfoCircleOutlined className="info-indicator" />
-                            </Tooltip>
-                        </h4>
-                        <Row align="middle">
-                            <BreakdownFilter
-                                filters={filters}
-                                onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
-                                    setFilters({ breakdown, breakdown_type })
-                                }
-                            />
-                            {filters.breakdown && (
-                                <CloseButton
-                                    onClick={(): void => setFilters({ breakdown: null, breakdown_type: null })}
-                                    style={{ marginTop: 1, marginLeft: 5 }}
-                                />
-                            )}
-                        </Row>
-                    </>
-                )}
+
                 {!clickhouseFeaturesEnabled && (
                     <>
                         <hr />
                         <Row style={{ justifyContent: 'flex-end' }}>
                             {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
                                 <div style={{ flexGrow: 1 }}>
-                                    <Button type="primary" onClick={showModal} icon={<SaveOutlined />}>
+                                    <Button type="default" onClick={showModal} icon={<SaveOutlined />}>
                                         Save
                                     </Button>
                                 </div>
                             )}
                             {!isStepsEmpty && (
-                                <Button onClick={(): void => clearFunnel()} data-attr="save-funnel-clear-button">
+                                <Button
+                                    type="link"
+                                    onClick={(): void => clearFunnel()}
+                                    data-attr="save-funnel-clear-button"
+                                >
                                     Clear
                                 </Button>
                             )}
-                            <Button
-                                style={{ marginLeft: 4 }}
-                                type="primary"
-                                htmlType="submit"
-                                disabled={isStepsEmpty}
-                                data-attr="save-funnel-button"
-                            >
-                                Calculate
-                            </Button>
+                            <CalculateFunnelButton style={{ marginLeft: 4 }} />
                         </Row>
                     </>
                 )}
@@ -152,5 +96,44 @@ export function FunnelTab(): JSX.Element {
                 onSubmit={onSubmit}
             />
         </div>
+    )
+}
+
+function CalculateFunnelButton({ style }: { style: React.CSSProperties }): JSX.Element {
+    const { filters, areFiltersValid, filtersDirty, clickhouseFeaturesEnabled, isLoading } = useValues(funnelLogic)
+    const [tooltipOpen, setTooltipOpen] = useState(false)
+    const shouldRecalculate = filtersDirty && areFiltersValid && !isLoading && !clickhouseFeaturesEnabled
+
+    // Only show tooltip after 3s of inactivity
+    useEffect(() => {
+        if (shouldRecalculate) {
+            const rerenderInterval = setTimeout(() => {
+                setTooltipOpen(true)
+            }, 3000)
+
+            return () => {
+                clearTimeout(rerenderInterval)
+                setTooltipOpen(false)
+            }
+        } else {
+            setTooltipOpen(false)
+        }
+    }, [shouldRecalculate, filters])
+
+    return (
+        <Tooltip
+            visible={tooltipOpen}
+            title="Your query has changed. Calculate your changes to see updates in the visualization."
+        >
+            <Button
+                style={style}
+                type={shouldRecalculate ? 'primary' : 'default'}
+                htmlType="submit"
+                disabled={!areFiltersValid}
+                data-attr="save-funnel-button"
+            >
+                Calculate
+            </Button>
+        </Tooltip>
     )
 }

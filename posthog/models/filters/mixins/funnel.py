@@ -1,5 +1,7 @@
 import datetime
-from typing import Optional, Union
+from typing import Dict, Literal, Optional, Union
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
     BIN_COUNT,
@@ -7,19 +9,22 @@ from posthog.constants import (
     DROP_OFF,
     ENTRANCE_PERIOD_START,
     FUNNEL_FROM_STEP,
+    FUNNEL_LAYOUT,
     FUNNEL_ORDER_TYPE,
     FUNNEL_STEP,
     FUNNEL_STEP_BREAKDOWN,
     FUNNEL_TO_STEP,
     FUNNEL_VIZ_TYPE,
     FUNNEL_WINDOW_DAYS,
+    FUNNEL_WINDOW_INTERVAL,
+    FUNNEL_WINDOW_INTERVAL_UNIT,
     INSIGHT,
     INSIGHT_FUNNELS,
     TRENDS_LINEAR,
     FunnelOrderType,
     FunnelVizType,
 )
-from posthog.models.filters.mixins.base import BaseParamMixin
+from posthog.models.filters.mixins.base import BaseParamMixin, IntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -70,6 +75,46 @@ class FunnelWindowDaysMixin(BaseParamMixin):
         return microseconds * FunnelWindowDaysMixin.milliseconds_from_days(days)
 
 
+class FunnelWindowMixin(BaseParamMixin):
+    @cached_property
+    def funnel_window_interval(self) -> Optional[int]:
+        _amt = int(self._data.get(FUNNEL_WINDOW_INTERVAL, "0"))
+        if _amt == 0:
+            return None
+        return _amt
+
+    @cached_property
+    def funnel_window_interval_unit(self) -> Optional[IntervalType]:
+        _unit = self._data.get(FUNNEL_WINDOW_INTERVAL_UNIT, None)
+        return _unit.lower() if _unit is not None else _unit
+
+    @include_dict
+    def funnel_window_to_dict(self):
+        dict_part: Dict = {}
+        if self.funnel_window_interval is not None:
+            dict_part[FUNNEL_WINDOW_INTERVAL] = self.funnel_window_interval
+        if self.funnel_window_interval_unit is not None:
+            dict_part[FUNNEL_WINDOW_INTERVAL_UNIT] = self.funnel_window_interval_unit
+        return dict_part
+
+    def funnel_window_interval_unit_ch(self) -> Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]:
+        if self.funnel_window_interval_unit is None:
+            return "DAY"
+
+        if self.funnel_window_interval_unit == "minute":
+            return "MINUTE"
+        elif self.funnel_window_interval_unit == "hour":
+            return "HOUR"
+        elif self.funnel_window_interval_unit == "week":
+            return "WEEK"
+        elif self.funnel_window_interval_unit == "month":
+            return "MONTH"
+        elif self.funnel_window_interval_unit == "day":
+            return "DAY"
+        else:
+            raise ValidationError("{interval} not supported")
+
+
 class FunnelPersonsStepMixin(BaseParamMixin):
     # first step is 0
     # -1 means dropoff into step 1
@@ -91,8 +136,18 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
         return self._data.get(FUNNEL_STEP_BREAKDOWN)
 
     @include_dict
-    def funnel_step_to_dict(self):
-        return {FUNNEL_STEP_BREAKDOWN: self.funnel_step_breakdown} if self.funnel_step_breakdown else {}
+    def funnel_person_breakdown_to_dict(self):
+        return {FUNNEL_STEP_BREAKDOWN: self.funnel_step_breakdown} if self.funnel_step_breakdown is not None else {}
+
+
+class FunnelLayoutMixin(BaseParamMixin):
+    @cached_property
+    def layout(self) -> Optional[Literal["horizontal", "vertical"]]:
+        return self._data.get(FUNNEL_LAYOUT)
+
+    @include_dict
+    def layout_to_dict(self):
+        return {FUNNEL_LAYOUT: self.layout} if self.layout else {}
 
 
 class FunnelTypeMixin(BaseParamMixin):
@@ -115,7 +170,7 @@ class FunnelTypeMixin(BaseParamMixin):
 
     @include_dict
     def funnel_type_to_dict(self):
-        result = {}
+        result: Dict[str, str] = {}
         if self.funnel_order_type:
             result[FUNNEL_ORDER_TYPE] = self.funnel_order_type
         if self.funnel_viz_type:
@@ -147,7 +202,7 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
 
     @include_dict
     def funnel_trends_persons_to_dict(self):
-        result_dict = {}
+        result_dict: Dict = {}
         if self.entrance_period_start:
             result_dict[ENTRANCE_PERIOD_START] = self.entrance_period_start.isoformat()
         if self.drop_off is not None:

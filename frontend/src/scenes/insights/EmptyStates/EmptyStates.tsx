@@ -7,7 +7,7 @@ import { IllustrationDanger } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { Button } from 'antd'
+import { Button, Empty } from 'antd'
 
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
@@ -64,13 +64,13 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                         <li>
                             <a
                                 data-attr="insight-timeout-upgrade-to-clickhouse"
-                                href="https://posthog.com/pricing?o=enterprise&utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
+                                href="https://posthog.com/docs/self-host#deployment-options?utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
                                 rel="noopener"
                                 target="_blank"
                             >
-                                Upgrade PostHog to Enterprise Edition
+                                Switch to Clickhouse backend
                             </a>{' '}
-                            and get access to a backend engineered for scale using the ClickHouse database.
+                            (engineered for scale, and you'll get more features)
                         </li>
                     )}
                     <li>
@@ -164,8 +164,8 @@ export function ErrorMessage(): JSX.Element {
     )
 }
 
-export function FunnelEmptyState(): JSX.Element {
-    const { filters } = useValues(funnelLogic)
+export function FunnelInvalidFiltersEmptyState(): JSX.Element {
+    const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
@@ -177,8 +177,10 @@ export function FunnelEmptyState(): JSX.Element {
                 </div>
                 <h2 className="funnels-empty-state__title">Add another step!</h2>
                 <p className="funnels-empty-state__description">
-                    You’re almost there! Funnels require at least two steps before calculating. Once you have two steps
-                    defined, additional steps will automatically recalculate and update the funnel.
+                    You’re almost there! Funnels require at least two steps before calculating.
+                    {clickhouseFeaturesEnabled
+                        ? ' Once you have two steps defined, additional steps will automatically recalculate and update the funnel.'
+                        : ''}
                 </p>
                 <Button
                     size="large"
@@ -192,13 +194,29 @@ export function FunnelEmptyState(): JSX.Element {
                 <div className="funnels-empty-state__help">
                     <a
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noreferrer noopener"
+                        rel="noopener"
                     >
                         Learn more about funnels in our support documentation.
                     </a>
                 </div>
+            </div>
+        </div>
+    )
+}
+
+export function FunnelEmptyState(): JSX.Element {
+    return (
+        <div className="insight-empty-state funnels-empty-state info-message">
+            <div className="insight-empty-state__wrapper">
+                <div className="illustration-main">
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                </div>
+                <h2 className="funnels-empty-state__title">There are no matching events for this query.</h2>
+                <p className="funnels-empty-state__description">
+                    Try changing dates or pick another action, event, or breakdown.
+                </p>
             </div>
         </div>
     )

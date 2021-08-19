@@ -51,6 +51,10 @@ describe('Dashboard', () => {
 
         cy.contains('New Dashboard').should('exist')
         cy.get('.empty-state').should('exist')
+
+        // Check that dashboard is not pinned by default
+        cy.get('[data-attr="dashboard-more"]').click()
+        cy.get('.ant-dropdown-menu-item span').contains('Pin dashboard').should('exist')
     })
 
     it('Create dashboard from a template', () => {
@@ -121,6 +125,6 @@ describe('Dashboard', () => {
         cy.get('[data-attr=dashboard-name]').contains('App Analytics').click()
         cy.get('[data-attr=dashboard-item-0] .dashboard-item-title a').click()
         cy.location('pathname').should('include', '/insights')
-        cy.get('[data-attr=funnel-viz]', { timeout: 30000 }).should('exist')
+        cy.get('[data-attr=funnel-bar-graph]', { timeout: 30000 }).should('exist')
     })
 })

@@ -1,6 +1,6 @@
 import React from 'react'
 import { InfoCircleOutlined } from '@ant-design/icons'
-import { Tooltip } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function GlobalFiltersTitle({ unit = 'series' }: { unit?: string }): JSX.Element {
     return (
@@ -13,7 +13,7 @@ export function GlobalFiltersTitle({ unit = 'series' }: { unit?: string }): JSX.
                     </>
                 }
             >
-                <InfoCircleOutlined />
+                <InfoCircleOutlined className="info-indicator" />
             </Tooltip>
         </h4>
     )

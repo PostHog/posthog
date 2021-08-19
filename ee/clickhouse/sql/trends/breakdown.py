@@ -16,7 +16,6 @@ SELECT groupArray(day_start) as date, groupArray(count) as data, breakdown_value
             ORDER BY breakdown_value, day_start
             UNION ALL
             {inner_sql}
-            {none_union}
         )
     )
     GROUP BY day_start, breakdown_value
@@ -69,21 +68,13 @@ WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_ra
 
 BREAKDOWN_PERSON_PROP_JOIN_SQL = """
 INNER JOIN (
-    SELECT * FROM (
+    SELECT *
+    from (
         SELECT
-        id,
-        array_property_keys as key,
-        array_property_values as value
-        from (
-            SELECT
-                id,
-                arrayMap(k -> toString(k.1), JSONExtractKeysAndValuesRaw(properties)) AS array_property_keys,
-                arrayMap(k -> trim(BOTH '\"' FROM (k.2)), JSONExtractKeysAndValuesRaw(properties)) AS array_property_values
-            FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
-        )
-        ARRAY JOIN array_property_keys, array_property_values
-    ) ep
-    WHERE key = %(key)s
+            id,
+            trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
+        FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
+    )
 ) ep
 ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
 AND breakdown_value in (%(values)s) {actions_query}
@@ -99,7 +90,6 @@ ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {par
 
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
-  AND JSONHas(properties, %(key)s)
   AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) in (%(values)s) 
   {actions_query}
 """
