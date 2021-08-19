@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
@@ -59,7 +59,7 @@ class ClickhousePathBase:
             self.params,
         )
 
-    def get_start_point_filter(self) -> str:
+    def get_start_point_filter(self) -> Tuple[str, Dict]:
 
         if not self._filter.start_point:
             return "", {}
