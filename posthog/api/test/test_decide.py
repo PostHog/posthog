@@ -261,13 +261,13 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="hosted_id")
             self.assertIsNone(
-                response.json()["featureFlags"]["multivariate-flag"]
+                response.json()["featureFlags"].get("multivariate-flag", None)
             )  # User is does not have realm == "cloud". Value is None.
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertIsNotNone(
                 response.json()["featureFlags"]["multivariate-flag"]
