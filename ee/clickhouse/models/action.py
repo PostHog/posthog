@@ -1,11 +1,11 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 from django.forms.models import model_to_dict
-from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
+from posthog.models.property import Property, PropertyName, PropertyType
 
 
 def format_action_filter(
@@ -99,3 +99,25 @@ def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team
         params = {key: entity.id}
 
     return entity_filter, params
+
+
+def get_action_tables_and_properties(action: Action) -> Set[Tuple[PropertyName, PropertyType]]:
+    from ee.clickhouse.models.property import extract_tables_and_properties
+
+    result: Set[Tuple[PropertyName, PropertyType]] = set()
+
+    for action_step in action.steps.all():
+        if action_step.url:
+            result.add(("$current_url", "event"))
+        result |= extract_tables_and_properties(Filter(data={"properties": action_step.properties}).properties)
+
+    return result
+
+
+def uses_elements_chain(action: Action) -> bool:
+    for action_step in action.steps.all():
+        if any(Property(**prop).type == "element" for prop in action_step.properties):
+            return True
+        if any(getattr(action_step, attribute) is not None for attribute in ["selector", "tag_name", "href", "text"]):
+            return True
+    return False

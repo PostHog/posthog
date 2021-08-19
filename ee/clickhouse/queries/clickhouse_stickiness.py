@@ -36,7 +36,7 @@ class ClickhouseStickiness(Stickiness):
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
         prop_filters, prop_filter_params = parse_prop_clauses(
-            filter.properties, team_id, filter_test_accounts=filter.filter_test_accounts
+            filter.properties + entity.properties, team_id, filter_test_accounts=filter.filter_test_accounts
         )
         trunc_func = get_trunc_func_ch(filter.interval)
 
@@ -93,7 +93,7 @@ def _format_entity_filter(entity: Entity) -> Tuple[str, Dict]:
 def _process_content_sql(target_entity: Entity, filter: StickinessFilter, team: Team) -> Tuple[str, Dict[str, Any]]:
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
     prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+        filter.properties + target_entity.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
     )
     entity_sql, entity_params = _format_entity_filter(entity=target_entity)
     trunc_func = get_trunc_func_ch(filter.interval)
