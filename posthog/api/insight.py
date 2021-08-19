@@ -32,7 +32,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
-from posthog.utils import generate_cache_key, get_safe_cache, should_refresh, str_to_bool
+from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -173,7 +173,9 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
             elif key == "date_from":
-                queryset = queryset.filter(created_at__gt=request.GET["date_from"])
+                queryset = queryset.filter(updated_at__gt=relative_date_parse(request.GET["date_from"]))
+            elif key == "date_to":
+                queryset = queryset.filter(updated_at__lt=relative_date_parse(request.GET["date_to"]))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
 
