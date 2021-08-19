@@ -174,8 +174,9 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 query, filter_params = filter_element(
                     {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
                 )
-                final.append(f" AND {query if len(query) > 0 else '1=2'}")
-                params.update(filter_params)
+                if query:
+                    final.append(f" AND {query}")
+                    params.update(filter_params)
             else:
                 filter_query, filter_params = prop_filter_json_extract(
                     prop, idx, prepend, prop_var="properties", allow_denormalized_props=allow_denormalized_props,

@@ -105,7 +105,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
                     tag_name="a",
                     href="/a-url",
                     attr_class=["small"],
-                    text="bla bla",
+                    text='bla"bla',
                     attributes={},
                     nth_child=1,
                     nth_of_type=0,
@@ -165,10 +165,15 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter)), 2)
 
-        filter = Filter(
+        filter_selector_exact = Filter(
             data={"properties": [{"key": "selector", "value": [], "operator": "exact", "type": "element",}]}
         )
-        self.assertEqual(len(self._run_query(filter)), 0)
+        self.assertEqual(len(self._run_query(filter_selector_exact)), 0)
+
+        filter_selector_is_not = Filter(
+            data={"properties": [{"key": "selector", "value": [], "operator": "is_not", "type": "element",}]}
+        )
+        self.assertEqual(len(self._run_query(filter_selector_is_not)), 3)
 
         # tag_name
 
@@ -211,6 +216,11 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter_href_exact_double)), 3)
 
+        filter_href_exact_empty = Filter(
+            data={"properties": [{"key": "href", "value": [], "operator": "exact", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_exact_empty)), 0)
+
         filter_href_is_not = Filter(
             data={"properties": [{"key": "href", "value": ["/a-url"], "operator": "is_not", "type": "element"}]}
         )
@@ -220,6 +230,11 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             data={"properties": [{"key": "href", "value": ["/a-url", "/789"], "operator": "is_not", "type": "element"}]}
         )
         self.assertEqual(len(self._run_query(filter_href_is_not_double)), 0)
+
+        filter_href_is_not_empty = Filter(
+            data={"properties": [{"key": "href", "value": [], "operator": "is_not", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_is_not_empty)), 3)
 
         filter_href_exact_with_tag_name_is_not = Filter(
             data={
@@ -246,15 +261,20 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter_href_not_regex)), 2)
 
-        filter_href_is_set = Filter(
+        filter_href_icontains_with_doublequote = Filter(
+            data={"properties": [{"key": "text", "value": 'bla"bla', "operator": "icontains", "type": "element"}]}
+        )
+        self.assertEqual(len(self._run_query(filter_href_icontains_with_doublequote)), 1)
+
+        filter_text_is_set = Filter(
             data={"properties": [{"key": "text", "value": "is_set", "operator": "is_set", "type": "element"}]}
         )
-        self.assertEqual(len(self._run_query(filter_href_is_set)), 2)
+        self.assertEqual(len(self._run_query(filter_text_is_set)), 2)
 
-        filter_href_is_not_set = Filter(
+        filter_text_is_not_set = Filter(
             data={"properties": [{"key": "text", "value": "is_not_set", "operator": "is_not_set", "type": "element"}]}
         )
-        self.assertEqual(len(self._run_query(filter_href_is_not_set)), 1)
+        self.assertEqual(len(self._run_query(filter_text_is_not_set)), 1)
 
     def test_prop_ints_saved_as_strings(self):
         _create_event(

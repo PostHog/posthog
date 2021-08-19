@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from django.utils import timezone
 
@@ -67,8 +67,9 @@ def parse_prop_clauses(
             query, filter_params = filter_element(
                 {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
             )
-            final.append(f" AND {query if len(query) > 0 else '1=2'}")
-            params.update(filter_params)
+            if query:
+                final.append(f" AND {query}")
+                params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
@@ -234,6 +235,8 @@ def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, pr
     params = {}
     or_conditions = []
 
+    is_negated = operator in NEGATED_OPERATORS
+
     if filters.get("selector"):
         selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
         for idx, query in enumerate(selectors):
@@ -241,8 +244,8 @@ def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, pr
             key = f"{prepend}_{idx}_selector_regex"
             params[key] = _create_regex(selector)
             or_conditions.append(f"match(elements_chain, %({key})s)")
-        if len(or_conditions) > 0:
-            or_conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+        if or_conditions:
+            final_conditions = f"{'NOT ' if is_negated else ''}({' OR '.join(or_conditions)})"
 
     if filters.get("tag_name"):
         tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
@@ -250,23 +253,23 @@ def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, pr
             key = f"{prepend}_{idx}_tag_name_regex"
             params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
             or_conditions.append(f"match(elements_chain, %({key})s)")
-        if len(or_conditions) > 0:
-            or_conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+        if or_conditions:
+            final_conditions = f"{'NOT ' if is_negated else ''}({' OR '.join(or_conditions)})"
 
     attributes: Dict[str, List] = {}
     for key in ["href", "text"]:
-        if vals := filters.get(key):
+        if raw_vals := filters.get(key):
             if operator.endswith("_set"):
-                attributes[key] = [r".*"]
+                attributes[key] = [r'[^"]+']
             else:
-                vals = [vals] if isinstance(vals, str) else vals
+                vals = [raw_vals] if isinstance(raw_vals, str) else cast(List[str], [str(val) for val in raw_vals])
+                vals = [text.replace('"', r"\"") for text in vals]
                 if operator.endswith("icontains"):
-                    attributes[key] = [f".*{re.escape(text)}.*" for text in vals]
+                    attributes[key] = [rf'[^"]*{re.escape(text)}[^"]*' for text in vals]
                 elif operator.endswith("regex"):
                     attributes[key] = vals
                 else:
                     attributes[key] = [re.escape(text) for text in vals]
-    is_negated = operator in NEGATED_OPERATORS
     if attributes:
         for key, value_list in attributes.items():
             for idx, value in enumerate(value_list):
