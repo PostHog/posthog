@@ -41,14 +41,7 @@ export function FunnelStepOrderPicker(): JSX.Element {
             dropdownMatchSelectWidth={false}
             dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
             optionLabelProp="label"
-        >
-            {options.map((option) => {
-                return (
-                    <Select.Option key={option.value} value={option.value} label={option.label}>
-                        {option.label}
-                    </Select.Option>
-                )
-            })}
-        </Select>
+            options={options}
+        />
     )
 }
