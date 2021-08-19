@@ -44,7 +44,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                             ...(values.searchTerm && { search: values.searchTerm }),
                             ...(values.insightType.toLowerCase() !== 'all types' && { insight: values.insightType }),
                             ...(values.createdBy !== 'All users' && { created_by: values.createdBy?.id }),
-                            ...(values.dates.dateFrom && { date_from: values.dates.dateFrom, date_to: values.dates.dateTo }),
+                            ...(values.dates.dateFrom && {
+                                date_from: values.dates.dateFrom,
+                                date_to: values.dates.dateTo,
+                            }),
                         })
                 )
                 return response
