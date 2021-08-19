@@ -22,9 +22,9 @@ class TestDecide(BaseTest):
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
 
-    def _post_decide(self, data=None, origin="http://127.0.0.1:8000"):
+    def _post_decide(self, data=None, origin="http://127.0.0.1:8000", api_version=1):
         return self.client.post(
-            "/decide/",
+            f"/decide/?v={api_version}",
             {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": "example_id"})},
             HTTP_ORIGIN=origin,
         )
@@ -145,6 +145,82 @@ class TestDecide(BaseTest):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
+
+    def test_feature_flags_v2(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ],
+                    "fallback_variant_key": "third-variant",
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=1)  # v1 functionality should not break
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIn("beta-feature", response.json()["featureFlags"])
+            self.assertIn("default-flag", response.json()["featureFlags"])
+            self.assertIn("multivariate-flag", response.json()["featureFlags"])
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=2)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "second-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # randomly assigned by distinct_id hash
+
+    def test_feature_flags_v2_fallback(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 10},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 0},
+                    ],
+                    "fallback_variant_key": "second-variant",
+                },
+            },
+            name="This is a feature flag with variants that don't sum to 100.",
+            key="multivariate-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=2)
+            self.assertEqual(
+                "second-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # falls back to arbitrary variant if hash not in valid variant range
 
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user)
