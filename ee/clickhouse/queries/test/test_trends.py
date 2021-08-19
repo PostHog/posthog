@@ -1,4 +1,3 @@
-from unittest.case import skip
 from uuid import uuid4
 
 from django.utils import timezone
@@ -736,7 +735,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.assertNotIn("JSONExtract", sql)
             self.assertNotIn("properties", sql)
 
-    # @skip("breakdown queries don't yet use materialized properties properly")
     def test_materialized_breakdown_queries_right_columns(self):
         materialize("events", "$some_property")
 
