@@ -1342,10 +1342,10 @@
     chartjs-color "^2.1.0"
     moment "^2.10.2"
 
-"@posthog/plugin-scaffold@0.12.5":
-  version "0.12.5"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.5.tgz#596539ea69df21f07640a2ce0a335c7ead940b06"
-  integrity sha512-EuRoYM17vYI1m2SmXpYe7LC9hFPWsRnN6rAi6q3unFIW26pT40sV/TYSWnBEihZXIWdVShwiGXORQMHjpnJOig==
+"@posthog/plugin-scaffold@0.12.7":
+  version "0.12.7"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.7.tgz#6c8892eaeb92ec475f799600fe0e889f3febb663"
+  integrity sha512-f4AZaHNqjS/j4287t8fzlz0NjEMwQis/xInyny20Jdq1wSdgVx7Wx+H9SCR8RtOVB6A0uvMqOrbMUGL0Roq5mw==
 
 "@posthog/react-rrweb-player@^1.1.2":
   version "1.1.2"

@@ -45,7 +45,7 @@
         "@papercups-io/chat-widget": "^1.1.10",
         "@popperjs/core": "^2.9.2",
         "@posthog/chart.js": "^2.9.6",
-        "@posthog/plugin-scaffold": "0.12.5",
+        "@posthog/plugin-scaffold": "0.12.7",
         "@posthog/react-rrweb-player": "^1.1.2",
         "@posthog/simmerjs": "0.7.4",
         "@react-hook/size": "^2.1.2",
