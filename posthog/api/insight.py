@@ -172,6 +172,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
+            elif key == "date_from":
+                queryset = queryset.filter(created_at__gt=request.GET["date_from"])
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
 

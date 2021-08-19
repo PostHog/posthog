@@ -5,7 +5,7 @@ import { DashboardItemType, SavedInsightsTabs, UserBasicType } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
-import { Dayjs } from 'dayjs'
+import dayjs, { Dayjs } from 'dayjs'
 
 interface InsightsResult {
     results: DashboardItemType[]
@@ -44,7 +44,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                             ...(values.searchTerm && { search: values.searchTerm }),
                             ...(values.insightType.toLowerCase() !== 'all types' && { insight: values.insightType }),
                             ...(values.createdBy !== 'All users' && { created_by: values.createdBy?.id }),
-                            ...(values.dates.dateFrom && { date_from: values.dates.dateFrom }),
+                            ...(values.dates.dateFrom && { date_from: dayjs().subtract(2, 'day') }),
                         })
                 )
                 return response
