@@ -353,6 +353,10 @@
         display: flex;
         flex-direction: column;
 
+        a {
+            display: block;
+        }
+
         .organizations {
             padding-top: 4px;
             padding-bottom: 4px;
