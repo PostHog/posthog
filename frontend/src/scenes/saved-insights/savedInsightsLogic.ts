@@ -42,7 +42,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                             ...(values.tab === SavedInsightsTabs.Yours && { user: true }),
                             ...(values.tab === SavedInsightsTabs.Favorites && { favorited: true }),
                             ...(values.searchTerm && { search: values.searchTerm }),
-                            ...(values.insightType !== 'All types' && { insight: values.insightType }),
+                            ...(values.insightType.toLowerCase() !== 'all types' && { insight: values.insightType }),
                             ...(values.createdBy !== 'All users' && { created_by: values.createdBy?.id }),
                             ...(values.dates.dateFrom && { date_from: values.dates.dateFrom }),
                         })

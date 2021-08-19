@@ -253,11 +253,11 @@ export function SavedInsights(): JSX.Element {
                 Showing {!previousResult ? 1 : nextResult ? offset - 15 : count - (insights?.results.length || 0)} -{' '}
                 {nextResult ? offset : count} of {count} insights
                 <div>
-                    <Button onClick={() => setLayoutView('list')}>
+                    <Button type={layoutView === 'list' ? 'primary' : 'default'} onClick={() => setLayoutView('list')}>
                         <UnorderedListOutlined />
                         List
                     </Button>
-                    <Button onClick={() => setLayoutView('card')}>
+                    <Button type={layoutView === 'card' ? 'primary' : 'default'} onClick={() => setLayoutView('card')}>
                         <AppstoreFilled />
                         Card
                     </Button>
