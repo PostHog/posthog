@@ -35,9 +35,7 @@ class ColumnOptimizer:
 
     @cached_property
     def should_query_event_properties_column(self) -> bool:
-        # :TODO: Once issue 5463 is solved (supporting materialized columns everywhere), uncomment this
-        # return len(self.materialized_event_columns_to_query) != len(self._used_properties_with_type("event"))
-        return True
+        return len(self.materialized_event_columns_to_query) != len(self._used_properties_with_type("event"))
 
     @cached_property
     def should_query_elements_chain_column(self) -> bool:

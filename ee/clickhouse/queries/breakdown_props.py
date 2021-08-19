@@ -82,9 +82,7 @@ def get_breakdown_event_prop_values(
 
     entity_params, entity_format_params = populate_entity_params(entity)
 
-    value_expression, _ = get_property_string_expr(
-        "events", cast(str, filter.breakdown), "%(key)s", "properties", allow_denormalized_props=True
-    )
+    value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
         value_expression=value_expression,
