@@ -15,7 +15,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     EVENT_TABLE_ALIAS = "e"
 
     _PERSON_PROPERTIES_ALIAS = "person_props"
-    _filter: Union[Filter, PathFilter]
+    _filter: Filter
     _team_id: int
     _should_join_distinct_ids = False
     _should_join_persons = False
@@ -23,7 +23,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter],
+        filter: Filter,
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,
