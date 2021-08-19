@@ -133,6 +133,47 @@ class TestFeatureFlag(APIBaseTest):
             },
         )
 
+    @patch("posthoganalytics.capture")
+    def test_create_multivariate_feature_flag(self, mock_capture):
+
+        response = self.client.post(
+            "/api/feature_flag/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ],
+                        "fallback_variant_key": "third-variant",
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.key, "multivariate-feature")
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": True,
+                "variants_count": 3,
+                "has_rollout_percentage": True,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+            },
+        )
+
     def test_cant_create_feature_flag_without_key(self):
         count = FeatureFlag.objects.count()
         response = self.client.post("/api/feature_flag/", format="json")
