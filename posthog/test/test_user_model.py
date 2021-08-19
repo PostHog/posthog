@@ -53,7 +53,7 @@ class TestUser(BaseTest):
             self.assertEqual(
                 user.get_analytics_metadata(),
                 {
-                    "realm": "hosted-postgres",
+                    "realm": "hosted",
                     "is_ee_available": False,
                     "email_opt_in": True,
                     "anonymize_data": False,

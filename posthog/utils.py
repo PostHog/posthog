@@ -552,7 +552,7 @@ def get_instance_realm() -> str:
     elif is_clickhouse_enabled():
         return "hosted-clickhouse"
     else:
-        return "hosted-postgres"
+        return "hosted"
 
 
 def get_can_create_org() -> bool:

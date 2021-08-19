@@ -505,7 +505,7 @@ class TestUserAPILegacy(APIBaseTest):
         mock_identify.assert_called_once_with(
             self.user.distinct_id,
             {
-                "realm": "hosted-postgres",
+                "realm": "hosted",
                 "is_ee_available": True,
                 "email_opt_in": False,
                 "anonymize_data": False,
