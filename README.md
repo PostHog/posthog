@@ -5,7 +5,9 @@
 
 <br />
 
-PostHog provides open-source product analytics, built for developers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. You can deploy on your own infrastructure, and PostHog plays nicely with data warehouses through plugins for import transformation and export.
+PostHog is an open-source product analytics suite, built for developers. Automate the collection of every event on your website or app, with no need to send data to 3rd parties. 
+
+You can deploy on your own infrastructure, and PostHog plays nicely with data warehouses through plugins for import transformation and export.
 
 <br /><br />
 
@@ -13,7 +15,9 @@ PostHog provides open-source product analytics, built for developers. Automate t
 
 ## Quick Start
 
-<a href="https://posthog.com/docs/self-host/overview#deploy">Deploy PostHog Self-Hosted</a>
+It's easy and free to get started.
+
+<a href="https://posthog.com/docs/self-host/overview#deploy">Deploy PostHog Self-Hosted</a> in your existing infrastructure.
 
 ... or use [PostHog Cloud](https://app.posthog.com/signup) if you don't need to self-host.
 
@@ -27,7 +31,7 @@ See [PostHog Docs](https://posthog.com/docs/) for in-depth walk-throughs on func
 
 ![PostHog dashboard screenshot](https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/app-dashboard.png)
 
-Join [our PostHog Users Slack community](https://posthog.com/slack) if you need help, want to chat, or are thinking of a new feature. We're here to help - and to make PostHog even better.
+Join our [PostHog Users Slack community](https://posthog.com/slack) if you need help, want to chat, or are thinking of a new feature. We're here to help - and to make PostHog even better.
 
 <br /><br />
 
@@ -37,13 +41,13 @@ Join [our PostHog Users Slack community](https://posthog.com/slack) if you need 
 
 - **Event-based** analytics at a user level - capture your product's usage data to see which users are doing what in your application.
 - **Product data visualizations**: [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [user cohorts](https://posthog.com/docs/features/cohorts), [user paths](https://posthog.com/docs/features/paths), [retention tables](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards).
-- **Complete control** over your data - host it yourself.
-- **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your user behavior, with fine-grained privacy controls.
-- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to analyze what your users are doing without pushing events manually
-- **Feature flags** to understand the impact of new features before rolling them out more widely
+- **Complete control** over your data - [host it yourself](https://posthog.com/docs/self-host/overview#deploy) in any infrastructure.
+- **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained privacy controls.
+- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to analyze what your users are doing without pushing events manually.
+- **Feature flags** to understand the impact of new features before rolling them out more widely.
 - **Heatmaps** with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar).
 - **Plays nicely with data warehouses** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built plugins - such as BigQuery, Redshift, Snowflake and S3.
-- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration) + [API](https://posthog.com/docs/integrations/api) for anything else.
+- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration) + an [API](https://posthog.com/docs/integrations/api) for anything else.
 
 <br /><br />
 
@@ -59,7 +63,9 @@ Join [our PostHog Users Slack community](https://posthog.com/slack) if you need 
 
 ## Philosophy
 
-We help you understand user behavior without losing control of your users' data. In our view, third-party analytics does not work anymore in a world of cookie laws, GDPR, CCPA, and many other four-letter acronyms. PostHog is the alternative to sending all of your customers' personal information and usage data to third-parties.
+We help you understand user behavior without losing control of your users' data. 
+
+In our view, third-party analytics do not work anymore in a world of cookie laws, GDPR, CCPA, and many other four-letter acronyms. PostHog is the alternative to sending all of your customers' personal information and usage data to third-parties.
 
 This means you can know who is using your app, how they're using it, and where you lose users, among [many other things](https://posthog.com/features).
 
@@ -71,7 +77,9 @@ Our features help you: (i) understand user behavior, (ii) create hypotheses for 
 
 ## What's Cool About This?
 
-PostHog is the only **product-focused** open-source analytics library, with an event and user-driven architecture. That means tracking identifiable (where applicable) user behavior, and creating user profiles. We are an open-source alternative to products such as Mixpanel, Amplitude, or Heap, that's designed to be more developer-friendly than them, with a broader range of features like session recording, heatmaps, feature flags and plugins.
+PostHog is the only **product-focused** open-source analytics suite, with an event and user-driven architecture that **you can host in any infrastructure**. 
+
+We are an open-source alternative to products such as Mixpanel, Amplitude, or Heap, that's designed to be more developer-friendly, with a broader range of features like session recording, heatmaps, feature flags, and plugins.
 
 We play nicely with data warehouses - you can _import_ event or user data by writing a plugin to create transformations, or you can _export_ data by using our existing data exports to BigQuery, Redshift, Snowflake, etc. Uniquely, you can host PostHog in the same infrastructure.
 
@@ -79,9 +87,11 @@ We play nicely with data warehouses - you can _import_ event or user data by wri
 
 <img align="left" src="https://user-images.githubusercontent.com/65415371/124740386-ab395a00-df12-11eb-8519-3cd1b26f9509.png" width="50px" />
 
-## PostHog Cloud
+## Get Started for Free
 
-You can [sign up for a free account](https://app.posthog.com/signup) if you don't want to host PostHog yourself.
+<a href="https://posthog.com/docs/self-host/overview#deploy">Deploy PostHog Self-Hosted</a> in your existing infrastructure.
+
+... or use [PostHog Cloud](https://app.posthog.com/signup) if you don't need to self-host.
 
 <br /><br />
 
