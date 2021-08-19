@@ -230,6 +230,59 @@ class TestDecide(BaseTest):
                 "second-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # falls back to arbitrary variant if hash not in valid variant range
 
+    def test_feature_flags_v2_complex(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(
+            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "realm": "cloud"}
+        )
+        Person.objects.create(
+            team=self.team, distinct_ids=["hosted_id"], properties={"email": "sam@posthog.com", "realm": "hosted"}
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "realm", "type": "person", "value": "cloud"}], "rollout_percentage": 80}
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 25},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {"key": "fourth-variant", "name": "Fourth Variant", "rollout_percentage": 25},
+                    ],
+                    "fallback_variant_key": "fifth-variant",
+                },
+            },
+            name="This is a feature flag with top-level property filtering and percentage rollout.",
+            key="multivariate-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=2, distinct_id="hosted_id")
+            self.assertIsNone(
+                response.json()["featureFlags"]["multivariate-flag"]
+            )  # User is does not have realm == "cloud". Value is None.
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=2, distinct_id="example_id")
+            self.assertIsNotNone(
+                response.json()["featureFlags"]["multivariate-flag"]
+            )  # User has an 80% chance of being assigned any non-empty value.
+            self.assertEqual(
+                "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # If the user falls in the rollout group, they have a 25% chance of being assigned any particular variant.
+            # Their overall probability is therefore 80% * 25% = 20%.
+            # To give another example, if n = 100 Cloud users and rollout_percentage = 80:
+            # None:           20 (100 * (100% - 80%))
+            # first-variant:  20 (100 * 80% * 25% = 20 users)
+            # second-variant: 20 (100 * 80% * 25% = 20 users)
+            # third-variant:  20 (100 * 80% * 25% = 20 users)
+            # fourth-variant: 20 (100 * 80% * 25% = 20 users)
+
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user)
         key.save()
