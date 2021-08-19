@@ -1,8 +1,8 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, cast
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.queries.trends.util import populate_entity_params
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
@@ -80,7 +80,12 @@ def get_breakdown_event_prop_values(
 
     entity_params, entity_format_params = populate_entity_params(entity)
 
+    value_expression, _ = get_property_string_expr(
+        "events", cast(str, filter.breakdown), "%(key)s", "properties", allow_denormalized_props=True
+    )
+
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
+        value_expression=value_expression,
         parsed_date_from=parsed_date_from,
         parsed_date_to=parsed_date_to,
         prop_filters=prop_filters,
@@ -91,7 +96,7 @@ def get_breakdown_event_prop_values(
         filter=filter,
         team_id=team_id,
         query=elements_query,
-        params={**prop_filter_params, **entity_params, **extra_params},
+        params={**prop_filter_params, **entity_params, **extra_params, "key": filter.breakdown},
         limit=limit,
     )
 
@@ -115,9 +120,9 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
     query = f"""
             SELECT DISTINCT distinct_id, 0 as value
             FROM events all_events
-            WHERE team_id = {team_id} 
-            {parsed_date_from} 
-            {parsed_date_to} 
+            WHERE team_id = {team_id}
+            {parsed_date_from}
+            {parsed_date_to}
             {prop_filters}
             """
     return query, {**date_params, **prop_filter_params}

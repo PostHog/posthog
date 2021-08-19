@@ -152,7 +152,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         if filter_test_accounts:
             test_account_filters = Team.objects.only("test_account_filters").get(id=team_id).test_account_filters
-            filters.extend([Property(**prop) for prop in test_account_filters])
+            filters += [Property(**prop) for prop in test_account_filters]
 
         for idx, prop in enumerate(filters):
             if prop.type == "cohort":
