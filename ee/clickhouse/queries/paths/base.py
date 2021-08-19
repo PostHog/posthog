@@ -62,6 +62,6 @@ class ClickhousePathBase:
     def get_start_point_filter(self) -> str:
 
         if not self._filter.start_point:
-            return ""
+            return "", {}
 
         return "WHERE arrayElement(compact_path, 1) = %(start_point)s", {"start_point": self._filter.start_point}
