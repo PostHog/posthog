@@ -43,6 +43,7 @@ export function ActionsLineGraph({
                 inSharedMode={inSharedMode}
                 interval={filters.interval}
                 showPersonsModal={showPersonsModal}
+                showDatesInTooltip={filters.insight !== ViewType.STICKINESS}
                 onClick={
                     dashboardItemId
                         ? null

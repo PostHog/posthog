@@ -17,6 +17,7 @@ interface InsightTooltipProps {
     bodyLines?: BodyLine[] // bodyLines is in here for its similarity to LineChart's built-in tooltips, but children is easier to use in other React components
     inspectUsersLabel?: boolean
     children?: React.ReactNode
+    hideDate?: boolean
 }
 
 export function InsightTooltip({
@@ -27,10 +28,12 @@ export function InsightTooltip({
     bodyLines = [],
     inspectUsersLabel,
     children,
+    hideDate,
 }: InsightTooltipProps): JSX.Element {
+    console.log({ chartType })
     return (
         <div className={`inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`} style={{ maxWidth: 300 }}>
-            {chartType !== 'horizontalBar' && (
+            {chartType !== 'horizontalBar' && !hideDate && (
                 <header>
                     {referenceDate && interval ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}
                 </header>

@@ -38,6 +38,7 @@ export function LineGraph({
     interval = undefined,
     totalValue,
     showPersonsModal = true,
+    showDatesInTooltip = true,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -317,6 +318,7 @@ export function LineGraph({
                             bodyLines={bodyLines}
                             inspectUsersLabel={inspectUsersLabel}
                             chartType={type}
+                            hideDate={!showDatesInTooltip}
                         />,
                         tooltipEl
                     )
