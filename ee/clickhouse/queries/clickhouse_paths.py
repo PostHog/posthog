@@ -40,7 +40,7 @@ class ClickhousePaths(Paths):
         event, path_type, start_comparator = self._determine_path_type(filter.path_type if filter else None)
 
         prop_filters, prop_filter_params = parse_prop_clauses(
-            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
+            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts, allow_denormalized_props=True
         )
 
         # Step 0. Event culling subexpression for step 1.
