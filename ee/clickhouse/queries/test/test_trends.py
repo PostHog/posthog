@@ -1,11 +1,11 @@
 from uuid import uuid4
 
-from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
 
+from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import create_person, create_person_distinct_id
+from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import TRENDS_BAR_VALUE
@@ -15,7 +15,6 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
-from posthog.settings import SHELL_PLUS_PRINT_SQL
 
 
 def _create_action(**kwargs):
@@ -409,6 +408,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             ),
             self.team,
         )
+
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
@@ -714,3 +714,86 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 )
 
         self.assertEqual(res[0]["count"], 1)
+
+    def test_materialized_property_filtering(self):
+        materialize("events", "$some_property")
+
+        with self.capture_select_queries() as sqls:
+            self.test_property_filtering()
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)
+
+    def test_materialized_per_entity_filtering(self):
+        materialize("events", "$some_property")
+
+        with self.capture_select_queries() as sqls:
+            self.test_per_entity_filtering()
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)
+
+    def test_materialized_breakdown_queries_right_columns(self):
+        materialize("events", "$some_property")
+
+        with self.capture_select_queries() as sqls:
+            self.test_breakdown_filtering_limit()
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)
+
+    def test_materialized_math_queries_right_columns(self):
+        materialize("events", "some_number")
+
+        with self.capture_select_queries() as sqls:
+            self.test_sum_filtering()
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)
+
+    def test_materialized_filtering_with_action_props(self):
+        materialize("events", "key")
+        materialize("events", "$current_url")
+
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "val", "$current_url": "/some/page"},
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person2",
+            team=self.team,
+            properties={"key": "val", "$current_url": "/some/page"},
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person3",
+            team=self.team,
+            properties={"key": "val", "$current_url": "/another/page"},
+        )
+
+        action = Action.objects.create(name="sign up", team=self.team)
+        ActionStep.objects.create(
+            action=action,
+            event="sign up",
+            url="/some/page",
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+
+        with self.capture_select_queries() as sqls:
+            response = ClickhouseTrends().run(
+                Filter(data={"date_from": "-14d", "actions": [{"id": action.pk, "type": "actions", "order": 0}],}),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["count"], 2)
+
+        for sql in sqls:
+            self.assertNotIn("JSONExtract", sql)
+            self.assertNotIn("properties", sql)

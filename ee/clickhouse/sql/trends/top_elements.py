@@ -1,7 +1,7 @@
 TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
 SELECT groupArray(value) FROM (
     SELECT
-        trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value,
+        {value_expression} AS value,
         {aggregate_operation} as count
     FROM events e
     WHERE

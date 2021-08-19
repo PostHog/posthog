@@ -19,7 +19,7 @@ from .filters import Filter
 from .person import Person
 
 DELETE_QUERY = """
-DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id};
+DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
 """
 
 UPDATE_QUERY = """
@@ -109,15 +109,20 @@ class Cohort(models.Model):
             if not use_clickhouse:
                 self.is_calculating = True
                 self.save()
+                persons_query = self._postgres_persons_query()
+            else:
+                persons_query = self._clickhouse_persons_query()
 
-            persons_query = self._clickhouse_persons_query() if use_clickhouse else self._postgres_persons_query()
             try:
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
             except EmptyResultSet:
                 query = DELETE_QUERY.format(cohort_id=self.pk)
                 params = {}
             else:
-                query = "{}{}".format(DELETE_QUERY, UPDATE_QUERY).format(
+                query = f"""
+                    {DELETE_QUERY};
+                    {UPDATE_QUERY};
+                """.format(
                     cohort_id=self.pk,
                     values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
                 )
@@ -125,20 +130,17 @@ class Cohort(models.Model):
             cursor = connection.cursor()
             with transaction.atomic():
                 cursor.execute(query, params)
-
                 if not use_clickhouse:
-                    self.is_calculating = False
                     self.last_calculation = timezone.now()
                     self.errors_calculating = 0
-                    self.save()
         except Exception as err:
-            if settings.DEBUG:
-                raise err
+            if not use_clickhouse:
+                self.errors_calculating = F("errors_calculating") + 1
+            raise err
+        finally:
             if not use_clickhouse:
                 self.is_calculating = False
-                self.errors_calculating = F("errors_calculating") + 1
                 self.save()
-            capture_exception(err)
 
     def calculate_people_ch(self):
         if is_clickhouse_enabled():
@@ -146,15 +148,14 @@ class Cohort(models.Model):
 
             try:
                 recalculate_cohortpeople(self)
-                self.is_calculating = False
                 self.last_calculation = timezone.now()
                 self.errors_calculating = 0
-                self.save()
-            except Exception as err:
-                self.is_calculating = False
+            except Exception as e:
                 self.errors_calculating = F("errors_calculating") + 1
+                raise e
+            finally:
+                self.is_calculating = False
                 self.save()
-                capture_exception(err)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
@@ -249,7 +250,7 @@ class Cohort(models.Model):
                             if group.get("days")
                             else {}
                         ),
-                        **(extra_filter if extra_filter else {})
+                        **(extra_filter if extra_filter else {}),
                     )
                     .order_by("distinct_id")
                     .distinct("distinct_id")
