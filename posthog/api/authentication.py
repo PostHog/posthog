@@ -31,7 +31,7 @@ def logout(request):
     return response
 
 
-def axess_locked_out(*args, **kwargs):
+def axes_locked_out(*args, **kwargs):
     return JsonResponse(
         {
             "type": "authentication_error",
