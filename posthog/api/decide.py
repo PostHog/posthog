@@ -84,9 +84,8 @@ def get_decide(request: HttpRequest):
         try:
             data = load_data_from_request(request)
             api_version_string = request.GET.get("v")
-            api_version = (
-                int(api_version_string) if api_version_string else 1
-            )  # NOTE: semantic versioning, e.g. 2.1.0, not supported
+            # NOTE: This does not support semantic versioning e.g. 2.1.0
+            api_version = int(api_version_string) if api_version_string else 1
         except (RequestParsingError, ValueError) as error:
             capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
             return cors_response(
