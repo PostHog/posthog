@@ -171,7 +171,6 @@ class TestDecide(BaseTest):
                         {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
                     ],
-                    "fallback_variant_key": "third-variant",
                 },
             },
             name="This is a feature flag with multiple variants.",
@@ -201,34 +200,6 @@ class TestDecide(BaseTest):
                 "third-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # different hash, different variant assigned
 
-    def test_feature_flags_v2_fallback(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 10},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 0},
-                    ],
-                    "fallback_variant_key": "second-variant",
-                },
-            },
-            name="This is a feature flag with variants that don't sum to 100.",
-            key="multivariate-flag",
-            created_by=self.user,
-        )
-
-        with self.assertNumQueries(2):
-            response = self._post_decide(api_version=2)
-            self.assertEqual(
-                "second-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # falls back to arbitrary variant if hash not in valid variant range
-
     def test_feature_flags_v2_complex(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -252,7 +223,6 @@ class TestDecide(BaseTest):
                         {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
                         {"key": "fourth-variant", "name": "Fourth Variant", "rollout_percentage": 25},
                     ],
-                    "fallback_variant_key": "fifth-variant",
                 },
             },
             name="This is a feature flag with top-level property filtering and percentage rollout.",

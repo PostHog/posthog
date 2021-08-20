@@ -149,7 +149,6 @@ class TestFeatureFlag(APIBaseTest):
                             {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
                             {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
                         ],
-                        "fallback_variant_key": "third-variant",
                     },
                 },
             },

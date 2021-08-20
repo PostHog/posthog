@@ -39,7 +39,7 @@ class FeatureFlag(models.Model):
     def distinct_id_matches(self, distinct_id: str) -> bool:
         return FeatureFlagMatcher(distinct_id, self).is_match()
 
-    def get_variant_for_distinct_id(self, distinct_id: str) -> str:
+    def get_variant_for_distinct_id(self, distinct_id: str) -> Optional[str]:
         return FeatureFlagMatcher(distinct_id, self).get_matching_variant()
 
     def get_analytics_metadata(self) -> Dict:
@@ -64,10 +64,6 @@ class FeatureFlag(models.Model):
     def variants(self):
         return self.get_filters().get("multivariate", {}).get("variants", [])
 
-    @property
-    def fallback_variant_key(self) -> str:
-        return self.get_filters().get("multivariate", {}).get("fallback_variant_key")
-
     def get_filters(self):
         if "groups" in self.filters:
             return self.filters
@@ -89,11 +85,11 @@ class FeatureFlagMatcher:
     def is_match(self):
         return any(self.is_group_match(group, index) for index, group in enumerate(self.feature_flag.groups))
 
-    def get_matching_variant(self) -> str:
+    def get_matching_variant(self) -> Optional[str]:
         for variant in self.variant_lookup_table:
             if self._variant_hash >= variant["value_min"] and self._variant_hash < variant["value_max"]:
                 return variant["key"]
-        return self.feature_flag.fallback_variant_key
+        return None
 
     def is_group_match(self, group: Dict, group_index: int):
         rollout_percentage = group.get("rollout_percentage")
@@ -194,11 +190,12 @@ def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Any]:
         try:
             if not feature_flag.distinct_id_matches(distinct_id):
                 continue
-            flags_enabled[feature_flag.key] = True
             if len(feature_flag.variants) > 0:
                 variant = feature_flag.get_variant_for_distinct_id(distinct_id)
                 if variant is not None:
                     flags_enabled[feature_flag.key] = variant
+            else:
+                flags_enabled[feature_flag.key] = True
         except Exception as err:
             capture_exception(err)
     return flags_enabled
