@@ -56,7 +56,7 @@ FROM (
 
 
 BREAKDOWN_AGGREGATE_QUERY_SQL = """
-SELECT {aggregate_operation} as total, {breakdown_value} as breakdown_value
+SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
 FROM
 events e {event_join} {breakdown_filter}
 GROUP BY breakdown_value

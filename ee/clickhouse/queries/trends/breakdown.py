@@ -91,7 +91,15 @@ class ClickhouseTrendsBreakdown:
             )
 
         if len(_params["values"]) == 0:
-            return "SELECT 1", {}, lambda _: []
+            return (
+                """
+                SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0
+                /* optimized empty broken down subquery due to there being
+                no relevant events in the period for this series */
+            """,
+                {},
+                lambda _: [],
+            )
 
         params = {**params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}

@@ -69,6 +69,7 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
 def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
     entities_list = []
     trend_entity = func(filter=filter, team_id=team.pk, **kwargs)
+    print(f"{trend_entity=}")
     if filter.compare:
         trend_entity = convert_to_comparison(trend_entity, filter, "current")
         entities_list.extend(trend_entity)
