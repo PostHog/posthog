@@ -7,7 +7,6 @@ import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BreakdownType, FilterType, ViewType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
@@ -18,7 +17,6 @@ import { InsightTitle } from '../InsightTitle'
 import { InsightActionBar } from '../InsightActionBar'
 import { BaseTabProps } from 'scenes/insights/Insights'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export interface TrendTabProps extends BaseTabProps {
@@ -28,7 +26,6 @@ export interface TrendTabProps extends BaseTabProps {
 export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
-    const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const { toggleLifecycle } = useActions(trendsLogic)
@@ -41,9 +38,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const formulaAvailable =
-        (!filters.insight || filters.insight === ViewType.TRENDS) &&
-        featureFlags[FEATURE_FLAGS.FORMULAS] &&
-        preflight?.is_clickhouse_enabled
+        (!filters.insight || filters.insight === ViewType.TRENDS) && preflight?.is_clickhouse_enabled
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
 
     return (
