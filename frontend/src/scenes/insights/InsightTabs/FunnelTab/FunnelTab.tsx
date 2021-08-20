@@ -53,31 +53,33 @@ export function FunnelTab(): JSX.Element {
                     <h4 className="secondary" style={{ marginBottom: 0 }}>
                         Steps
                     </h4>
-                    <Row align="middle">
-                        <span className="l5 text-muted-alt">
-                            <span style={{ marginRight: 5 }}>Step Order</span>
-                            <FunnelStepOrderPicker />
-                            <Tooltip
-                                title={
-                                    <ul style={{ paddingLeft: '1.2rem' }}>
-                                        <li>
-                                            <b>Sequential</b> - Step B must happen after Step A, but any number events
-                                            can happen between A and B.
-                                        </li>
-                                        <li>
-                                            <b>Strict Order</b> - Step B must happen directly after Step B without any
-                                            events in between.
-                                        </li>
-                                        <li>
-                                            <b>Any Order</b> - Steps can be completed in any sequence.
-                                        </li>
-                                    </ul>
-                                }
-                            >
-                                <InfoCircleOutlined className="info-indicator" />
-                            </Tooltip>
-                        </span>
-                    </Row>
+                    {clickhouseFeaturesEnabled && (
+                        <Row align="middle">
+                            <span className="l5 text-muted-alt">
+                                <span style={{ marginRight: 5 }}>Step Order</span>
+                                <FunnelStepOrderPicker />
+                                <Tooltip
+                                    title={
+                                        <ul style={{ paddingLeft: '1.2rem' }}>
+                                            <li>
+                                                <b>Sequential</b> - Step B must happen after Step A, but any number
+                                                events can happen between A and B.
+                                            </li>
+                                            <li>
+                                                <b>Strict Order</b> - Step B must happen directly after Step A without
+                                                any events in between.
+                                            </li>
+                                            <li>
+                                                <b>Any Order</b> - Steps can be completed in any sequence.
+                                            </li>
+                                        </ul>
+                                    }
+                                >
+                                    <InfoCircleOutlined className="info-indicator" />
+                                </Tooltip>
+                            </span>
+                        </Row>
+                    )}
                 </Row>
                 <ActionFilter
                     filters={filters}
