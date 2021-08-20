@@ -184,22 +184,21 @@ class TestDecide(BaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertIn("beta-feature", response.json()["featureFlags"])
             self.assertIn("default-flag", response.json()["featureFlags"])
-            self.assertIn("multivariate-flag", response.json()["featureFlags"])
 
         with self.assertNumQueries(2):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertEqual(
-                "second-variant", response.json()["featureFlags"]["multivariate-flag"]
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
         with self.assertNumQueries(2):
-            response = self._post_decide(api_version=2, distinct_id="some_other_id")
+            response = self._post_decide(api_version=2, distinct_id="other_id")
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+                "third-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # different hash, different variant assigned
 
     def test_feature_flags_v2_fallback(self):
@@ -264,7 +263,7 @@ class TestDecide(BaseTest):
         with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="hosted_id")
             self.assertIsNone(
-                response.json()["featureFlags"].get("multivariate-flag", None)
+                (response.json()["featureFlags"] or {}).get("multivariate-flag", None)
             )  # User is does not have realm == "cloud". Value is None.
 
         with self.assertNumQueries(3):
@@ -273,7 +272,7 @@ class TestDecide(BaseTest):
                 response.json()["featureFlags"]["multivariate-flag"]
             )  # User has an 80% chance of being assigned any non-empty value.
             self.assertEqual(
-                "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+                "second-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # If the user falls in the rollout group, they have a 25% chance of being assigned any particular variant.
             # Their overall probability is therefore 80% * 25% = 20%.
             # To give another example, if n = 100 Cloud users and rollout_percentage = 80:

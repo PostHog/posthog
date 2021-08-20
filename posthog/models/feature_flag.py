@@ -91,7 +91,7 @@ class FeatureFlagMatcher:
 
     def get_matching_variant(self) -> str:
         for variant in self.variant_lookup_table:
-            if self._hash_md5 >= variant["value_min"] and self._hash_md5 < variant["value_max"]:
+            if self._variant_hash >= variant["value_min"] and self._variant_hash < variant["value_max"]:
                 return variant["key"]
         return self.feature_flag.fallback_variant_key
 
@@ -153,22 +153,21 @@ class FeatureFlagMatcher:
     # Given the same distinct_id and key, it'll always return the same float. These floats are
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     # we can do _hash(key, distinct_id) < 0.2
-    @cached_property
-    def _hash(self) -> float:
-        hash_key = "%s.%s" % (self.feature_flag.key, self.distinct_id)
+    def get_hash(self, salt="") -> float:
+        hash_key = "%s.%s%s" % (self.feature_flag.key, self.distinct_id, salt)
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
-    # This function is like _hash above, but uses MD5 instead of SHA.
-    # The hashing algorithm is not important, we just want to have a different distinct value.
     @cached_property
-    def _hash_md5(self) -> float:
-        hash_key = "%s.%s" % (self.feature_flag.key, self.distinct_id)
-        hash_val = int(hashlib.md5(hash_key.encode("utf-8")).hexdigest()[:15], 16)
-        return hash_val / __LONG_SCALE__
+    def _hash(self):
+        return self.get_hash()
+
+    @cached_property
+    def _variant_hash(self) -> float:
+        return self.get_hash(salt="variant")
 
 
-# Return a list of all active flags with truthy values
+# Return a list of all standard flags with truthy values
 def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
@@ -177,14 +176,14 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
     for feature_flag in feature_flags:
         try:
             # distinct_id will always be a string, but data can have non-string values ("Any")
-            if feature_flag.distinct_id_matches(distinct_id):
+            if feature_flag.distinct_id_matches(distinct_id) and not len(feature_flag.variants):
                 flags_enabled.append(feature_flag.key)
         except Exception as err:
             capture_exception(err)
     return flags_enabled
 
 
-# Return a list of active flags (with support for multivariate flags)
+# Return a Dict with all flags (including multivariate flags)
 def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Any]:
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
@@ -193,10 +192,12 @@ def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Any]:
 
     for feature_flag in feature_flags:
         try:
-            if feature_flag.distinct_id_matches(distinct_id):
-                flags_enabled[feature_flag.key] = True
-                if len(feature_flag.variants) > 0:
-                    variant = feature_flag.get_variant_for_distinct_id(distinct_id) or False
+            if not feature_flag.distinct_id_matches(distinct_id):
+                continue
+            flags_enabled[feature_flag.key] = True
+            if len(feature_flag.variants) > 0:
+                variant = feature_flag.get_variant_for_distinct_id(distinct_id)
+                if variant is not None:
                     flags_enabled[feature_flag.key] = variant
         except Exception as err:
             capture_exception(err)
