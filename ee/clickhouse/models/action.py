@@ -25,7 +25,7 @@ def format_action_filter(
         if step.event == AUTOCAPTURE_EVENT:
             from ee.clickhouse.models.property import filter_element  # prevent circular import
 
-            el_condition, element_params = filter_element(model_to_dict(step), f"{action.pk}_{index}{prepend}")
+            el_condition, element_params = filter_element(model_to_dict(step), prepend=f"{action.pk}_{index}{prepend}")
             params = {**params, **element_params}
             if len(el_condition) > 0:
                 conditions.append(el_condition)
