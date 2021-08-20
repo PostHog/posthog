@@ -62,6 +62,6 @@ class ClickhousePathsNew:
     def get_start_point_filter(self) -> Tuple[str, Dict]:
 
         if not self._filter.start_point:
-            return "", {}
+            return "", {"start_point": None}
 
-        return "WHERE arrayElement(compact_path, 1) = %(start_point)s", {"start_point": self._filter.start_point}
+        return "WHERE arrayElement(limited_path, 1) = %(start_point)s", {"start_point": self._filter.start_point}

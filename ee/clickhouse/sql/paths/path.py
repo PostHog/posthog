@@ -162,7 +162,12 @@ FROM (
                     , arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0
                     , arrayMap((x,y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping
                     , arrayFilter((x,y) -> y, time, mapping) as timings
-                    , arraySlice(arrayFilter((x,y)->y, path_basic, mapping), 1, %(event_in_session_limit)s) as compact_path
+                    , arrayFilter((x,y)->y, path_basic, mapping) as compact_path
+                    , indexOf(compact_path, %(start_point)s) as start_index
+                    , if(start_index > 0, arraySlice(compact_path, start_index), compact_path) as filtered_path
+                    , if(start_index > 0, arraySlice(timings, start_index), timings) as filtered_timings
+                    , arraySlice(filtered_path, 1, %(event_in_session_limit)s) as limited_path
+                    , arraySlice(filtered_timings, 1, %(event_in_session_limit)s) as limited_timings
                 FROM (
                     SELECT person_id
                         , path_time_tuple.1 as path_basic
@@ -182,7 +187,7 @@ FROM (
                     /* this array join splits paths for a single personID per session */
                     ARRAY JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index
                 )
-                ARRAY JOIN compact_path AS joined_path_item, arrayEnumerate(compact_path) AS event_in_session_index
+                ARRAY JOIN limited_path AS joined_path_item, arrayEnumerate(limited_path) AS event_in_session_index
                 {boundary_event_filter}
                 ORDER BY person_id, session_index
                )
