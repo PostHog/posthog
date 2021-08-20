@@ -2,8 +2,8 @@ from typing import Any, Dict, List, Tuple, cast
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
+from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
-from ee.clickhouse.queries.trends.util import populate_entity_params
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
@@ -25,11 +25,7 @@ def _get_top_elements(filter: Filter, team_id: int, query: str, limit, params: D
         **params,
     }
 
-    try:
-        top_elements_array_result = sync_execute(query, element_params)
-        top_elements_array = top_elements_array_result[0][0]
-    except:
-        top_elements_array = []
+    top_elements_array = sync_execute(query, element_params)[0][0]
 
     return top_elements_array
 
@@ -49,7 +45,7 @@ def get_breakdown_person_prop_values(
         prepend="person",
     )
 
-    entity_params, entity_format_params = populate_entity_params(entity)
+    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
 
     elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
         parsed_date_from=parsed_date_from,
@@ -80,7 +76,7 @@ def get_breakdown_event_prop_values(
         filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
     )
 
-    entity_params, entity_format_params = populate_entity_params(entity)
+    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
 
     value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
 
