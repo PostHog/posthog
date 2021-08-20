@@ -151,12 +151,13 @@ FROM (
   FROM (
         SELECT person_id,
                path,
-               session_index,
-               concat(toString(session_index), '_', path) as path_key,
-               if(session_index > 1, neighbor(path_key, -1), null) AS last_path_key
+               event_in_session_index,
+               concat(toString(event_in_session_index), '_', path) as path_key,
+               if(event_in_session_index > 1, neighbor(path_key, -1), null) AS last_path_key
           FROM (
           
               SELECT person_id, joined_path_item as path
+                    , event_in_session_index
                     , session_index
                     , arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0
                     , arrayMap((x,y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping
@@ -181,7 +182,7 @@ FROM (
                     /* this array join splits paths for a single personID per session */
                     ARRAY JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index
                 )
-                ARRAY JOIN compact_path AS joined_path_item, arrayEnumerate(compact_path) AS session_index
+                ARRAY JOIN compact_path AS joined_path_item, arrayEnumerate(compact_path) AS event_in_session_index
                 {boundary_event_filter}
                 ORDER BY person_id, session_index
                )

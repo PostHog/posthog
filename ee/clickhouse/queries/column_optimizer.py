@@ -1,4 +1,4 @@
-from typing import List, Set, Tuple, cast
+from typing import List, Set, Tuple, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
@@ -7,6 +7,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import Property, PropertyName, PropertyType
 from posthog.models.team import Team
 
@@ -18,7 +19,7 @@ class ColumnOptimizer:
     This speeds up queries since clickhouse ends up selecting less data.
     """
 
-    def __init__(self, filter: Filter, team_id: int):
+    def __init__(self, filter: Union[Filter, PathFilter], team_id: int):
         self.filter = filter
         self.team_id = team_id
 
@@ -35,9 +36,7 @@ class ColumnOptimizer:
 
     @cached_property
     def should_query_event_properties_column(self) -> bool:
-        # :TODO: Once issue 5463 is solved (supporting materialized columns everywhere), uncomment this
-        # return len(self.materialized_event_columns_to_query) != len(self._used_properties_with_type("event"))
-        return True
+        return len(self.materialized_event_columns_to_query) != len(self._used_properties_with_type("event"))
 
     @cached_property
     def should_query_elements_chain_column(self) -> bool:

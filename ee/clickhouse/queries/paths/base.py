@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
@@ -51,4 +51,17 @@ class ClickhousePathBase:
     def get_query(self) -> Tuple[str, dict]:
         path_event_query, params = PathEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
         self.params.update(params)
-        return PATH_ARRAY_QUERY.format(path_event_query=path_event_query, boundary_event_filter=""), self.params
+
+        boundary_event_filter, start_params = self.get_start_point_filter()
+        self.params.update(start_params)
+        return (
+            PATH_ARRAY_QUERY.format(path_event_query=path_event_query, boundary_event_filter=boundary_event_filter),
+            self.params,
+        )
+
+    def get_start_point_filter(self) -> Tuple[str, Dict]:
+
+        if not self._filter.start_point:
+            return "", {}
+
+        return "WHERE arrayElement(compact_path, 1) = %(start_point)s", {"start_point": self._filter.start_point}

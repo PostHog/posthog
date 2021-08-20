@@ -1,14 +1,14 @@
 from typing import Any, Dict, Tuple
 
+from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from posthog.models.property import Property
-from posthog.models.team import Team
+from posthog.constants import AUTOCAPTURE_EVENT, PAGEVIEW_EVENT, SCREEN_EVENT
 
 
 class PathEventQuery(ClickhouseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
-            f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp, if({self.EVENT_TABLE_ALIAS}.event = '$pageview', JSONExtractString({self.EVENT_TABLE_ALIAS}.properties, '$current_url'), if({self.EVENT_TABLE_ALIAS}.event = '$autocapture', concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), {self.EVENT_TABLE_ALIAS}.event)) AS path_item"
+            f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp, if(event = %(screen)s, {self._get_screen_name_parsing()}, if({self.EVENT_TABLE_ALIAS}.event = %(pageview)s, {self._get_current_url_parsing()}, if({self.EVENT_TABLE_ALIAS}.event = %(autocapture)s, concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), {self.EVENT_TABLE_ALIAS}.event))) AS path_item"
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
         )
 
@@ -24,13 +24,32 @@ class PathEventQuery(ClickhouseEventQuery):
             {self._get_disintct_id_query()}
             {self._get_person_query()}
             WHERE team_id = %(team_id)s
-            AND (event = '$pageview' OR event = '$autocapture' OR NOT event LIKE %(custom_event_match)s)
+            AND (event = %(pageview)s OR event = %(screen)s OR event = %(autocapture)s OR NOT event LIKE %(custom_event_match)s)
             {date_query}
             {prop_query}
             ORDER BY {self.DISTINCT_ID_TABLE_ALIAS}.person_id, {self.EVENT_TABLE_ALIAS}.timestamp
         """
-        self.params.update({"custom_event_match": "$%"})
+        self.params.update(
+            {
+                "custom_event_match": "$%",
+                "pageview": PAGEVIEW_EVENT,
+                "screen": SCREEN_EVENT,
+                "autocapture": AUTOCAPTURE_EVENT,
+            }
+        )
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
+
+    def _get_current_url_parsing(self):
+        path_type, _ = get_property_string_expr(
+            "events", "$current_url", "'$current_url'", "properties", allow_denormalized_props=True
+        )
+        return path_type
+
+    def _get_screen_name_parsing(self):
+        path_type, _ = get_property_string_expr(
+            "events", "$screen_name", "'$screen_name'", "properties", allow_denormalized_props=True
+        )
+        return path_type
