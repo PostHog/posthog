@@ -3,30 +3,9 @@ from typing import Any, Dict, Tuple
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import AUTOCAPTURE_EVENT, PAGEVIEW_EVENT, SCREEN_EVENT
-from posthog.models.filters.path_filter import PathFilter
 
 
 class PathEventQuery(ClickhouseEventQuery):
-    _filter: PathFilter
-
-    def __init__(
-        self,
-        filter: PathFilter,
-        team_id: int,
-        round_interval=False,
-        should_join_distinct_ids=False,
-        should_join_persons=False,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            filter=filter,
-            team_id=team_id,
-            round_interval=round_interval,
-            should_join_distinct_ids=should_join_distinct_ids,
-            should_join_persons=should_join_persons,
-            **kwargs,
-        )
-
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
             f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp, if(event = %(screen)s, {self._get_screen_name_parsing()}, if({self.EVENT_TABLE_ALIAS}.event = %(pageview)s, {self._get_current_url_parsing()}, if({self.EVENT_TABLE_ALIAS}.event = %(autocapture)s, concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), {self.EVENT_TABLE_ALIAS}.event))) AS path_item"
