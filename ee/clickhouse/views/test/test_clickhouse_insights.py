@@ -1,7 +1,5 @@
 from uuid import uuid4
 
-import pytest
-
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_insight import insight_test_factory
