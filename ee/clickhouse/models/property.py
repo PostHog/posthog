@@ -229,26 +229,6 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
     )
 
 
-def process_ok_values(ok_values: Any, operator: OperatorType) -> List[str]:
-    if operator.endswith("_set"):
-        return [r'[^"]+']
-    else:
-        # Make sure ok_values is a list
-        ok_values = cast(List[str], [str(val) for val in ok_values]) if isinstance(ok_values, list) else [ok_values]
-        # Escape double quote characters, since e.g. text 'foo="bar"' is represented as text="foo=\"bar\""
-        # in the elements chain
-        ok_values = [text.replace('"', r"\"") for text in ok_values]
-        if operator.endswith("icontains"):
-            # Process values for case-insensitive-contains matching by way of regex,
-            # making sure matching scope is limited to between double quotes
-            return [rf'[^"]*{re.escape(text)}[^"]*' for text in ok_values]
-        if operator.endswith("regex"):
-            # Use values as-is in case of regex matching
-            return ok_values
-        # For all other operators escape regex-meaningful sequences
-        return [re.escape(text) for text in ok_values]
-
-
 def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:
     if not operator:
         operator = "exact"
@@ -312,6 +292,26 @@ def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, pr
         return f"{'NOT ' if operator in NEGATED_OPERATORS else ''}({' AND '.join(final_conditions)})", params
     else:
         return "", {}
+
+
+def process_ok_values(ok_values: Any, operator: OperatorType) -> List[str]:
+    if operator.endswith("_set"):
+        return [r'[^"]+']
+    else:
+        # Make sure ok_values is a list
+        ok_values = cast(List[str], [str(val) for val in ok_values]) if isinstance(ok_values, list) else [ok_values]
+        # Escape double quote characters, since e.g. text 'foo="bar"' is represented as text="foo=\"bar\""
+        # in the elements chain
+        ok_values = [text.replace('"', r"\"") for text in ok_values]
+        if operator.endswith("icontains"):
+            # Process values for case-insensitive-contains matching by way of regex,
+            # making sure matching scope is limited to between double quotes
+            return [rf'[^"]*{re.escape(text)}[^"]*' for text in ok_values]
+        if operator.endswith("regex"):
+            # Use values as-is in case of regex matching
+            return ok_values
+        # For all other operators escape regex-meaningful sequences
+        return [re.escape(text) for text in ok_values]
 
 
 def build_selector_regex(selector: Selector) -> str:

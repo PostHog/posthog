@@ -70,15 +70,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             distinct_id="whatever",
             properties={"attr": "some_other_val"},
             elements=[
-                Element(
-                    tag_name="a",
-                    href="/a-url",
-                    attr_class=["small"],
-                    text="bla bla",
-                    attributes={},
-                    nth_child=1,
-                    nth_of_type=0,
-                ),
+                Element(tag_name="a", href="/a-url", attr_class=["small"], text="bla bla", nth_child=1, nth_of_type=0,),
                 Element(tag_name="button", attr_class=["btn", "btn-primary"], nth_child=0, nth_of_type=0),
                 Element(tag_name="div", nth_child=0, nth_of_type=0),
                 Element(tag_name="label", nth_child=0, nth_of_type=0, attr_id="nested",),
@@ -250,10 +242,10 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(len(self._run_query(filter_href_not_regex)), 2)
 
-        filter_href_icontains_with_doublequote = Filter(
+        filter_text_icontains_with_doublequote = Filter(
             data={"properties": [{"key": "text", "value": 'bla"bla', "operator": "icontains", "type": "element"}]}
         )
-        self.assertEqual(len(self._run_query(filter_href_icontains_with_doublequote)), 1)
+        self.assertEqual(len(self._run_query(filter_text_icontains_with_doublequote)), 1)
 
         filter_text_is_set = Filter(
             data={"properties": [{"key": "text", "value": "is_set", "operator": "is_set", "type": "element"}]}
