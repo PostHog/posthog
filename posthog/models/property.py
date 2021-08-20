@@ -12,6 +12,8 @@ OperatorType = Literal[
     "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
 ]
 
+NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
+
 
 class Property:
     key: str

@@ -10,29 +10,35 @@ interface BodyLine {
 }
 
 interface InsightTooltipProps {
-    chartType: string
     altTitle?: string | JSX.Element | null // Alternate string to display as title (in case date reference is not available or not desired)
     referenceDate?: string
     interval?: IntervalType
     bodyLines?: BodyLine[] // bodyLines is in here for its similarity to LineChart's built-in tooltips, but children is easier to use in other React components
     inspectUsersLabel?: boolean
     children?: React.ReactNode
+    preferAltTitle?: boolean // Whether `altTitle` should be prefered over the default DateDisplay to show as header of the tooltip
+    hideHeader?: boolean
 }
 
 export function InsightTooltip({
-    chartType,
     altTitle,
     referenceDate,
     interval,
     bodyLines = [],
     inspectUsersLabel,
     children,
+    preferAltTitle,
+    hideHeader,
 }: InsightTooltipProps): JSX.Element {
     return (
         <div className={`inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`} style={{ maxWidth: 300 }}>
-            {chartType !== 'horizontalBar' && (
+            {!hideHeader && (
                 <header>
-                    {referenceDate && interval ? <DateDisplay interval={interval} date={referenceDate} /> : altTitle}
+                    {referenceDate && interval && !preferAltTitle ? (
+                        <DateDisplay interval={interval} date={referenceDate} />
+                    ) : (
+                        altTitle
+                    )}
                 </header>
             )}
             {bodyLines?.length > 0 && (

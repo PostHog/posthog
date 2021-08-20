@@ -128,6 +128,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
             ? { funnel_window_interval_unit: filters.funnel_window_interval_unit }
             : {}),
         ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
+        ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
         interval: autocorrectInterval(filters),
         breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
         breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
