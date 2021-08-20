@@ -174,17 +174,71 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
                         "insight": "TRENDS",
                         "display": "ActionsLineGraph",
                         "formula": "B / A",
-                        "breakdown": "actions_count",
-                        "breakdown_type": "location",
+                        "breakdown": "location",
+                        "breakdown_type": "event",
                         "events": [
-                            {"id": "session start", "name": "session start created", "type": "events", "order": 0},
+                            {"id": "session start", "name": "session start", "type": "events", "order": 0},
                             {"id": "session error", "name": "session error", "type": "events", "order": 1},
                         ],
                     }
                 ),
                 self.team,
             )
-        self.assertEqual([], response)
+        self.assertEqual(
+            response,
+            [
+                {
+                    "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "count": 0.0,
+                    "labels": [
+                        "28-Dec-2019",
+                        "29-Dec-2019",
+                        "30-Dec-2019",
+                        "31-Dec-2019",
+                        "1-Jan-2020",
+                        "2-Jan-2020",
+                        "3-Jan-2020",
+                        "4-Jan-2020",
+                    ],
+                    "days": [
+                        "2019-12-28",
+                        "2019-12-29",
+                        "2019-12-30",
+                        "2019-12-31",
+                        "2020-01-01",
+                        "2020-01-02",
+                        "2020-01-03",
+                        "2020-01-04",
+                    ],
+                    "label": "London",
+                },
+                {
+                    "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "count": 0.0,
+                    "labels": [
+                        "28-Dec-2019",
+                        "29-Dec-2019",
+                        "30-Dec-2019",
+                        "31-Dec-2019",
+                        "1-Jan-2020",
+                        "2-Jan-2020",
+                        "3-Jan-2020",
+                        "4-Jan-2020",
+                    ],
+                    "days": [
+                        "2019-12-28",
+                        "2019-12-29",
+                        "2019-12-30",
+                        "2019-12-31",
+                        "2020-01-01",
+                        "2020-01-02",
+                        "2020-01-03",
+                        "2020-01-04",
+                    ],
+                    "label": "Paris",
+                },
+            ],
+        )
 
     def test_breakdown_cohort(self):
         cohort = Cohort.objects.create(
