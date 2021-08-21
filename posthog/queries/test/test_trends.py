@@ -18,7 +18,7 @@ from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.trends import Trends, breakdown_label
 from posthog.tasks.calculate_action import calculate_action, calculate_actions_from_last_calculation
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 from posthog.utils import generate_cache_key, relative_date_parse
 
 
@@ -1640,18 +1640,23 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertAlmostEqual(action_response[0]["data"][-1], expected_value, delta=0.5)
             self.assertEntityResponseEqual(action_response, event_response)
 
+        @test_with_materialized_columns(["some_number"])
         def test_sum_filtering(self):
             self._test_math_property_aggregation("sum", values=[2, 3, 5.5, 7.5], expected_value=18)
 
+        @test_with_materialized_columns(["some_number"])
         def test_avg_filtering(self):
             self._test_math_property_aggregation("avg", values=[2, 3, 5.5, 7.5], expected_value=4.5)
 
+        @test_with_materialized_columns(["some_number"])
         def test_min_filtering(self):
             self._test_math_property_aggregation("min", values=[2, 3, 5.5, 7.5], expected_value=2)
 
+        @test_with_materialized_columns(["some_number"])
         def test_max_filtering(self):
             self._test_math_property_aggregation("max", values=[2, 3, 5.5, 7.5], expected_value=7.5)
 
+        @test_with_materialized_columns(["some_number"])
         def test_median_filtering(self):
             self._test_math_property_aggregation("median", values=range(101, 201), expected_value=150)
 

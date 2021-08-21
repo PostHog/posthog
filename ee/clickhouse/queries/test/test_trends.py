@@ -15,6 +15,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
+from posthog.test.base import test_with_materialized_columns
 
 
 def _create_action(**kwargs):
@@ -755,10 +756,8 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             self.assertNotIn("JSONExtract", sql)
             self.assertNotIn("properties", sql)
 
-    def test_materialized_filtering_with_action_props(self):
-        materialize("events", "key")
-        materialize("events", "$current_url")
-
+    @test_with_materialized_columns(["key", "$current_url"])
+    def test_filtering_with_action_props(self):
         _create_event(
             event="sign up",
             distinct_id="person1",
@@ -786,14 +785,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
         )
 
-        with self.capture_select_queries() as sqls:
-            response = ClickhouseTrends().run(
-                Filter(data={"date_from": "-14d", "actions": [{"id": action.pk, "type": "actions", "order": 0}],}),
-                self.team,
-            )
+        response = ClickhouseTrends().run(
+            Filter(data={"date_from": "-14d", "actions": [{"id": action.pk, "type": "actions", "order": 0}],}),
+            self.team,
+        )
 
         self.assertEqual(response[0]["count"], 2)
-
-        for sql in sqls:
-            self.assertNotIn("JSONExtract", sql)
-            self.assertNotIn("properties", sql)
