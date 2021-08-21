@@ -212,6 +212,13 @@ class TestDecide(BaseTest):
         )
         FeatureFlag.objects.create(
             team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
             filters={
                 "groups": [
                     {"properties": [{"key": "realm", "type": "person", "value": "cloud"}], "rollout_percentage": 80}
@@ -233,8 +240,11 @@ class TestDecide(BaseTest):
         with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="hosted_id")
             self.assertIsNone(
-                (response.json()["featureFlags"] or {}).get("multivariate-flag", None)
+                (response.json()["featureFlags"]).get("multivariate-flag", None)
             )  # User is does not have realm == "cloud". Value is None.
+            self.assertTrue(
+                (response.json()["featureFlags"]).get("default-flag")
+            )  # User still receives the default flag
 
         with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="example_id")
