@@ -78,11 +78,7 @@ def get_breakdown_event_prop_values(
 ):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties,
-        team_id,
-        table_name="e",
-        filter_test_accounts=filter.filter_test_accounts,
-        allow_denormalized_props=True,
+        filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
     )
 
     entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
@@ -120,7 +116,7 @@ def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict
         props_to_filter = [*props_to_filter, *entity.properties]
 
     prop_filters, prop_filter_params = parse_prop_clauses(
-        props_to_filter, team_id, prepend="all_cohort_", table_name="all_events", allow_denormalized_props=True
+        props_to_filter, team_id, prepend="all_cohort_", table_name="all_events"
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value

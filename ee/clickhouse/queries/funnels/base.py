@@ -292,9 +292,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return content_sql
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            entity.properties, self._team.pk, prepend=str(index), allow_denormalized_props=True
-        )
+        prop_filters, prop_filter_params = parse_prop_clauses(entity.properties, self._team.pk, prepend=str(index))
         self.params.update(prop_filter_params)
         if entity.properties:
             return prop_filters
