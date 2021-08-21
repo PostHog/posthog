@@ -23,7 +23,6 @@ from posthog.constants import (
     TRENDS_STICKINESS,
 )
 from posthog.decorators import CacheType, cached_function
-from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import DashboardItem, Event, Filter, Team
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -134,9 +133,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     queryset = DashboardItem.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
-    filter_backends = [DjangoFilterBackend, TermSearchFilterBackend]
+    filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
-    search_fields = ["name"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -178,7 +176,8 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(updated_at__lt=relative_date_parse(request.GET["date_to"]))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
-
+            elif key == "search":
+                queryset = queryset.filter(name__icontains=request.GET["search"])
         return queryset
 
     # ******************************************
