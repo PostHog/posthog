@@ -74,6 +74,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         variant_rollout_sum = 0
         for variant in variants:
             variant_rollout_sum += variant.get("rollout_percentage")
+
         if len(variants) > 0 and variant_rollout_sum != 100:
             raise exceptions.ValidationError(
                 "Invalid variant definitions: Variant rollout percentages must sum to 100."
