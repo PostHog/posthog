@@ -114,7 +114,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._should_join_persons:
             return f"""
             INNER JOIN (
-                SELECT id, properties as person_props
+                SELECT id, properties as {self._PERSON_PROPERTIES_ALIAS}
                 FROM (
                     SELECT id,
                         argMax(properties, person._timestamp) as properties,
@@ -141,11 +141,10 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         return query, date_params
 
-    def _get_props(self, filters: List[Property], allow_denormalized_props: bool = False) -> Tuple[str, Dict]:
+    def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
 
         filter_test_accounts = self._filter.filter_test_accounts
         team_id = self._team_id
-        table_name = f"{self.EVENT_TABLE_ALIAS}."
         prepend = "global"
 
         final = []
@@ -166,7 +165,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     prop,
                     idx,
                     "{}person".format(prepend),
-                    allow_denormalized_props=allow_denormalized_props,
+                    allow_denormalized_props=False,
                     prop_var=self._PERSON_PROPERTIES_ALIAS,
                 )
                 final.append(filter_query)
@@ -180,7 +179,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     params.update(filter_params)
             else:
                 filter_query, filter_params = prop_filter_json_extract(
-                    prop, idx, prepend, prop_var="properties", allow_denormalized_props=allow_denormalized_props,
+                    prop, idx, prepend, prop_var="properties", allow_denormalized_props=True,
                 )
 
                 final.append(filter_query)
