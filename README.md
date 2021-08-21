@@ -13,7 +13,7 @@ You can deploy on your own infrastructure, and PostHog plays nicely with data wa
 
 <img align="left" src="https://user-images.githubusercontent.com/65415371/124739629-f43cde80-df11-11eb-9033-c5d1d7194f03.png" width="50px" />
 
-## Quick Start
+## Quick start
 
 It's easy and free to get started.
 
@@ -42,7 +42,7 @@ It's easy and free to get started.
 
 <img align="left" src="https://user-images.githubusercontent.com/65415371/124740181-74634400-df12-11eb-929c-9aa1bf060806.png" width="50px" />
 
-## Event Autocapture
+## Event autocapture
 
 <img src="https://posthog-static-files.s3.us-east-2.amazonaws.com/Documentation-Assets/action-toolbar.gif" width="100%">
 
@@ -50,7 +50,7 @@ It's easy and free to get started.
 
 <img align="left" src="https://user-images.githubusercontent.com/65415371/124739746-10d91680-df12-11eb-86cd-9aa9494e01bd.png" width="50px" />
 
-## Make the Most of PostHog
+## Making the most of PostHog
 
 See [PostHog Docs](https://posthog.com/docs/) for in-depth walk-throughs on functionality.
 
@@ -77,7 +77,7 @@ Our features help you: (i) understand user behavior, (ii) create hypotheses for 
 
 <img align="left" src="https://user-images.githubusercontent.com/65415371/124740340-9eb50180-df12-11eb-9295-e33ac2752c57.png" width="50px" />
 
-## What's Cool About This?
+## What's cool about this?
 
 PostHog is the only **product-focused** open-source analytics suite, with an event and user-driven architecture that **you can host in any infrastructure**. 
 
@@ -90,7 +90,7 @@ We play nicely with data warehouses - you can _import_ event or user data by wri
 
 <img align="left" src="https://user-images.githubusercontent.com/65415371/124740742-f94e5d80-df12-11eb-8ca9-7d2ad4f56e3d.png" width="50px" />
 
-## Get Started for Free
+## Get started for free
 
 <a href="https://posthog.com/docs/self-host/overview#deploy">Deploy PostHog Self-Hosted</a> in your existing infrastructure.
 
@@ -100,7 +100,7 @@ We play nicely with data warehouses - you can _import_ event or user data by wri
 
 <img align="left" src="https://user-images.githubusercontent.com/65415371/124740780-04a18900-df13-11eb-8a53-ad66e031b55f.png" width="50px" />
 
-## Developing Locally
+## Developing locally
 
 [See our Docs for instructions on developing locally.](https://posthog.com/docs/developing-locally)
 
@@ -126,7 +126,7 @@ Come help us make PostHog even better. We're growing fast, [and would love for y
 
 <img align="left" src="https://user-images.githubusercontent.com/65415371/124740961-2b5fbf80-df13-11eb-8075-72c6860b3a0f.png" width="50px" />
 
-## Open-Source vs. Paid
+## Open-source vs. paid
 
 This repo is entirely [MIT licensed](/LICENSE), with the exception of the `ee` directory (if applicable). Need _absolutely 💯% FOSS_? Check out our [posthog-foss](https://github.com/PostHog/posthog-foss) repository, which is purged of all proprietary code and features.
 
