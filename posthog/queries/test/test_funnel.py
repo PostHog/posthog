@@ -8,7 +8,7 @@ from posthog.models.filters import Filter
 from posthog.queries.funnel import Funnel
 from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
 from posthog.tasks.update_cache import update_cache_item
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 def funnel_test_factory(Funnel, event_factory, person_factory):
@@ -170,6 +170,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 0)
             self.assertEqual(result[2]["count"], 0)
 
+        @test_with_materialized_columns(["$browser"])
         def test_funnel_prop_filters(self):
             funnel = self._basic_funnel(properties={"$browser": "Safari"})
 
@@ -194,6 +195,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 2)
             self.assertEqual(result[1]["count"], 1)
 
+        @test_with_materialized_columns(["$browser"])
         def test_funnel_prop_filters_per_entity(self):
             action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
             ActionStep.objects.create(
@@ -297,6 +299,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 1)
 
+        @test_with_materialized_columns(["test_prop"])
         def test_funnel_multiple_actions(self):
             # we had an issue on clickhouse where multiple actions with different property filters would incorrectly grab only the last
             # properties.
