@@ -476,6 +476,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        @test_with_materialized_columns(["$math_prop", "$some_property"])
         def test_trends_breakdown_with_math_func(self):
 
             with freeze_time("2020-01-01 00:06:34"):
@@ -1248,6 +1249,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 ],
             )
 
+        @test_with_materialized_columns(["$some_property"])
         def test_property_filtering(self):
             self._create_events()
             with freeze_time("2020-01-04"):
@@ -1492,6 +1494,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(len(response), 1)
             self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
+        @test_with_materialized_columns(["key"])
         def test_breakdown_with_filter(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
             person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -1584,6 +1587,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["data"][5], 2)
             self.assertEntityResponseEqual(action_response, response)
 
+        @test_with_materialized_columns(["$some_property"])
         def test_dau_with_breakdown_filtering(self):
             sign_up_action, _ = self._create_events()
             with freeze_time("2020-01-02"):
@@ -1660,15 +1664,19 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         def test_median_filtering(self):
             self._test_math_property_aggregation("median", values=range(101, 201), expected_value=150)
 
+        @test_with_materialized_columns(["some_number"])
         def test_p90_filtering(self):
             self._test_math_property_aggregation("p90", values=range(101, 201), expected_value=190)
 
+        @test_with_materialized_columns(["some_number"])
         def test_p95_filtering(self):
             self._test_math_property_aggregation("p95", values=range(101, 201), expected_value=195)
 
+        @test_with_materialized_columns(["some_number"])
         def test_p99_filtering(self):
             self._test_math_property_aggregation("p99", values=range(101, 201), expected_value=199)
 
+        @test_with_materialized_columns(["some_number"])
         def test_avg_filtering_non_number_resiliency(self):
             sign_up_action, person = self._create_events()
             person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
@@ -1687,6 +1695,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(action_response[0]["data"][-1], 5)
             self.assertEntityResponseEqual(action_response, event_response)
 
+        @test_with_materialized_columns(["$some_property"])
         def test_per_entity_filtering(self):
             self._create_events()
             with freeze_time("2020-01-04T13:00:01Z"):
@@ -2103,6 +2112,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 ],
             )
 
+        @test_with_materialized_columns(["$some_property"])
         def test_breakdown_filtering_bar_chart_by_value(self):
             self._create_events()
 

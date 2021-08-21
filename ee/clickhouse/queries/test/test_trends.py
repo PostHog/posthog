@@ -65,6 +65,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         # don't return none option when empty
         self.assertEqual(response[0]["breakdown_value"], "val")
 
+    @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_limit(self):
         self._create_breakdown_events()
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -213,6 +214,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(response[1]["count"], 1)
         self.assertEqual(response[2]["count"], 1)
 
+    @test_with_materialized_columns(["$current_url", "$os", "$browser"])
     def test_breakdown_filtering_with_properties(self):
         with freeze_time("2020-01-03T13:01:01Z"):
             _create_event(
@@ -272,6 +274,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(sum(response[1]["data"]), 1)
         self.assertEqual(response[1]["breakdown_value"], "second url")
 
+    @test_with_materialized_columns(["$some_property"])
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
         with freeze_time("2020-01-02T13:01:01Z"):
@@ -297,6 +300,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(event_response[2]["data"][5], 1)
         self.assertEntityResponseEqual(action_response, event_response)
 
+    @test_with_materialized_columns(["$os", "$some_property"])
     def test_dau_with_breakdown_filtering_with_prop_filter(self):
         sign_up_action, _ = self._create_events()
         with freeze_time("2020-01-02T13:01:01Z"):
@@ -336,6 +340,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEntityResponseEqual(action_response, event_response)
 
     # this ensures that the properties don't conflict when formatting params
+    @test_with_materialized_columns(["$current_url"])
     def test_action_with_prop(self):
         person = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
@@ -367,6 +372,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         # if the params were shared it would be 1 because action would take precedence
         self.assertEqual(action_response[0]["count"], 0)
 
+    @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
     def test_combine_all_cohort_and_icontains(self):
         # This caused some issues with SQL parsing
         sign_up_action, _ = self._create_events()
@@ -384,6 +390,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
         self.assertEqual(action_response[0]["count"], 0)
 
+    @test_with_materialized_columns(["key"], verify_no_jsonextract=False)
     def test_breakdown_user_props_with_filter(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -489,6 +496,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         result = ClickhouseTrends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
+    @test_with_materialized_columns(["key"])
     def test_breakdown_active_user_math(self):
 
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
@@ -577,6 +585,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         result = ClickhouseTrends().run(filter_3, self.team,)
         self.assertEqual(result[0]["count"], 1)
 
+    @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_bar_chart_by_value(self):
         self._create_events()
 
@@ -715,46 +724,6 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 )
 
         self.assertEqual(res[0]["count"], 1)
-
-    def test_materialized_property_filtering(self):
-        materialize("events", "$some_property")
-
-        with self.capture_select_queries() as sqls:
-            self.test_property_filtering()
-
-        for sql in sqls:
-            self.assertNotIn("JSONExtract", sql)
-            self.assertNotIn("properties", sql)
-
-    def test_materialized_per_entity_filtering(self):
-        materialize("events", "$some_property")
-
-        with self.capture_select_queries() as sqls:
-            self.test_per_entity_filtering()
-
-        for sql in sqls:
-            self.assertNotIn("JSONExtract", sql)
-            self.assertNotIn("properties", sql)
-
-    def test_materialized_breakdown_queries_right_columns(self):
-        materialize("events", "$some_property")
-
-        with self.capture_select_queries() as sqls:
-            self.test_breakdown_filtering_limit()
-
-        for sql in sqls:
-            self.assertNotIn("JSONExtract", sql)
-            self.assertNotIn("properties", sql)
-
-    def test_materialized_math_queries_right_columns(self):
-        materialize("events", "some_number")
-
-        with self.capture_select_queries() as sqls:
-            self.test_sum_filtering()
-
-        for sql in sqls:
-            self.assertNotIn("JSONExtract", sql)
-            self.assertNotIn("properties", sql)
 
     @test_with_materialized_columns(["key", "$current_url"])
     def test_filtering_with_action_props(self):
