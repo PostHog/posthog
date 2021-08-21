@@ -12,7 +12,7 @@ from statshog.defaults.django import statsd
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.feature_flag import get_active_feature_flags, get_active_feature_flags_v2
 from posthog.utils import cors_response, load_data_from_request
 
 from .capture import _get_project_id
@@ -83,7 +83,10 @@ def get_decide(request: HttpRequest):
     if request.method == "POST":
         try:
             data = load_data_from_request(request)
-        except RequestParsingError as error:
+            api_version_string = request.GET.get("v")
+            # NOTE: This does not support semantic versioning e.g. 2.1.0
+            api_version = int(api_version_string) if api_version_string else 1
+        except (RequestParsingError, ValueError) as error:
             capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
             return cors_response(
                 request,
@@ -121,7 +124,11 @@ def get_decide(request: HttpRequest):
                 )
             team = user.teams.get(id=project_id)
         if team:
-            response["featureFlags"] = get_active_feature_flags(team, data["distinct_id"])
+            response["featureFlags"] = (
+                get_active_feature_flags(team, data["distinct_id"])
+                if api_version < 2
+                else get_active_feature_flags_v2(team, data["distinct_id"])
+            )
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
     statsd.incr(
