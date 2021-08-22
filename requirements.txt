@@ -113,6 +113,8 @@ git+git://github.com/PostHog/infi.clickhouse_orm@f6f4838a75513773696737c9ac37a16
     # via -r requirements.in
 iso8601==0.1.12
     # via infi.clickhouse-orm
+isodate==0.6.0
+    # via python3-saml
 kafka-helper==0.2
     # via -r requirements.in
 kafka-python==2.0.1
@@ -122,7 +124,10 @@ kombu==4.6.8
     #   -r requirements.in
     #   celery
 lxml==4.6.3
-    # via toronado
+    # via
+    #   python3-saml
+    #   toronado
+    #   xmlsec
 lzstring==1.0.4
     # via -r requirements.in
 monotonic==1.5
@@ -160,6 +165,8 @@ python3-openid==3.1.0
     # via
     #   -r requirements.in
     #   social-auth-core
+python3-saml==1.12.0
+    # via -r requirements.in
 pytz==2021.1
     # via
     #   -r requirements.in
@@ -193,6 +200,7 @@ six==1.14.0
     # via
     #   djangorestframework-csv
     #   grpcio
+    #   isodate
     #   posthoganalytics
     #   protobuf
     #   python-dateutil
@@ -225,6 +233,8 @@ vine==1.3.0
     #   celery
 whitenoise==5.2.0
     # via -r requirements.in
+xmlsec==1.3.11
+    # via python3-saml
 zipp==3.1.0
     # via importlib-metadata
 
