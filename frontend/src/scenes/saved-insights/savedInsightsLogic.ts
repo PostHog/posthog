@@ -6,6 +6,7 @@ import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
 import { Dayjs } from 'dayjs'
+import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 
 interface InsightsResult {
     results: DashboardItemType[]
@@ -153,6 +154,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
         },
         setDates: () => {
             actions.loadInsights()
+        },
+        [dashboardItemsModel.actionTypes.renameDashboardItemSuccess]: ({ item }) => {
+            actions.setInsight(item)
         },
     }),
     events: ({ actions }) => ({

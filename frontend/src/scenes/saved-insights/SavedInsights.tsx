@@ -125,6 +125,7 @@ export function SavedInsights(): JSX.Element {
                         <Dropdown
                             placement="bottomRight"
                             trigger={['click']}
+                            overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
                             overlay={
                                 <Menu style={{ padding: '12px 4px' }} data-attr={`insight-${item.id}-dropdown-menu`}>
                                     {dashboards.filter((d) => d.id !== item.id).length > 0 ? (
@@ -148,14 +149,13 @@ export function SavedInsights(): JSX.Element {
                                     ) : null}
                                     <Menu.Item
                                         onClick={() => renameInsight(item.id)}
-                                        style={{ padding: 8 }}
                                         data-attr={`insight-item-${item.id}-dropdown-rename`}
+                                        title="Rename"
                                     >
                                         Rename
                                     </Menu.Item>
                                     <Menu.Item
                                         onClick={() => duplicateInsight(item)}
-                                        style={{ padding: 8 }}
                                         data-attr={`insight-item-${item.id}-dropdown-duplicate`}
                                     >
                                         Duplicate
@@ -168,7 +168,7 @@ export function SavedInsights(): JSX.Element {
                                                 callback: loadInsights,
                                             })
                                         }
-                                        style={{ padding: 8, color: 'var(--danger)' }}
+                                        style={{ color: 'var(--danger)' }}
                                         data-attr={`insight-item-${item.id}-dropdown-remove`}
                                     >
                                         Remove
