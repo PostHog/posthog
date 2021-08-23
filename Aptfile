@@ -1,0 +1,6 @@
+# Install OS-dependencies on Heroku
+
+# SAML (xmlsec) dependencies
+pkg-config=0.*
+libxml2-dev=2.*
+libxmlsec1-dev=1.*
