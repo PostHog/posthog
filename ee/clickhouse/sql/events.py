@@ -21,7 +21,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     created_at DateTime64(6, 'UTC')
     {materialized_columns}
     {extra_fields}
-) ENGINE = {engine} 
+) ENGINE = {engine}
 """
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = """
@@ -35,7 +35,7 @@ EVENTS_TABLE_SQL = (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-SAMPLE BY uuid 
+SAMPLE BY cityHash64(uuid)
 {storage_policy}
 """
 ).format(
@@ -59,7 +59,7 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 EVENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
-TO {database}.{table_name} 
+TO {database}.{table_name}
 AS SELECT
 uuid,
 event,
@@ -71,7 +71,7 @@ elements_chain,
 created_at,
 _timestamp,
 _offset
-FROM {database}.kafka_{table_name} 
+FROM {database}.kafka_{table_name}
 """.format(
     table_name=EVENTS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
 )
@@ -142,7 +142,7 @@ SELECT
     elements_chain,
     created_at
 FROM events
-WHERE 
+WHERE
 team_id = %(team_id)s
 {conditions}
 {filters}
@@ -176,7 +176,7 @@ INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.d
 """
 
 GET_EVENTS_WITH_PROPERTIES = """
-SELECT * FROM events WHERE 
+SELECT * FROM events WHERE
 team_id = %(team_id)s
 {filters}
 {order_by}
