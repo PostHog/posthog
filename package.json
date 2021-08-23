@@ -36,7 +36,9 @@
         "typegen:clean": "find frontend/src -type f -name '*Type.ts' -delete",
         "format:python": "black . && isort .",
         "format:js": "yarn prettier && yarn eslint --fix",
-        "format": "yarn format:python && yarn format:js"
+        "format": "yarn format:python && yarn format:js",
+        "storybook": "start-storybook -p 6006",
+        "build-storybook": "build-storybook"
     },
     "dependencies": {
         "@babel/core": "^7.10.4",
@@ -105,6 +107,10 @@
         "@babel/preset-env": "7.10.4",
         "@babel/preset-typescript": "^7.10.4",
         "@hot-loader/react-dom": "^16.13.0",
+        "@storybook/addon-actions": "^6.3.7",
+        "@storybook/addon-essentials": "^6.3.7",
+        "@storybook/addon-links": "^6.3.7",
+        "@storybook/react": "^6.3.7",
         "@types/chart.js": "^2.9.32",
         "@types/d3": "^7.0.0",
         "@types/jest": "^26.0.15",
