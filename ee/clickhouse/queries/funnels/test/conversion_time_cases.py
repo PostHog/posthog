@@ -1,4 +1,3 @@
-from ee.clickhouse.client import sync_execute
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.test.base import APIBaseTest
