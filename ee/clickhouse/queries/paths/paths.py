@@ -1,6 +1,8 @@
 from abc import ABC
 from typing import Dict, List, Optional, Tuple
 
+import sqlparse
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
@@ -74,7 +76,6 @@ class ClickhousePathsNew:
         funnel_persons_param = funnel_persons_generator.params
         new_funnel_params = {"funnel_" + str(key): val for key, val in funnel_persons_param.items()}
         self.params.update(new_funnel_params)
-
         return f"""
         WITH {PathEventQuery.FUNNEL_PERSONS_ALIAS} AS (
             {funnel_persons_query_new_params}
