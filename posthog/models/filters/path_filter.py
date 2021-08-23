@@ -15,7 +15,6 @@ from posthog.models.filters.mixins.common import (
 )
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
-    PathStepLimitMixin,
     PropTypeDerivedMixin,
     StartPointMixin,
     TargetEventDerivedMixin,
