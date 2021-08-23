@@ -2,6 +2,7 @@ import base64
 import json
 from typing import Dict, cast
 from unittest import mock
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from semantic_version import Version
@@ -458,7 +459,11 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
             "/api/organizations/@current/plugins/",
-            {"plugin_type": "source", "name": "myplugin", "source": "const processEvent = e => e",},
+            {
+                "plugin_type": "source",
+                "name": "myplugin",
+                "source": "const processEvent = e => e",
+            },
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(
@@ -516,12 +521,14 @@ class TestPluginAPI(APIBaseTest):
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.INSTALL
         )
         response = self.client.post(
-            "/api/organizations/{}/plugins/".format(my_org.id), {"url": "https://github.com/PostHog/helloworldplugin"},
+            "/api/organizations/{}/plugins/".format(my_org.id),
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Plugin.objects.count(), 1)
         response = self.client.post(
-            "/api/organizations/{}/plugins/".format(my_org.id), {"url": "https://github.com/PostHog/helloworldplugin"},
+            "/api/organizations/{}/plugins/".format(my_org.id),
+            {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Plugin.objects.count(), 1)
@@ -755,7 +762,9 @@ class TestPluginAPI(APIBaseTest):
         )
 
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id), {"add_attachment[foodb]": tmp_file_2}, format="multipart",
+            "/api/plugin_config/{}".format(plugin_config_id),
+            {"add_attachment[foodb]": tmp_file_2},
+            format="multipart",
         )
         self.assertEqual(PluginAttachment.objects.count(), 1)
 
@@ -774,7 +783,9 @@ class TestPluginAPI(APIBaseTest):
         )
 
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id), {"remove_attachment[foodb]": True}, format="multipart",
+            "/api/plugin_config/{}".format(plugin_config_id),
+            {"remove_attachment[foodb]": True},
+            format="multipart",
         )
         self.assertEqual(response.json()["config"], {"bar": "moop"})
         self.assertEqual(PluginAttachment.objects.count(), 0)
@@ -860,6 +871,34 @@ class TestPluginAPI(APIBaseTest):
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
+
+    @patch("posthog.api.plugin.celery_app.send_task")
+    def test_job_trigger(self, patch_trigger_plugin_job, mock_get, mock_reload):
+        response = self.client.post(
+            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+        )
+        plugin_id = response.json()["id"]
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            format="multipart",
+        )
+        plugin_config_id = response.json()["id"]
+        response = self.client.post(
+            "/api/plugin_config/{}/job".format(plugin_config_id),
+            {"job": {"name": "myJob", "payload": {"a": 1}, "operation": "stop"}},
+            format="json",
+        )
+
+        patch_trigger_plugin_job.assert_has_calls(
+            [
+                mock.call(
+                    name="posthog.tasks.plugins.plugin_job",
+                    queue="posthog-plugins",
+                    args=[self.team.pk, plugin_config_id, "myJob", "stop", {"a": 1}],
+                )
+            ]
+        )
 
 
 class TestPluginsAccessLevelAPI(APIBaseTest):

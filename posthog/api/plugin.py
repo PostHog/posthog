@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, Set, cast
 
 import requests
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Q
@@ -15,7 +16,8 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
+from posthog.celery import app as celery_app
+from posthog.models import Plugin, PluginAttachment, PluginConfig, Team, plugin
 from posthog.models.organization import Organization
 from posthog.models.plugin import update_validated_data_from_url
 from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
@@ -24,6 +26,9 @@ from posthog.plugins.access import can_globally_manage_plugins
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
+
+
+CELERY_PLUGIN_JOBS_TASK = "posthog.tasks.plugins.plugin_job"
 
 
 def _update_plugin_attachments(request: request.Request, plugin_config: PluginConfig):
@@ -320,6 +325,31 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 plugin_config.save()
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
+
+    @action(methods=["POST"], detail=True)
+    def job(self, request: request.Request, **kwargs):
+        if not can_configure_plugins(self.team.organization_id):
+            raise ValidationError("Plugin configuration is not available for the current organization!")
+
+        plugin_config_id = self.get_object().id
+        job = request.data.get("job", {})
+
+        if "name" not in job:
+            raise ValidationError("A job name must be specified!")
+
+        job_name = job.get("name")
+        job_payload = job.get("payload", {})
+        job_op = job.get("operation", "start")
+
+        task_name = CELERY_PLUGIN_JOBS_TASK
+        celery_queue = settings.PLUGINS_CELERY_QUEUE
+        celery_app.send_task(
+            name=task_name,
+            queue=celery_queue,
+            args=[self.team.pk, plugin_config_id, job_name, job_op, job_payload],
+        )
+
+        return Response(status=200)
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
