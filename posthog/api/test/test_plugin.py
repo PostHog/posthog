@@ -459,11 +459,7 @@ class TestPluginAPI(APIBaseTest):
         self.assertEqual(mock_reload.call_count, 0)
         response = self.client.post(
             "/api/organizations/@current/plugins/",
-            {
-                "plugin_type": "source",
-                "name": "myplugin",
-                "source": "const processEvent = e => e",
-            },
+            {"plugin_type": "source", "name": "myplugin", "source": "const processEvent = e => e",},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(
@@ -521,14 +517,12 @@ class TestPluginAPI(APIBaseTest):
             name="FooBar2", plugins_access_level=Organization.PluginsAccessLevel.INSTALL
         )
         response = self.client.post(
-            "/api/organizations/{}/plugins/".format(my_org.id),
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            "/api/organizations/{}/plugins/".format(my_org.id), {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Plugin.objects.count(), 1)
         response = self.client.post(
-            "/api/organizations/{}/plugins/".format(my_org.id),
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            "/api/organizations/{}/plugins/".format(my_org.id), {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Plugin.objects.count(), 1)
@@ -762,9 +756,7 @@ class TestPluginAPI(APIBaseTest):
         )
 
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id),
-            {"add_attachment[foodb]": tmp_file_2},
-            format="multipart",
+            "/api/plugin_config/{}".format(plugin_config_id), {"add_attachment[foodb]": tmp_file_2}, format="multipart",
         )
         self.assertEqual(PluginAttachment.objects.count(), 1)
 
@@ -783,9 +775,7 @@ class TestPluginAPI(APIBaseTest):
         )
 
         response = self.client.patch(
-            "/api/plugin_config/{}".format(plugin_config_id),
-            {"remove_attachment[foodb]": True},
-            format="multipart",
+            "/api/plugin_config/{}".format(plugin_config_id), {"remove_attachment[foodb]": True}, format="multipart",
         )
         self.assertEqual(response.json()["config"], {"bar": "moop"})
         self.assertEqual(PluginAttachment.objects.count(), 0)

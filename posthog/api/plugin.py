@@ -344,9 +344,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         task_name = CELERY_PLUGIN_JOBS_TASK
         celery_queue = settings.PLUGINS_CELERY_QUEUE
         celery_app.send_task(
-            name=task_name,
-            queue=celery_queue,
-            args=[self.team.pk, plugin_config_id, job_name, job_op, job_payload],
+            name=task_name, queue=celery_queue, args=[self.team.pk, plugin_config_id, job_name, job_op, job_payload],
         )
 
         return Response(status=200)
