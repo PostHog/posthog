@@ -22,7 +22,7 @@ def parse_prop_clauses(
     team_id: Optional[int],
     prepend: str = "global",
     table_name: str = "",
-    allow_denormalized_props: bool = False,
+    allow_denormalized_props: bool = True,
     filter_test_accounts=False,
     is_person_query=False,
 ) -> Tuple[str, Dict]:

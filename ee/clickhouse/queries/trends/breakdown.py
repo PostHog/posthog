@@ -41,11 +41,7 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter,
-            team_id,
-            table_name="e",
-            filter_test_accounts=filter.filter_test_accounts,
-            allow_denormalized_props=True,
+            props_to_filter, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
         )
         aggregate_operation, _, math_params = process_math(entity)
 
@@ -94,7 +90,15 @@ class ClickhouseTrendsBreakdown:
             )
 
         if len(_params["values"]) == 0:
-            return "SELECT 1", {}, lambda _: []
+            # If there are no breakdown values, we are sure that there's no relevant events, so instead of adjusting
+            # a "real" SELECT for this, we only include the below dummy SELECT.
+            # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
+            # See https://github.com/PostHog/posthog/pull/5674 for context.
+            return (
+                "SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0",
+                {},
+                lambda _: [],
+            )
 
         params = {**params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}

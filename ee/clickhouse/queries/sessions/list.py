@@ -70,7 +70,9 @@ class ClickhouseSessionsList(SessionsList):
             persons = get_persons_by_distinct_ids(self.team.pk, [self.filter.distinct_id])
             return persons[0].distinct_ids if len(persons) > 0 else []
 
-        person_filters, person_filter_params = parse_prop_clauses(self.filter.person_filter_properties, self.team.pk)
+        person_filters, person_filter_params = parse_prop_clauses(
+            self.filter.person_filter_properties, self.team.pk, allow_denormalized_props=False
+        )
         return sync_execute(
             SESSIONS_DISTINCT_ID_SQL.format(
                 date_from=date_from,
@@ -154,7 +156,9 @@ def format_action_filters(filter: SessionsFilter) -> ActionFiltersSQL:
 def format_action_filter_aggregate(entity: Entity, prepend: str):
     filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False)
     if entity.properties:
-        filters, filter_params = parse_prop_clauses(entity.properties, prepend=prepend, team_id=None)
+        filters, filter_params = parse_prop_clauses(
+            entity.properties, prepend=prepend, team_id=None, allow_denormalized_props=False
+        )
         filter_sql += f" {filters}"
         params = {**params, **filter_params}
 
