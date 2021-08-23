@@ -42,7 +42,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         self.params.update(date_params)
 
         prop_filters = [*self._filter.properties, *self._entity.properties]
-        prop_query, prop_params = self._get_props(prop_filters, allow_denormalized_props=True)
+        prop_query, prop_params = self._get_props(prop_filters)
         self.params.update(prop_params)
 
         entity_query, entity_params = self._get_entity_query()

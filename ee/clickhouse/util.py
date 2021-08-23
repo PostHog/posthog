@@ -23,6 +23,8 @@ from ee.clickhouse.sql.session_recording_events import (
 
 
 class ClickhouseTestMixin:
+    RUN_MATERIALIZED_COLUMN_TESTS = True
+
     def tearDown(self):
         try:
             self._destroy_event_tables()

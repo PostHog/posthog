@@ -39,7 +39,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
         self.params.update(date_params)
 
         prop_filters = self._filter.properties
-        prop_query, prop_params = self._get_props(prop_filters, allow_denormalized_props=True)
+        prop_query, prop_params = self._get_props(prop_filters)
         self.params.update(prop_params)
 
         if skip_entity_filter:

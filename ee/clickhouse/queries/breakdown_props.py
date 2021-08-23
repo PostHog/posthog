@@ -35,7 +35,11 @@ def get_breakdown_person_prop_values(
 ):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
+        filter.properties,
+        team_id,
+        table_name="e",
+        filter_test_accounts=filter.filter_test_accounts,
+        allow_denormalized_props=False,
     )
     person_prop_filters, person_prop_params = parse_prop_clauses(
         [prop for prop in filter.properties if prop.type == "person"],
@@ -43,6 +47,7 @@ def get_breakdown_person_prop_values(
         filter_test_accounts=filter.filter_test_accounts,
         is_person_query=True,
         prepend="person",
+        allow_denormalized_props=False,
     )
 
     entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
@@ -73,7 +78,11 @@ def get_breakdown_event_prop_values(
 ):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
+        filter.properties,
+        team_id,
+        table_name="e",
+        prepend="e_brkdwn",
+        filter_test_accounts=filter.filter_test_accounts,
     )
 
     entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
