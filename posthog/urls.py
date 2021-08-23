@@ -10,6 +10,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView
 from social_core.pipeline.partial import partial
 
+from ee.api.authentication import saml_metadata_view
 from posthog.api import (
     api_not_found,
     authentication,
@@ -51,8 +52,11 @@ def is_input_valid(inp_type, val):
 
 
 # Try to include EE endpoints
+ee_urlpatterns = []
 try:
     from ee.urls import extend_api_router
+    from ee.urls import urlpatterns as ee_urlpatterns
+
 except ImportError:
     pass
 else:
@@ -70,6 +74,8 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
+    # ee
+    *ee_urlpatterns,
     # admin
     path("admin/", include("loginas.urls")),
     path("admin/", admin.site.urls),
