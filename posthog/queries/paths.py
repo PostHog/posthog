@@ -14,6 +14,9 @@ from .base import BaseQuery
 
 
 class Paths(BaseQuery):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__()
+
     def _event_subquery(self, event: str, key: str):
         return Event.objects.filter(pk=OuterRef(event)).values(key)[:1]
 

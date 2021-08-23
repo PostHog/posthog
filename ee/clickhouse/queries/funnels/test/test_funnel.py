@@ -41,7 +41,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_person)):  # type: ignore
+class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_action, _create_person)):  # type: ignore
     maxDiff = None
     pass
 
@@ -83,8 +83,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
         )
 
-        with self.assertNumQueries(1):
-            result = funnel.run()
+        result = funnel.run()
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)

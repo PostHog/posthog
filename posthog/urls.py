@@ -5,15 +5,14 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.http import HttpResponse
-from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
-from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView
-from loginas.utils import is_impersonated_session, restore_original_login
 from social_core.pipeline.partial import partial
 
 from posthog.api import (
     api_not_found,
+    authentication,
     capture,
     dashboard,
     decide,
@@ -31,23 +30,6 @@ from .views import health, login_required, preflight_check, robots_txt, stats
 
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
-
-
-@csrf_protect
-def logout(request):
-    if request.user.is_authenticated:
-        request.user.temporary_token = None
-        request.user.save()
-
-    if is_impersonated_session(request):
-        restore_original_login(request)
-        return redirect("/")
-
-    restore_original_login(request)
-    response = auth_views.logout_then_login(request)
-    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
-
-    return response
 
 
 def authorize_and_redirect(request):
@@ -89,8 +71,8 @@ urlpatterns = [
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     # admin
-    path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
+    path("admin/", admin.site.urls),
     # api
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
@@ -112,7 +94,7 @@ urlpatterns = [
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
     # auth
-    path("logout", logout, name="login"),
+    path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path("", include("social_django.urls", namespace="social")),
     *(

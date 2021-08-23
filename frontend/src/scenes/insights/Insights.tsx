@@ -244,7 +244,7 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col span={24} xl={verticalLayout ? 9 : undefined}>
+                        <Col span={24} lg={verticalLayout ? 8 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
@@ -303,7 +303,7 @@ export function Insights(): JSX.Element {
                             </Card>
                             {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
-                        <Col span={24} xl={verticalLayout ? 15 : undefined}>
+                        <Col span={24} lg={verticalLayout ? 16 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url

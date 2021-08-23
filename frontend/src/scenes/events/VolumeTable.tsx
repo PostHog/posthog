@@ -209,7 +209,7 @@ export function VolumeTable({
                 rowKey={(item) => item.eventOrProp.name}
                 size="small"
                 style={{ marginBottom: '4rem' }}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 onRow={(record) =>
                     hasTaxonomyFeatures && !isPosthogEvent(record.eventOrProp.name)
                         ? { onClick: () => openDrawer(type, record.eventOrProp.id), style: { cursor: 'pointer' } }

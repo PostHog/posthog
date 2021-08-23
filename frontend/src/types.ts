@@ -396,6 +396,13 @@ export interface SavedFunnel extends InsightHistory {
 
 export type BinCountValue = number | typeof BinCountAuto
 
+// https://github.com/PostHog/posthog/blob/master/posthog/constants.py#L106
+export enum StepOrderValue {
+    STRICT = 'strict',
+    UNORDERED = 'unordered',
+    ORDERED = 'ordered',
+}
+
 export enum PersonsTabType {
     EVENTS = 'events',
     SESSIONS = 'sessions',
@@ -675,6 +682,7 @@ export interface FilterType {
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
+    funnel_order_type?: StepOrderValue
     exclusions?: FunnelExclusionEntityFilter[] // used in funnel exclusion filters
 }
 

@@ -9,6 +9,8 @@ from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
@@ -26,7 +28,16 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons, _create_event, _create_person)):  # type: ignore
+def _create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    properties = kwargs.pop("properties", {})
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name, properties=properties)
+    return action
+
+
+class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelUnordered, ClickhouseFunnelUnorderedPersons, _create_event, _create_action, _create_person)):  # type: ignore
     maxDiff = None
 
     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):

@@ -1,11 +1,12 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property, Team
+from posthog.models.filters.path_filter import PathFilter
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -14,7 +15,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     EVENT_TABLE_ALIAS = "e"
 
     _PERSON_PROPERTIES_ALIAS = "person_props"
-    _filter: Filter
+    _filter: Union[Filter, PathFilter]
     _team_id: int
     _should_join_distinct_ids = False
     _should_join_persons = False
@@ -22,7 +23,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def __init__(
         self,
-        filter: Filter,
+        filter: Union[Filter, PathFilter],
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,
@@ -31,7 +32,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     ) -> None:
         self._filter = filter
         self._team_id = team_id
-        self.params = {
+        self.params: Dict[str, Any] = {
             "team_id": self._team_id,
         }
 
@@ -171,9 +172,12 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 final.append(filter_query)
                 params.update(filter_params)
             elif prop.type == "element":
-                query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
-                final.append(f" AND {query if len(query) > 0 else '1=2'}")
-                params.update(filter_params)
+                query, filter_params = filter_element(
+                    {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
+                )
+                if query:
+                    final.append(f" AND {query}")
+                    params.update(filter_params)
             else:
                 filter_query, filter_params = prop_filter_json_extract(
                     prop, idx, prepend, prop_var="properties", allow_denormalized_props=allow_denormalized_props,

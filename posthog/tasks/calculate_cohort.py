@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.db.models import F
 from django.utils import timezone
 
@@ -15,7 +16,6 @@ from posthog.models import Cohort
 logger = logging.getLogger(__name__)
 
 MAX_AGE_MINUTES = 15
-PARALLEL_COHORTS = int(os.environ.get("PARALLEL_COHORTS", 2))
 
 
 def calculate_cohorts() -> None:
@@ -29,7 +29,7 @@ def calculate_cohorts() -> None:
             errors_calculating__lte=20,
         )
         .exclude(is_static=True)
-        .order_by(F("last_calculation").asc(nulls_first=True))[0:PARALLEL_COHORTS]
+        .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
         calculate_cohort.delay(cohort.id)
         if is_clickhouse_enabled():

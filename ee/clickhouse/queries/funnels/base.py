@@ -82,6 +82,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if exclusion.funnel_to_step > len(self._filter.entities) - 1:
                 raise ValidationError("Exclusion event range is invalid. End of range is greater than number of steps.")
 
+            for entity in self._filter.entities[exclusion.funnel_from_step : exclusion.funnel_to_step + 1]:
+                if entity.equals(exclusion) or exclusion.is_superset(entity):
+                    raise ValidationError("Exclusion event can't be the same as funnel step")
+
         self._filter = self._filter.with_data(data)
 
     def _format_single_funnel(self, results, with_breakdown=False):

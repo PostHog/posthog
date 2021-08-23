@@ -1,15 +1,14 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.util import format_ch_timestamp, get_earliest_timestamp
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, WEEKLY_ACTIVE
+from posthog.constants import WEEKLY_ACTIVE
 from posthog.models.entity import Entity
-from posthog.models.filters import Filter
+from posthog.models.filters import Filter, PathFilter
 
 MATH_FUNCTIONS = {
     "sum": "sum",
@@ -70,7 +69,7 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     }
 
 
-def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict[str, Any]:
+def get_active_user_params(filter: Union[Filter, PathFilter], entity: Entity, team_id: int) -> Dict[str, Any]:
     params = {}
     params.update({"prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 day"})
     diff = timedelta(days=7) if entity.math == WEEKLY_ACTIVE else timedelta(days=30)
@@ -93,20 +92,6 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Dict
             )
 
     return params
-
-
-def populate_entity_params(entity: Entity, table_name: str = "") -> Tuple[Dict, Dict]:
-    params, content_sql_params = {}, {}
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        action = entity.get_action()
-        action_query, action_params = format_action_filter(action, table_name=table_name)
-        params = {**action_params}
-        content_sql_params = {"entity_query": "AND {action_query}".format(action_query=action_query)}
-    else:
-        content_sql_params = {"entity_query": "AND event = %(event)s"}
-        params = {"event": entity.id}
-
-    return params, content_sql_params
 
 
 def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:

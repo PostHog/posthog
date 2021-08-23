@@ -19,7 +19,6 @@ from posthog.models.filters import Filter
 
 class ClickhouseTrendsTotalVolume:
     def _total_volume_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
-
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
         _, seconds_in_interval, _ = get_time_diff(filter.interval, filter.date_from, filter.date_to, team_id=team_id)
