@@ -100,12 +100,19 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         optimizer = lambda: ColumnOptimizer(FILTER_WITH_PROPERTIES, self.team.id)
 
         self.assertEqual(optimizer().materialized_event_columns_to_query, [])
-        # self.assertEqual(optimizer().should_query_event_properties_column, True)
+        self.assertEqual(optimizer().should_query_event_properties_column, True)
+
+        self.assertEqual(optimizer().materialized_person_columns_to_query, [])
+        self.assertEqual(optimizer().should_query_person_properties_column, True)
 
         materialize("events", "event_prop")
+        materialize("person", "person_prop")
 
         self.assertEqual(optimizer().materialized_event_columns_to_query, ["mat_event_prop"])
-        # self.assertEqual(optimizer().should_query_event_properties_column, False)
+        self.assertEqual(optimizer().should_query_event_properties_column, False)
+
+        self.assertEqual(optimizer().materialized_person_columns_to_query, ["mat_person_prop"])
+        self.assertEqual(optimizer().should_query_person_properties_column, False)
 
     def test_should_query_element_chain_column(self):
         should_query_elements_chain_column = lambda filter: ColumnOptimizer(
