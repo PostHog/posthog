@@ -1,13 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useRef } from 'react'
 import { Button, Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import equal from 'fast-deep-equal'
 import useSize from '@react-hook/size'
 import { DeleteOutlined } from '@ant-design/icons'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ANTD_TOOLTIP_PLACEMENTS, areObjectValuesEmpty, clamp } from 'lib/utils'
+import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { FunnelExclusionEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
 
 function ExclusionRowSuffix({
@@ -21,39 +20,27 @@ function ExclusionRowSuffix({
     onClose?: () => void
     isVertical: boolean
 }): JSX.Element | null {
-    const { exclusionFilters, exclusionDefaultStepRange, areFiltersValid, numberOfSeries } = useValues(funnelLogic)
+    const { filters, areFiltersValid, numberOfSeries, exclusionDefaultStepRange } = useValues(funnelLogic)
     const { setOneEventExclusionFilter } = useActions(funnelLogic)
 
-    const persistedStepRange = {
-        funnel_from_step: exclusionFilters.events?.[index]?.funnel_from_step,
-        funnel_to_step: exclusionFilters.events?.[index]?.funnel_to_step,
+    const stepRange = {
+        funnel_from_step: filters.exclusions?.[index]?.funnel_from_step ?? exclusionDefaultStepRange.funnel_from_step,
+        funnel_to_step: filters.exclusions?.[index]?.funnel_to_step ?? exclusionDefaultStepRange.funnel_to_step,
     }
 
-    const [localStepRange, setLocalStepRange] = useState<Omit<FunnelExclusionEntityFilter, 'id' | 'name'>>(
-        !areObjectValuesEmpty(persistedStepRange) ? persistedStepRange : exclusionDefaultStepRange
-    )
-
-    const setExclusionRowValue = (): void => {
-        setOneEventExclusionFilter({ ...filter, ...localStepRange }, index)
+    const onChange = (
+        funnel_from_step: number = stepRange.funnel_from_step,
+        funnel_to_step: number = stepRange.funnel_to_step
+    ): void => {
+        setOneEventExclusionFilter(
+            {
+                ...filter,
+                funnel_from_step,
+                funnel_to_step,
+            },
+            index
+        )
     }
-
-    const onBlur = (): void => {
-        if (!equal(persistedStepRange, localStepRange)) {
-            setExclusionRowValue()
-        }
-    }
-
-    const onChange = (fromStep: number, toStep: number): void => {
-        const funnel_from_step = clamp(fromStep, 0, exclusionDefaultStepRange.funnel_to_step - 1)
-        setLocalStepRange({
-            funnel_from_step,
-            funnel_to_step: clamp(toStep, funnel_from_step + 1, exclusionDefaultStepRange.funnel_to_step),
-        })
-    }
-
-    useEffect(() => {
-        onChange(localStepRange.funnel_from_step, localStepRange.funnel_to_step)
-    }, [exclusionDefaultStepRange])
 
     return (
         <Row
@@ -70,9 +57,9 @@ function ExclusionRowSuffix({
                 dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
                 data-attr="funnel-exclusion-funnel_from_step-selector"
                 optionLabelProp="label"
-                value={localStepRange.funnel_from_step}
-                onChange={(fromStep: number) => onChange(fromStep, localStepRange.funnel_to_step)}
-                onBlur={onBlur}
+                value={stepRange.funnel_from_step}
+                onChange={(fromStep: number) => onChange(fromStep)}
+                onBlur={() => onChange}
                 style={{ marginLeft: 4, marginRight: 4 }}
             >
                 {Array.from(Array(numberOfSeries).keys())
@@ -85,19 +72,19 @@ function ExclusionRowSuffix({
             </Select>
             and
             <Select
-                defaultValue={(localStepRange.funnel_from_step ?? 0) + 1}
+                defaultValue={(stepRange.funnel_from_step ?? 0) + 1}
                 disabled={!areFiltersValid}
                 dropdownMatchSelectWidth={false}
                 dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
                 data-attr="funnel-exclusion-funnel_to_step-selector"
                 optionLabelProp="label"
-                value={localStepRange.funnel_to_step}
-                onChange={(toStep: number) => onChange(localStepRange.funnel_from_step, toStep)}
-                onBlur={onBlur}
+                value={stepRange.funnel_to_step}
+                onChange={(toStep: number) => onChange(stepRange.funnel_from_step, toStep)}
+                onBlur={() => onChange}
                 style={{ marginLeft: 4 }}
             >
                 {Array.from(Array(numberOfSeries).keys())
-                    .slice((localStepRange.funnel_from_step ?? 0) + 1)
+                    .slice((stepRange.funnel_from_step ?? 0) + 1)
                     .map((stepIndex) => (
                         <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
                             Step {stepIndex + 1}
@@ -164,7 +151,7 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             }}
             disabled={!areFiltersValid}
             buttonCopy="Add exclusion"
-            groupTypes={[exclusionFilters.type as TaxonomicFilterGroupType]}
+            groupTypes={[TaxonomicFilterGroupType.Events]}
             hideMathSelector
             hidePropertySelector
             hideFilter

@@ -37,6 +37,7 @@ import {
     deepCleanFunnelExclusionEvents,
     EMPTY_FUNNEL_RESULTS,
     formatDisplayPercentage,
+    getClampedExclusionFilter,
     getLastFilledStep,
     getReferenceStep,
     isBreakdownFunnelResults,
@@ -201,32 +202,34 @@ export const funnelLogic = kea<funnelLogicType>({
                     insightLogic.actions.startQuery(queryId)
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
+                    let resultsPackage: LoadedRawFunnelResults = { ...EMPTY_FUNNEL_RESULTS, filters }
                     try {
                         const [result, timeConversionResults] = await Promise.all([
                             loadFunnelResults(),
                             loadBinsResults(),
                         ])
                         breakpoint()
+                        resultsPackage = { ...resultsPackage, results: result.result, timeConversionResults }
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                         dashboardsModel.actions.updateDashboardRefreshStatus(
                             dashboardItemId,
                             false,
                             result.last_refresh
                         )
-                        return { results: result.result, timeConversionResults, filters }
+                        return resultsPackage
                     } catch (e) {
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                             dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                             console.error(e)
                         }
-                        return { ...EMPTY_FUNNEL_RESULTS, filters }
+                        return resultsPackage
                     }
                 },
             },
         ],
         people: [
-            [] as any[], // TODO: Type properly
+            [] as any[],
             {
                 loadPeople: async (steps) => {
                     return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
@@ -239,19 +242,29 @@ export const funnelLogic = kea<funnelLogicType>({
         filters: [
             (props.filters || {}) as FilterType,
             {
-                setFilters: (state, { filters, mergeWithExisting }) =>
-                    mergeWithExisting ? { ...state, ...filters } : filters,
-                clearFunnel: (state) => ({ new_entity: state.new_entity }),
-            },
-        ],
-        exclusionFilters: [
-            (props.exclusionFilters || { type: EntityTypes.EVENTS }) as FilterType,
-            {
-                setEventExclusionFilters: (state, { filters }) => ({ ...state, ...filters, type: EntityTypes.EVENTS }),
+                setFilters: (state, { filters, mergeWithExisting }) => {
+                    // make sure exclusion steps are clamped within new step range
+                    const newFilters = {
+                        ...filters,
+                        exclusions: (filters.exclusions || state.exclusions || []).map((e) =>
+                            getClampedExclusionFilter(e, filters)
+                        ),
+                    }
+                    return mergeWithExisting ? { ...state, ...newFilters } : newFilters
+                },
+                setEventExclusionFilters: (state, { filters }) => ({
+                    ...state,
+                    exclusions: filters.events as FunnelExclusionEntityFilter[],
+                }),
                 setOneEventExclusionFilter: (state, { eventFilter, index }) => ({
                     ...state,
-                    events: state.events ? state.events.map((e, e_i) => (e_i === index ? eventFilter : e)) : [],
+                    exclusions: state.exclusions
+                        ? state.exclusions.map((e, e_i) =>
+                              e_i === index ? getClampedExclusionFilter(eventFilter, state) : e
+                          )
+                        : [],
                 }),
+                clearFunnel: (state) => ({ new_entity: state.new_entity }),
             },
         ],
         people: {
@@ -297,6 +310,14 @@ export const funnelLogic = kea<funnelLogicType>({
             BinCountAuto as BinCountValue,
             {
                 setBinCount: (_, { binCount }) => binCount,
+            },
+        ],
+        error: [
+            null as any, // TODO: Error typing in typescript doesn't exist natively
+            {
+                [insightLogic.actionTypes.startQuery]: () => null,
+                [insightLogic.actionTypes.endQuery]: (_, { exception }) => exception ?? null,
+                [insightLogic.actionTypes.abortQuery]: (_, { exception }) => exception ?? null,
             },
         ],
     }),
@@ -566,6 +587,18 @@ export const funnelLogic = kea<funnelLogicType>({
                 funnel_to_step: areFiltersValid ? numberOfSeries - 1 : 1,
             }),
         ],
+        exclusionFilters: [
+            () => [selectors.filters],
+            (filters: FilterType): FilterType => ({
+                events: filters.exclusions,
+            }),
+        ],
+        areExclusionFiltersValid: [
+            () => [selectors.error],
+            (e: any): boolean => {
+                return !(e?.status === 400 && e?.type === 'validation_error')
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -596,6 +629,16 @@ export const funnelLogic = kea<funnelLogicType>({
             if (!props.dashboardItemId) {
                 insightLogic.actions.setAllFilters(cleanedParams)
                 insightLogic.actions.setLastRefresh(null)
+            }
+        },
+        setEventExclusionFilters: () => {
+            if (!equal(values.filters.exclusions, values.lastAppliedFilters.exclusions)) {
+                actions.loadResults()
+            }
+        },
+        setOneEventExclusionFilter: () => {
+            if (!equal(values.filters.exclusions, values.lastAppliedFilters.exclusions)) {
+                actions.loadResults()
             }
         },
         saveFunnelInsight: async ({ name }) => {
@@ -645,18 +688,6 @@ export const funnelLogic = kea<funnelLogicType>({
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
         },
-        setEventExclusionFilters: () => {
-            actions.setFilters(
-                {
-                    ...values.filters,
-                    exclusions: values.exclusionFilters.events as FunnelExclusionEntityFilter[],
-                },
-                true
-            )
-        },
-        setOneEventExclusionFilter: () => {
-            actions.setEventExclusionFilters(values.exclusionFilters)
-        },
     }),
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
@@ -693,7 +724,6 @@ export const funnelLogic = kea<funnelLogicType>({
                         ]
                     }
                     actions.setFilters(cleanedParams, true, false)
-                    actions.setEventExclusionFilters({ events: cleanedParams.exclusions })
                 }
             }
         },

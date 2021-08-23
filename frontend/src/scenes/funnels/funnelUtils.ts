@@ -182,3 +182,16 @@ export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelExclu
         }
     })
 }
+
+export const getClampedExclusionFilter = (
+    event: FunnelExclusionEntityFilter,
+    filters: FilterType
+): FunnelExclusionEntityFilter => {
+    const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
+    const funnel_from_step = clamp(event.funnel_from_step, 0, maxStepIndex)
+    return {
+        ...event,
+        funnel_from_step,
+        funnel_to_step: clamp(event.funnel_to_step, funnel_from_step + 1, maxStepIndex),
+    }
+}

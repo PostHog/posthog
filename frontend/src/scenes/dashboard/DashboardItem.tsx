@@ -30,7 +30,7 @@ import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { logicFromInsight } from 'scenes/insights/utils'
+import { getLogicFromInsight } from 'scenes/insights/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
@@ -231,8 +231,8 @@ export function DashboardItem({
     }
 
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
-    const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
+    const { loadResults } = useActions(getLogicFromInsight(item.filters.insight, logicProps))
+    const { results, resultsLoading } = useValues(getLogicFromInsight(item.filters.insight, logicProps))
     const previousLoading = usePrevious(resultsLoading)
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
@@ -490,20 +490,24 @@ export function DashboardItem({
                 )}
 
                 <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
-                    {Element ? (
-                        <Alert.ErrorBoundary message="Error rendering graph!">
-                            {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (
-                                <Skeleton />
-                            ) : (
-                                <Element
-                                    dashboardItemId={item.id}
-                                    filters={filters}
-                                    color={color}
-                                    theme={color === 'white' ? 'light' : 'dark'}
-                                    inSharedMode={dashboardMode === DashboardMode.Public}
-                                />
-                            )}
-                        </Alert.ErrorBoundary>
+                    {!resultsLoading && Element ? (
+                        <>
+                            <Alert.ErrorBoundary message="Error rendering graph!">
+                                {(dashboardMode === DashboardMode.Public || preventLoading) &&
+                                !results &&
+                                !item.result ? (
+                                    <Skeleton />
+                                ) : (
+                                    <Element
+                                        dashboardItemId={item.id}
+                                        filters={filters}
+                                        color={color}
+                                        theme={color === 'white' ? 'light' : 'dark'}
+                                        inSharedMode={dashboardMode === DashboardMode.Public}
+                                    />
+                                )}
+                            </Alert.ErrorBoundary>
+                        </>
                     ) : (
                         <Loading />
                     )}

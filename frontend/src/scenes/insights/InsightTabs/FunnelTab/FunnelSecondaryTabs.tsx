@@ -25,22 +25,24 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
                 <h4 className="secondary">Options</h4>
                 <FunnelConversionWindowFilter />
             </Card>
-            <Card className="insight-controls" style={{ marginTop: 16 }} data-attr="funnel-exclusion-options">
-                <h4 className="secondary">
-                    Exclusion Steps
-                    <Tooltip
-                        title={
-                            <>
-                                Exclude users who completed the specified event between two specific steps. Note that
-                                these users will be <b>completely excluded from the entire funnel</b>.
-                            </>
-                        }
-                    >
-                        <InfoCircleOutlined className="info-indicator" />
-                    </Tooltip>
-                </h4>
-                <FunnelExclusionsFilter />
-            </Card>
+            {clickhouseFeaturesEnabled && (
+                <Card className="insight-controls" style={{ marginTop: 16 }} data-attr="funnel-exclusion-options">
+                    <h4 className="secondary">
+                        Exclusion Steps
+                        <Tooltip
+                            title={
+                                <>
+                                    Exclude users who completed the specified event between two specific steps. Note
+                                    that these users will be <b>completely excluded from the entire funnel</b>.
+                                </>
+                            }
+                        >
+                            <InfoCircleOutlined className="info-indicator" />
+                        </Tooltip>
+                    </h4>
+                    <FunnelExclusionsFilter />
+                </Card>
+            )}
             <Card className="insight-controls" style={{ marginTop: 16 }}>
                 <GlobalFiltersTitle unit="steps" />
                 <PropertyFilters
