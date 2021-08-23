@@ -1,4 +1,4 @@
-import { Button, Col, Row, Table, Tabs } from 'antd'
+import { Button, Col, Dropdown, Menu, Row, Table, Tabs } from 'antd'
 import { ColumnType } from 'antd/lib/table'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -15,9 +15,11 @@ import {
     RightOutlined,
     UnorderedListOutlined,
     AppstoreFilled,
+    DownOutlined,
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 const { TabPane } = Tabs
 
 export function SavedInsights(): JSX.Element {
@@ -86,8 +88,43 @@ export function SavedInsights(): JSX.Element {
         createdByColumn(insights.results) as ColumnType<DashboardItemType>,
     ]
 
+    const menuItems = [
+        { type: 'Trends', description: 'Visualize how actions or events are varying over time' },
+        { type: 'Funnels', description: 'Visualize completion and dropoff between events' },
+        { type: 'Sessions', description: 'Understand how users are spending their time in your product' },
+        { type: 'Retention', description: 'Visualize how many users return on subsequent days after a session' },
+        { type: 'User Paths', description: 'Understand how traffic is flowing through your product' },
+        { type: 'Stickiness', description: 'See how many days users performed an action within a timeframe' },
+        { type: 'Lifecycle', description: 'See new, resurrected, returning, and dormant users' },
+    ]
+
     return (
         <div className="saved-insights">
+            <Row style={{ justifyContent: 'space-between' }}>
+                <PageHeader title={'Insights'} />
+                <Dropdown
+                    overlay={
+                        <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
+                            {menuItems.map((menuItem) => (
+                                <Menu.Item style={{ margin: 8 }} key={menuItem.type}>
+                                    <Col>
+                                        <span style={{ fontWeight: 600 }}>{menuItem.type}</span>
+                                        <p className="text-muted" style={{ whiteSpace: 'break-spaces' }}>
+                                            {menuItem.description}
+                                        </p>
+                                    </Col>
+                                </Menu.Item>
+                            ))}
+                        </Menu>
+                    }
+                    trigger={['click']}
+                >
+                    <a className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
+                        New Insight <DownOutlined />
+                    </a>
+                </Dropdown>
+            </Row>
+
             <Tabs defaultActiveKey="1" style={{ borderColor: '#D9D9D9' }} onChange={(key) => loadInsights(key)}>
                 <TabPane tab="All Insights" key={SavedInsightsParamOptions.All} />
                 <TabPane tab="Your Insights" key={SavedInsightsParamOptions.Yours} />
