@@ -1,7 +1,9 @@
+import uuid
 from typing import Dict, Generator, List
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+import sqlparse
 
 from ee.clickhouse.client import sync_execute
 
@@ -116,3 +118,51 @@ def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
         rows.append(result)
 
     return rows
+
+def analyze_query(query: str):
+    result = {}
+
+    query_id = str(uuid.uuid4())
+
+    # Run the query once
+    sync_execute(f"""
+        -- analyze_query:${query_id}
+        {query}
+    """, settings={
+        "allow_introspection_functions": 1,
+        "query_profiler_real_time_period_ns": 40000000,
+        "query_profiler_cpu_time_period_ns": 40000000,
+        "memory_profiler_step": 1048576,
+        "max_untracked_memory": 1048576,
+        "memory_profiler_sample_probability": 0.01,
+        "use_uncompressed_cache": 0
+    })
+
+    # :TODO: Stable host?
+
+    return {
+        "query": sqlparse.format(query, reindent_aligned=True),
+        "timing": get_query_timing_info(query_id),
+        "flamegraphs": get_flamegraphs(query_id),
+    }
+
+
+def get_query_timing_info(query_id: str) -> Dict:
+    results = sync_execute(f"""
+        SELECT
+            event_time,
+            query_duration_ms,
+            read_rows,
+            formatReadableSize(read_bytes) as read_size,
+            result_rows,
+            formatReadableSize(result_bytes) as result_size,
+            formatReadableSize(memory_usage) as memory_usage
+        FROM system.query_log
+        WHERE query_id=%(query_id)s AND type = 'QueryFinish'
+        LIMIT 1
+    """, { query_id: query_id })
+
+    return dict(zip(["event_time", "query_duration_ms", "read_rows", "read_size", "result_rows", "result_size", "memory_usage"], results[0]))
+
+# def get_flamegraphs(query_id: str) -> Dict:
+

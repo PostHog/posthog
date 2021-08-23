@@ -162,6 +162,15 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         return Response({"results": queries})
 
+    # :TODO:
+    @action(methods=["POST"], defail=False)
+    def analyze_query(self, request: Request) -> Response:
+        response = {}
+        if is_clickhouse_enabled():
+            response
+
+        return Response(response)
+
     def get_postgres_running_queries(self):
         from django.db import connection
 
