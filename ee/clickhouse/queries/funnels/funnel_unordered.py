@@ -107,7 +107,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(conversion_times[{i+1}]), dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
+                f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= conversion_times[{i}] + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) step_{i}_conversion_time"
             )
             # array indices in ClickHouse are 1-based :shrug:
 
