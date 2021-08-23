@@ -296,7 +296,7 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
     invite_id = strategy.session_get("invite_id")
 
     if not user_email or not user_name:
-        missing_attr = "user_email" if not user_email else "user_name"
+        missing_attr = "email" if not user_email else "name"
         raise ValidationError(
             {missing_attr: "This field is required and was not provided by the IdP."}, code="required"
         )
