@@ -24,10 +24,10 @@ class TestClickhousePathsOld(ClickhouseTestMixin, paths_test_factory(ClickhouseP
         materialize("events", "$current_url")
         materialize("events", "$screen_name")
 
-        query, _ = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
+        query, _ = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
 
-        query, _ = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
+        query, _ = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
 
         self.test_current_url_paths_and_logic()
@@ -38,10 +38,10 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         materialize("events", "$current_url")
         materialize("events", "$screen_name")
 
-        query, _ = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
+        query = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
 
-        query, _ = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
+        query = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
 
         self.test_current_url_paths_and_logic()
