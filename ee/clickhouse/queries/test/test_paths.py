@@ -45,3 +45,50 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertNotIn("json", query.lower())
 
         self.test_current_url_paths_and_logic()
+
+    def test_step_limit(self):
+        with freeze_time("2012-01-01T03:21:34.000Z"):
+            Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
+            _create_event(
+                properties={"$current_url": "/1"}, distinct_id="fake", event="$pageview", team=self.team,
+            )
+        with freeze_time("2012-01-01T03:22:34.000Z"):
+            _create_event(
+                properties={"$current_url": "/2"}, distinct_id="fake", event="$pageview", team=self.team,
+            )
+        with freeze_time("2012-01-01T03:23:34.000Z"):
+            _create_event(
+                properties={"$current_url": "/3"}, distinct_id="fake", event="$pageview", team=self.team,
+            )
+        with freeze_time("2012-01-01T03:24:34.000Z"):
+            _create_event(
+                properties={"$current_url": "/4"}, distinct_id="fake", event="$pageview", team=self.team,
+            )
+
+        with freeze_time("2012-01-7T03:21:34.000Z"):
+            filter = PathFilter(data={"step_limit": 2})
+            response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(response, [{"source": "1_/1", "target": "2_/2", "value": 1}])
+
+        with freeze_time("2012-01-7T03:21:34.000Z"):
+            filter = PathFilter(data={"step_limit": 3})
+            response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [{"source": "1_/1", "target": "2_/2", "value": 1}, {"source": "2_/2", "target": "3_/3", "value": 1}],
+        )
+
+        with freeze_time("2012-01-7T03:21:34.000Z"):
+            filter = PathFilter(data={"step_limit": 4})
+            response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 1},
+                {"source": "2_/2", "target": "3_/3", "value": 1},
+                {"source": "3_/3", "target": "4_/4", "value": 1},
+            ],
+        )
