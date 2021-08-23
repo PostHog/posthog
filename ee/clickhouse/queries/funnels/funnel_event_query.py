@@ -24,15 +24,19 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 else ""
             ),
             f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
-            f"{self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "",
+            f"{self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons and self._column_optimizer.should_query_person_properties_column else "",
         ]
 
         _fields.extend(
-            [
-                f"{self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
-                for column_name in column_optimizer.materialized_event_columns_to_query
-            ]
+            f"{self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
+            for column_name in column_optimizer.materialized_event_columns_to_query
         )
+
+        if self._should_join_persons:
+            _fields.extend(
+                f", {self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
+                for column_name in self._column_optimizer.materialized_person_columns_to_query
+            )
 
         _fields = list(filter(None, _fields))
 
