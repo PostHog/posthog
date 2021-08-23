@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse } from 'antd'
+import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Radio } from 'antd'
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -12,6 +12,7 @@ import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 
@@ -84,10 +85,15 @@ function APISnippet(): JSX.Element {
 
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
-    const { featureFlag, featureFlagId } = useValues(featureFlagLogic)
-    const { addMatchGroup, updateMatchGroup, removeMatchGroup, saveFeatureFlag, deleteFeatureFlag } = useActions(
-        featureFlagLogic
-    )
+    const { featureFlag, featureFlagId, multivariateEnabled } = useValues(featureFlagLogic)
+    const {
+        addMatchGroup,
+        updateMatchGroup,
+        removeMatchGroup,
+        saveFeatureFlag,
+        deleteFeatureFlag,
+        setMultivariateEnabled,
+    } = useActions(featureFlagLogic)
 
     const [hasKeyChanged, setHasKeyChanged] = useState(false) // whether the key for an existing flag is being changed
 
@@ -271,6 +277,34 @@ export function FeatureFlag(): JSX.Element {
                             </Collapse>
                         </Col>
                     </Row>
+
+                    {FEATURE_FLAGS.MULTIVARIATE_SUPPORT && (
+                        <div className="mb-2">
+                            <h3 className="l3">Served value</h3>
+                            <div className="mb-05">
+                                <Radio.Group
+                                    options={[
+                                        {
+                                            label: 'Boolean value',
+                                            value: false,
+                                        },
+                                        {
+                                            label: 'a string variant',
+                                            value: true,
+                                        },
+                                    ]}
+                                    onChange={(e) => setMultivariateEnabled(e.target.value)}
+                                    value={multivariateEnabled}
+                                    optionType="button"
+                                />
+                            </div>
+                            <div className="text-muted mb">
+                                Users will be served{' '}
+                                <strong>{multivariateEnabled ? 'a variant key' : <code>true</code>}</strong> if they
+                                match one or more release condition groups.
+                            </div>
+                        </div>
+                    )}
 
                     <h3 className="l3">Release condition groups ({featureFlag.filters.groups.length})</h3>
                     <div className="text-muted mb">

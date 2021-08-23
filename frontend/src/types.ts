@@ -855,9 +855,22 @@ export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
 }
+
+interface MultivariateFlagVariant {
+    key: string
+    name: string | null
+    rollout_percentage: number
+}
+
+export interface MultivariateFlagOptions {
+    variants: MultivariateFlagVariant[]
+}
+
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
+    multivariate: MultivariateFlagOptions | null
 }
+
 export interface FeatureFlagType {
     id: number | null
     key: string

@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
-import { AnyPropertyFilter, FeatureFlagType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagType, MultivariateFlagOptions } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
@@ -20,6 +20,10 @@ const NEW_FLAG = {
     rollout_percentage: null,
 }
 
+const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
+    variants: [],
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>({
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
@@ -35,6 +39,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             newProperties,
         }),
         deleteFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
+        setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
     },
     reducers: {
         featureFlagId: [
@@ -77,6 +83,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     groups.splice(index, 1)
                     return { ...state, filters: { ...state.filters, groups } }
                 },
+                setMultivariateOptions: (state, { multivariateOptions }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                },
             },
         ],
     },
@@ -103,7 +115,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
             },
         },
     }),
-    listeners: {
+    listeners: ({ actions }) => ({
         saveFeatureFlagSuccess: () => {
             toast.success(
                 <div>
@@ -127,6 +139,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 },
             })
         },
+        setMultivariateEnabled: async ({ enabled }) => {
+            if (enabled) {
+                actions.setMultivariateOptions(EMPTY_MULTIVARIATE_OPTIONS)
+            } else {
+                actions.setMultivariateOptions(null)
+            }
+        },
+    }),
+    selectors: {
+        multivariateEnabled: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return !!featureFlag?.filters.multivariate
+            },
+        ],
     },
     urlToAction: ({ actions }) => ({
         '/feature_flags/*': ({ _: id }) => {
