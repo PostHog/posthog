@@ -204,6 +204,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(daily_response[0]["aggregated_value"], 1)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        @test_with_materialized_columns(["$math_prop"])
         def test_trends_single_aggregate_math(self):
             person = person_factory(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
@@ -260,13 +261,26 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        @test_with_materialized_columns(person_properties=["name"])
         def test_trends_breakdown_single_aggregate_cohorts(self):
             person_1 = person_factory(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
             person_2 = person_factory(team_id=self.team.pk, distinct_ids=["John"], properties={"name": "John"})
             person_3 = person_factory(team_id=self.team.pk, distinct_ids=["Jill"], properties={"name": "Jill"})
-            cohort1 = cohort_factory(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
-            cohort2 = cohort_factory(team=self.team, name="cohort2", groups=[{"properties": {"name": "John"}}])
-            cohort3 = cohort_factory(team=self.team, name="cohort3", groups=[{"properties": {"name": "Jill"}}])
+            cohort1 = cohort_factory(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
+            cohort2 = cohort_factory(
+                team=self.team,
+                name="cohort2",
+                groups=[{"properties": [{"key": "name", "value": "John", "type": "person"}]}],
+            )
+            cohort3 = cohort_factory(
+                team=self.team,
+                name="cohort3",
+                groups=[{"properties": [{"key": "name", "value": "Jill", "type": "person"}]}],
+            )
             with freeze_time("2020-01-01 00:06:34"):
                 event_factory(
                     team=self.team,

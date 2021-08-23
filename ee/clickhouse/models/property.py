@@ -204,8 +204,7 @@ def get_property_string_expr(
 ) -> Tuple[str, bool]:
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
-    # :TODO: Handle denormalized properties in person table
-    if allow_denormalized_props and property_name in materialized_columns and table == "events":
+    if allow_denormalized_props and property_name in materialized_columns:
         return materialized_columns[property_name], True
 
     return f"trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, {var}))", False
