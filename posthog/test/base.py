@@ -147,7 +147,7 @@ def test_with_materialized_columns(event_properties=[], verify_no_jsonextract=Tr
         @pytest.mark.ee
         def fn_with_materialized(self, *args, **kwargs):
             # Don't run these tests under non-clickhouse classes even if decorated in base classes
-            if not getattr(self, "RUN_MATERIALIZED_COLUMN_TESTS"):
+            if not getattr(self, "RUN_MATERIALIZED_COLUMN_TESTS", False):
                 return
 
             for prop in event_properties:
