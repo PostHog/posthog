@@ -10,7 +10,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView
 from social_core.pipeline.partial import partial
 
-from ee.api.authentication import saml_metadata_view
 from posthog.api import (
     api_not_found,
     authentication,

@@ -605,7 +605,7 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
 
     # Get license information
     bypass_license: bool = settings.MULTI_TENANCY
-    license: Optional["License"] = None
+    license = None
     try:
         from ee.models.license import License
     except ImportError:
