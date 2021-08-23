@@ -94,7 +94,15 @@ class ClickhouseTrendsBreakdown:
             )
 
         if len(_params["values"]) == 0:
-            return "SELECT 1", {}, lambda _: []
+            # If there are no breakdown values, we are sure that there's no relevant events, so instead of adjusting
+            # a "real" SELECT for this, we only include the below dummy SELECT.
+            # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
+            # See https://github.com/PostHog/posthog/pull/5674 for context.
+            return (
+                "SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0",
+                {},
+                lambda _: [],
+            )
 
         params = {**params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
