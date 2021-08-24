@@ -5,5 +5,5 @@ try:
 
     repo = git.Repo(search_parent_directories=True)
     GIT_SHA = repo.head.object.hexsha
-except:
-    GIT_SHA = "Not Available"
+except Exception:
+    GIT_SHA = "Unavailable"

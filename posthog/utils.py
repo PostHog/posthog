@@ -42,6 +42,7 @@ from sentry_sdk import push_scope
 from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
+from posthog.version import GIT_SHA
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -182,7 +183,7 @@ def get_git_commit() -> Optional[str]:
     """
 
     try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
+        return GIT_SHA[-8:]
     except Exception:
         return None
 
