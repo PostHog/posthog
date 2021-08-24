@@ -99,7 +99,6 @@ export function Insights(): JSX.Element {
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const { user } = useValues(userLogic)
-    const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
     const { loadResults } = useActions(
         logicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
@@ -244,7 +243,7 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col span={24} lg={verticalLayout ? 8 : undefined}>
+                        <Col span={24}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
@@ -303,7 +302,7 @@ export function Insights(): JSX.Element {
                             </Card>
                             {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
-                        <Col span={24} lg={verticalLayout ? 16 : undefined}>
+                        <Col span={24}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
