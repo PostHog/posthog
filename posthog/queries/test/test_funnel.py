@@ -260,6 +260,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
 
+        @test_with_materialized_columns(person_properties=["email"])
         def test_funnel_person_prop(self):
             action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
             ActionStep.objects.create(
@@ -330,6 +331,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
 
+        @test_with_materialized_columns(person_properties=["email"])
         def test_funnel_filter_test_accounts(self):
             person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
             person_factory(distinct_ids=["person2"], team_id=self.team.pk)
