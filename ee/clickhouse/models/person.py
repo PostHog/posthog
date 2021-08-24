@@ -108,8 +108,8 @@ def delete_person(
     try:
         if delete_events:
             sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
-    except Exception as e:
-        print(e)
+    except:
+        pass  # cannot delete if the table is distributed
 
     sync_execute(DELETE_PERSON_BY_ID, data)
 
