@@ -1464,6 +1464,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "bryanyi",
+      "name": "bryanyi",
+      "avatar_url": "https://avatars.githubusercontent.com/u/66971225?v=4",
+      "profile": "http://bryanyi.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
