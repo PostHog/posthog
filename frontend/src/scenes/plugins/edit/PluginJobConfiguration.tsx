@@ -39,7 +39,7 @@ export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: Plu
         try {
             await api.create(`api/plugin_config/${pluginConfigId}/job`, {
                 job: {
-                    name: jobName,
+                    type: jobName,
                     payload: form.getFieldsValue(),
                 },
             })
