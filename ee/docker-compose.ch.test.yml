@@ -1,6 +1,27 @@
 version: '3'
 
 services:
+    db:
+        image: postgres:12-alpine
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog
+            POSTGRES_PASSWORD: posthog
+        ports:
+            - '5432:5432'
+    clickhouse:
+        # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
+        # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
+        image: yandex/clickhouse-server:21.6.5
+        ports:
+            - '8123:8123'
+            - '9000:9000'
+            - '9440:9440'
+            - '9009:9009'
+        volumes:
+            - ./idl:/idl
+            - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
     test:
         build:
             context: ../
@@ -21,11 +42,6 @@ services:
             TEST: 'true'
         depends_on:
             - db
-            - redis
-            - clickhouse
-            - kafka
         links:
             - db:db
-            - redis:redis
             - clickhouse:clickhouse
-            - kafka:kafka
