@@ -53,6 +53,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         addVariant: true,
         updateVariant: (index: number, newProperties: Partial<MultivariateFlagVariant>) => ({ index, newProperties }),
         removeVariant: (index: number) => ({ index }),
+        distributeVariantsEqually: true,
     },
     reducers: {
         featureFlagId: [
@@ -146,6 +147,38 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     }
                     const variants = [...(state.filters.multivariate?.variants || [])]
                     variants.splice(index, 1)
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            multivariate: {
+                                ...state.filters.multivariate,
+                                variants,
+                            },
+                        },
+                    }
+                },
+                distributeVariantsEqually: (state) => {
+                    // Adjust the variants to be as evenly distributed as possible,
+                    // taking integer rounding into account
+                    if (!state) {
+                        return state
+                    }
+                    const variants = [...(state.filters.multivariate?.variants || [])]
+                    const numVariants = variants.length
+                    if (numVariants > 0 && numVariants <= 100) {
+                        const percentageRounded = Math.round(100 / numVariants)
+                        const totalRounded = percentageRounded * numVariants
+                        const delta = totalRounded - 100
+                        variants.forEach((variant, index) => {
+                            variants[index] = { ...variant, rollout_percentage: percentageRounded }
+                        })
+                        // Apply the rounding error to the last index
+                        variants[numVariants - 1] = {
+                            ...variants[numVariants - 1],
+                            rollout_percentage: percentageRounded - delta,
+                        }
+                    }
                     return {
                         ...state,
                         filters: {

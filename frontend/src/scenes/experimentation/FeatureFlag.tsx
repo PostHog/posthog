@@ -3,7 +3,7 @@ import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Radio, I
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DeleteOutlined, SaveOutlined, PlusOutlined, ApiFilled } from '@ant-design/icons'
+import { DeleteOutlined, SaveOutlined, PlusOutlined, ApiFilled, MergeCellsOutlined } from '@ant-design/icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -111,6 +111,7 @@ export function FeatureFlag(): JSX.Element {
         addVariant,
         updateVariant,
         removeVariant,
+        distributeVariantsEqually,
     } = useActions(featureFlagLogic)
 
     // whether the key for an existing flag is being changed
@@ -358,7 +359,18 @@ export function FeatureFlag(): JSX.Element {
                                     <Row gutter={8} className="label-row">
                                         <Col span={7}>Variant key</Col>
                                         <Col span={7}>Description</Col>
-                                        <Col span={9}>Rollout percentage</Col>
+                                        <Col span={9}>
+                                            <span>Rollout percentage</span>
+                                            <Button
+                                                type="link"
+                                                onClick={distributeVariantsEqually}
+                                                icon={<MergeCellsOutlined />}
+                                                style={{ padding: '0 0 0 0.5em' }}
+                                                title="Distribute variants equally"
+                                            >
+                                                Distribute
+                                            </Button>
+                                        </Col>
                                     </Row>
                                     {variants.map(({ rollout_percentage }, index) => (
                                         <Form
