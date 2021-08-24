@@ -1,9 +1,10 @@
 import React from 'react'
-import { Provider } from 'kea'
-import { initKea } from '../frontend/src/initKea'
+import { getContext } from 'kea'
+import { loadPostHogJS } from '~/loadPostHogJS'
 import '~/styles'
 
-initKea()
+loadPostHogJS()
+window.getReduxState = () => getContext().store.getState()
 
 export const parameters = {
     actions: { argTypesRegex: '^on[A-Z].*' },
@@ -15,13 +16,4 @@ export const parameters = {
     },
 }
 
-const withKea = (Story, context) => {
-    // const theme = getTheme(context.globals.theme)
-    return (
-        <Provider>
-            <Story {...context} />
-        </Provider>
-    )
-}
-
-export const decorators = [withKea]
+export const decorators = []
