@@ -81,8 +81,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
         self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
 
+    @test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property(self):
-        person1, person2, person3, person4 = self._create_multiple_people()
+        self._create_multiple_people()
         action = _create_action(name="watched movie", team=self.team)
 
         with freeze_time("2020-01-04T13:01:01Z"):
