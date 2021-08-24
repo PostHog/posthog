@@ -94,7 +94,7 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
                 prop=prop,
                 idx=idx,
                 prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx),
-                allow_denormalized_props=True,
+                allow_denormalized_props=False,
             )
             params.update(filter_params)
             query_parts.append(filter_query)

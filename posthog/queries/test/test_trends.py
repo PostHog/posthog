@@ -1815,6 +1815,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(event_response[0]["label"], "$pageview - all users")
             self.assertEqual(sum(event_response[0]["data"]), 1)
 
+        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_breakdown_by_cohort(self):
             person1, person2, person3, person4 = self._create_multiple_people()
             cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
@@ -1871,9 +1872,14 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event_response, action_response,
             )
 
+        @test_with_materialized_columns(verify_no_jsonextract=False)
         def test_interval_filtering_breakdown(self):
             self._create_events(use_time=True)
-            cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"$some_prop": "some_val"}}])
+            cohort = cohort_factory(
+                name="cohort1",
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
+            )
 
             # test minute
             with freeze_time("2020-01-02"):
@@ -2083,6 +2089,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             result = trends().run(filter_3, self.team,)
             self.assertEqual(result[0]["count"], 1)
 
+        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_filter_test_accounts_cohorts(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
             person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -2091,8 +2098,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             event_factory(event="event_name", team=self.team, distinct_id="person_2")
             event_factory(event="event_name", team=self.team, distinct_id="person_2")
 
-            cohort = cohort_factory(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
-
+            cohort = cohort_factory(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
             self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
             self.team.save()
 
