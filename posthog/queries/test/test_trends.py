@@ -261,7 +261,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
-        @test_with_materialized_columns(person_properties=["name"])
+        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_trends_breakdown_single_aggregate_cohorts(self):
             person_1 = person_factory(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
             person_2 = person_factory(team_id=self.team.pk, distinct_ids=["John"], properties={"name": "John"})
@@ -1281,7 +1281,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 0)
 
-        @test_with_materialized_columns(person_properties=["name"])
+        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_filter_events_by_cohort(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
