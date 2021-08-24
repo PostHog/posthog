@@ -25,7 +25,9 @@ style files without adding already imported styles. */
     --text-light: #{$text_light};
     --muted: #{$text_muted};
     --muted-alt: #{$text_muted_alt};
+    --border-light: #{$border_light};
     --border: #{$border};
+    --border-dark: #{$border_dark};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{$purple_500};
