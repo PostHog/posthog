@@ -45,7 +45,7 @@ def reset_clickhouse_tables():
         try:
             sync_execute(item[0])
         except Exception as e:
-            print(e)
+            pass
         try:
             sync_execute(item[1])
         except Exception as e:

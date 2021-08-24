@@ -21,6 +21,6 @@ def _create_person(**kwargs):
 
 
 class ClickhouseTestPersonApi(
-    ClickhouseTestMixin, factory_test_person(_create_event, _create_person, _get_events, Person.objects.all)  # type: ignore
+    ClickhouseTestMixin, factory_test_person(_create_event, _create_person, _get_events)  # type: ignore
 ):
     pass
