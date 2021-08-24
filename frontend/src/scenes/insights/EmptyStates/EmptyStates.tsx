@@ -221,3 +221,31 @@ export function FunnelEmptyState(): JSX.Element {
         </div>
     )
 }
+
+export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
+    return (
+        <div className="insight-empty-state funnels-empty-state info-message">
+            <div className="insight-empty-state__wrapper">
+                <div className="illustration-main">
+                    <IllustrationDanger />
+                </div>
+                <h2 className="funnels-empty-state__title">
+                    Exclusion filters cannot exclude events or actions in the funnel steps.
+                </h2>
+                <p className="funnels-empty-state__description">
+                    Try changing your funnel step filters, or removing the overlapping exclusion event.
+                </p>
+                <div className="funnels-empty-state__help">
+                    <a
+                        data-attr="insight-funnels-emptystate-help"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        Learn more about funnels in our support documentation.
+                    </a>
+                </div>
+            </div>
+        </div>
+    )
+}
