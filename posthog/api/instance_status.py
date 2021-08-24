@@ -23,7 +23,7 @@ from posthog.utils import (
     is_postgres_alive,
     is_redis_alive,
 )
-from posthog.version import VERSION
+from posthog.version import GIT_SHA, VERSION
 
 
 class InstanceStatusViewSet(viewsets.ViewSet):
@@ -40,6 +40,8 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         metrics: List[Dict[str, Union[str, bool, int, float]]] = []
 
         metrics.append({"key": "posthog_version", "metric": "PostHog version", "value": VERSION})
+
+        metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": GIT_SHA})
 
         metrics.append(
             {
