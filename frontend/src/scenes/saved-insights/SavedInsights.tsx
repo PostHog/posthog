@@ -15,7 +15,7 @@ import {
     RightOutlined,
     UnorderedListOutlined,
     AppstoreFilled,
-    DownOutlined,
+    CaretDownFilled,
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -23,9 +23,14 @@ import { PageHeader } from 'lib/components/PageHeader'
 const { TabPane } = Tabs
 
 export function SavedInsights(): JSX.Element {
-    const { loadInsights, updateFavoritedInsight, loadPaginatedInsights } = useActions(savedInsightsLogic)
+    const { loadInsights, updateFavoritedInsight, loadPaginatedInsights, addGraph } = useActions(savedInsightsLogic)
     const { insights, count, offset, nextResult, previousResult, insightsLoading } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
+    
+    interface InsightItem {
+        type: string 
+        description: string
+    }
 
     const columns = [
         {
@@ -88,7 +93,7 @@ export function SavedInsights(): JSX.Element {
         createdByColumn(insights.results) as ColumnType<DashboardItemType>,
     ]
 
-    const menuItems = [
+    const menuItems: InsightItem[] = [
         { type: 'Trends', description: 'Visualize how actions or events are varying over time' },
         { type: 'Funnels', description: 'Visualize completion and dropoff between events' },
         { type: 'Sessions', description: 'Understand how users are spending their time in your product' },
@@ -100,13 +105,13 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <Row style={{ justifyContent: 'space-between' }}>
-                <PageHeader title={'Insights'} />
+            <Row style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <PageHeader style={{marginTop: 0 }} title={'Insights'} />
                 <Dropdown
                     overlay={
                         <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
                             {menuItems.map((menuItem) => (
-                                <Menu.Item style={{ margin: 8 }} key={menuItem.type}>
+                                <Menu.Item onClick={({ key }) => addGraph(key)} style={{ margin: 8 }} key={menuItem.type}>
                                     <Col>
                                         <span style={{ fontWeight: 600 }}>{menuItem.type}</span>
                                         <p className="text-muted" style={{ whiteSpace: 'break-spaces' }}>
@@ -120,7 +125,7 @@ export function SavedInsights(): JSX.Element {
                     trigger={['click']}
                 >
                     <a className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
-                        New Insight <DownOutlined />
+                        New Insight <CaretDownFilled style={{paddingLeft: 12}}/>
                     </a>
                 </Dropdown>
             </Row>

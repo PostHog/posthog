@@ -5,7 +5,7 @@ import { isMobile } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Row, Col, Card, Input } from 'antd'
+import { Row, Col, Card, Input, Button, Dropdown, Menu } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -19,7 +19,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
 import { logicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { DownOutlined, UpOutlined, EditOutlined } from '@ant-design/icons'
+import { DownOutlined, UpOutlined, EditOutlined, CaretDownFilled } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
@@ -195,7 +195,7 @@ export function Insights(): JSX.Element {
                 <Row style={{ alignItems: 'baseline' }}>
                     <PageHeader title={'Insights'} />
                     {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                        user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                        true && (
                             <EditOutlined
                                 style={{ paddingLeft: 16 }}
                                 onClick={() =>
@@ -203,12 +203,30 @@ export function Insights(): JSX.Element {
                                 }
                             />
                         )}
+                    <Button>Cancel</Button>
+                    <Button type="primary">Create</Button>
+                    <Button>Edit</Button>
+                    <Button type="primary">Save</Button>
+                    <Dropdown
+                        overlay={
+                            <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
+                                <Menu.Item>Save as a new insight</Menu.Item>
+                                <Menu.Item>Save and add to a dashboard</Menu.Item>
+                            </Menu>
+                        }
+                        trigger={['click']}
+                    >
+                        <a style={{backgroundColor: 'var(--primary)', color: 'white'}} onClick={(e) => e.preventDefault()}>
+                            Save <CaretDownFilled style={{paddingLeft: 12}}/>
+                        </a>
+                    </Dropdown>
+                    <Button type="primary">Add to dashboard</Button>
                 </Row>
             )}
 
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <Row>
-                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                    {true && (
                         <Col style={{ width: '100%' }}>
                             <div className="mb" data-attr="insight-tags">
                                 <ObjectTags

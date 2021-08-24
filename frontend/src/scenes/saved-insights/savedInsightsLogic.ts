@@ -1,6 +1,8 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
+import { Key } from 'react'
 import { DashboardItemType, SavedInsightsParamOptions } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 
@@ -12,6 +14,9 @@ interface InsightsResult {
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
+    actions: {
+        addGraph: (type: Key) => ({ type }),
+    },
     loaders: ({ values }) => ({
         insights: {
             __default: { results: [], count: 0 } as InsightsResult,
@@ -38,6 +43,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             },
         },
     }),
+    listeners: {
+        addGraph: ({ type }) => {
+            router.actions.push(
+                `/insights?insight=${type.toString().toUpperCase()}&backToURL=/saved_insights`
+            )
+        },
+    },
     selectors: {
         nextResult: [(s) => [s.insights], (insights) => insights.next],
         previousResult: [(s) => [s.insights], (insights) => insights.previous],
