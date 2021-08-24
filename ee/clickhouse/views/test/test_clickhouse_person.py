@@ -12,8 +12,8 @@ def _create_event(**kwargs):
     return Event(pk=create_event(**kwargs))
 
 
-def _get_events():
-    return sync_execute("select * from events")
+def _get_events(team_id):
+    return sync_execute("select * from events where team_id = %(team_id)s", {"team_id": team_id})
 
 
 def _create_person(**kwargs):

@@ -228,7 +228,7 @@ def factory_test_person(event_factory, person_factory, get_events):
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
             self.assertEqual(response.content, b"")  # Empty response
             self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
-            self.assertEqual(len(get_events()), 1)
+            self.assertEqual(len(get_events(team_id=self.team.pk)), 1)
 
             response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -327,6 +327,6 @@ def factory_test_person(event_factory, person_factory, get_events):
 
 
 class TestPerson(
-    factory_test_person(Event.objects.create, Person.objects.create, Event.objects.all)  # type: ignore
+    factory_test_person(Event.objects.create, Person.objects.create, Event.objects.filter)  # type: ignore
 ):
     pass
