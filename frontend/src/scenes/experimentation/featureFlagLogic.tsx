@@ -7,7 +7,6 @@ import { toast } from 'react-toastify'
 import { router } from 'kea-router'
 import { deleteWithUndo } from 'lib/utils'
 import { urls } from 'scenes/sceneLogic'
-
 const NEW_FLAG = {
     id: null,
     key: '',
@@ -17,19 +16,18 @@ const NEW_FLAG = {
     active: true,
     created_by: null,
     is_simple_flag: false,
+
     rollout_percentage: null,
 }
-
 const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     variants: [],
 }
-
 const NEW_VARIANT = {
     key: '',
     name: '',
+
     rollout_percentage: 0,
 }
-
 export const featureFlagLogic = kea<featureFlagLogicType>({
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
@@ -71,8 +69,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     if (!state) {
                         return state
                     }
-                    const groups = [...state?.filters.groups]
 
+                    const groups = [...state?.filters.groups]
                     if (newRolloutPercentage !== undefined) {
                         groups[index] = { ...groups[index], rollout_percentage: newRolloutPercentage }
                     }
@@ -197,6 +195,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
     selectors: {
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters?.multivariate?.variants || []],
+        areVariantRolloutsValid: [
+            (s) => [s.variants],
+            (variants) =>
+                variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
+                variants.reduce((total: number, { rollout_percentage }) => total + rollout_percentage, 0) === 100,
+        ],
     },
     urlToAction: ({ actions }) => ({
         '/feature_flags/*': ({ _: id }) => {

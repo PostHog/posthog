@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Radio } from 'antd'
+import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Radio, InputNumber } from 'antd'
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -85,7 +85,9 @@ function APISnippet(): JSX.Element {
 
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
-    const { featureFlag, featureFlagId, multivariateEnabled, variants } = useValues(featureFlagLogic)
+    const { featureFlag, featureFlagId, multivariateEnabled, variants, areVariantRolloutsValid } = useValues(
+        featureFlagLogic
+    )
     const {
         addMatchGroup,
         updateMatchGroup,
@@ -302,8 +304,16 @@ export function FeatureFlag(): JSX.Element {
                             </div>
                             <div className="text-muted mb">
                                 Users will be served{' '}
-                                <strong>{multivariateEnabled ? 'a variant key' : <code>true</code>}</strong> if they
-                                match one or more release condition groups.
+                                {multivariateEnabled ? (
+                                    <>
+                                        <strong>a variant key</strong> according to the below distribution
+                                    </>
+                                ) : (
+                                    <strong>
+                                        <code>true</code>
+                                    </strong>
+                                )}{' '}
+                                if they match one or more release condition groups.
                             </div>
                             <div>
                                 {variants.map(({ rollout_percentage }, index) => (
@@ -313,7 +323,7 @@ export function FeatureFlag(): JSX.Element {
                                         initialValues={variants[index]}
                                     >
                                         <Row gutter={8}>
-                                            <Col span={8}>
+                                            <Col span={6}>
                                                 <Form.Item
                                                     name="key"
                                                     rules={[
@@ -340,7 +350,7 @@ export function FeatureFlag(): JSX.Element {
                                                     />
                                                 </Form.Item>
                                             </Col>
-                                            <Col span={8}>
+                                            <Col span={6}>
                                                 <Form.Item
                                                     name="name"
                                                     style={{
@@ -355,11 +365,9 @@ export function FeatureFlag(): JSX.Element {
                                                     />
                                                 </Form.Item>
                                             </Col>
-                                            <Col span={8}>
+                                            <Col span={6}>
                                                 <Slider
                                                     tooltipPlacement="top"
-                                                    tipFormatter={(value) => value + '%'}
-                                                    tooltipVisible
                                                     value={rollout_percentage}
                                                     onChange={(value) =>
                                                         updateVariant(index, { rollout_percentage: value })
@@ -369,9 +377,36 @@ export function FeatureFlag(): JSX.Element {
                                                     }}
                                                 />
                                             </Col>
+                                            <Col span={2}>
+                                                <InputNumber
+                                                    min={0}
+                                                    max={100}
+                                                    value={rollout_percentage}
+                                                    onChange={(value) => {
+                                                        if (value !== null && value !== undefined) {
+                                                            const valueInt = parseInt(value.toString())
+                                                            if (!isNaN(valueInt)) {
+                                                                updateVariant(index, { rollout_percentage: valueInt })
+                                                            }
+                                                        }
+                                                    }}
+                                                    style={
+                                                        areVariantRolloutsValid
+                                                            ? undefined
+                                                            : {
+                                                                  borderColor: 'var(--danger)',
+                                                              }
+                                                    }
+                                                />
+                                            </Col>
                                         </Row>
                                     </Form>
                                 ))}
+                                <p style={{ color: 'var(--danger)' }}>
+                                    {multivariateEnabled &&
+                                        !areVariantRolloutsValid &&
+                                        'Percentage rollouts for variants must sum to 100.'}
+                                </p>
                             </div>
                         </div>
                     )}
