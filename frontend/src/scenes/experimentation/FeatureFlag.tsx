@@ -323,6 +323,11 @@ export function FeatureFlag(): JSX.Element {
                             </div>
                             {multivariateEnabled && (
                                 <div className="variant-form-list">
+                                    <Row gutter={8} className="label-row">
+                                        <Col span={7}>Variant key</Col>
+                                        <Col span={7}>Description</Col>
+                                        <Col span={9}>Rollout percentage</Col>
+                                    </Row>
                                     {variants.map(({ rollout_percentage }, index) => (
                                         <Form
                                             key={index}
@@ -386,29 +391,30 @@ export function FeatureFlag(): JSX.Element {
                                                                 }
                                                             }
                                                         }}
-                                                        style={
-                                                            areVariantRolloutsValid
+                                                        style={{
+                                                            width: '100%',
+                                                            borderColor: areVariantRolloutsValid
                                                                 ? undefined
-                                                                : {
-                                                                      borderColor: 'var(--danger)',
-                                                                  }
-                                                        }
+                                                                : 'var(--danger)',
+                                                        }}
                                                     />
                                                 </Col>
-                                                <Col span={1}>
-                                                    <Tooltip title="Delete this variant" placement="bottomLeft">
-                                                        <Button
-                                                            type="link"
-                                                            icon={<DeleteOutlined />}
-                                                            onClick={() => removeVariant(index)}
-                                                            style={{ color: 'var(--danger)' }}
-                                                        />
-                                                    </Tooltip>
-                                                </Col>
+                                                {variants.length > 1 && (
+                                                    <Col span={1}>
+                                                        <Tooltip title="Delete this variant" placement="bottomLeft">
+                                                            <Button
+                                                                type="link"
+                                                                icon={<DeleteOutlined />}
+                                                                onClick={() => removeVariant(index)}
+                                                                style={{ color: 'var(--danger)' }}
+                                                            />
+                                                        </Tooltip>
+                                                    </Col>
+                                                )}
                                             </Row>
                                         </Form>
                                     ))}
-                                    {!areVariantRolloutsValid && (
+                                    {variants.length > 0 && !areVariantRolloutsValid && (
                                         <p className="text-danger">
                                             Percentage rollouts for variants must sum to 100 (currently{' '}
                                             {variantRolloutSum}).

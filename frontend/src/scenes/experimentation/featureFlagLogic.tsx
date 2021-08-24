@@ -16,18 +16,23 @@ const NEW_FLAG = {
     active: true,
     created_by: null,
     is_simple_flag: false,
-
     rollout_percentage: null,
-}
-const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
-    variants: [],
 }
 const NEW_VARIANT = {
     key: '',
     name: '',
-
     rollout_percentage: 0,
 }
+const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
+    variants: [
+        {
+            key: '',
+            name: '',
+            rollout_percentage: 100,
+        },
+    ],
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>({
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
