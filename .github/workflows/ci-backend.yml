@@ -103,7 +103,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog/
+                  pytest posthog/ -n auto
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -116,7 +116,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee/
+                  pytest ee/ -n auto
 
     cloud:
         name: Django tests – Cloud
