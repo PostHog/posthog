@@ -39,9 +39,7 @@ class ClickhousePathsNew:
 
         resp = []
         for res in results:
-            resp.append(
-                {"source": res[0], "target": res[1], "value": res[2],}
-            )
+            resp.append({"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3]})
         return resp
 
     def _exec_query(self) -> List[Tuple]:
