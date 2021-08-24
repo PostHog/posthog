@@ -69,6 +69,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["name"] = plugin_json["name"]
             validated_data["description"] = plugin_json.get("description", "")
             validated_data["config_schema"] = plugin_json.get("config", [])
+            validated_data["public_jobs"] = plugin_json.get("public_jobs", {})
             validated_data["source"] = None
             posthog_version = plugin_json.get("posthogVersion", None)
         else:
@@ -133,6 +134,7 @@ class Plugin(models.Model):
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     capabilities: models.JSONField = models.JSONField(default=dict)
     metrics: models.JSONField = models.JSONField(default=dict, null=True)
+    public_jobs: models.JSONField = models.JSONField(default=dict, null=True)
 
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
     error: models.JSONField = models.JSONField(default=None, null=True)

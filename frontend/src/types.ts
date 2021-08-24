@@ -526,8 +526,17 @@ export interface PluginType {
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    public_jobs?: Record<string, JobSpec>
 }
 
+export interface JobPayloadFieldOptions {
+    type: 'string' | 'boolean' | 'json'
+    required?: boolean
+}
+
+export interface JobSpec {
+    payload?: Record<string, JobPayloadFieldOptions>
+}
 export interface PluginConfigType {
     id?: number
     plugin: number
