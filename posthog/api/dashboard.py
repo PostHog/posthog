@@ -210,7 +210,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             return None
 
         if self.context["request"].GET.get("refresh"):
-            update_dashboard_item_cache(dashboard_item, None)
+            return update_dashboard_item_cache(dashboard_item, None)
 
         result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):

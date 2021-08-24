@@ -195,6 +195,9 @@ class TestDashboard(APIBaseTest):
                 last_refresh=now(),
             )
 
+        response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
+        self.assertIsNone(response["items"][0]["result"])
+
         with freeze_time("2020-01-20T13:00:01Z"):
             response = self.client.get("/api/dashboard/%s?refresh=true" % dashboard.pk)
 
