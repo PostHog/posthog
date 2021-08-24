@@ -876,7 +876,7 @@ class TestPluginAPI(APIBaseTest):
         plugin_config_id = response.json()["id"]
         response = self.client.post(
             "/api/plugin_config/{}/job".format(plugin_config_id),
-            {"job": {"name": "myJob", "payload": {"a": 1}, "operation": "stop"}},
+            {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
             format="json",
         )
 
