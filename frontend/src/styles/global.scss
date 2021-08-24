@@ -216,6 +216,16 @@ code.code {
     margin-left: $default_spacing * 0.25;
 }
 
+.mx-0 {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+
+.my-0 {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
 .pa {
     // Padding all
     padding: $default_spacing;

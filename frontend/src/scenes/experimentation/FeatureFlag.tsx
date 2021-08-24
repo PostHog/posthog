@@ -96,6 +96,7 @@ export function FeatureFlag(): JSX.Element {
     } = useActions(featureFlagLogic)
 
     const [hasKeyChanged, setHasKeyChanged] = useState(false) // whether the key for an existing flag is being changed
+    const variants = featureFlag?.filters.multivariate?.variants || []
 
     return (
         <div className="feature-flag">
@@ -302,6 +303,71 @@ export function FeatureFlag(): JSX.Element {
                                 Users will be served{' '}
                                 <strong>{multivariateEnabled ? 'a variant key' : <code>true</code>}</strong> if they
                                 match one or more release condition groups.
+                            </div>
+                            <div>
+                                {variants.map(({ rollout_percentage }, index) => (
+                                    <Form key={index} style={{ margin: '16px -4px' }}>
+                                        <Form.Item
+                                            name="key"
+                                            rules={[
+                                                { required: true, message: 'Key should not be empty.' },
+                                                {
+                                                    pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
+                                                    message:
+                                                        'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                                },
+                                            ]}
+                                            style={{
+                                                minHeight: 32,
+                                                width: 'calc(33.33% - 8px)',
+                                                display: 'inline-block',
+                                                padding: '0 4px',
+                                            }}
+                                        >
+                                            <Input
+                                                data-attr="feature-flag-variant-key"
+                                                className="ph-ignore-input"
+                                                autoFocus
+                                                placeholder={`example-variant-${index + 1}`}
+                                                autoComplete="off"
+                                                autoCapitalize="off"
+                                                autoCorrect="off"
+                                                spellCheck={false}
+                                            />
+                                        </Form.Item>
+                                        <Form.Item
+                                            name="name"
+                                            style={{
+                                                minHeight: 32,
+                                                width: 'calc(33.33% - 8px)',
+                                                display: 'inline-block',
+                                                padding: '0 4px',
+                                            }}
+                                        >
+                                            <Input
+                                                data-attr="feature-flag-variant-name"
+                                                className="ph-ignore-input"
+                                                autoFocus
+                                                placeholder="Description"
+                                            />
+                                        </Form.Item>
+                                        <Slider
+                                            tooltipPlacement="top"
+                                            tipFormatter={(value) => value + '%'}
+                                            tooltipVisible
+                                            value={rollout_percentage}
+                                            onChange={() => {
+                                                // TODO
+                                            }}
+                                            style={{
+                                                minHeight: 32,
+                                                width: 'calc(33.33% - 8px)',
+                                                display: 'inline-block',
+                                                padding: '0 4px',
+                                            }}
+                                        />
+                                    </Form>
+                                ))}
                             </div>
                         </div>
                     )}
