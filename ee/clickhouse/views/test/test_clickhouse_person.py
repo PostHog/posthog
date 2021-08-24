@@ -13,7 +13,7 @@ def _create_event(**kwargs):
 
 
 def _get_events(team_id):
-    return sync_execute("select FINAL * from events where team_id = %(team_id)s", {"team_id": team_id})
+    return sync_execute("select * from events FINAL where team_id = %(team_id)s", {"team_id": team_id})
 
 
 def _create_person(**kwargs):
