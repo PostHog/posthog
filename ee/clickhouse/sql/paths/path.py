@@ -195,7 +195,7 @@ FROM (
                 )
                 ARRAY JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path) AS event_in_session_index
                 {boundary_event_filter}
-                ORDER BY person_id, session_index
+                ORDER BY person_id, session_index, event_in_session_index
                )
        )
  WHERE source_event IS NOT NULL

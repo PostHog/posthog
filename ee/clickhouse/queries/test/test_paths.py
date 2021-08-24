@@ -169,3 +169,27 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 {"source": "3_/3", "target": "4_/4", "value": 1, "average_conversion_time": 3 * ONE_MINUTE},
             ],
         )
+
+    # this tests to make sure that paths don't get scrambled when there are several similar variations
+    def test_path_event_ordering(self):
+        for i in range(50):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00")
+
+            if i % 2 == 0:
+                _create_event(
+                    event="step branch", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
+                )
+
+        filter = PathFilter(data={"date_from": "2021-05-01", "date_to": "2021-05-03"})
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_step one", "target": "2_step two", "value": 50, "average_conversion_time": 60000.0},
+                {"source": "2_step two", "target": "3_step three", "value": 50, "average_conversion_time": 60000.0},
+                {"source": "3_step three", "target": "4_step branch", "value": 25, "average_conversion_time": 60000.0},
+            ],
+        )
