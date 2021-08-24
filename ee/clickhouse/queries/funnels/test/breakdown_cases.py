@@ -657,6 +657,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 3, "Safari"), [])
 
+        @test_with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_breakdown_limit(self):
 
             filters = {
@@ -704,6 +705,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             breakdown_vals = sorted([res[0]["breakdown"] for res in result])
             self.assertEqual(["5", "6", "7", "8", "9", "Other"], breakdown_vals)
 
+        @test_with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_custom_breakdown_limit_with_nulls(self):
 
             filters = {
@@ -776,6 +778,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             # skipped 1 and '' because the limit was 3.
             self.assertTrue(person0.uuid in self._get_people_at_step(filter, 1, "Other"))
 
+        @test_with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_custom_breakdown_limit_with_nulls_included(self):
 
             filters = {
@@ -853,6 +856,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertEqual([p_null.uuid], self._get_people_at_step(filter, 1, ""))
             self.assertEqual([p_null.uuid], self._get_people_at_step(filter, 3, ""))
 
+        @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
 
             filters = {

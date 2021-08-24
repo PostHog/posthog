@@ -391,8 +391,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 return f", {expression} AS prop"
             elif self._filter.breakdown_type == "event":
                 expression, _ = get_property_string_expr(
-                    "person", self._filter.breakdown, "%(breakdown)s", "properties"
+                    "events", self._filter.breakdown, "%(breakdown)s", "properties"
                 )
+                return f", {expression} AS prop"
             elif self._filter.breakdown_type == "cohort":
                 return ", value AS prop"
 
