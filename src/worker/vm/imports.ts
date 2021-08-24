@@ -1,4 +1,5 @@
 import * as bigquery from '@google-cloud/bigquery'
+import * as pubsub from '@google-cloud/pubsub'
 import * as gcs from '@google-cloud/storage'
 import * as contrib from '@posthog/plugin-contrib'
 import * as scaffold from '@posthog/plugin-scaffold'
@@ -22,6 +23,7 @@ export const imports = {
     'node-fetch': fetch,
     'snowflake-sdk': snowflake,
     '@google-cloud/bigquery': bigquery,
+    '@google-cloud/pubsub': pubsub,
     '@google-cloud/storage': gcs,
     '@posthog/plugin-scaffold': scaffold,
     '@posthog/plugin-contrib': contrib,
