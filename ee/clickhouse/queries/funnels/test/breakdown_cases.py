@@ -7,7 +7,7 @@ from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
@@ -17,6 +17,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             result = FunnelPerson(person_filter, self.team)._exec_query()
             return [row[0] for row in result]
 
+        @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event(self):
 
             filters = {
@@ -172,6 +173,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
 
+        @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_with_other(self):
 
             filters = {
@@ -355,6 +357,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
 
+        @test_with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_no_type(self):
 
             filters = {
