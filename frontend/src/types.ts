@@ -530,7 +530,7 @@ export interface PluginType {
 }
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json'
+    type: 'string' | 'boolean' | 'json' | 'number'
     required?: boolean
 }
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { PlayCircleOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
-import { Tooltip, Form, Input, Radio } from 'antd'
+import { Tooltip, Form, Input, Radio, InputNumber } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import MonacoEditor from '@monaco-editor/react'
 import api from 'lib/api'
@@ -103,6 +103,8 @@ export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: Plu
                                 >
                                     {options.type === 'string' ? (
                                         <Input />
+                                    ) : options.type === 'number' ? (
+                                        <InputNumber />
                                     ) : options.type === 'json' ? (
                                         <MonacoEditor
                                             options={{ codeLens: false }}
@@ -112,10 +114,10 @@ export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: Plu
                                         />
                                     ) : options.type === 'boolean' ? (
                                         <Radio.Group id="propertyValue" buttonStyle="solid">
-                                            <Radio.Button value="true" defaultChecked>
+                                            <Radio.Button value={true} defaultChecked>
                                                 <CheckOutlined /> True
                                             </Radio.Button>
-                                            <Radio.Button value="false">
+                                            <Radio.Button value={false}>
                                                 <CloseOutlined /> False
                                             </Radio.Button>
                                         </Radio.Group>
