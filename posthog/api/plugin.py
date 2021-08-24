@@ -335,12 +335,12 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("A job name must be specified!")
 
         # the plugin server uses "type" for job names but "name" makes for a more friendly API
-        job_type = job.get("name")
+        job_type = job.get("type")
         job_payload = job.get("payload", {})
         job_op = job.get("operation", "start")
 
         celery_app.send_task(
-            name=settings.CELERY_PLUGIN_JOBS_TASK,
+            name="posthog.tasks.plugins.plugin_job",
             queue=settings.PLUGINS_CELERY_QUEUE,
             args=[self.team.pk, plugin_config_id, job_type, job_op, job_payload],
         )

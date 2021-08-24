@@ -637,5 +637,3 @@ LOGGING = {
         "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
     },
 }
-
-CELERY_PLUGIN_JOBS_TASK = "posthog.tasks.plugins.plugin_job"
