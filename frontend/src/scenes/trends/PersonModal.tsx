@@ -140,7 +140,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                             {people.count > 0 ? (
                                 people?.people.map((person) => (
                                     <div key={person.id}>
-                                        <PersonRow person={person} people={people} filters={filters} />
+                                        <PersonRow person={person} />
                                     </div>
                                 ))
                             ) : (
@@ -170,12 +170,9 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
 
 interface PersonRowProps {
     person: PersonType
-    people: any
-    filters: any
 }
 
-// eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
-export function PersonRow({ person, people, filters }: PersonRowProps): JSX.Element {
+export function PersonRow({ person }: PersonRowProps): JSX.Element {
     const [showProperties, setShowProperties] = useState(false)
     const expandProps = {
         record: '',
