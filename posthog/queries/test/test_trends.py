@@ -1281,6 +1281,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 0)
 
+        @test_with_materialized_columns(person_properties=["name"])
         def test_filter_events_by_cohort(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -1295,7 +1296,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Safari"},
             )
 
-            cohort = cohort_factory(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
+            cohort = cohort_factory(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
 
             response = trends().run(
                 Filter(
