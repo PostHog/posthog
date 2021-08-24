@@ -27,7 +27,10 @@ module.exports = {
             },
             module: {
                 ...config.module,
-                rules: mainConfig.module.rules,
+                rules: [
+                    ...mainConfig.module.rules,
+                    ...config.module.rules.filter((rule) => rule.test.toString().includes('.mdx')),
+                ],
             },
         }
         return newConfig
