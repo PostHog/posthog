@@ -4,7 +4,6 @@ from unittest import mock
 
 from rest_framework import status
 
-from ee.clickhouse.client import sync_execute
 from posthog.models import Cohort, Event, Organization, Person, Team
 from posthog.test.base import APIBaseTest
 
@@ -226,8 +225,6 @@ def factory_test_person(event_factory, person_factory, get_events):
             event_factory(event="test", team=self.team, distinct_id="someone_else")
 
             response = self.client.delete(f"/api/person/{person.pk}/")
-            print(sync_execute("show create events"))
-            print(sync_execute("SELECT * FROM events"))
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
             self.assertEqual(response.content, b"")  # Empty response
             self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
