@@ -947,6 +947,27 @@ export const createProcessEventTests = (
         expect(event.snapshot_data).toEqual({ timestamp: 123 })
     })
 
+    test('$snapshot event creates new person if needed', async () => {
+        await eventsProcessor.processEvent(
+            'some_new_id',
+            '',
+            '',
+            {
+                event: '$snapshot',
+                properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+            } as any as PluginEvent,
+            team.id,
+            now,
+            now,
+            new UUIDT().toString()
+        )
+        await delayUntilEventIngested(() => hub.db.fetchPersons())
+
+        const persons = await hub.db.fetchPersons()
+
+        expect(persons.length).toEqual(1)
+    })
+
     test('identify set', async () => {
         await createPerson(hub, team, ['distinct_id'])
 
