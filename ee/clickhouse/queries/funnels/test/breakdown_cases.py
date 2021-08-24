@@ -512,6 +512,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_people_at_step(filter, 1, "Safari"), [person2.uuid, person3.uuid])
             self.assertCountEqual(self._get_people_at_step(filter, 2, "Safari"), [person2.uuid])
 
+        @test_with_materialized_columns(person_properties=["$browser"])
         def test_funnel_step_breakdown_person(self):
 
             filters = {
