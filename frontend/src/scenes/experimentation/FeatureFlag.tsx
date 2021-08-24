@@ -85,9 +85,14 @@ function APISnippet(): JSX.Element {
 
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
-    const { featureFlag, featureFlagId, multivariateEnabled, variants, areVariantRolloutsValid } = useValues(
-        featureFlagLogic
-    )
+    const {
+        featureFlag,
+        featureFlagId,
+        multivariateEnabled,
+        variants,
+        areVariantRolloutsValid,
+        variantRolloutSum,
+    } = useValues(featureFlagLogic)
     const {
         addMatchGroup,
         updateMatchGroup,
@@ -95,8 +100,9 @@ export function FeatureFlag(): JSX.Element {
         saveFeatureFlag,
         deleteFeatureFlag,
         setMultivariateEnabled,
-        // addVariant,
+        addVariant,
         updateVariant,
+        removeVariant,
     } = useActions(featureFlagLogic)
 
     const [hasKeyChanged, setHasKeyChanged] = useState(false) // whether the key for an existing flag is being changed
@@ -315,99 +321,113 @@ export function FeatureFlag(): JSX.Element {
                                 )}{' '}
                                 if they match one or more release condition groups.
                             </div>
-                            <div>
-                                {variants.map(({ rollout_percentage }, index) => (
-                                    <Form
-                                        key={index}
-                                        onValuesChange={(changedValues) => updateVariant(index, changedValues)}
-                                        initialValues={variants[index]}
-                                    >
-                                        <Row gutter={8}>
-                                            <Col span={6}>
-                                                <Form.Item
-                                                    name="key"
-                                                    rules={[
-                                                        { required: true, message: 'Key should not be empty.' },
-                                                        {
-                                                            pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                            message:
-                                                                'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
-                                                        },
-                                                    ]}
-                                                    style={{
-                                                        minHeight: 32,
-                                                    }}
-                                                >
-                                                    <Input
-                                                        data-attr="feature-flag-variant-key"
-                                                        className="ph-ignore-input"
-                                                        autoFocus
-                                                        placeholder={`example-variant-${index + 1}`}
-                                                        autoComplete="off"
-                                                        autoCapitalize="off"
-                                                        autoCorrect="off"
-                                                        spellCheck={false}
-                                                    />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col span={6}>
-                                                <Form.Item
-                                                    name="name"
-                                                    style={{
-                                                        minHeight: 32,
-                                                    }}
-                                                >
-                                                    <Input
-                                                        data-attr="feature-flag-variant-name"
-                                                        className="ph-ignore-input"
-                                                        autoFocus
-                                                        placeholder="Description"
-                                                    />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col span={6}>
-                                                <Slider
-                                                    tooltipPlacement="top"
-                                                    value={rollout_percentage}
-                                                    onChange={(value) =>
-                                                        updateVariant(index, { rollout_percentage: value })
-                                                    }
-                                                    style={{
-                                                        minHeight: 32,
-                                                    }}
-                                                />
-                                            </Col>
-                                            <Col span={2}>
-                                                <InputNumber
-                                                    min={0}
-                                                    max={100}
-                                                    value={rollout_percentage}
-                                                    onChange={(value) => {
-                                                        if (value !== null && value !== undefined) {
-                                                            const valueInt = parseInt(value.toString())
-                                                            if (!isNaN(valueInt)) {
-                                                                updateVariant(index, { rollout_percentage: valueInt })
-                                                            }
+                            {multivariateEnabled && (
+                                <div className="variant-form-list">
+                                    {variants.map(({ rollout_percentage }, index) => (
+                                        <Form
+                                            key={index}
+                                            onValuesChange={(changedValues) => updateVariant(index, changedValues)}
+                                            initialValues={variants[index]}
+                                        >
+                                            <Row gutter={8}>
+                                                <Col span={7}>
+                                                    <Form.Item
+                                                        name="key"
+                                                        rules={[
+                                                            { required: true, message: 'Key should not be empty.' },
+                                                            {
+                                                                pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
+                                                                message:
+                                                                    'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                                            },
+                                                        ]}
+                                                    >
+                                                        <Input
+                                                            data-attr="feature-flag-variant-key"
+                                                            className="ph-ignore-input"
+                                                            placeholder={`example-variant-${index + 1}`}
+                                                            autoComplete="off"
+                                                            autoCapitalize="off"
+                                                            autoCorrect="off"
+                                                            spellCheck={false}
+                                                        />
+                                                    </Form.Item>
+                                                </Col>
+                                                <Col span={7}>
+                                                    <Form.Item name="name">
+                                                        <Input
+                                                            data-attr="feature-flag-variant-name"
+                                                            className="ph-ignore-input"
+                                                            placeholder="Description"
+                                                        />
+                                                    </Form.Item>
+                                                </Col>
+                                                <Col span={7}>
+                                                    <Slider
+                                                        tooltipPlacement="top"
+                                                        value={rollout_percentage}
+                                                        onChange={(value) =>
+                                                            updateVariant(index, { rollout_percentage: value })
                                                         }
-                                                    }}
-                                                    style={
-                                                        areVariantRolloutsValid
-                                                            ? undefined
-                                                            : {
-                                                                  borderColor: 'var(--danger)',
-                                                              }
-                                                    }
-                                                />
-                                            </Col>
-                                        </Row>
-                                    </Form>
-                                ))}
-                                <p style={{ color: 'var(--danger)' }}>
-                                    {multivariateEnabled &&
-                                        !areVariantRolloutsValid &&
-                                        'Percentage rollouts for variants must sum to 100.'}
-                                </p>
-                            </div>
+                                                    />
+                                                </Col>
+                                                <Col span={2}>
+                                                    <InputNumber
+                                                        min={0}
+                                                        max={100}
+                                                        value={rollout_percentage}
+                                                        onChange={(value) => {
+                                                            if (value !== null && value !== undefined) {
+                                                                const valueInt = parseInt(value.toString())
+                                                                if (!isNaN(valueInt)) {
+                                                                    updateVariant(index, {
+                                                                        rollout_percentage: valueInt,
+                                                                    })
+                                                                }
+                                                            }
+                                                        }}
+                                                        style={
+                                                            areVariantRolloutsValid
+                                                                ? undefined
+                                                                : {
+                                                                      borderColor: 'var(--danger)',
+                                                                  }
+                                                        }
+                                                    />
+                                                </Col>
+                                                <Col span={1}>
+                                                    <Tooltip title="Delete this variant" placement="bottomLeft">
+                                                        <Button
+                                                            type="link"
+                                                            icon={<DeleteOutlined />}
+                                                            onClick={() => removeVariant(index)}
+                                                            style={{ color: 'var(--danger)' }}
+                                                        />
+                                                    </Tooltip>
+                                                </Col>
+                                            </Row>
+                                        </Form>
+                                    ))}
+                                    {!areVariantRolloutsValid && (
+                                        <p className="text-danger">
+                                            Percentage rollouts for variants must sum to 100 (currently{' '}
+                                            {variantRolloutSum}).
+                                        </p>
+                                    )}
+                                    <Button
+                                        type="dashed"
+                                        block
+                                        icon={<PlusOutlined />}
+                                        onClick={() => {
+                                            addVariant()
+                                            // TODO: Focus the `key` field of the new variant
+                                        }}
+                                        style={{ marginBottom: 16 }}
+                                    >
+                                        Add Variant
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     )}
 

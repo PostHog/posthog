@@ -47,6 +47,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
         updateVariant: (index: number, newProperties: Partial<MultivariateFlagVariant>) => ({ index, newProperties }),
+        removeVariant: (index: number) => ({ index }),
     },
     reducers: {
         featureFlagId: [
@@ -134,6 +135,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                         },
                     }
                 },
+                removeVariant: (state, { index }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const variants = [...(state.filters.multivariate?.variants || [])]
+                    variants.splice(index, 1)
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            multivariate: {
+                                ...state.filters.multivariate,
+                                variants,
+                            },
+                        },
+                    }
+                },
             },
         ],
     },
@@ -195,11 +213,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
     selectors: {
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters?.multivariate?.variants || []],
-        areVariantRolloutsValid: [
+        variantRolloutSum: [
             (s) => [s.variants],
-            (variants) =>
+            (variants) => variants.reduce((total: number, { rollout_percentage }) => total + rollout_percentage, 0),
+        ],
+        areVariantRolloutsValid: [
+            (s) => [s.variants, s.variantRolloutSum],
+            (variants, variantRolloutSum) =>
                 variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
-                variants.reduce((total: number, { rollout_percentage }) => total + rollout_percentage, 0) === 100,
+                variantRolloutSum === 100,
         ],
     },
     urlToAction: ({ actions }) => ({
