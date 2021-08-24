@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Radio, InputNumber } from 'antd'
+import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -97,6 +97,7 @@ export function FeatureFlag(): JSX.Element {
         featureFlagId,
         multivariateEnabled,
         variants,
+        nonEmptyVariants,
         areVariantRolloutsValid,
         variantRolloutSum,
     } = useValues(featureFlagLogic)
@@ -112,7 +113,10 @@ export function FeatureFlag(): JSX.Element {
         removeVariant,
     } = useActions(featureFlagLogic)
 
-    const [hasKeyChanged, setHasKeyChanged] = useState(false) // whether the key for an existing flag is being changed
+    // whether the key for an existing flag is being changed
+    const [hasKeyChanged, setHasKeyChanged] = useState(false)
+    // whether to warn the user that their variants will be lost
+    const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
 
     return (
         <div className="feature-flag">
@@ -299,24 +303,42 @@ export function FeatureFlag(): JSX.Element {
                         <div className="mb-2">
                             <h3 className="l3">Served value</h3>
                             <div className="mb-05">
-                                <Radio.Group
-                                    options={[
-                                        {
-                                            label: 'Boolean value',
-                                            value: false,
-                                        },
-                                        {
-                                            label: 'a string variant',
-                                            value: true,
-                                        },
-                                    ]}
-                                    onChange={(e) => {
-                                        setMultivariateEnabled(e.target.value)
-                                        focusVariantKeyField(0)
+                                <Popconfirm
+                                    placement="top"
+                                    title="Change value type? The variants below will be lost."
+                                    visible={showVariantDiscardWarning}
+                                    onConfirm={() => {
+                                        setMultivariateEnabled(false)
+                                        setShowVariantDiscardWarning(false)
                                     }}
-                                    value={multivariateEnabled}
-                                    optionType="button"
-                                />
+                                    onCancel={() => setShowVariantDiscardWarning(false)}
+                                    okText="OK"
+                                    cancelText="Cancel"
+                                >
+                                    <Radio.Group
+                                        options={[
+                                            {
+                                                label: 'Boolean value',
+                                                value: false,
+                                            },
+                                            {
+                                                label: 'a string variant',
+                                                value: true,
+                                            },
+                                        ]}
+                                        onChange={(e) => {
+                                            const { value } = e.target
+                                            if (value === false && nonEmptyVariants.length) {
+                                                setShowVariantDiscardWarning(true)
+                                            } else {
+                                                setMultivariateEnabled(value)
+                                                focusVariantKeyField(0)
+                                            }
+                                        }}
+                                        value={multivariateEnabled}
+                                        optionType="button"
+                                    />
+                                </Popconfirm>
                             </div>
                             <div className="text-muted mb">
                                 Users will be served{' '}

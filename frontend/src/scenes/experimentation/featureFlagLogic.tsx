@@ -218,6 +218,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
     selectors: {
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters?.multivariate?.variants || []],
+        nonEmptyVariants: [(s) => [s.variants], (variants) => variants.filter(({ key }) => !!key)],
         variantRolloutSum: [
             (s) => [s.variants],
             (variants) => variants.reduce((total: number, { rollout_percentage }) => total + rollout_percentage, 0),
