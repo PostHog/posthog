@@ -3,7 +3,6 @@ from uuid import uuid4
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
@@ -127,6 +126,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             event_response, action_response,
         )
 
+    @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering(self):
         self._create_events()
         # test breakdown filtering
@@ -155,6 +155,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(sum(response[2]["data"]), 1)
         self.assertEqual(sum(response[3]["data"]), 1)
 
+    @test_with_materialized_columns(person_properties=["email"])
     def test_breakdown_filtering_persons(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -183,6 +184,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(response[2]["count"], 1)
 
     # ensure that column names are properly handled when subqueries and person subquery share properties column
+    @test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     def test_breakdown_filtering_persons_with_action_props(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
