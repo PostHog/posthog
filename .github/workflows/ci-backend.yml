@@ -5,6 +5,7 @@ on:
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: 'redis://localhost'
+    TEST: 1
 
 jobs:
     backend-code-quality:
@@ -79,9 +80,6 @@ jobs:
                   python-version: ${{ matrix.python-version }}
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
-              with:
-                  requirement_files: requirements.txt
-                      requirements-dev.txt
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
             - name: Install python dependencies
