@@ -18,7 +18,7 @@ describe('ingestEvent', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        ;[hub, closeServer] = await createHub({ PLUGIN_SERVER_ACTION_MATCHING: 1 })
+        ;[hub, closeServer] = await createHub()
         actionMatcher = hub.actionMatcher
         actionCounter = 0
     })

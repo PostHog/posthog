@@ -51,7 +51,6 @@ describe('e2e postgres ingestion', () => {
                 CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
                 LOG_LEVEL: LogLevel.Log,
                 KAFKA_ENABLED: false,
-                PLUGIN_SERVER_ACTION_MATCHING: 2,
             },
             makePiscina
         )

@@ -73,7 +73,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         STALENESS_RESTART_SECONDS: 0,
         CAPTURE_INTERNAL_METRICS: false,
-        PLUGIN_SERVER_ACTION_MATCHING: 2,
         PISCINA_USE_ATOMICS: true,
         PISCINA_ATOMICS_TIMEOUT: 5000,
     }
@@ -127,8 +126,6 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             'refuse to start unless there is a properly configured persistent job queue (e.g. graphile)',
         STALENESS_RESTART_SECONDS: 'trigger a restart if no event ingested for this duration',
         CAPTURE_INTERNAL_METRICS: 'capture internal metrics for posthog in posthog',
-        PLUGIN_SERVER_ACTION_MATCHING:
-            'whether plugin server action matching results should be used (transition period setting)',
         PISCINA_USE_ATOMICS:
             'corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)',
         PISCINA_ATOMICS_TIMEOUT:
