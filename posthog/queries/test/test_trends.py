@@ -1774,6 +1774,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
 
             return (person1, person2, person3, person4)
 
+        @test_with_materialized_columns(person_properties=["name"])
         def test_person_property_filtering(self):
             self._create_multiple_people()
             with freeze_time("2020-01-04"):
