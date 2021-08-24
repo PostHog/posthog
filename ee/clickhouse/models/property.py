@@ -134,7 +134,7 @@ def prop_filter_json_extract(
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         if is_denormalized:
             return (
-                "AND NOT isNull({left})".format(left=property_expr),
+                "AND notEmpty({left})".format(left=property_expr),
                 params,
             )
         return (
@@ -145,7 +145,7 @@ def prop_filter_json_extract(
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         if is_denormalized:
             return (
-                "AND isNull({left})".format(left=property_expr),
+                "AND empty({left})".format(left=property_expr),
                 params,
             )
         return (
