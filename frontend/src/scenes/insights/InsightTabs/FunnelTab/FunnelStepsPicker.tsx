@@ -5,11 +5,11 @@ import { FunnelVizType } from '~/types'
 import { Row, Select } from 'antd'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 
-export function FunnelHistogramStepsPicker(): JSX.Element | null {
+export function FunnelStepsPicker(): JSX.Element | null {
     const { filters, numberOfSeries, areFiltersValid } = useValues(funnelLogic)
     const { changeHistogramStep } = useActions(funnelLogic)
 
-    if (filters.funnel_viz_type !== FunnelVizType.TimeToConvert || !areFiltersValid) {
+    if (filters.funnel_viz_type === FunnelVizType.Steps) {
         return null
     }
 
@@ -18,7 +18,7 @@ export function FunnelHistogramStepsPicker(): JSX.Element | null {
     }
 
     return (
-        <Row align="middle" style={{ margin: '4px 0' }}>
+        <Row align="middle" style={{ margin: '8px 0' }}>
             Between
             <Select
                 defaultValue={0}

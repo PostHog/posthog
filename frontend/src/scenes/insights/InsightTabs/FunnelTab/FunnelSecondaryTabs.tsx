@@ -13,6 +13,7 @@ import { CloseButton } from 'lib/components/CloseButton'
 import { BreakdownType, FunnelVizType } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
+import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepsPicker'
 
 export function FunnelSecondaryTabs(): JSX.Element | null {
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
@@ -22,6 +23,7 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
         <>
             <Card className="funnel-options" data-attr="funnel-options">
                 <h4 className="secondary">Options</h4>
+                <FunnelStepsPicker />
                 <FunnelConversionWindowFilter />
             </Card>
             <Card style={{ marginTop: 16 }}>
