@@ -119,7 +119,8 @@ export class EventsProcessor {
                         distinctId,
                         properties['$session_id'],
                         ts,
-                        properties['$snapshot_data']
+                        properties['$snapshot_data'],
+                        personUuid
                     )
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
                         team_id: teamId.toString(),
@@ -466,14 +467,7 @@ export class EventsProcessor {
             await this.teamManager.updateEventNamesAndProperties(teamId, event, properties)
         }
 
-        if (await this.personManager.isNewPerson(this.db, teamId, distinctId)) {
-            // Catch race condition where in between getting and creating, another request already created this user
-            try {
-                await this.db.createPerson(sentAt || DateTime.utc(), {}, teamId, null, false, personUuid.toString(), [
-                    distinctId,
-                ])
-            } catch {}
-        }
+        await this.createPersonIfDistinctIdIsNew(teamId, distinctId, sentAt || DateTime.utc(), personUuid)
 
         properties = personInitialAndUTMProperties(properties)
 
@@ -573,12 +567,15 @@ export class EventsProcessor {
         distinct_id: string,
         session_id: string,
         timestamp: DateTime | string,
-        snapshot_data: Record<any, any>
+        snapshot_data: Record<any, any>,
+        personUuid: string
     ): Promise<SessionRecordingEvent | PostgresSessionRecordingEvent> {
         const timestampString = castTimestampOrNow(
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
+
+        await this.createPersonIfDistinctIdIsNew(team_id, distinct_id, DateTime.utc(), personUuid.toString())
 
         const data: SessionRecordingEvent = {
             uuid,
@@ -606,5 +603,22 @@ export class EventsProcessor {
             return eventCreated as PostgresSessionRecordingEvent
         }
         return data
+    }
+
+    private async createPersonIfDistinctIdIsNew(
+        teamId: number,
+        distinctId: string,
+        sentAt: DateTime,
+        personUuid: string
+    ): Promise<void> {
+        const isNewPerson = await this.personManager.isNewPerson(this.db, teamId, distinctId)
+        if (isNewPerson) {
+            // Catch race condition where in between getting and creating, another request already created this user
+            try {
+                await this.db.createPerson(sentAt, {}, teamId, null, false, personUuid.toString(), [distinctId])
+            } catch (error) {
+                Sentry.captureException(error, { extra: { teamId, distinctId, sentAt, personUuid } })
+            }
+        }
     }
 }
