@@ -195,6 +195,7 @@ def entity_to_Q(entity: Entity, team_id: int) -> Q:
 
 
 def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -> QuerySet:
+    # Keep functionality in sync with ee/clickhouse/views/person.py
     if request.GET.get("id"):
         ids = request.GET["id"].split(",")
         queryset = queryset.filter(id__in=ids)

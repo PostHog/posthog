@@ -15,6 +15,15 @@ class EnterpriseFeatureException(APIException):
     default_detail = "This is an Enterprise feature."
 
 
+class UnsupportedFeature(APIException):
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    default_detail = "{feature} is supported in this deployment of PostHog."
+    default_code = "unsupported_feature"
+
+    def __init__(self, feature: str):
+        super().__init__(self.default_detail.format(feature=feature.capitalize()))
+
+
 class EstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long"

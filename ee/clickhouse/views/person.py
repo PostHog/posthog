@@ -1,5 +1,7 @@
-from typing import Callable, Dict, Optional, Tuple
+import json
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
+from django.db.models.query import Prefetch, QuerySet
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -7,23 +9,84 @@ from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import delete_person
+from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFunnelTrendsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
-from posthog.api.utils import format_next_url, format_offset_absolute_url
-from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
+from posthog.api.utils import format_offset_absolute_url
+from posthog.constants import FunnelVizType
 from posthog.decorators import cached_function
+from posthog.exceptions import UnsupportedFeature
 from posthog.models import Event, Filter, Person
+
+BASE_FILTER_PERSONS_QUERY = """
+SELECT person.id FROM person
+LEFT OUTER JOIN (
+    SELECT * FROM person_distinct_id WHERE person_distinct_id.team_id = %(team_id)s
+) person_distinct_id
+ON person.id = person_distinct_id.person_id
+WHERE team_id = %(team_id)s"""
+
+
+def filter_persons_ch(team_id: int, request: Request, queryset: QuerySet) -> QuerySet:
+    # Keep functionality in sync with posthog/api/person.py
+    params: Dict[str, Any] = {"team_id": team_id}
+    and_conditions: List[str] = []
+    if request.GET.get("id"):
+        raise UnsupportedFeature("filtering persons by field `id`")
+    if request.GET.get("uuid"):
+        params["uuids"] = request.GET["uuid"].split(",")
+        and_conditions.append("AND has(%(uuids)s, toString(person.id))")
+    if request.GET.get("search"):
+        parts = request.GET["search"].split(" ")
+        contains = []
+        for part_index, part in enumerate(parts):
+            if ":" in part:
+                matcher, key = part.split(":")
+                if matcher == "has":
+                    # Matches for example has:email or has:name
+                    params[f"has_key_{part_index}"] = key
+                    and_conditions.append(f"AND JSONHas(person.properties, %(has_key_{part_index})s)")
+            else:
+                contains.append(part)
+        params["icontains"] = f'%{" ".join(contains)}%'
+        and_conditions.append(
+            f"""
+        AND (
+            person.properties ILIKE %(icontains)s
+            OR person_distinct_id.distinct_id ILIKE %(icontains)s
+        )
+        """
+        )
+    properties: List[Dict[str, Any]] = json.loads(request.GET["properties"]) if request.GET.get("properties") else []
+    if request.GET.get("cohort"):
+        properties.append({"type": "cohort", "key": "id", "value": request.GET["cohort"]})
+    if properties:
+        filter = Filter(data={"properties": properties})
+        filter_query, filter_params = parse_prop_clauses(filter.properties, team_id, is_person_query=True)
+        and_conditions.append(filter_query)
+        params.update(filter_params)
+
+    if and_conditions:
+        final_query = f"""{BASE_FILTER_PERSONS_QUERY} {' '.join(and_conditions)}"""
+        uuids_found_rows = cast(list, sync_execute(final_query, params))
+        uuids_found = [row[0] for row in uuids_found_rows]
+        queryset = queryset.filter(uuid__in=uuids_found)
+
+    queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+    return queryset
 
 
 class ClickhousePersonViewSet(PersonViewSet):
-
     lifecycle_class = ClickhouseLifecycle
     retention_class = ClickhouseRetention
     stickiness_class = ClickhouseStickiness
+
+    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+        return filter_persons_ch(self.team_id, request, queryset)
 
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: Request, **kwargs) -> Response:

@@ -1,8 +1,6 @@
-import json
-import warnings
 from typing import Any, Dict, List, Optional, Union, cast
 
-from django.db.models import Count, Func, Prefetch, Q, QuerySet
+from django.db.models import Count, Func, Q, QuerySet
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -20,11 +18,11 @@ from posthog.models import Cohort, Event, Filter, Person, User
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries.base import filter_persons, properties_to_Q
+from posthog.queries.base import filter_persons
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
-from posthog.utils import convert_property_value, get_safe_cache, is_anonymous_id, relative_date_parse
+from posthog.utils import convert_property_value, is_anonymous_id, relative_date_parse
 
 
 class PersonCursorPagination(CursorPagination):
