@@ -669,7 +669,7 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
-    from_dashboard?: boolean
+    from_dashboard?: boolean | number
     layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
