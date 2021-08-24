@@ -85,7 +85,7 @@ function APISnippet(): JSX.Element {
 
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
-    const { featureFlag, featureFlagId, multivariateEnabled } = useValues(featureFlagLogic)
+    const { featureFlag, featureFlagId, multivariateEnabled, variants } = useValues(featureFlagLogic)
     const {
         addMatchGroup,
         updateMatchGroup,
@@ -93,10 +93,11 @@ export function FeatureFlag(): JSX.Element {
         saveFeatureFlag,
         deleteFeatureFlag,
         setMultivariateEnabled,
+        // addVariant,
+        updateVariant,
     } = useActions(featureFlagLogic)
 
     const [hasKeyChanged, setHasKeyChanged] = useState(false) // whether the key for an existing flag is being changed
-    const variants = featureFlag?.filters.multivariate?.variants || []
 
     return (
         <div className="feature-flag">
@@ -306,66 +307,69 @@ export function FeatureFlag(): JSX.Element {
                             </div>
                             <div>
                                 {variants.map(({ rollout_percentage }, index) => (
-                                    <Form key={index} style={{ margin: '16px -4px' }}>
-                                        <Form.Item
-                                            name="key"
-                                            rules={[
-                                                { required: true, message: 'Key should not be empty.' },
-                                                {
-                                                    pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
-                                                    message:
-                                                        'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
-                                                },
-                                            ]}
-                                            style={{
-                                                minHeight: 32,
-                                                width: 'calc(33.33% - 8px)',
-                                                display: 'inline-block',
-                                                padding: '0 4px',
-                                            }}
-                                        >
-                                            <Input
-                                                data-attr="feature-flag-variant-key"
-                                                className="ph-ignore-input"
-                                                autoFocus
-                                                placeholder={`example-variant-${index + 1}`}
-                                                autoComplete="off"
-                                                autoCapitalize="off"
-                                                autoCorrect="off"
-                                                spellCheck={false}
-                                            />
-                                        </Form.Item>
-                                        <Form.Item
-                                            name="name"
-                                            style={{
-                                                minHeight: 32,
-                                                width: 'calc(33.33% - 8px)',
-                                                display: 'inline-block',
-                                                padding: '0 4px',
-                                            }}
-                                        >
-                                            <Input
-                                                data-attr="feature-flag-variant-name"
-                                                className="ph-ignore-input"
-                                                autoFocus
-                                                placeholder="Description"
-                                            />
-                                        </Form.Item>
-                                        <Slider
-                                            tooltipPlacement="top"
-                                            tipFormatter={(value) => value + '%'}
-                                            tooltipVisible
-                                            value={rollout_percentage}
-                                            onChange={() => {
-                                                // TODO
-                                            }}
-                                            style={{
-                                                minHeight: 32,
-                                                width: 'calc(33.33% - 8px)',
-                                                display: 'inline-block',
-                                                padding: '0 4px',
-                                            }}
-                                        />
+                                    <Form
+                                        key={index}
+                                        onValuesChange={(changedValues) => updateVariant(index, changedValues)}
+                                        initialValues={variants[index]}
+                                    >
+                                        <Row gutter={8}>
+                                            <Col span={8}>
+                                                <Form.Item
+                                                    name="key"
+                                                    rules={[
+                                                        { required: true, message: 'Key should not be empty.' },
+                                                        {
+                                                            pattern: /^([A-z]|[a-z]|[0-9]|-|_)+$/,
+                                                            message:
+                                                                'Only letters, numbers, hyphens (-) & underscores (_) are allowed.',
+                                                        },
+                                                    ]}
+                                                    style={{
+                                                        minHeight: 32,
+                                                    }}
+                                                >
+                                                    <Input
+                                                        data-attr="feature-flag-variant-key"
+                                                        className="ph-ignore-input"
+                                                        autoFocus
+                                                        placeholder={`example-variant-${index + 1}`}
+                                                        autoComplete="off"
+                                                        autoCapitalize="off"
+                                                        autoCorrect="off"
+                                                        spellCheck={false}
+                                                    />
+                                                </Form.Item>
+                                            </Col>
+                                            <Col span={8}>
+                                                <Form.Item
+                                                    name="name"
+                                                    style={{
+                                                        minHeight: 32,
+                                                    }}
+                                                >
+                                                    <Input
+                                                        data-attr="feature-flag-variant-name"
+                                                        className="ph-ignore-input"
+                                                        autoFocus
+                                                        placeholder="Description"
+                                                    />
+                                                </Form.Item>
+                                            </Col>
+                                            <Col span={8}>
+                                                <Slider
+                                                    tooltipPlacement="top"
+                                                    tipFormatter={(value) => value + '%'}
+                                                    tooltipVisible
+                                                    value={rollout_percentage}
+                                                    onChange={(value) =>
+                                                        updateVariant(index, { rollout_percentage: value })
+                                                    }
+                                                    style={{
+                                                        minHeight: 32,
+                                                    }}
+                                                />
+                                            </Col>
+                                        </Row>
                                     </Form>
                                 ))}
                             </div>

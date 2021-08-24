@@ -856,7 +856,7 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
 }
 
-interface MultivariateFlagVariant {
+export interface MultivariateFlagVariant {
     key: string
     name: string | null
     rollout_percentage: number

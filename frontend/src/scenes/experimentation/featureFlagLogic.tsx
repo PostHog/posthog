@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
-import { AnyPropertyFilter, FeatureFlagType, MultivariateFlagOptions } from '~/types'
+import { AnyPropertyFilter, FeatureFlagType, MultivariateFlagOptions, MultivariateFlagVariant } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
@@ -24,6 +24,12 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     variants: [],
 }
 
+const NEW_VARIANT = {
+    key: '',
+    name: '',
+    rollout_percentage: 0,
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>({
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
@@ -41,6 +47,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         deleteFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
+        addVariant: true,
+        updateVariant: (index: number, newProperties: Partial<MultivariateFlagVariant>) => ({ index, newProperties }),
     },
     reducers: {
         featureFlagId: [
@@ -88,6 +96,45 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                         return state
                     }
                     return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                },
+                addVariant: (state) => {
+                    if (!state) {
+                        return state
+                    }
+                    const variants = [...(state.filters.multivariate?.variants || [])]
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            multivariate: {
+                                ...(state.filters.multivariate || {}),
+                                variants: [...variants, NEW_VARIANT],
+                            },
+                        },
+                    }
+                },
+                updateVariant: (state, { index, newProperties }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const variants = [...(state.filters.multivariate?.variants || [])]
+                    if (!variants[index]) {
+                        return state
+                    }
+                    variants[index] = {
+                        ...variants[index],
+                        ...newProperties,
+                    }
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            multivariate: {
+                                ...state.filters.multivariate,
+                                variants,
+                            },
+                        },
+                    }
                 },
             },
         ],
@@ -148,12 +195,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         },
     }),
     selectors: {
-        multivariateEnabled: [
-            (s) => [s.featureFlag],
-            (featureFlag) => {
-                return !!featureFlag?.filters.multivariate
-            },
-        ],
+        multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        variants: [(s) => [s.featureFlag], (featureFlag) => featureFlag?.filters?.multivariate?.variants || []],
     },
     urlToAction: ({ actions }) => ({
         '/feature_flags/*': ({ _: id }) => {
