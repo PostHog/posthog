@@ -2,7 +2,7 @@ import { isBreakpoint, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, objectsEqual, sum, uuid } from 'lib/utils'
+import { autocorrectInterval, clamp, objectsEqual, sum, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -15,7 +15,6 @@ import {
     FunnelResult,
     FunnelStep,
     FunnelsTimeConversionBins,
-    FunnelTimeConversionStep,
     PersonType,
     ViewType,
     FunnelStepWithNestedBreakdown,
@@ -170,7 +169,10 @@ export const funnelLogic = kea<funnelLogicType>({
             breakdown_value,
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
-        changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
+        changeHistogramStep: (funnel_from_step?: number, funnel_to_step?: number) => ({
+            funnel_from_step,
+            funnel_to_step,
+        }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
     }),
@@ -318,12 +320,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 setStepReference: (_, { stepReference }) => stepReference,
             },
         ],
-        histogramStep: [
-            { from_step: -1, to_step: -1 } as FunnelTimeConversionStep,
-            {
-                changeHistogramStep: (_, { from_step, to_step }) => ({ from_step, to_step }),
-            },
-        ],
         isGroupingOutliers: [
             true,
             {
@@ -408,49 +404,19 @@ export const funnelLogic = kea<funnelLogicType>({
                 })
             },
         ],
-        histogramStepsDropdown: [
-            () => [selectors.stepsWithCount, selectors.conversionMetrics],
-            (stepsWithCount, conversionMetrics) => {
-                const stepsDropdown: FunnelTimeConversionStep[] = []
-
-                if (stepsWithCount.length > 1) {
-                    stepsDropdown.push({
-                        label: 'All steps',
-                        from_step: -1,
-                        to_step: -1,
-                        count: stepsWithCount[stepsWithCount.length - 1].count,
-                        average_conversion_time: conversionMetrics.averageTime,
-                    })
-                }
-
-                // Don't show steps 1 -> 2 if there's only two steps
-                if (stepsWithCount.length === 2) {
-                    return stepsDropdown
-                }
-
-                stepsWithCount.forEach((_, idx) => {
-                    if (stepsWithCount[idx + 1]) {
-                        stepsDropdown.push({
-                            label: `Steps ${idx + 1} and ${idx + 2}`,
-                            from_step: idx,
-                            to_step: idx + 1,
-                            count: stepsWithCount[idx + 1].count,
-                            average_conversion_time: stepsWithCount[idx + 1].average_conversion_time ?? 0,
-                        })
-                    }
-                })
-                return stepsDropdown
+        areFiltersValid: [
+            () => [selectors.numberOfSeries],
+            (numberOfSeries) => {
+                return numberOfSeries > 1
             },
         ],
-        areFiltersValid: [
+        numberOfSeries: [
             () => [selectors.filters],
-            (filters) => {
-                return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
-            },
+            (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
         conversionMetrics: [
-            () => [selectors.stepsWithCount, selectors.histogramStep],
-            (stepsWithCount, timeStep): FunnelTimeConversionMetrics => {
+            () => [selectors.stepsWithCount, selectors.filters],
+            (stepsWithCount, filters): FunnelTimeConversionMetrics => {
                 if (stepsWithCount.length <= 1) {
                     return {
                         averageTime: 0,
@@ -459,11 +425,13 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 }
 
-                const isAllSteps = timeStep.from_step === -1
+                const isAllSteps = filters.funnel_from_step === -1
                 const fromStep = isAllSteps
                     ? getReferenceStep(stepsWithCount, FunnelStepReference.total)
-                    : stepsWithCount[timeStep.from_step]
-                const toStep = isAllSteps ? getLastFilledStep(stepsWithCount) : stepsWithCount[timeStep.to_step]
+                    : stepsWithCount[filters.funnel_from_step ?? 0]
+                const toStep = isAllSteps
+                    ? getLastFilledStep(stepsWithCount)
+                    : stepsWithCount[filters.funnel_from_step ?? 0]
 
                 return {
                     averageTime: toStep?.average_conversion_time || 0,
@@ -654,14 +622,16 @@ export const funnelLogic = kea<funnelLogicType>({
                 funnelStep: stepNumber,
             })
         },
-        changeHistogramStep: async () => {
+        changeHistogramStep: ({ funnel_from_step, funnel_to_step }) => {
             // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
             // for all steps
-            const isAllSteps = values.histogramStep.from_step === -1
+            const maxStepIndex = values.numberOfSeries - 1
+            const nextFromStep = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
+            const nextToStep = clamp(funnel_to_step ?? maxStepIndex, nextFromStep + 1, maxStepIndex)
 
             actions.setFilters({
-                ...(!isAllSteps ? { funnel_from_step: values.histogramStep.from_step } : {}),
-                ...(!isAllSteps ? { funnel_to_step: values.histogramStep.to_step } : {}),
+                funnel_from_step: nextFromStep,
+                funnel_to_step: nextToStep,
             })
         },
         setBinCount: async () => {

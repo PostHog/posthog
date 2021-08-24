@@ -40,7 +40,7 @@ import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
-import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
+import { FunnelHistogramStepsPicker } from 'scenes/funnels/FunnelHistogramStepsPicker'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
 import { ObjectTags } from 'lib/components/ObjectTags'
@@ -322,15 +322,17 @@ export function Insights(): JSX.Element {
                             >
                                 <div>
                                     <Row
+                                        align="top"
+                                        justify="space-between"
                                         style={{
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
                                             marginTop: -8,
                                             marginBottom: 16,
                                         }}
                                     >
-                                        <FunnelCanvasLabel />
-                                        <FunnelHistogramHeader />
+                                        <Col>
+                                            <FunnelCanvasLabel />
+                                            <FunnelHistogramStepsPicker />
+                                        </Col>
                                         {lastRefresh && (
                                             <ComputationTimeWithRefresh
                                                 lastRefresh={lastRefresh}
