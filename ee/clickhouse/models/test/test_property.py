@@ -417,21 +417,47 @@ def test_events(db, team) -> List[UUID]:
     ]
 
 
-@pytest.mark.parametrize(
-    "property,expected_event_indexes",
-    [
-        (Property(key="email", value="test@posthog.com"), [0]),
-        (Property(key="email", value="test@posthog.com", operator="exact"), [0]),
-        (Property(key="email", value=["pineapple@pizza.com", "mongo@example.com"], operator="exact"), [1]),
-        (Property(key="attr", value="5"), [4]),
-        (Property(key="email", value="test@posthog.com", operator="is_not"), range(1, 5)),
-        (Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"), range(2, 5)),
-        (Property(key="email", value=r".*est@.*", operator="regex"), [0]),
-        (Property(key="email", value=r"?.", operator="regex"), []),
-    ],
-)
+TEST_PROPERTIES = [
+    (Property(key="email", value="test@posthog.com"), [0]),
+    (Property(key="email", value="test@posthog.com", operator="exact"), [0]),
+    (Property(key="email", value=["pineapple@pizza.com", "mongo@example.com"], operator="exact"), [1]),
+    (Property(key="attr", value="5"), [4]),
+    (Property(key="email", value="test@posthog.com", operator="is_not"), range(1, 5)),
+    (Property(key="email", value=["test@posthog.com", "mongo@example.com"], operator="is_not"), range(2, 5)),
+    (Property(key="email", value=r".*est@.*", operator="regex"), [0]),
+    (Property(key="email", value=r"?.", operator="regex"), []),
+    (Property(key="email", operator="is_set", value="is_set"), [0, 1]),
+    (Property(key="email", operator="is_not_set", value="is_not_set"), range(2, 5)),
+]
+
+
+@pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 def test_prop_filter_json_extract(test_events, property, expected_event_indexes, team):
     query, params = prop_filter_json_extract(property, 0)
+    uuids = list(
+        sorted(
+            [
+                uuid
+                for (uuid,) in sync_execute(
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
+                )
+            ]
+        )
+    )
+    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+
+    assert uuids == expected
+
+
+@pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
+def test_prop_filter_json_extract_materialized(test_events, property, expected_event_indexes, team):
+    materialize("events", "attr")
+    materialize("events", "email")
+
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
+
+    assert "JSONExtract" not in query
+
     uuids = list(
         sorted(
             [

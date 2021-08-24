@@ -33,7 +33,7 @@ function SelectItem({ icon, label, description, onClick }: SelectItemInterface):
         <div onClick={onClick}>
             <Row align={'middle'}>
                 {icon}
-                <div style={{ fontSize: 14, fontWeight: 'bold', marginLeft: 4 }}>{label}</div>
+                <div style={{ fontSize: 14, fontWeight: 'bold', marginLeft: 8 }}>{label}</div>
             </Row>
             {description && <div style={{ fontSize: 12, color: 'rgba(0, 0, 0, 0.5)' }}>{description}</div>}
         </div>
