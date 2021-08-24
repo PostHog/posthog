@@ -6,12 +6,12 @@ import { Tooltip } from 'antd'
 
 dayjs.extend(relativeTime)
 
-export interface ComputationTimeWithRefresh {
+export interface ComputationTimeWithRefreshProps {
     lastRefresh: string
     loadResults: (refresh: boolean) => void
 }
 
-export function ComputationTimeWithRefresh({ lastRefresh, loadResults }: ComputationTimeWithRefresh): JSX.Element {
+export function ComputationTimeWithRefresh({ lastRefresh, loadResults }: ComputationTimeWithRefreshProps): JSX.Element {
     const [, setRerenderCounter] = useState(0)
 
     useEffect(() => {
