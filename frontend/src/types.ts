@@ -827,7 +827,7 @@ export enum FunnelConversionWindowTimeUnit {
 
 export interface FunnelRequestParams extends FilterType {
     refresh?: boolean
-    from_dashboard?: boolean
+    from_dashboard?: boolean | number
     funnel_window_days?: number
 }
 
