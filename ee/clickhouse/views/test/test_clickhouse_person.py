@@ -35,7 +35,7 @@ class ClickhouseTestPersonApi(
 
         response = self.client.delete(f"/api/person/{person.pk}/")
         print(sync_execute("show create events"))
-        print(sync_execute("SELECT * FROM events"))
+        print(sync_execute(f"SELECT * FROM events where team_id = {self.team.pk}"))
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
