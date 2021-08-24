@@ -8,11 +8,27 @@ export default {
     component: PropertyKeyInfo,
 } as ComponentMeta<typeof PropertyKeyInfo>
 
-const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => <PropertyKeyInfo {...args} />
+const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {
+    return args.value ? (
+        <PropertyKeyInfo {...args} />
+    ) : (
+        <>
+            <div>
+                <PropertyKeyInfo {...args} value="$current_url" />
+            </div>
+            <div>
+                <PropertyKeyInfo {...args} value="$country" />
+            </div>
+            <div>
+                <PropertyKeyInfo {...args} value="booking submitted" />
+            </div>
+        </>
+    )
+}
 
 export const Primary = Template.bind({})
 Primary.args = {
-    value: '$current_url',
+    value: undefined,
     type: 'event',
     tooltipPlacement: undefined,
     disablePopover: false,
