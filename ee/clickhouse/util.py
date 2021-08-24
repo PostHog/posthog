@@ -2,24 +2,7 @@ from contextlib import contextmanager
 from typing import List
 from unittest.mock import patch
 
-from clickhouse_driver.errors import ServerException
 from django.db import DEFAULT_DB_ALIAS
-
-from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL, DROP_COHORTPEOPLE_TABLE_SQL
-from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
-from ee.clickhouse.sql.person import (
-    DROP_PERSON_DISTINCT_ID_TABLE_SQL,
-    DROP_PERSON_STATIC_COHORT_TABLE_SQL,
-    DROP_PERSON_TABLE_SQL,
-    PERSON_STATIC_COHORT_TABLE_SQL,
-    PERSONS_DISTINCT_ID_TABLE_SQL,
-    PERSONS_TABLE_SQL,
-)
-from ee.clickhouse.sql.session_recording_events import (
-    DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
-    SESSION_RECORDING_EVENTS_TABLE_SQL,
-)
 
 
 class ClickhouseTestMixin:

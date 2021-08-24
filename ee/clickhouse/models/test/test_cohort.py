@@ -287,7 +287,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         # test SQLi
         Person.objects.create(team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"])
         cohort.insert_users_by_list(["'); truncate person_static_cohort; --", "123"])
-        results = sync_execute("select count(1) from person_static_cohort")[0][0]
+        results = sync_execute(
+            "select count(1) from person_static_cohort where team_id = %(team_id)s", {"team_id": self.team.pk}
+        )[0][0]
         self.assertEqual(results, 3)
 
         #  If we accidentally call calculate_people it shouldn't erase people
@@ -320,7 +322,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1.calculate_people_ch()
 
-        results = sync_execute("SELECT person_id FROM cohortpeople")
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+        )
         self.assertEqual(len(results), 2)
 
     def test_cohortpeople_action_basic(self):
@@ -409,7 +413,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         with freeze_time("2020-01-10"):
             cohort1.calculate_people_ch()
 
-        results = sync_execute("SELECT person_id FROM cohortpeople")
+        results = sync_execute(
+            "SELECT person_id FROM cohortpeople where team_id = %(team_id)s", {"team_id": self.team.pk}
+        )
         self.assertEqual(len(results), 1)
 
     def _setup_actions_with_different_counts(self):
@@ -566,7 +572,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch()
 
         results = sync_execute(
-            "SELECT person_id FROM cohortpeople GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0"
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0",
+            {"team_id": self.team.pk},
         )
 
         self.assertEqual(len(results), 1)
@@ -593,7 +600,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             cohort1.calculate_people_ch()
 
         results = sync_execute(
-            "SELECT person_id FROM cohortpeople GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0"
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0",
+            {"team_id": self.team.pk},
         )
 
         self.assertEqual(len(results), 1)
@@ -605,7 +613,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             cohort1.calculate_people_ch()
 
         results = sync_execute(
-            "SELECT person_id FROM cohortpeople GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0"
+            "SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s GROUP BY person_id, team_id, cohort_id HAVING sum(sign) > 0",
+            {"team_id": self.team.pk},
         )
 
         self.assertEqual(len(results), 1)

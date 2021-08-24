@@ -430,9 +430,18 @@ def test_events(db, team) -> List[UUID]:
         (Property(key="email", value=r"?.", operator="regex"), []),
     ],
 )
-def test_prop_filter_json_extract(test_events, property, expected_event_indexes):
+def test_prop_filter_json_extract(test_events, property, expected_event_indexes, team):
     query, params = prop_filter_json_extract(property, 0)
-    uuids = list(sorted([uuid for (uuid,) in sync_execute(f"SELECT uuid FROM events WHERE 111 = 111 {query}", params)]))
+    uuids = list(
+        sorted(
+            [
+                uuid
+                for (uuid,) in sync_execute(
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
+                )
+            ]
+        )
+    )
     expected = list(sorted([test_events[index] for index in expected_event_indexes]))
 
     assert uuids == expected

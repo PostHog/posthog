@@ -13,6 +13,41 @@ from posthog.settings import (
 from posthog.test.base import TestMixin
 
 
+def reset_clickhouse_tables():
+    # Reset clickhouse tables to default before running test
+    # Mostly so that test runs locally work correctly
+    from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
+    from ee.clickhouse.sql.person import (
+        DROP_PERSON_DISTINCT_ID_TABLE_SQL,
+        DROP_PERSON_STATIC_COHORT_TABLE_SQL,
+        DROP_PERSON_TABLE_SQL,
+        PERSON_STATIC_COHORT_TABLE_SQL,
+        PERSONS_DISTINCT_ID_TABLE_SQL,
+        PERSONS_TABLE_SQL,
+    )
+    from ee.clickhouse.sql.session_recording_events import (
+        DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
+        SESSION_RECORDING_EVENTS_TABLE_SQL,
+    )
+
+    try:
+        sync_execute(DROP_EVENTS_TABLE_SQL)
+        sync_execute(DROP_PERSON_TABLE_SQL)
+        sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
+        sync_execute(DROP_PERSON_STATIC_COHORT_TABLE_SQL)
+        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
+        sync_execute(DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL)
+
+        sync_execute(EVENTS_TABLE_SQL)
+        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL)
+        sync_execute(PERSONS_TABLE_SQL)
+        sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
+        sync_execute(PERSON_STATIC_COHORT_TABLE_SQL)
+        sync_execute(PLUGIN_LOG_ENTRIES_TABLE_SQL)
+    except:
+        pass
+
+
 @pytest.fixture(scope="package")
 def django_db_setup(django_db_setup, django_db_keepdb):
     database = Database(
@@ -36,6 +71,8 @@ def django_db_setup(django_db_setup, django_db_keepdb):
     # Make DELETE / UPDATE synchronous to avoid flaky tests
     sync_execute("SET mutations_sync = 1")
 
+    reset_clickhouse_tables()
+
     yield
 
     if not django_db_keepdb:
@@ -43,42 +80,6 @@ def django_db_setup(django_db_setup, django_db_keepdb):
             database.drop_database()
         except:
             pass
-
-
-@pytest.fixture
-def db(db):
-    from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
-    from ee.clickhouse.sql.person import (
-        DROP_PERSON_DISTINCT_ID_TABLE_SQL,
-        DROP_PERSON_STATIC_COHORT_TABLE_SQL,
-        DROP_PERSON_TABLE_SQL,
-        PERSON_STATIC_COHORT_TABLE_SQL,
-        PERSONS_DISTINCT_ID_TABLE_SQL,
-        PERSONS_TABLE_SQL,
-    )
-    from ee.clickhouse.sql.session_recording_events import (
-        DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
-        SESSION_RECORDING_EVENTS_TABLE_SQL,
-    )
-
-    yield
-
-    try:
-        sync_execute(DROP_EVENTS_TABLE_SQL)
-        sync_execute(DROP_PERSON_TABLE_SQL)
-        sync_execute(DROP_PERSON_DISTINCT_ID_TABLE_SQL)
-        sync_execute(DROP_PERSON_STATIC_COHORT_TABLE_SQL)
-        sync_execute(DROP_SESSION_RECORDING_EVENTS_TABLE_SQL)
-        sync_execute(DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL)
-
-        sync_execute(EVENTS_TABLE_SQL)
-        sync_execute(SESSION_RECORDING_EVENTS_TABLE_SQL)
-        sync_execute(PERSONS_TABLE_SQL)
-        sync_execute(PERSONS_DISTINCT_ID_TABLE_SQL)
-        sync_execute(PERSON_STATIC_COHORT_TABLE_SQL)
-        sync_execute(PLUGIN_LOG_ENTRIES_TABLE_SQL)
-    except:
-        pass
 
 
 @pytest.fixture
