@@ -216,6 +216,10 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             _create_event(
                 event="step dropoff2", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
             )
+            if i % 2 == 0:
+                _create_event(
+                    event="step branch", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
+                )
 
     def test_path_by_funnel(self):
         self._create_sample_data_multiple_dropoffs()
@@ -239,7 +243,18 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertEqual(
             response,
             [
-                {"source": "1_step one", "target": "2_step dropoff1", "value": 20},
-                {"source": "2_step dropoff1", "target": "3_step dropoff2", "value": 20},
+                {"source": "1_step one", "target": "2_step dropoff1", "value": 20, "average_conversion_time": 60000.0},
+                {
+                    "source": "2_step dropoff1",
+                    "target": "3_step dropoff2",
+                    "value": 20,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_step dropoff2",
+                    "target": "4_step branch",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
             ],
         )
