@@ -6,6 +6,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, SaveOutlined, PlusOutlined, ApiFilled, MergeCellsOutlined } from '@ant-design/icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
@@ -113,6 +114,7 @@ export function FeatureFlag(): JSX.Element {
         removeVariant,
         distributeVariantsEqually,
     } = useActions(featureFlagLogic)
+    const { featureFlags: enabledFeatureFlags } = useValues(featureFlagClientLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -300,7 +302,7 @@ export function FeatureFlag(): JSX.Element {
                         </Col>
                     </Row>
 
-                    {FEATURE_FLAGS.MULTIVARIATE_SUPPORT && (
+                    {enabledFeatureFlags[FEATURE_FLAGS.MULTIVARIATE_SUPPORT] && (
                         <div className="mb-2">
                             <h3 className="l3">Served value</h3>
                             <div className="mb-05">
