@@ -77,6 +77,7 @@ class ClickhousePersonViewSet(PersonViewSet):
 
             events = Event.objects.filter(team=self.team, distinct_id__in=person.distinct_ids)
             events.delete()
+            print("were here")
             delete_person(
                 person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
             )

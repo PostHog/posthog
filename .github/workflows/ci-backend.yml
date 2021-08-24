@@ -93,15 +93,6 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: python manage.py makemigrations --check --dry-run
 
-            - name: Run posthog tests
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest posthog/
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -114,7 +105,16 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee/
+                  pytest ee/clickhouse/views/test/test_clickhouse_person.py::ClickhouseTestPersonApi::test_delete_person -v
+            - name: Run posthog tests
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/shared_dashboard.html
+                  pytest posthog/
 
     cloud:
         name: Django tests – Cloud

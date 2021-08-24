@@ -105,11 +105,8 @@ def delete_person(
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-    try:
-        if delete_events:
-            sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
-    except:
-        pass  # cannot delete if the table is distributed
+    if delete_events:
+        sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
 
     sync_execute(DELETE_PERSON_BY_ID, data)
 
