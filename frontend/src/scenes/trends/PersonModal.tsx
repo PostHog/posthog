@@ -62,7 +62,8 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
         [filters, people, isInitialLoad]
     )
 
-    const showModalActions = clickhouseFeaturesEnabled && (view === ViewType.TRENDS || view === ViewType.STICKINESS)
+    const isDownloadCsvAvailable = view === ViewType.TRENDS
+    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
 
     return (
         <Modal
@@ -73,32 +74,36 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
             footer={
                 people &&
                 people.count > 0 &&
-                showModalActions && (
+                (isDownloadCsvAvailable || isSaveAsCohortAvailable) && (
                     <>
-                        <Button
-                            icon={<DownloadOutlined />}
-                            href={`/api/action/people.csv?${parsePeopleParams(
-                                {
-                                    label: people.label,
-                                    action: people.action,
-                                    date_from: people.day,
-                                    date_to: people.day,
-                                    breakdown_value: people.breakdown_value,
-                                },
-                                filters
-                            )}`}
-                            style={{ marginRight: 8 }}
-                            data-attr="person-modal-download-csv"
-                        >
-                            Download CSV
-                        </Button>
-                        <Button
-                            onClick={onSaveCohort}
-                            icon={<UsergroupAddOutlined />}
-                            data-attr="person-modal-save-as-cohort"
-                        >
-                            Save as cohort
-                        </Button>
+                        {isDownloadCsvAvailable && (
+                            <Button
+                                icon={<DownloadOutlined />}
+                                href={`/api/action/people.csv?${parsePeopleParams(
+                                    {
+                                        label: people.label,
+                                        action: people.action,
+                                        date_from: people.day,
+                                        date_to: people.day,
+                                        breakdown_value: people.breakdown_value,
+                                    },
+                                    filters
+                                )}`}
+                                style={{ marginRight: 8 }}
+                                data-attr="person-modal-download-csv"
+                            >
+                                Download CSV
+                            </Button>
+                        )}
+                        {isSaveAsCohortAvailable && (
+                            <Button
+                                onClick={onSaveCohort}
+                                icon={<UsergroupAddOutlined />}
+                                data-attr="person-modal-save-as-cohort"
+                            >
+                                Save as cohort
+                            </Button>
+                        )}
                     </>
                 )
             }
@@ -132,7 +137,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                             />
                         )}
                         <div style={{ background: '#FAFAFA' }}>
-                            {people?.people.length > 0 ? (
+                            {people.count > 0 ? (
                                 people?.people.map((person) => (
                                     <div key={person.id}>
                                         <PersonRow person={person} people={people} filters={filters} />
