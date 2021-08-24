@@ -23,11 +23,11 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
             sent_at ? DateTime.fromISO(sent_at) : null,
             uuid! // it will throw if it's undefined
         )
-        if (hub.PLUGIN_SERVER_ACTION_MATCHING >= 1 && result) {
+        if (result) {
             const person = await hub.db.fetchPerson(team_id, distinctId)
             const actionMatches = await hub.actionMatcher.match(event, person, result.elements)
             await hub.hookCannon.findAndFireHooks(event, person, site_url, actionMatches)
-            if (hub.PLUGIN_SERVER_ACTION_MATCHING >= 2 && actionMatches.length && result.eventId !== undefined) {
+            if (actionMatches.length && result.eventId !== undefined) {
                 await hub.db.registerActionMatch(result.eventId, actionMatches)
             }
         }
