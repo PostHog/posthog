@@ -333,6 +333,7 @@ export function FeatureFlag(): JSX.Element {
                                             key={index}
                                             onValuesChange={(changedValues) => updateVariant(index, changedValues)}
                                             initialValues={variants[index]}
+                                            validateTrigger={['onChange', 'onBlur']}
                                         >
                                             <Row gutter={8}>
                                                 <Col span={7}>
@@ -349,6 +350,7 @@ export function FeatureFlag(): JSX.Element {
                                                     >
                                                         <Input
                                                             data-attr="feature-flag-variant-key"
+                                                            data-key-index={index.toString()}
                                                             className="ph-ignore-input"
                                                             placeholder={`example-variant-${index + 1}`}
                                                             autoComplete="off"
@@ -425,8 +427,18 @@ export function FeatureFlag(): JSX.Element {
                                         block
                                         icon={<PlusOutlined />}
                                         onClick={() => {
+                                            const newIndex = variants.length
                                             addVariant()
-                                            // TODO: Focus the `key` field of the new variant
+                                            // Focus the newly created key field after a brief delay
+                                            setTimeout(
+                                                () =>
+                                                    document
+                                                        .querySelector<HTMLElement>(
+                                                            `.variant-form-list input[data-key-index="${newIndex}"]`
+                                                        )
+                                                        ?.focus(),
+                                                50
+                                            )
                                         }}
                                         style={{ marginBottom: 16 }}
                                     >
