@@ -331,8 +331,8 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugin_config_id = self.get_object().id
         job = request.data.get("job", {})
 
-        if "name" not in job:
-            raise ValidationError("A job name must be specified!")
+        if "type" not in job:
+            raise ValidationError("The job type must be specified!")
 
         # the plugin server uses "type" for job names but "name" makes for a more friendly API
         job_type = job.get("type")
