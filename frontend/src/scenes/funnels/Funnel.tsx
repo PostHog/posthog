@@ -21,6 +21,7 @@ export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
         return <Loading />
     }
     if (!isValidFunnel) {
+        console.log('NOT VALID FUNNEL')
         return <FunnelEmptyState />
     }
 

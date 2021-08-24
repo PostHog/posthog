@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { isBreakpoint, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
@@ -66,13 +68,13 @@ function isValidBreakdownParameter(breakdown: FunnelRequestParams['breakdown']):
     return ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) || Array.isArray(breakdown)
 }
 
-function wait(ms = 1000): Promise<any> {
-    return new Promise((resolve) => {
-        setTimeout(resolve, ms)
-    })
-}
+// function wait(ms = 1000): Promise<any> {
+//     return new Promise((resolve) => {
+//         setTimeout(resolve, ms)
+//     })
+// }
 
-const SECONDS_TO_POLL = 3 * 60
+// const SECONDS_TO_POLL = 3 * 60
 
 const EMPTY_FUNNEL_RESULTS = {
     results: [],
@@ -82,20 +84,575 @@ const EMPTY_FUNNEL_RESULTS = {
     },
 }
 
-async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Promise<FunnelResult<T>> {
+async function pollFunnel<T = FunnelStep[]>(/*apiParams: FunnelRequestParams*/): Promise<FunnelResult<T>> {
     // Tricky: This API endpoint has wildly different return types depending on parameters.
-    const { refresh, ...bodyParams } = apiParams
-    let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
-    const start = window.performance.now()
-    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
-        await wait()
-        result = await api.create('api/insight/funnel', bodyParams)
+    // const { refresh } = apiParams
+    // const { refresh, ...bodyParams } = apiParams
+    // let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
+    // const start = window.performance.now()
+    // while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
+    //     await wait()
+    //     result = await api.create('api/insight/funnel', bodyParams)
+    // }
+    // // if endpoint is still loading after 3 minutes just return default
+    // if (result.loading) {
+    //     throw { status: 0, statusText: 'Funnel timeout' }
+    // }
+    return {
+        result: [
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 4137,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Firefox',
+                    breakdown_value: 'Firefox',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 3993,
+                    type: 'events',
+                    average_conversion_time: 2634.338335439129,
+                    median_conversion_time: 1,
+                    breakdown: 'Firefox',
+                    breakdown_value: 'Firefox',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 3993,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Firefox',
+                    breakdown_value: 'Firefox',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 3993,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Firefox',
+                    breakdown_value: 'Firefox',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 97,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Opera',
+                    breakdown_value: 'Opera',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 96,
+                    type: 'events',
+                    average_conversion_time: 2876.231644570707,
+                    median_conversion_time: 1,
+                    breakdown: 'Opera',
+                    breakdown_value: 'Opera',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 96,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Opera',
+                    breakdown_value: 'Opera',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 96,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Opera',
+                    breakdown_value: 'Opera',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 14631,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Chrome',
+                    breakdown_value: 'Chrome',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 14180,
+                    type: 'events',
+                    average_conversion_time: 2658.8491073257305,
+                    median_conversion_time: 1,
+                    breakdown: 'Chrome',
+                    breakdown_value: 'Chrome',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 14180,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Chrome',
+                    breakdown_value: 'Chrome',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 14180,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Chrome',
+                    breakdown_value: 'Chrome',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 236,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Other',
+                    breakdown_value: 'Other',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 172,
+                    type: 'events',
+                    average_conversion_time: 1204.4968992248062,
+                    median_conversion_time: 1,
+                    breakdown: 'Other',
+                    breakdown_value: 'Other',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 172,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Other',
+                    breakdown_value: 'Other',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 172,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Other',
+                    breakdown_value: 'Other',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 183,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Mozilla',
+                    breakdown_value: 'Mozilla',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 158,
+                    type: 'events',
+                    average_conversion_time: 1.6983122362869196,
+                    median_conversion_time: 1,
+                    breakdown: 'Mozilla',
+                    breakdown_value: 'Mozilla',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 158,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Mozilla',
+                    breakdown_value: 'Mozilla',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 158,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Mozilla',
+                    breakdown_value: 'Mozilla',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 2054,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Safari',
+                    breakdown_value: 'Safari',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 1987,
+                    type: 'events',
+                    average_conversion_time: 3426.9674353384626,
+                    median_conversion_time: 1,
+                    breakdown: 'Safari',
+                    breakdown_value: 'Safari',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 1987,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Safari',
+                    breakdown_value: 'Safari',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 1987,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Safari',
+                    breakdown_value: 'Safari',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 360,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Firefox iOS',
+                    breakdown_value: 'Firefox iOS',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 347,
+                    type: 'events',
+                    average_conversion_time: 2319.7631075597437,
+                    median_conversion_time: 1,
+                    breakdown: 'Firefox iOS',
+                    breakdown_value: 'Firefox iOS',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 347,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Firefox iOS',
+                    breakdown_value: 'Firefox iOS',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 347,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Firefox iOS',
+                    breakdown_value: 'Firefox iOS',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 562,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Microsoft Edge',
+                    breakdown_value: 'Microsoft Edge',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 550,
+                    type: 'events',
+                    average_conversion_time: 2833.9876640168486,
+                    median_conversion_time: 1,
+                    breakdown: 'Microsoft Edge',
+                    breakdown_value: 'Microsoft Edge',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 550,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Microsoft Edge',
+                    breakdown_value: 'Microsoft Edge',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 550,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Microsoft Edge',
+                    breakdown_value: 'Microsoft Edge',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 1232,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Android Mobile',
+                    breakdown_value: 'Android Mobile',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 1167,
+                    type: 'events',
+                    average_conversion_time: 1878.832941783256,
+                    median_conversion_time: 2,
+                    breakdown: 'Android Mobile',
+                    breakdown_value: 'Android Mobile',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 1167,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Android Mobile',
+                    breakdown_value: 'Android Mobile',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 1167,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Android Mobile',
+                    breakdown_value: 'Android Mobile',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 4623,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Mobile Safari',
+                    breakdown_value: 'Mobile Safari',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 4503,
+                    type: 'events',
+                    average_conversion_time: 1847.4191969580702,
+                    median_conversion_time: 1,
+                    breakdown: 'Mobile Safari',
+                    breakdown_value: 'Mobile Safari',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 4503,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Mobile Safari',
+                    breakdown_value: 'Mobile Safari',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 4503,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Mobile Safari',
+                    breakdown_value: 'Mobile Safari',
+                },
+            ],
+            [
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    people: [],
+                    count: 541,
+                    type: 'events',
+                    average_conversion_time: null,
+                    median_conversion_time: null,
+                    breakdown: 'Chrome iOS',
+                    breakdown_value: 'Chrome iOS',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 1,
+                    people: [],
+                    count: 530,
+                    type: 'events',
+                    average_conversion_time: 2119.032975986918,
+                    median_conversion_time: 1,
+                    breakdown: 'Chrome iOS',
+                    breakdown_value: 'Chrome iOS',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 2,
+                    people: [],
+                    count: 530,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Chrome iOS',
+                    breakdown_value: 'Chrome iOS',
+                },
+                {
+                    action_id: '$pageview',
+                    name: '$pageview',
+                    order: 3,
+                    people: [],
+                    count: 530,
+                    type: 'events',
+                    average_conversion_time: 0,
+                    median_conversion_time: 0,
+                    breakdown: 'Chrome iOS',
+                    breakdown_value: 'Chrome iOS',
+                },
+            ],
+        ],
     }
-    // if endpoint is still loading after 3 minutes just return default
-    if (result.loading) {
-        throw { status: 0, statusText: 'Funnel timeout' }
-    }
-    return result
+    // return result
 }
 
 export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
@@ -257,6 +814,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             false,
                             result.last_refresh
                         )
+                        console.log('RESULTS', { results: result.result, timeConversionResults, filters })
                         return { results: result.result, timeConversionResults, filters }
                     } catch (e) {
                         if (!isBreakpoint(e)) {
@@ -364,6 +922,7 @@ export const funnelLogic = kea<funnelLogicType>({
         isValidFunnel: [
             () => [selectors.filters, selectors.results, selectors.stepsWithCount, selectors.timeConversionBins],
             (filters, results, stepsWithCount, timeConversionBins) => {
+                console.log('isValidFunnel', filters, results, stepsWithCount, timeConversionBins)
                 if (filters.funnel_viz_type === FunnelVizType.Steps || !filters.funnel_viz_type) {
                     return !!(stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1)
                 }
@@ -508,6 +1067,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 if (!Array.isArray(results)) {
                     return []
                 }
+                console.log('STEPS', stepsWithNestedBreakdown, results)
                 return !!filters.breakdown
                     ? stepsWithNestedBreakdown
                     : ([...results] as FunnelStep[]).sort((a, b) => a.order - b.order)

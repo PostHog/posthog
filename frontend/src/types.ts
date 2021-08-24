@@ -751,6 +751,7 @@ export interface FunnelStep {
     // The type returned from the API.
     action_id: string
     average_conversion_time: number | null
+    median_conversion_time: number | null
     count: number
     name: string
     order: number
