@@ -2016,6 +2016,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event_response, action_response,
             )
 
+        @test_with_materialized_columns(person_properties=["name"])
         def test_breakdown_by_person_property_pie(self):
             self._create_multiple_people()
 

@@ -61,7 +61,7 @@ def get_breakdown_person_prop_values(
         parsed_date_to=parsed_date_to,
         person_query=ClickhousePersonQuery(filter, team_id).get_query(),
         prop_filters=prop_filters,
-        person_prop_filters=person_prop_filters or "1=1",
+        person_prop_filters=person_prop_filters,
         aggregate_operation=aggregate_operation,
         GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         **entity_format_params,
