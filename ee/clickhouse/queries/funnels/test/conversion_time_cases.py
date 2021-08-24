@@ -150,4 +150,99 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             self.assertEqual(result[1]["median_conversion_time"], 7200)
             self.assertEqual(result[2]["median_conversion_time"], 5400)
 
+        def test_funnel_times_with_different_conversion_windows(self):
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "pageview", "type": "events", "order": 1},
+                ],
+                "insight": INSIGHT_FUNNELS,
+                "funnel_window_interval": 14,
+                "funnel_window_interval_unit": "day",
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-14",
+            }
+
+            filter = Filter(data=filters)
+            funnel = Funnel(filter, self.team)
+
+            # event
+            person1_stopped_after_two_signups = _create_person(
+                distinct_ids=["stopped_after_signup1"], team_id=self.team.pk
+            )
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup1",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team, event="pageview", distinct_id="stopped_after_signup1", timestamp="2020-01-02T14:05:00Z"
+            )
+
+            person2_stopped_after_signup = _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup2",
+                timestamp="2020-01-02T14:03:00Z",
+            )
+
+            person3_stopped_after_two_signups = _create_person(
+                distinct_ids=["stopped_after_signup3"], team_id=self.team.pk
+            )
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id="stopped_after_signup3",
+                timestamp="2020-01-02T12:00:00Z",
+            )
+            _create_event(
+                team=self.team, event="pageview", distinct_id="stopped_after_signup3", timestamp="2020-01-02T12:15:00Z"
+            )
+
+            result = funnel.run()
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 3)
+            self.assertEqual(result[1]["count"], 2)
+            self.assertEqual(result[1]["average_conversion_time"], 600)
+
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1),
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                    person3_stopped_after_two_signups.uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 2),
+                [person1_stopped_after_two_signups.uuid, person3_stopped_after_two_signups.uuid],
+            )
+
+            filter = filter.with_data({"funnel_window_interval": 5, "funnel_window_interval_unit": "minute"})
+
+            funnel = Funnel(filter, self.team)
+            result4 = funnel.run()
+
+            self.assertNotEqual(result, result4)
+            self.assertEqual(result4[0]["name"], "user signed up")
+            self.assertEqual(result4[0]["count"], 3)
+            self.assertEqual(result4[1]["count"], 1)
+            self.assertEqual(result4[1]["average_conversion_time"], 300)
+
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1),
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                    person3_stopped_after_two_signups.uuid,
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
+            )
+
     return TestFunnelConversionTime
