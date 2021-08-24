@@ -83,6 +83,13 @@ function APISnippet(): JSX.Element {
     )
 }
 
+function focusVariantKeyField(index: number): void {
+    setTimeout(
+        () => document.querySelector<HTMLElement>(`.variant-form-list input[data-key-index="${index}"]`)?.focus(),
+        50
+    )
+}
+
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
     const {
@@ -303,7 +310,10 @@ export function FeatureFlag(): JSX.Element {
                                             value: true,
                                         },
                                     ]}
-                                    onChange={(e) => setMultivariateEnabled(e.target.value)}
+                                    onChange={(e) => {
+                                        setMultivariateEnabled(e.target.value)
+                                        focusVariantKeyField(0)
+                                    }}
                                     value={multivariateEnabled}
                                     optionType="button"
                                 />
@@ -429,16 +439,7 @@ export function FeatureFlag(): JSX.Element {
                                         onClick={() => {
                                             const newIndex = variants.length
                                             addVariant()
-                                            // Focus the newly created key field after a brief delay
-                                            setTimeout(
-                                                () =>
-                                                    document
-                                                        .querySelector<HTMLElement>(
-                                                            `.variant-form-list input[data-key-index="${newIndex}"]`
-                                                        )
-                                                        ?.focus(),
-                                                50
-                                            )
+                                            focusVariantKeyField(newIndex)
                                         }}
                                         style={{ marginBottom: 16 }}
                                     >
