@@ -39,19 +39,21 @@ def get_breakdown_person_prop_values(
         team_id,
         table_name="e",
         filter_test_accounts=filter.filter_test_accounts,
-        is_person_query=True,
+        person_properties_column="person_props",
         allow_denormalized_props=True,
     )
     person_prop_filters, person_prop_params = parse_prop_clauses(
         [prop for prop in filter.properties if prop.type == "person"],
         team_id,
         filter_test_accounts=filter.filter_test_accounts,
-        is_person_query=True,
+        person_properties_column="person_props",
         prepend="person",
         allow_denormalized_props=True,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
+    entity_params, entity_format_params = get_entity_filtering_params(
+        entity, team_id, with_prop_filters=True, person_properties_column="person_props"
+    )
 
     value_expression, _ = get_property_string_expr("person", cast(str, filter.breakdown), "%(key)s", "person_props")
 

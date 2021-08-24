@@ -1550,6 +1550,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 response = trends().run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
             self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
+        @test_with_materialized_columns(person_properties=["email", "bar"])
         def test_trends_regression_filtering_by_action_with_person_properties(self):
             person1 = person_factory(
                 team_id=self.team.pk, properties={"email": "foo@example.com", "bar": "aa"}, distinct_ids=["d1"]

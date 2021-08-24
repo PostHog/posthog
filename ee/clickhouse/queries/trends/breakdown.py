@@ -46,7 +46,7 @@ class ClickhouseTrendsBreakdown:
             team_id,
             table_name="e",
             filter_test_accounts=filter.filter_test_accounts,
-            is_person_query=True,
+            person_properties_column="person_props",
         )
         aggregate_operation, _, math_params = process_math(entity)
 

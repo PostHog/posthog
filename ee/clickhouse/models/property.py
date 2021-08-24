@@ -25,6 +25,7 @@ def parse_prop_clauses(
     allow_denormalized_props: bool = True,
     filter_test_accounts=False,
     is_person_query=False,
+    person_properties_column: Optional[str] = None,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -51,9 +52,13 @@ def parse_prop_clauses(
                 )
         elif prop.type == "person":
             filter_query, filter_params = prop_filter_json_extract(
-                prop, idx, "{}person".format(prepend), allow_denormalized_props=allow_denormalized_props
+                prop,
+                idx,
+                "{}person".format(prepend),
+                prop_var=person_properties_column or "properties",
+                allow_denormalized_props=allow_denormalized_props,
             )
-            if is_person_query:
+            if is_person_query or person_properties_column is not None:
                 final.append(filter_query)
                 params.update(filter_params)
             else:
