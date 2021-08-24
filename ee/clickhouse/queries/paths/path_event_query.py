@@ -8,6 +8,18 @@ from posthog.models.filters.path_filter import PathFilter
 
 class PathEventQuery(ClickhouseEventQuery):
     FUNNEL_PERSONS_ALIAS = "funnel_persons"
+    _filter: PathFilter
+
+    def __init__(
+        self,
+        filter: PathFilter,
+        team_id: int,
+        round_interval=False,
+        should_join_distinct_ids=False,
+        should_join_persons=False,
+        **kwargs,
+    ) -> None:
+        super().__init__(filter, team_id, round_interval, should_join_distinct_ids, should_join_persons, **kwargs)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 

@@ -56,7 +56,7 @@ class ClickhousePathsNew:
     def get_query(self) -> str:
 
         if self._filter.funnel_paths and self._funnel_filter:
-            return self.get_path_query_by_funnel()
+            return self.get_path_query_by_funnel(funnel_filter=self._funnel_filter)
         else:
             return self.get_path_query()
 
@@ -68,9 +68,9 @@ class ClickhousePathsNew:
         self.params.update(start_params)
         return PATH_ARRAY_QUERY.format(path_event_query=path_event_query, boundary_event_filter=boundary_event_filter)
 
-    def get_path_query_by_funnel(self):
+    def get_path_query_by_funnel(self, funnel_filter: Filter):
         path_query = self.get_path_query()
-        funnel_persons_generator = ClickhouseFunnelPersons(self._funnel_filter, self._team)
+        funnel_persons_generator = ClickhouseFunnelPersons(funnel_filter, self._team)
         funnel_persons_query = funnel_persons_generator.get_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
         funnel_persons_param = funnel_persons_generator.params

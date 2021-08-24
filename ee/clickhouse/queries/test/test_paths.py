@@ -24,10 +24,11 @@ class TestClickhousePathsOld(ClickhouseTestMixin, paths_test_factory(ClickhouseP
         materialize("events", "$current_url")
         materialize("events", "$screen_name")
 
-        query, _ = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
+        filter = PathFilter(data={"path_type": PAGEVIEW_EVENT})
+        query, _ = ClickhousePaths(team=self.team, filter=filter).get_query(team=self.team, filter=filter)
         self.assertNotIn("json", query.lower())
 
-        query, _ = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
+        query, _ = ClickhousePaths(team=self.team, filter=filter).get_query(team=self.team, filter=filter)
         self.assertNotIn("json", query.lower())
 
         self.test_current_url_paths_and_logic()
