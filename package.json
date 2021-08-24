@@ -51,6 +51,7 @@
         "@babel/preset-typescript": "^7.13.0",
         "@babel/standalone": "^7.13.7",
         "@google-cloud/bigquery": "^5.6.0",
+        "@google-cloud/pubsub": "^2.16.0",
         "@google-cloud/storage": "^5.8.5",
         "@maxmind/geoip2-node": "^3.0.0",
         "@posthog/clickhouse": "^1.7.0",
