@@ -170,6 +170,10 @@ $funnel_canvas_background: #fafafa;
         display: flex;
         flex-direction: row;
 
+        &.breakdown {
+            background-color: white;
+        }
+
         .funnel-bar {
             position: relative;
             height: 100%;

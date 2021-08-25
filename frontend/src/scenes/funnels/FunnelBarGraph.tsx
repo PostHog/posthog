@@ -1,5 +1,7 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
-import { humanFriendlyDuration } from 'lib/utils'
+import clsx from 'clsx'
+import useSize from '@react-hook/size'
+import { humanFriendlyDuration, lightenDarkenColor } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -17,12 +19,11 @@ import {
     getReferenceStep,
     humanizeOrder,
     getSeriesColor,
-    getBreakdownMaxIndex,
     getSeriesPositionName,
     humanizeStepCount,
     formatDisplayPercentage,
 } from './funnelUtils'
-import { ChartParams } from '~/types'
+import { ChartParams, FunnelStepWithConversionMetrics } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 
 interface BarProps {
@@ -59,6 +60,80 @@ function DuplicateStepIndicator(): JSX.Element {
                 <InfoCircleOutlined className="info-indicator" />
             </Tooltip>
         </span>
+    )
+}
+
+interface BreakdownBarGroupProps {
+    currentStep: FunnelStepWithConversionMetrics
+    basisStep: FunnelStepWithConversionMetrics
+    previousStep?: FunnelStepWithConversionMetrics
+}
+
+function BreakdownBarGroup({ currentStep, basisStep, previousStep }: BreakdownBarGroupProps): JSX.Element {
+    const ref = useRef<HTMLDivElement | null>(null)
+    const [, height] = useSize(ref)
+    const barWidth = `calc(${100 / (currentStep?.nested_breakdown?.length ?? 1)}% - 2px)`
+
+    return (
+        <div
+            ref={ref}
+            style={{
+                display: 'flex',
+                justifyContent: 'flex-start',
+                alignItems: 'flex-end',
+                flexDirection: 'row',
+                width: '100%',
+                height: '100%',
+            }}
+        >
+            {currentStep?.nested_breakdown &&
+                currentStep?.nested_breakdown.map((breakdown, breakdownIndex) => {
+                    const basisBreakdownCount = basisStep?.nested_breakdown?.[breakdownIndex]?.count ?? 1
+                    const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
+                    const previousBarHeight =
+                        (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
+                    const color = getSeriesColor(breakdownIndex) as string
+                    const stripeBgColor = lightenDarkenColor(color, 20)
+                    return (
+                        <div
+                            key={breakdownIndex}
+                            className="breakdown-bar-column"
+                            style={{
+                                display: 'block',
+                                height: '100%',
+                                width: barWidth,
+                                margin: '0 1px',
+                            }}
+                        >
+                            {currentStep.order > 0 && (
+                                <div
+                                    className="breakdown-previous-bar"
+                                    style={{
+                                        position: 'absolute',
+                                        bottom: 0,
+                                        height: previousBarHeight,
+                                        opacity: 0.2,
+                                        background: `repeating-linear-gradient(135deg, ${color}, ${color} 5px, ${stripeBgColor} 5px, ${stripeBgColor} 10px)`,
+                                        borderRadius: 3,
+                                        width: barWidth,
+                                    }}
+                                />
+                            )}
+                            <div
+                                className="breakdown-current-bar"
+                                style={{
+                                    position: 'absolute',
+                                    bottom: 0,
+                                    height: currentBarHeight,
+                                    backgroundColor: color,
+                                    borderRadius: 3,
+                                    width: barWidth,
+                                }}
+                            />
+                        </div>
+                    )
+                })}
+        </div>
     )
 }
 
@@ -317,13 +392,12 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
                 const showLineBefore = layout === FunnelLayout.horizontal && stepIndex > 0
                 const showLineAfter = layout === FunnelLayout.vertical || stepIndex < steps.length - 1
-                const breakdownMaxIndex = getBreakdownMaxIndex(
-                    Array.isArray(step.nested_breakdown) ? step.nested_breakdown : undefined
-                )
                 const breakdownSum =
                     (Array.isArray(step.nested_breakdown) &&
                         step.nested_breakdown?.reduce((sum, item) => sum + item.count, 0)) ||
                     0
+                const isBreakdown = Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length
+
                 return (
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
@@ -351,88 +425,93 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                             </div>
                         </header>
                         <div className="funnel-inner-viz">
-                            <div className="funnel-bar-wrapper">
-                                {Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length ? (
+                            <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })}>
+                                {isBreakdown ? (
                                     <>
-                                        {step.nested_breakdown.map((breakdown, index) => {
-                                            const barSizePercentage = breakdown.count / basisStep.count
-                                            return (
-                                                <Bar
-                                                    key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
-                                                    isBreakdown={true}
-                                                    breakdownIndex={index}
-                                                    breakdownMaxIndex={breakdownMaxIndex}
-                                                    breakdownSumPercentage={
-                                                        index === breakdownMaxIndex && breakdownSum
-                                                            ? breakdownSum / basisStep.count
-                                                            : undefined
-                                                    }
-                                                    percentage={barSizePercentage}
-                                                    name={breakdown.name}
-                                                    onBarClick={() =>
-                                                        openPersonsModal(step, stepIndex + 1, breakdown.breakdown_value)
-                                                    }
-                                                    disabled={!!dashboardItemId}
-                                                    layout={layout}
-                                                    popoverTitle={
-                                                        <div style={{ wordWrap: 'break-word' }}>
-                                                            <PropertyKeyInfo value={step.name} />
-                                                            {' • '}
-                                                            {breakdown.breakdown || 'None'}
-                                                        </div>
-                                                    }
-                                                    popoverMetrics={[
-                                                        {
-                                                            title: 'Completed step',
-                                                            value: breakdown.count,
-                                                        },
-                                                        {
-                                                            title: 'Conversion rate (total)',
-                                                            value:
-                                                                formatDisplayPercentage(
-                                                                    breakdown.conversionRates.total
-                                                                ) + '%',
-                                                        },
-                                                        {
-                                                            title: `Conversion rate (from step ${humanizeOrder(
-                                                                previousStep.order
-                                                            )})`,
-                                                            value:
-                                                                formatDisplayPercentage(
-                                                                    breakdown.conversionRates.fromPrevious
-                                                                ) + '%',
-                                                            visible: step.order !== 0,
-                                                        },
-                                                        {
-                                                            title: 'Dropped off',
-                                                            value: breakdown.droppedOffFromPrevious,
-                                                            visible:
-                                                                step.order !== 0 &&
-                                                                breakdown.droppedOffFromPrevious > 0,
-                                                        },
-                                                        {
-                                                            title: `Dropoff rate (from step ${humanizeOrder(
-                                                                previousStep.order
-                                                            )})`,
-                                                            value:
-                                                                formatDisplayPercentage(
-                                                                    1 - breakdown.conversionRates.fromPrevious
-                                                                ) + '%',
-                                                            visible:
-                                                                step.order !== 0 &&
-                                                                breakdown.droppedOffFromPrevious > 0,
-                                                        },
-                                                        {
-                                                            title: 'Average time on step',
-                                                            value: humanFriendlyDuration(
-                                                                breakdown.average_conversion_time
-                                                            ),
-                                                            visible: !!breakdown.average_conversion_time,
-                                                        },
-                                                    ]}
-                                                />
-                                            )
-                                        })}
+                                        <BreakdownBarGroup
+                                            currentStep={step}
+                                            basisStep={basisStep}
+                                            previousStep={previousStep}
+                                        />
+                                        {/*{step.nested_breakdown.map((breakdown, index) => {*/}
+                                        {/*    const barSizePercentage = breakdown.count / basisStep.count*/}
+                                        {/*    return (*/}
+                                        {/*        <Bar*/}
+                                        {/*            key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}*/}
+                                        {/*            isBreakdown={true}*/}
+                                        {/*            breakdownIndex={index}*/}
+                                        {/*            breakdownMaxIndex={breakdownMaxIndex}*/}
+                                        {/*            breakdownSumPercentage={*/}
+                                        {/*                index === breakdownMaxIndex && breakdownSum*/}
+                                        {/*                    ? breakdownSum / basisStep.count*/}
+                                        {/*                    : undefined*/}
+                                        {/*            }*/}
+                                        {/*            percentage={barSizePercentage}*/}
+                                        {/*            name={breakdown.name}*/}
+                                        {/*            onBarClick={() =>*/}
+                                        {/*                openPersonsModal(step, stepIndex + 1, breakdown.breakdown_value)*/}
+                                        {/*            }*/}
+                                        {/*            disabled={!!dashboardItemId}*/}
+                                        {/*            layout={layout}*/}
+                                        {/*            popoverTitle={*/}
+                                        {/*                <div style={{ wordWrap: 'break-word' }}>*/}
+                                        {/*                    <PropertyKeyInfo value={step.name} />*/}
+                                        {/*                    {' • '}*/}
+                                        {/*                    {breakdown.breakdown || 'None'}*/}
+                                        {/*                </div>*/}
+                                        {/*            }*/}
+                                        {/*            popoverMetrics={[*/}
+                                        {/*                {*/}
+                                        {/*                    title: 'Completed step',*/}
+                                        {/*                    value: breakdown.count,*/}
+                                        {/*                },*/}
+                                        {/*                {*/}
+                                        {/*                    title: 'Conversion rate (total)',*/}
+                                        {/*                    value:*/}
+                                        {/*                        formatDisplayPercentage(*/}
+                                        {/*                            breakdown.conversionRates.total*/}
+                                        {/*                        ) + '%',*/}
+                                        {/*                },*/}
+                                        {/*                {*/}
+                                        {/*                    title: `Conversion rate (from step ${humanizeOrder(*/}
+                                        {/*                        previousStep.order*/}
+                                        {/*                    )})`,*/}
+                                        {/*                    value:*/}
+                                        {/*                        formatDisplayPercentage(*/}
+                                        {/*                            breakdown.conversionRates.fromPrevious*/}
+                                        {/*                        ) + '%',*/}
+                                        {/*                    visible: step.order !== 0,*/}
+                                        {/*                },*/}
+                                        {/*                {*/}
+                                        {/*                    title: 'Dropped off',*/}
+                                        {/*                    value: breakdown.droppedOffFromPrevious,*/}
+                                        {/*                    visible:*/}
+                                        {/*                        step.order !== 0 &&*/}
+                                        {/*                        breakdown.droppedOffFromPrevious > 0,*/}
+                                        {/*                },*/}
+                                        {/*                {*/}
+                                        {/*                    title: `Dropoff rate (from step ${humanizeOrder(*/}
+                                        {/*                        previousStep.order*/}
+                                        {/*                    )})`,*/}
+                                        {/*                    value:*/}
+                                        {/*                        formatDisplayPercentage(*/}
+                                        {/*                            1 - breakdown.conversionRates.fromPrevious*/}
+                                        {/*                        ) + '%',*/}
+                                        {/*                    visible:*/}
+                                        {/*                        step.order !== 0 &&*/}
+                                        {/*                        breakdown.droppedOffFromPrevious > 0,*/}
+                                        {/*                },*/}
+                                        {/*                {*/}
+                                        {/*                    title: 'Average time on step',*/}
+                                        {/*                    value: humanFriendlyDuration(*/}
+                                        {/*                        breakdown.average_conversion_time*/}
+                                        {/*                    ),*/}
+                                        {/*                    visible: !!breakdown.average_conversion_time,*/}
+                                        {/*                },*/}
+                                        {/*            ]}*/}
+                                        {/*        />*/}
+                                        {/*    )*/}
+                                        {/*})}*/}
                                         <div
                                             className="funnel-bar-empty-space"
                                             onClick={() =>
