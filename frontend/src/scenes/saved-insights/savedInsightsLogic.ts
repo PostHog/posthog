@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { DashboardItemType, SavedInsightsTabs, UserBasicType } from '~/types'
+import { DashboardItemType, LayoutView, SavedInsightsTabs, UserBasicType } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
@@ -69,7 +69,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
     }),
     reducers: {
         layoutView: [
-            'list',
+            LayoutView.List,
             {
                 setLayoutView: (_, { view }) => view,
             },

@@ -408,6 +408,11 @@ export enum PersonsTabType {
     SESSIONS = 'sessions',
 }
 
+export enum LayoutView {
+    Card = 'card',
+    List = 'list',
+}
+
 export interface EventType {
     elements: ElementType[]
     elements_hash: string | null

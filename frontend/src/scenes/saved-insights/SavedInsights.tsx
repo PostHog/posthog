@@ -4,7 +4,7 @@ import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo, humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, SavedInsightsTabs, ViewType } from '~/types'
+import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
 import {
     StarOutlined,
@@ -53,8 +53,14 @@ export function SavedInsights(): JSX.Element {
     } = useValues(savedInsightsLogic)
     const { dashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
-    const insightTypes = ['All types', 'Trends', 'Funnels', 'Retention', 'Paths', 'Sessions', 'Stickiness', 'Lifecycle']
     const { members } = useValues(membersLogic)
+    const insightTypes = ['All types', 'Trends', 'Funnels', 'Retention', 'Paths', 'Sessions', 'Stickiness', 'Lifecycle']
+    const pageLimit = 15
+    const paginationCount = !previousResult
+        ? 1
+        : nextResult
+        ? offset - pageLimit
+        : count - (insights?.results.length || 0)
 
     const columns = [
         {
@@ -249,21 +255,28 @@ export function SavedInsights(): JSX.Element {
                     </Select>
                 </Col>
             </Row>
-            <Row className="list-or-card-layout">
-                Showing {!previousResult ? 1 : nextResult ? offset - 15 : count - (insights?.results.length || 0)} -{' '}
-                {nextResult ? offset : count} of {count} insights
-                <div>
-                    <Button type={layoutView === 'list' ? 'primary' : 'default'} onClick={() => setLayoutView('list')}>
-                        <UnorderedListOutlined />
-                        List
-                    </Button>
-                    <Button type={layoutView === 'card' ? 'primary' : 'default'} onClick={() => setLayoutView('card')}>
-                        <AppstoreFilled />
-                        Card
-                    </Button>
-                </div>
-            </Row>
-            {layoutView === 'list' ? (
+            {insights.count > 0 && (
+                <Row className="list-or-card-layout">
+                    Showing ${paginationCount} - ${nextResult ? offset : count} of ${count} insights
+                    <div>
+                        <Button
+                            type={layoutView === LayoutView.List ? 'primary' : 'default'}
+                            onClick={() => setLayoutView(LayoutView.List)}
+                        >
+                            <UnorderedListOutlined />
+                            List
+                        </Button>
+                        <Button
+                            type={layoutView === LayoutView.Card ? 'primary' : 'default'}
+                            onClick={() => setLayoutView(LayoutView.Card)}
+                        >
+                            <AppstoreFilled />
+                            Card
+                        </Button>
+                    </div>
+                </Row>
+            )}
+            {layoutView === LayoutView.List ? (
                 <Table
                     loading={insightsLoading}
                     columns={columns}
@@ -273,13 +286,8 @@ export function SavedInsights(): JSX.Element {
                     footer={() => (
                         <Row className="footer-pagination">
                             <span className="text-muted-alt">
-                                Showing{' '}
-                                {!previousResult
-                                    ? 1
-                                    : nextResult
-                                    ? offset - 15
-                                    : count - (insights?.results.length || 0)}{' '}
-                                - {nextResult ? offset : count} of {count} insights
+                                {insights.count > 0 &&
+                                    `Showing ${paginationCount} - ${nextResult ? offset : count} of ${count} insights`}
                             </span>
                             <LeftOutlined
                                 style={{ paddingRight: 16 }}
