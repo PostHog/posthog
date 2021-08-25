@@ -1,14 +1,13 @@
 import './Popup.scss'
-import React, { ReactElement, useContext, useEffect, useMemo, useState } from 'react'
+import React, { HTMLProps, ReactElement, useContext, useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { Placement } from '@popperjs/core'
 
-interface PopupProps {
+interface PopupProps extends HTMLProps<HTMLDivElement> {
     visible?: boolean
     onClickOutside?: (event: Event) => void
-    children: React.ReactChild | ((props: { setRef?: (ref: HTMLElement) => void }) => JSX.Element)
     overlay: React.ReactNode
     placement?: Placement
     fallbackPlacements?: Placement[]
@@ -27,6 +26,7 @@ export function Popup({
     onClickOutside,
     placement = 'bottom-start',
     fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
+    ...divProps
 }: PopupProps): JSX.Element {
     const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
 
@@ -82,7 +82,8 @@ export function Popup({
             {visible
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip"
+                          {...divProps}
+                          className={`popper-tooltip ${divProps.className}`}
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}

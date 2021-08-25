@@ -142,7 +142,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: 'Start point',
             render: function RenderStartPoint(session: SessionType) {
-                return session.start_url ? stripHTTP(session.start_url) : 'unavailable'
+                return session.start_url ? stripHTTP(session.start_url) : 'N/A'
             },
             ellipsis: true,
             span: 4,
@@ -150,7 +150,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         {
             title: 'End point',
             render: function RenderEndPoint(session: SessionType) {
-                return session.end_url ? stripHTTP(session.end_url) : 'unavailable'
+                return session.end_url ? stripHTTP(session.end_url) : 'N/A'
             },
             ellipsis: true,
             span: 4,
@@ -180,10 +180,11 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 </Tooltip>
             ),
             render: function RenderEndPoint(session: SessionType) {
-                return <SessionsPlayerButton session={session} />
+                return session.session_recordings.length ? (
+                    <SessionsPlayerButton sessionRecordings={session.session_recordings} />
+                ) : null
             },
-            ellipsis: true,
-            span: 3,
+            span: 4,
         },
     ]
 
@@ -248,8 +249,9 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                 type="primary"
                                 data-attr="play-all-recordings"
                                 disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
+                                icon={<PlayCircleOutlined />}
                             >
-                                <PlayCircleOutlined /> Play all
+                                Play all
                             </LinkButton>
                         </span>
                     </Tooltip>

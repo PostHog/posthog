@@ -1,0 +1,62 @@
+@import '~/vars';
+
+.session-recordings-popup {
+    padding: 0;
+}
+
+.session-recordings-popup__link {
+    color: black;
+
+    .anticon {
+        color: $primary;
+    }
+
+    &.session-recordings-popup__link--viewed,
+    &.session-recordings-popup__link::visited {
+        .anticon {
+            color: $text_muted;
+        }
+    }
+}
+
+.session-recordings-popup__row,
+.session-recordings-popup__label,
+.session-recordings-popup__detail {
+    display: flex;
+    align-items: center;
+    box-sizing: content-box;
+}
+
+.session-recordings-popup__row {
+    height: 32px; // Borrowed from .ant-btn
+    padding: 4px 15px; // Borrowed from .ant-btn
+}
+.session-recordings-popup__label {
+    font-weight: 500;
+
+    .anticon {
+        font-size: 1.25rem;
+        margin-right: 0.5rem;
+    }
+}
+
+.session-recordings-popup__detail {
+    margin-left: 1rem;
+}
+
+.session-recordings-button {
+    .session-recordings-button__indicator {
+        transition: transform 0.15s cubic-bezier(0.645, 0.045, 0.355, 1);
+        // We center at 14 / 16 * 50% verticaly to compensate for CaretDownOutlined's offset when inverted,
+        // to make it appear exactly as CaretUpOutlined
+        transform-origin: 50% 43.75%;
+    }
+
+    .session-recordings-button__indicator--closed {
+        transform: rotate(0deg);
+    }
+
+    .session-recordings-button__indicator--open {
+        transform: rotate(180deg);
+    }
+}

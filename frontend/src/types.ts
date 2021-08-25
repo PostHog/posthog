@@ -422,18 +422,23 @@ export interface SessionType {
     length: number
     start_time: string
     end_time: string
-    session_recordings: SessionTypeSessionRecording[]
+    session_recordings: SessionRecordingType[]
     start_url: string | null
     end_url: string | null
     email?: string | null
     matching_events: Array<number | string>
 }
 
-export interface SessionTypeSessionRecording {
+export interface SessionRecordingType {
     id: string
+    /** Whether this recording has been viewed already. */
     viewed: boolean
-    /** Length of recording in seconds */
+    /** Length of recording in seconds. */
     recording_duration: number
+    /** When the recording starts in ISO format. */
+    start_time: string
+    /** When the recording ends in ISO format. */
+    end_time: string
 }
 
 export interface BillingType {
