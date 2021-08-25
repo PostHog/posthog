@@ -611,16 +611,18 @@ export const dateMapping: Record<string, string[]> = {
     Today: ['dStart'],
     Yesterday: ['-1d', 'dStart'],
     'Last 24 hours': ['-24h'],
-    'Last 48 hours': ['-48h'],
     'Last 7 days': ['-7d'],
     'Last 14 days': ['-14d'],
     'Last 30 days': ['-30d'],
     'Last 90 days': ['-90d'],
-    'This month': ['mStart'],
-    'Previous month': ['-1mStart', '-1mEnd'],
+    //'This month': ['mStart'],
     'Year to date': ['yStart'],
     'All time': ['all'],
 }
+
+// The following constants are also supported for dateMapping but where removed due to low usage (see relevant PR)
+//  'Previous month': ['-1mStart', '-1mEnd'],
+//  'Last 48 hours': ['-48h'],
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
