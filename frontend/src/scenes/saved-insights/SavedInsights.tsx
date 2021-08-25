@@ -56,11 +56,16 @@ export function SavedInsights(): JSX.Element {
     const { members } = useValues(membersLogic)
     const insightTypes = ['All types', 'Trends', 'Funnels', 'Retention', 'Paths', 'Sessions', 'Stickiness', 'Lifecycle']
     const pageLimit = 15
-    const paginationCount = !previousResult
-        ? 1
-        : nextResult
-        ? offset - pageLimit
-        : count - (insights?.results.length || 0)
+    const paginationCount = (): number => {
+        if (!previousResult) {
+            // no previous url means it's the first result set
+            return 1
+        }
+        if (nextResult) {
+            return offset - pageLimit
+        }
+        return count - (insights?.results.length || 0)
+    }
 
     const columns = [
         {
@@ -257,7 +262,7 @@ export function SavedInsights(): JSX.Element {
             </Row>
             {insights.count > 0 && (
                 <Row className="list-or-card-layout">
-                    Showing ${paginationCount} - ${nextResult ? offset : count} of ${count} insights
+                    Showing {paginationCount()} - {nextResult ? offset : count} of {count} insights
                     <div>
                         <Button
                             type={layoutView === LayoutView.List ? 'primary' : 'default'}
@@ -287,7 +292,9 @@ export function SavedInsights(): JSX.Element {
                         <Row className="footer-pagination">
                             <span className="text-muted-alt">
                                 {insights.count > 0 &&
-                                    `Showing ${paginationCount} - ${nextResult ? offset : count} of ${count} insights`}
+                                    `Showing ${paginationCount()} - ${
+                                        nextResult ? offset : count
+                                    } of ${count} insights`}
                             </span>
                             <LeftOutlined
                                 style={{ paddingRight: 16 }}
