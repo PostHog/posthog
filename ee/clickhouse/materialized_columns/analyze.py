@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import Dict, Generator, List, Optional, Set, Tuple
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from ee.clickhouse.materialized_columns.util import instance_memoize
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.filters.mixins.utils import cached_property
@@ -10,9 +11,9 @@ from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
 
-Suggestion = Dict
+Suggestion = Tuple[TableWithProperties, PropertyName, int]
 
-INSPECT_QUERY_THRESHOLD_MS = 5000
+INSPECT_QUERY_THRESHOLD_MS = 50
 
 
 class TeamManager:
@@ -59,7 +60,9 @@ class Query:
                 yield "events", property
 
 
-def get_queries(since_hours_ago):
+def get_queries(since_hours_ago: int) -> List[Query]:
+    "Finds queries that have happened since cutoff that were slow"
+
     raw_queries = sync_execute(
         f"""
         SELECT
@@ -81,6 +84,12 @@ def get_queries(since_hours_ago):
 
 
 def analyze(queries: List[Query]) -> List[Suggestion]:
+    """
+    Analyzes query history to find which properties could get materialized.
+
+    Returns an ordered list of suggestions by cost.
+    """
+
     team_manager = TeamManager()
     costs: defaultdict = defaultdict(int)
 
@@ -91,7 +100,20 @@ def analyze(queries: List[Query]) -> List[Suggestion]:
         for table, property in query.properties(team_manager):
             costs[(table, property)] += query.cost
 
-    return list(sorted(costs.items(), key=lambda kv: -kv[1]))  # type: ignore
+    return [
+        (table, property_name, cost) for (table, property_name), cost in sorted(costs.items(), key=lambda kv: -kv[1])
+    ]
+
+
+def suggested_columns_to_materialize(since_hours_ago: int, maximum: int = 10) -> List[Suggestion]:
+    analysis_results = analyze(get_queries(since_hours_ago))
+    result = []
+    for suggestion in analysis_results:
+        table, property_name, _ = suggestion
+        if property_name not in get_materialized_columns(table):
+            result.append(suggestion)
+
+    return result[:maximum]
 
 
 if __name__ == "__main__":
