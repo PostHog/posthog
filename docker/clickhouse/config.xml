@@ -767,9 +767,4 @@
 
     <!-- Uncomment to disable ClickHouse internal DNS caching. -->
     <!-- <disable_internal_dns_cache>1</disable_internal_dns_cache> -->
-    <profiles>
-        <default>
-            <mutations_sync>1</mutations_sync>
-        </default>
-    </profiles>
 </yandex>
