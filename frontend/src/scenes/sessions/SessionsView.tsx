@@ -4,7 +4,7 @@ import { decodeParams } from 'kea-router'
 import { Button, Spin, Space, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
 import { ExpandState, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
-import { humanFriendlyDetailedTime, stripHTTP, pluralize, colonDelimitedDuration } from '~/lib/utils'
+import { humanFriendlyDetailedTime, stripHTTP, pluralize, humanFriendlyDuration } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
 import dayjs from 'dayjs'
 import { SessionType } from '~/types'
@@ -14,8 +14,7 @@ import {
     PoweroffOutlined,
     QuestionCircleOutlined,
     ArrowLeftOutlined,
-    PlaySquareOutlined,
-    InfoCircleOutlined,
+    PlayCircleOutlined,
 } from '@ant-design/icons'
 import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
 import { SessionsPlay } from './SessionsPlay'
@@ -123,78 +122,68 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             span: 3,
         },
         {
-            title: (
-                <span>
-                    Session Duration
-                    <Tooltip title="Session duration is formatted as HH:MM:SS.">
-                        <InfoCircleOutlined className="info-indicator" />
-                    </Tooltip>
-                </span>
-            ),
+            title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 if (session.session_recordings.length > 0) {
                     const seconds = getSessionRecordingsDurationSum(session)
-                    return <span>{colonDelimitedDuration(Math.max(seconds, session.length))}</span>
+                    return <span>{humanFriendlyDuration(Math.max(seconds, session.length))}</span>
                 }
-                return <span>{colonDelimitedDuration(session.length)}</span>
+                return <span>{humanFriendlyDuration(session.length)}</span>
             },
             span: 3,
         },
         {
-            title: 'Start Time',
+            title: 'Start time',
             render: function RenderStartTime(session: SessionType) {
-                return <span>{humanFriendlyDetailedTime(session.start_time)}</span>
+                return humanFriendlyDetailedTime(session.start_time)
             },
             span: 3,
         },
         {
-            title: 'Start Point',
+            title: 'Start point',
             render: function RenderStartPoint(session: SessionType) {
-                return <span>{session.start_url ? stripHTTP(session.start_url) : 'N/A'}</span>
+                return session.start_url ? stripHTTP(session.start_url) : 'unavailable'
             },
             ellipsis: true,
             span: 4,
         },
         {
-            title: 'End Point',
+            title: 'End point',
             render: function RenderEndPoint(session: SessionType) {
-                return <span>{session.end_url ? stripHTTP(session.end_url) : 'N/A'}</span>
+                return session.end_url ? stripHTTP(session.end_url) : 'unavailable'
             },
             ellipsis: true,
             span: 4,
         },
         {
             title: (
-                <span>
-                    {currentTeam?.session_recording_opt_in ? (
-                        <Tooltip
-                            title={
-                                <>
-                                    Replay sessions as if you were in front of your users. Not seeing a recording you're
-                                    expecting? <a onClick={() => shareFeedbackCommand()}>Let us know</a>.
-                                </>
-                            }
-                        >
-                            <span>
-                                Play recording
-                                <QuestionCircleOutlined style={{ marginLeft: 6 }} />
-                            </span>
-                        </Tooltip>
-                    ) : (
-                        <Tooltip title={enableSessionRecordingCTA}>
-                            <span>
-                                <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
-                                Play recording
-                            </span>
-                        </Tooltip>
-                    )}
-                </span>
+                <Tooltip
+                    title={
+                        currentTeam?.session_recording_opt_in ? (
+                            <>
+                                Replay sessions as if you were in front of your users. Not seeing a recording you're
+                                expecting? <a onClick={() => shareFeedbackCommand()}>Let us know</a>.
+                            </>
+                        ) : (
+                            enableSessionRecordingCTA
+                        )
+                    }
+                >
+                    <span style={{ whiteSpace: 'nowrap' }}>
+                        Recordings
+                        {currentTeam?.session_recording_opt_in ? (
+                            <QuestionCircleOutlined className="info-indicator" />
+                        ) : (
+                            <PoweroffOutlined className="info-indicator text-warning" />
+                        )}
+                    </span>
+                </Tooltip>
             ),
             render: function RenderEndPoint(session: SessionType) {
                 return <SessionsPlayerButton session={session} />
             },
             ellipsis: true,
-            span: 2.5,
+            span: 3,
         },
     ]
 
@@ -260,7 +249,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                 data-attr="play-all-recordings"
                                 disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
                             >
-                                <PlaySquareOutlined /> Play all
+                                <PlayCircleOutlined /> Play all
                             </LinkButton>
                         </span>
                     </Tooltip>
