@@ -796,15 +796,6 @@ export interface FunnelsTimeConversionResult {
     type: 'Funnel'
 }
 
-// Indexing boundaries = [from_step, to_step)
-export interface FunnelTimeConversionStep {
-    from_step: number // set this to -1 if querying for all steps
-    to_step: number
-    label?: string
-    average_conversion_time?: number
-    count?: number
-}
-
 export interface FunnelTimeConversionMetrics {
     averageTime: number
     stepRate: number

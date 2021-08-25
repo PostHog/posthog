@@ -126,7 +126,7 @@ export const funnelLogic = kea<funnelLogicType>({
             breakdown_value,
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
-        changeHistogramStep: (funnel_from_step?: number, funnel_to_step?: number) => ({
+        changeStepRange: (funnel_from_step?: number, funnel_to_step?: number) => ({
             funnel_from_step,
             funnel_to_step,
         }),
@@ -635,7 +635,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 funnelStep: stepNumber,
             })
         },
-        changeHistogramStep: ({ funnel_from_step, funnel_to_step }) => {
+        changeStepRange: ({ funnel_from_step, funnel_to_step }) => {
             // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
             // for all steps
             const maxStepIndex = values.numberOfSeries - 1
