@@ -169,13 +169,6 @@ jobs:
               with:
                   path: 'deploy/'
 
-            - name: Install requirements.txt dependencies with pip at current branch
-              run: |
-                  cd deploy
-                  python -m pip install --upgrade pip
-                  python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
-
             - name: Link posthog-cloud at current branch
               run: |
                   cp deploy/ee/conftest.py multi_tenancy/conftest.py
@@ -202,7 +195,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog --reuse-db -m "not skip_on_multitenancy" -n auto
+                  pytest posthog --reuse-db -n auto -m "not skip_on_multitenancy"
 
             - name: Run cloud tests (posthog-cloud)
               env:
@@ -214,7 +207,7 @@ jobs:
               run: |
                   source .env.template
                   cd deploy
-                  pytest multi_tenancy messaging -m "not skip_on_multitenancy" -n auto
+                  pytest multi_tenancy messaging -n auto -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
