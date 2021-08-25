@@ -14,15 +14,11 @@ export function FunnelLineGraph({
     color = 'white',
 }: Omit<ChartParams, 'view'>): JSX.Element | null {
     const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
-    const { steps, filters, isValidFunnel } = useValues(logic)
+    const { steps, filters } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
     const {
         hashParams: { fromItem },
     } = useValues(router)
-
-    if (!isValidFunnel) {
-        return null
-    }
 
     return (
         <LineGraph
@@ -30,7 +26,7 @@ export function FunnelLineGraph({
             type="line"
             color={color}
             datasets={steps}
-            labels={steps[0].labels as string[]}
+            labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={!filters.date_to}
             dashboardItemId={dashboardItemId || fromItem}
             inSharedMode={inSharedMode}

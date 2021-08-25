@@ -1,6 +1,6 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, Logic, useActions, useValues } from 'kea'
 import { Dropdown, Menu, Alert, Button, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
@@ -30,7 +30,7 @@ import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { logicFromInsight } from 'scenes/insights/utils'
+import { getLogicFromInsight } from 'scenes/insights/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
@@ -40,6 +40,15 @@ import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { Tooltip } from 'lib/components/Tooltip'
+import {
+    ErrorMessage,
+    FunnelEmptyState,
+    FunnelInvalidExclusionFiltersEmptyState,
+    FunnelInvalidFiltersEmptyState,
+    TimeOut,
+} from 'scenes/insights/EmptyStates'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 dayjs.extend(relativeTime)
 
@@ -229,10 +238,13 @@ export function DashboardItem({
         cachedResults: (item as any).result,
         preventLoading,
     }
-
+    const { showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
-    const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
+    const { loadResults } = useActions(getLogicFromInsight(item.filters.insight, logicProps))
+    const { results, resultsLoading, isLoading } = useValues(getLogicFromInsight(item.filters.insight, logicProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(
+        funnelLogic(logicProps) as Logic & BuiltLogic
+    )
     const previousLoading = usePrevious(resultsLoading)
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
@@ -241,6 +253,40 @@ export function DashboardItem({
             setInitialLoaded(true)
         }
     }, [resultsLoading])
+
+    // Empty states that completely replace the graph
+    const BlockingEmptyState = (() => {
+        // Insight specific empty states - note order is important here
+        if (item.filters.insight === ViewType.FUNNELS) {
+            if (!areFiltersValid) {
+                return <FunnelInvalidFiltersEmptyState />
+            }
+            if (!areExclusionFiltersValid) {
+                return <FunnelInvalidExclusionFiltersEmptyState />
+            }
+            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+                return <FunnelEmptyState />
+            }
+        }
+
+        // Insight agnostic empty states
+        if (showErrorMessage) {
+            return <ErrorMessage />
+        }
+        if (showTimeoutMessage) {
+            return <TimeOut isLoading={isLoading} />
+        }
+
+        return null
+    })()
+
+    // Empty states that can coexist with the graph (e.g. Loading)
+    const CoexistingEmptyState = (() => {
+        if (isLoading || resultsLoading) {
+            return <Loading />
+        }
+        return null
+    })()
 
     return (
         <div
@@ -490,7 +536,10 @@ export function DashboardItem({
                 )}
 
                 <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
-                    {Element ? (
+                    {!BlockingEmptyState && CoexistingEmptyState}
+                    {!!BlockingEmptyState ? (
+                        BlockingEmptyState
+                    ) : (
                         <Alert.ErrorBoundary message="Error rendering graph!">
                             {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (
                                 <Skeleton />
@@ -504,8 +553,6 @@ export function DashboardItem({
                                 />
                             )}
                         </Alert.ErrorBoundary>
-                    ) : (
-                        <Loading />
                     )}
                 </div>
                 {footer}

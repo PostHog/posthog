@@ -1,29 +1,36 @@
 import React, { useState } from 'react'
 import { Tooltip as AntdTooltip } from 'antd'
-import { TooltipProps } from 'antd/lib/tooltip'
+import { TooltipProps as AntdTooltipProps } from 'antd/lib/tooltip'
 import { useDebounce } from 'use-debounce'
 
-const DEFAULT_DELAY = 500 //ms
+const DEFAULT_DELAY_MS = 500
 
-type Props = TooltipProps & {
-    isDefaultTooltip?: boolean // use Antd's Tooltip without any additional functionality
+export type TooltipProps = AntdTooltipProps & {
+    /** Whether Ant Design's default Tooltip behavior should be used instead of PostHog's. */
+    isDefaultTooltip?: boolean
 }
 
-// CAUTION: any changes here will affect tooltips across the entire app.
-export function Tooltip({ children, visible, isDefaultTooltip = false, ...props }: Props): JSX.Element {
+/** Extension of Ant Design's Tooltip that enables a delay.
+ *
+ * Caveat: doesn't work with disabled elements due to lack of workaround that Ant Design uses.
+ * See https://github.com/ant-design/ant-design/blob/master/components/tooltip/index.tsx#L82-L130.
+ */
+// CAUTION: Any changes here will affect tooltips across the entire app.
+export function Tooltip({ children, visible, isDefaultTooltip = false, ...props }: TooltipProps): JSX.Element {
     const [localVisible, setVisible] = useState(visible)
-    const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, DEFAULT_DELAY)
+    const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, DEFAULT_DELAY_MS)
 
-    // If child not a valid element (string or string + ReactNode, Fragment), antd wraps children in a span.
+    if (!isDefaultTooltip && !('mouseEnterDelay' in props)) {
+        // If not preserving default behavior and mouseEnterDelay is not already provided, we use a custom default here
+        props.mouseEnterDelay = DEFAULT_DELAY_MS
+    }
+
+    // If child is not a valid element (string or string + ReactNode, Fragment), antd wraps children in a span.
     // See https://github.com/ant-design/ant-design/blob/master/components/tooltip/index.tsx#L226
     const child = React.isValidElement(children) ? children : <span>{children}</span>
 
     return (
-        <AntdTooltip
-            mouseEnterDelay={isDefaultTooltip ? undefined : DEFAULT_DELAY} // overridable
-            {...props}
-            visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}
-        >
+        <AntdTooltip {...props} visible={isDefaultTooltip ? visible : localVisible && debouncedLocalVisible}>
             {React.cloneElement(child, {
                 onMouseEnter: () => setVisible(true),
                 onMouseLeave: () => setVisible(false),
