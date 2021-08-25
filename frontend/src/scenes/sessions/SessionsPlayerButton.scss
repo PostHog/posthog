@@ -10,12 +10,12 @@
     .anticon {
         color: $primary;
     }
+}
 
-    &.session-recordings-popup__link--viewed,
-    &.session-recordings-popup__link::visited {
-        .anticon {
-            color: $text_muted;
-        }
+.session-recordings-popup__link--viewed,
+.session-recordings-popup__link:visited {
+    .anticon {
+        color: $text_muted;
     }
 }
 
