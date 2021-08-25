@@ -258,3 +258,123 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 },
             ],
         )
+
+    def test_paths_end(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+        )
+        _create_event(
+            properties={"$current_url": "/2"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:03:00",
+        )
+        _create_event(
+            properties={"$current_url": "/4"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:04:00",
+        )
+        _create_event(
+            properties={"$current_url": "/5"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:05:00",
+        )
+        _create_event(
+            properties={"$current_url": "/about"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:06:00",
+        )
+        _create_event(
+            properties={"$current_url": "/after"},
+            distinct_id="person_1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:07:00",
+        )
+
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"])
+        _create_event(
+            properties={"$current_url": "/5"},
+            distinct_id="person_2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+        )
+        _create_event(
+            properties={"$current_url": "/about"},
+            distinct_id="person_2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+        )
+
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_3"])
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="person_3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+        )
+        _create_event(
+            properties={"$current_url": "/4"},
+            distinct_id="person_3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+        )
+        _create_event(
+            properties={"$current_url": "/about"},
+            distinct_id="person_3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:03:00",
+        )
+        _create_event(
+            properties={"$current_url": "/after"},
+            distinct_id="person_3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:04:00",
+        )
+
+        filter = PathFilter(
+            data={
+                "path_type": "$pageview",
+                "end_point": "/about",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+            }
+        )
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/2", "target": "2_/3", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "1_/3", "target": "2_/4", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "1_/5", "target": "2_/about", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "2_/3", "target": "3_/4", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "2_/4", "target": "3_/about", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "3_/4", "target": "4_/5", "value": 1, "average_conversion_time": 60000.0},
+                {"source": "4_/5", "target": "5_/about", "value": 1, "average_conversion_time": 60000.0},
+            ],
+        )
