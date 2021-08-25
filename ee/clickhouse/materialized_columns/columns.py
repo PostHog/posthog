@@ -2,36 +2,14 @@ import random
 import re
 import string
 from datetime import timedelta
-from functools import wraps
-from typing import Dict, Literal, no_type_check
-
-from django.utils.timezone import now
+from typing import Dict
 
 from ee.clickhouse.client import sync_execute
-from posthog.models.property import PropertyName
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, TEST
+from ee.clickhouse.materialized_columns.util import cache_for
+from posthog.models.property import PropertyName, TableWithProperties
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 ColumnName = str
-TableWithProperties = Literal["events", "person"]
-
-
-def cache_for(cache_time: timedelta):
-    def wrapper(fn):
-        @wraps(fn)
-        @no_type_check
-        def memoized_fn(*args, use_cache=not TEST):
-            if not use_cache:
-                return fn(*args)
-
-            current_time = now()
-            if args not in memoized_fn.__cache or current_time - memoized_fn.__cache[args][0] > cache_time:
-                memoized_fn.__cache[args] = (current_time, fn(*args))
-            return memoized_fn.__cache[args][1]
-
-        memoized_fn.__cache = {}
-        return memoized_fn
-
-    return wrapper
 
 
 @cache_for(timedelta(minutes=15))
