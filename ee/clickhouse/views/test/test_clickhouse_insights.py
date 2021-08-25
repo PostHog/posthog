@@ -455,3 +455,58 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
                 )
             else:
                 self.assertEqual(response.status_code, 200)
+
+    def test_funnel_times_with_different_conversion_windows(self):
+        # event
+        _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="stopped_after_signup1", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="$pageleave", distinct_id="stopped_after_signup1", timestamp="2020-01-02T14:05:00Z"
+        )
+
+        _create_person(distinct_ids=["stopped_after_signup2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="stopped_after_signup2", timestamp="2020-01-02T14:03:00Z",
+        )
+
+        _create_person(distinct_ids=["stopped_after_signup3"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="stopped_after_signup3", timestamp="2020-01-02T12:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="$pageleave", distinct_id="stopped_after_signup3", timestamp="2020-01-02T12:15:00Z"
+        )
+
+        # random people outside the conversion window
+        for i in range(20):
+            _create_person(distinct_ids=[f"person_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="$pageview", distinct_id=f"person_{i}", timestamp=f"2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team, event="$pageleave", distinct_id=f"person_{i}", timestamp=f"2020-01-02T15:00:00Z",
+            )
+
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            response = self.client.post(
+                "/api/insight/funnel/",
+                {
+                    "actions": [{"id": 7165, "type": "actions", "order": 1},],
+                    "events": [{"id": "$pageview", "type": "events", "order": 0},],
+                    "insight": "funnels",
+                    "funnel_window_interval": 10,
+                    "funnel_window_interval_unit": "minute",
+                    "interval": "day",
+                    "funnel_order_type": "ordered",
+                    "funnel_viz_type": "steps",
+                    "date_from": "2020-01-01",
+                },
+            ).json()
+            print(response)
+        result = response["result"]
+        self.assertEqual(result[0]["name"], "$pageview")
+        self.assertEqual(result[0]["count"], 23)
+        self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(result[1]["average_conversion_time"], 300)

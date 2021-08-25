@@ -88,18 +88,14 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "interval": "day",
                 "date_from": "2021-06-07 00:00:00",
                 "date_to": "2021-06-13 23:59:59",
-                "funnel_window_days": 7,
-                "events": [
-                    {"id": "step one", "order": 0},
-                    {"id": "step two", "order": 1},
-                    {"id": "step three", "order": 2},
-                ],
+                "funnel_window_days": 14,
+                "events": [{"id": "user signed up", "order": 0}, {"id": "user upgraded", "order": 1},],
             }
         )
-
-        funnel_trends = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)
-        results = funnel_trends._exec_query()
-        formatted_results = funnel_trends._format_results(results)
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            funnel_trends = ClickhouseFunnelTrends(filter, self.team, ClickhouseFunnel)
+            results = funnel_trends._exec_query()
+            formatted_results = funnel_trends._format_results(results)
 
         self.assertEqual(len(results), 7)
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
