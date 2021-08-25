@@ -29,6 +29,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
         renameInsight: (id: number) => ({ id }),
         duplicateInsight: (insight: DashboardItemType) => ({ insight }),
         addToDashboard: (item: DashboardItemType, dashboardId: number) => ({ item, dashboardId }),
+        orderByUpdatedAt: true,
+        orderByCreator: true,
     },
     loaders: ({ values }) => ({
         insights: {
@@ -37,7 +39,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
                 const response = await api.get(
                     'api/insight/?' +
                         toParams({
-                            order: '-created_at',
+                            order: values.order,
                             limit: 15,
                             saved: true,
                             ...(values.tab === SavedInsightsTabs.Yours && { user: true }),
@@ -72,6 +74,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             LayoutView.List,
             {
                 setLayoutView: (_, { view }) => view,
+            },
+        ],
+        order: [
+            '-updated_at',
+            {
+                orderByUpdatedAt: (state) => (state === '-updated_at' ? 'updated_at' : '-updated_at'),
+                orderByCreator: (state) => (state === 'created_by' ? '-created_by' : 'created_by'),
             },
         ],
         tab: [
@@ -133,6 +142,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             actions.loadInsights()
         },
         setCreatedBy: () => {
+            actions.loadInsights()
+        },
+        orderByUpdatedAt: () => {
+            actions.loadInsights()
+        },
+        orderByCreator: () => {
             actions.loadInsights()
         },
         renameInsight: async ({ id }) => {
