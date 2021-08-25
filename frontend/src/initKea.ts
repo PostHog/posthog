@@ -21,12 +21,18 @@ const ERROR_FILTER_WHITELIST = [
     'loadBilling', // Gracefully handled if it fails
 ]
 
-export function initKea(): void {
+interface InitKeaProps {
+    state?: Record<string, any>
+    routerHistory?: any
+    routerLocation?: any
+}
+
+export function initKea({ state, routerHistory, routerLocation }: InitKeaProps = {}): void {
     resetContext({
         plugins: [
             localStoragePlugin,
             windowValuesPlugin({ window: window }),
-            routerPlugin,
+            routerPlugin({ history: routerHistory, location: routerLocation }),
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
@@ -50,5 +56,11 @@ export function initKea(): void {
             }),
             waitForPlugin,
         ],
+        defaults: state,
+        createStore: state
+            ? {
+                  preloadedState: state,
+              }
+            : true,
     })
 }

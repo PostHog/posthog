@@ -46,8 +46,10 @@ def get_materialized_columns(table: str) -> Dict[PropertyName, ColumnName]:
     """,
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
-
-    return {extract_property(comment): column_name for comment, column_name in rows}
+    if rows:
+        return {extract_property(comment): column_name for comment, column_name in rows}
+    else:
+        return {}
 
 
 def materialize(table: str, property: str, distributed: bool = False) -> None:
