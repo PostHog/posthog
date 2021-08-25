@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
 import { useValues } from 'kea'
-import { Loading, stripHTTP } from 'lib/utils'
+import { stripHTTP } from 'lib/utils'
 import { Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
@@ -278,7 +278,6 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                 }}
                 id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
             >
-                {pathsLoading && <Loading />}
                 <div ref={canvas} className="paths" data-attr="paths-viz">
                     {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
                 </div>

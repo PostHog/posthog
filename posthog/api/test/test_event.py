@@ -311,7 +311,12 @@ def factory_test_event_api(event_factory, person_factory, _):
             if is_clickhouse_enabled():
                 from ee.clickhouse.client import sync_execute
 
-                self.assertEqual(sync_execute("select count(*) from events")[0][0], 150)
+                self.assertEqual(
+                    sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk})[
+                        0
+                    ][0],
+                    150,
+                )
 
             self.assertEqual(len(page2["results"]), 50)
 
@@ -440,15 +445,15 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(response["result"][0]["event"], "2nd action")
             self.assertEqual(response["result"][1]["event"], "3rd action")
 
-        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_LIMIT", 1000)
+        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_LIMIT", 10)
         def test_events_csv_export_with_limit(self):
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                for _ in range(1234):
+                for _ in range(12):
                     event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
                 response = self.client.get("/api/event.csv")
             self.assertEqual(
                 len(response.content.splitlines()),
-                1001,
+                11,
                 "CSV export should return up to CSV_EXPORT_LIMIT events (+ headers row)",
             )
 
