@@ -1,4 +1,6 @@
+import random
 import re
+import string
 from datetime import timedelta
 from functools import wraps
 from typing import Dict, Literal, no_type_check
@@ -18,12 +20,11 @@ def cache_for(cache_time: timedelta):
         @wraps(fn)
         @no_type_check
         def memoized_fn(*args, use_cache=not TEST):
+            if not use_cache:
+                return fn(*args)
+
             current_time = now()
-            if (
-                args not in memoized_fn.__cache
-                or current_time - memoized_fn.__cache[args][0] > cache_time
-                or not use_cache
-            ):
+            if args not in memoized_fn.__cache or current_time - memoized_fn.__cache[args][0] > cache_time:
                 memoized_fn.__cache[args] = (current_time, fn(*args))
             return memoized_fn.__cache[args][1]
 
@@ -34,7 +35,7 @@ def cache_for(cache_time: timedelta):
 
 
 @cache_for(timedelta(minutes=15))
-def get_materialized_columns(table: str) -> Dict[PropertyName, ColumnName]:
+def get_materialized_columns(table: TableWithProperties) -> Dict[PropertyName, ColumnName]:
     rows = sync_execute(
         """
         SELECT comment, name
@@ -52,8 +53,8 @@ def get_materialized_columns(table: str) -> Dict[PropertyName, ColumnName]:
         return {}
 
 
-def materialize(table: str, property: str, distributed: bool = False) -> None:
-    column_name = f"mat_{re.sub('[^0-9a-zA-Z]+', '_', property)}"
+def materialize(table: TableWithProperties, property: PropertyName, distributed: bool = False) -> None:
+    column_name = materialized_column_name(table, property)
     if distributed:
         sync_execute(
             f"""
@@ -87,6 +88,21 @@ def materialize(table: str, property: str, distributed: bool = False) -> None:
         f"ALTER TABLE {table} ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN {column_name} %(comment)s",
         {"comment": f"column_materializer::{property}"},
     )
+
+
+def materialized_column_name(table: TableWithProperties, property: PropertyName) -> str:
+    "Returns a sanitized and unique column name to use for materialized column"
+
+    prefix = "mat_" if table == "events" else "pmat_"
+    property_str = re.sub("[^0-9a-zA-Z$]", "_", property)
+
+    existing_materialized_columns = set(get_materialized_columns(table, use_cache=False).values())
+    suffix = ""
+
+    while f"{prefix}{property_str}{suffix}" in existing_materialized_columns:
+        suffix = "_" + "".join(random.choice(string.ascii_letters) for _ in range(4))
+
+    return f"{prefix}{property_str}{suffix}"
 
 
 def extract_property(comment: str) -> PropertyName:
