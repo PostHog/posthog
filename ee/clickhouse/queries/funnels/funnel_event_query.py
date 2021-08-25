@@ -25,15 +25,15 @@ class FunnelEventQuery(ClickhouseEventQuery):
             ),
             f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
             f"{self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "",
-            (
-                " ".join(
-                    [
-                        f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
-                        for column_name in column_optimizer.materialized_event_columns_to_query
-                    ]
-                )
-            ),
         ]
+
+        _fields.extend(
+            [
+                f"{self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
+                for column_name in column_optimizer.materialized_event_columns_to_query
+            ]
+        )
+
         _fields = list(filter(None, _fields))
 
         date_query, date_params = self._get_date_filter()
