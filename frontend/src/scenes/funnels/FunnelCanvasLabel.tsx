@@ -67,7 +67,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         <Row className="funnel-canvas-label" align="middle">
             {labels.map((label, i) => (
                 <React.Fragment key={i}>
-                    {i > 0 && <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />}
+                    {i > 0 && <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)', height: 14 }} />}
                     {label}
                 </React.Fragment>
             ))}
