@@ -372,12 +372,24 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     data={
                         "events": [{"id": "event1", "order": 0}],
                         "insight": INSIGHT_FUNNELS,
-                        FILTER_TEST_ACCOUNTS: True,
                         "funnel_window_days": 14,
                     }
                 ),
                 team=self.team,
             ).run()
+            self.assertEqual(result[0]["count"], 2)
+
+            result = Funnel(
+                filter=Filter(
+                    data={
+                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
+                        "insight": INSIGHT_FUNNELS,
+                        "funnel_window_days": 14,
+                    }
+                ),
+                team=self.team,
+            ).run()
+
             self.assertEqual(result[0]["count"], 2)
 
     return TestGetFunnel
