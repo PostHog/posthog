@@ -1,18 +1,21 @@
 import os
+from typing import cast
 
 from django.conf import settings
+from freezegun.api import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 
 MOCK_SETTINGS = {
-    "SOCIAL_AUTH_SAML_SP_ENTITY_ID": "https://playground.posthog.com",  # Needs to be overridden because SITE_URL is not set
+    "SOCIAL_AUTH_SAML_SP_ENTITY_ID": "http://localhost:8000",
     "SAML_CONFIGURED": True,
     "AUTHENTICATION_BACKENDS": settings.AUTHENTICATION_BACKENDS + ["social_core.backends.saml.SAMLAuth",],
     "SOCIAL_AUTH_SAML_ENABLED_IDPS": {
         "posthog_custom": {
-            "entity_id": "https://playground.posthog.com",
+            "entity_id": "http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
             "url": "https://idp.hogflix.io/saml",
             "x509cert": """MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG
     A1UECAwKQ2FsaWZvcm5pYTEWMBQGA1UEBwwNU2FuIEZyYW5jaXNjbzENMAsGA1UECgwET2t0YTEU
@@ -88,3 +91,87 @@ class TestEEAuthenticationAPI(APILicensedTest):
         # Assert user is redirected to the IdP's login page
         location = response.headers["Location"]
         self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", location)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML time validation works
+    def test_can_login_with_saml(self):
+        self.client.logout()
+
+        user = User.objects.create(email="engineering@posthog.com")
+
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.get("/login/saml/?idp=posthog_custom")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update(
+            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+        )
+        _session.save()
+
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
+        saml_response = f.read()
+        f.close()
+
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                follow=True,
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/")  # redirect to the home page
+
+        # Ensure proper user was assigned
+        _session = self.client.session
+        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_can_signup_on_whitelisted_domain_with_saml(self):
+        self.client.logout()
+
+        self.organization.domain_whitelist = ["posthog.com"]
+        self.organization.save()
+
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.get("/login/saml/?idp=posthog_custom")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update(
+            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+        )
+        _session.save()
+
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
+        saml_response = f.read()
+        f.close()
+
+        user_count = User.objects.count()
+
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                format="multipart",
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/")  # redirect to the home page
+
+        # User is created
+        self.assertEqual(User.objects.count(), user_count + 1)
+        user = cast(User, User.objects.last())
+        self.assertEqual(user.email, "engineering@posthog.com")
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.team, self.team)
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(
+            cast(OrganizationMembership, user.organization_memberships.first()).level,
+            OrganizationMembership.Level.MEMBER,
+        )
+
+        _session = self.client.session
+        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
