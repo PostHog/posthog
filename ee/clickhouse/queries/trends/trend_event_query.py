@@ -95,7 +95,10 @@ class TrendsEventQuery(ClickhouseEventQuery):
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
-            self._entity, self._team_id, table_name=self.EVENT_TABLE_ALIAS, person_properties_column="person_props"
+            self._entity,
+            self._team_id,
+            table_name=self.EVENT_TABLE_ALIAS,
+            person_properties_column=self._PERSON_PROPERTIES_ALIAS,
         )
 
         return entity_format_params["entity_query"], entity_params
