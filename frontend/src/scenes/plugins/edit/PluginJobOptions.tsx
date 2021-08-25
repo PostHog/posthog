@@ -10,17 +10,18 @@ interface PluginJobOptionsProps {
 export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsProps): JSX.Element {
     const { capabilities, public_jobs } = plugin
 
-    if (!public_jobs) {
+    if (!capabilities || !capabilities.jobs || !public_jobs) {
         return <></>
     }
 
+    console.log(capabilities, public_jobs)
     return (
         <>
             <h3 className="l3" style={{ marginTop: 32 }}>
                 Jobs
             </h3>
 
-            {capabilities?.jobs.map((jobName) => {
+            {capabilities.jobs.map((jobName) => {
                 if (!(jobName in public_jobs)) {
                     return
                 }

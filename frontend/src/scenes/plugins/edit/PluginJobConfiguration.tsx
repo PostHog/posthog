@@ -8,8 +8,6 @@ import { JobSpec } from '~/types'
 import { toast } from 'react-toastify'
 import { errorToast, validateJsonFormItem } from 'lib/utils'
 
-const noop = (): void => {}
-
 interface PluginJobConfigurationProps {
     jobName: string
     jobSpec: JobSpec
@@ -26,6 +24,8 @@ export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: Plu
     const [runJobAvailable, setRunJobAvailable] = useState(true)
 
     const [form] = Form.useForm()
+
+    const jobHasEmptyPayload = Object.keys(jobSpec.payload || {}).length === 0
 
     const runJob = async (): Promise<void> => {
         try {
@@ -58,6 +58,22 @@ export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: Plu
         toast.success('Job enqueued succesfully.')
     }
 
+    const playButtonOnClick = (): void => {
+        if (runJobAvailable) {
+            if (jobHasEmptyPayload) {
+                runJob()
+                return
+            }
+            setIsJobModalOpen(true)
+        }
+    }
+
+    const playCircleTooltip = runJobAvailable
+        ? jobHasEmptyPayload
+            ? `Run job`
+            : `Configure and run job`
+        : `You already ran this job recently.`
+
     return (
         <>
             <span
@@ -65,9 +81,9 @@ export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: Plu
                     marginLeft: 10,
                     marginRight: 5,
                 }}
-                onClick={runJobAvailable ? () => setIsJobModalOpen(true) : noop}
+                onClick={playButtonOnClick}
             >
-                <Tooltip title={runJobAvailable ? `Configure and run job` : `You already ran this job recently.`}>
+                <Tooltip title={playCircleTooltip}>
                     <PlayCircleOutlined
                         className={runJobAvailable ? 'plugin-run-job-button' : 'plugin-run-job-button-disabled'}
                     />
