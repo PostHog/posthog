@@ -47,7 +47,7 @@ function ExclusionRowSuffix({
             justify="space-between"
             align="middle"
             wrap={false}
-            style={{ margin: `${isVertical ? 4 : 0}px 0`, paddingLeft: 4, width: '100%' }}
+            style={{ margin: `${isVertical ? 4 : 0}px 0`, paddingLeft: 4, width: isVertical ? '100%' : 'auto' }}
         >
             between
             <Select
