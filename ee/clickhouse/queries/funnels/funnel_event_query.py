@@ -66,15 +66,15 @@ class FunnelEventQuery(ClickhouseEventQuery):
         self._should_join_distinct_ids = True
 
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
-        events = []
+        events = set()
         entities_to_use = entities or self._filter.entities
 
         for entity in entities_to_use:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
                 for action_step in action.steps.all():
-                    events.append(action_step.event)
+                    events.add(action_step.event)
             else:
-                events.append(entity.id)
+                events.add(entity.id)
 
-        return f"AND event IN %({entity_name})s", {entity_name: events}
+        return f"AND event IN %({entity_name})s", {entity_name: list(events)}
