@@ -12,7 +12,6 @@ import {
     Event,
     Hub,
     Person,
-    PersonDistinctId,
     PostgresSessionRecordingEvent,
     SessionRecordingEvent,
     TeamId,
