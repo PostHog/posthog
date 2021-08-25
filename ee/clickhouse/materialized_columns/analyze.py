@@ -1,6 +1,6 @@
 import re
 from collections import defaultdict
-from typing import Dict, Generator, List, Optional, Set, Tuple
+from typing import Generator, List, Optional, Set, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns

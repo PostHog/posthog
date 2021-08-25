@@ -2,14 +2,18 @@ import random
 import re
 import string
 from datetime import timedelta
-from typing import Dict
+from typing import Dict, List, Optional
+
+from django.utils.timezone import now
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.util import cache_for
 from posthog.models.property import PropertyName, TableWithProperties
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
 
 ColumnName = str
+
+TRIM_AND_EXTRACT_PROPERTY = "trim(BOTH '\"' FROM JSONExtractRaw(properties, %(property)s))"
 
 
 @cache_for(timedelta(minutes=15))
@@ -31,15 +35,15 @@ def get_materialized_columns(table: TableWithProperties) -> Dict[PropertyName, C
         return {}
 
 
-def materialize(table: TableWithProperties, property: PropertyName, distributed: bool = False) -> None:
+def materialize(table: TableWithProperties, property: PropertyName) -> None:
     column_name = materialized_column_name(table, property)
-    if distributed:
+    if CLICKHOUSE_REPLICATION and table == "events":
         sync_execute(
             f"""
             ALTER TABLE sharded_{table}
             ON CLUSTER {CLICKHOUSE_CLUSTER}
             ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR MATERIALIZED trim(BOTH '"' FROM JSONExtractRaw(properties, %(property)s))
+            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
         """,
             {"property": property},
         )
@@ -57,7 +61,7 @@ def materialize(table: TableWithProperties, property: PropertyName, distributed:
             ALTER TABLE {table}
             ON CLUSTER {CLICKHOUSE_CLUSTER}
             ADD COLUMN IF NOT EXISTS
-            {column_name} VARCHAR MATERIALIZED trim(BOTH '"' FROM JSONExtractRaw(properties, %(property)s))
+            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
         """,
             {"property": property},
         )
@@ -66,6 +70,58 @@ def materialize(table: TableWithProperties, property: PropertyName, distributed:
         f"ALTER TABLE {table} ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN {column_name} %(comment)s",
         {"comment": f"column_materializer::{property}"},
     )
+
+
+def backfill_materialized_events_column(properties: List[PropertyName], backfill_period: timedelta) -> None:
+    """
+    Backfills the materialized column after its creation.
+
+    This will require reading and writing a lot of data on clickhouse disk, hack from
+
+    """
+    table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
+
+    materialized_columns = get_materialized_columns("events")
+
+    # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
+    # Note that for this to work all inserts should list columns explicitly
+    # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
+    for property in properties:
+        sync_execute(
+            f"""
+            ALTER TABLE {table}
+            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            MODIFY COLUMN
+            {materialized_columns[property]} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY}
+            """,
+            {"property": property},
+        )
+
+    # Kick off mutations which will update clickhouse partitions in the background. This will return immediately
+    assignments = ", ".join(
+        f"{materialized_columns[property]} = {materialized_columns[property]}" for property in properties
+    )
+    cutoff = (now() - backfill_period).strftime("%Y-%m-%d")
+    sync_execute(
+        f"""
+        ALTER TABLE {table}
+        ON CLUSTER {CLICKHOUSE_CLUSTER}
+        UPDATE {assignments}
+        WHERE timestamp > {cutoff}
+        """
+    )
+
+    # Update the schema back even though updates are ongoing - no validations against this at least.
+    for property in properties:
+        sync_execute(
+            f"""
+            ALTER TABLE {table}
+            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            MODIFY COLUMN
+            {materialized_columns[property]} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
+            """,
+            {"property": property},
+        )
 
 
 def materialized_column_name(table: TableWithProperties, property: PropertyName) -> str:
