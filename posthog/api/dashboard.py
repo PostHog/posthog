@@ -100,7 +100,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         if self.context["request"].GET.get("refresh"):
             update_dashboard_items_cache(dashboard)
 
-        items = dashboard.items.filter(deleted=False).order_by("order").all()
+        items = dashboard.items.filter(deleted=False).order_by("order", "pk").all()
         self.context.update({"dashboard": dashboard})
         return DashboardItemSerializer(items, many=True, context=self.context).data
 

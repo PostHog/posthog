@@ -205,6 +205,7 @@ class TestDashboard(APIBaseTest):
             self.assertEqual(response.status_code, 200)
 
             response_data = response.json()
+            self.assertEqual(response_data["items"][0]["id"], item_default.pk)
             self.assertIsNotNone(response_data["items"][0]["result"])
             self.assertIsNotNone(response_data["items"][0]["last_refresh"])
             self.assertEqual(response_data["items"][0]["result"][0]["count"], 0)
