@@ -16,7 +16,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     PERSON_TABLE_ALIAS = "person"
     EVENT_TABLE_ALIAS = "e"
 
-    _PERSON_PROPERTIES_ALIAS = "person_props"
     _filter: Union[Filter, PathFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
@@ -161,7 +160,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     idx,
                     "{}person".format(prepend),
                     allow_denormalized_props=True,
-                    prop_var=self._PERSON_PROPERTIES_ALIAS,
+                    prop_var=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
                 )
                 final.append(filter_query)
                 params.update(filter_params)

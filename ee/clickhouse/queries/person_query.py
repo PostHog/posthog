@@ -1,17 +1,20 @@
-from typing import Optional
+from typing import Optional, Union
 
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.models import Filter
+from posthog.models.filters.path_filter import PathFilter
 
 
 class ClickhousePersonQuery:
     PERSON_PROPERTIES_ALIAS = "person_props"
 
-    _filter: Filter
+    _filter: Union[Filter, PathFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
 
-    def __init__(self, filter: Filter, team_id: int, column_optimizer: Optional[ColumnOptimizer] = None) -> None:
+    def __init__(
+        self, filter: Union[Filter, PathFilter], team_id: int, column_optimizer: Optional[ColumnOptimizer] = None
+    ) -> None:
         self._filter = filter
         self._team_id = team_id
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)

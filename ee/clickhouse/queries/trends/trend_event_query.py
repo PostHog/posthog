@@ -2,11 +2,11 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models import Entity
-from posthog.models.filters.filter import Filter
 
 
 class TrendsEventQuery(ClickhouseEventQuery):
@@ -98,7 +98,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
             self._entity,
             self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
-            person_properties_column=self._PERSON_PROPERTIES_ALIAS,
+            person_properties_column=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
         )
 
         return entity_format_params["entity_query"], entity_params

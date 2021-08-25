@@ -385,11 +385,15 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
+                # :TRICKY: We only support string breakdown for event/person properties
+                assert isinstance(self._filter.breakdown, str)
                 expression, _ = get_property_string_expr(
                     "person", self._filter.breakdown, "%(breakdown)s", "person_props"
                 )
                 return f", {expression} AS prop"
             elif self._filter.breakdown_type == "event":
+                # :TRICKY: We only support string breakdown for event/person properties
+                assert isinstance(self._filter.breakdown, str)
                 expression, _ = get_property_string_expr(
                     "events", self._filter.breakdown, "%(breakdown)s", "properties"
                 )
