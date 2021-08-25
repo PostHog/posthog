@@ -97,8 +97,7 @@ class PathEventQuery(ClickhouseEventQuery):
             or_conditions.append(f"event = '{AUTOCAPTURE_EVENT}'")
 
         if self._filter.include_all_custom_events:
-            or_conditions.append(f"NOT event LIKE %(custom_event_match)s")
-            params["custom_event_match"] = "$%"
+            or_conditions.append(f"NOT event LIKE '$%%'")
 
         if self._filter.custom_events:
             or_conditions.append(f"event IN %(custom_events)s")
