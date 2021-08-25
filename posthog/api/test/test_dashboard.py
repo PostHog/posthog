@@ -7,7 +7,7 @@ from rest_framework import status
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
 from posthog.test.base import APIBaseTest
-from posthog.utils import generate_cache_key
+from posthog.utils import generate_cache_key, get_safe_cache
 
 
 class TestDashboard(APIBaseTest):
@@ -197,6 +197,7 @@ class TestDashboard(APIBaseTest):
 
         response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
         self.assertIsNone(response["items"][0]["result"])
+        self.assertIsNone(response["items"][0]["last_refresh"])
 
         with freeze_time("2020-01-20T13:00:01Z"):
             response = self.client.get("/api/dashboard/%s?refresh=true" % dashboard.pk)

@@ -202,6 +202,9 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def get_result(self, dashboard_item: DashboardItem):
+        if self.context["request"].GET.get("refresh"):
+            return update_dashboard_item_cache(dashboard_item, None)
+
         # If it's more than a day old, don't return anything
         if dashboard_item.last_refresh and (now() - dashboard_item.last_refresh).days > 0:
             return None
@@ -209,17 +212,18 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters_hash:
             return None
 
-        if self.context["request"].GET.get("refresh"):
-            return update_dashboard_item_cache(dashboard_item, None)
-
         result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result.get("result")
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
-        if self.get_result(dashboard_item):
+        if self.context["request"].GET.get("refresh"):
+            return now()  # will be set on the dashboard item by update_dashboard_item_cache
+
+        if get_safe_cache(dashboard_item.filters_hash):
             return dashboard_item.last_refresh
+
         dashboard_item.last_refresh = None
         dashboard_item.save()
         return None
