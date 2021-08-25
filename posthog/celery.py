@@ -240,7 +240,8 @@ def clickhouse_materialize_columns():
     if is_clickhouse_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
-        materialize_properties_task()
+        # :TODO: Noop until ready
+        # materialize_properties_task()
 
 
 @app.task(ignore_result=True)

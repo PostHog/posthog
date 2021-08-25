@@ -1,13 +1,18 @@
 import logging
 import re
 from collections import defaultdict
+from datetime import timedelta
 from typing import Generator, List, Optional, Set, Tuple
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
+from ee.clickhouse.materialized_columns.columns import (
+    backfill_materialized_events_column,
+    get_materialized_columns,
+    materialize,
+)
 from ee.clickhouse.materialized_columns.util import instance_memoize
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
-from ee.settings import MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME
+from ee.settings import MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS, MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
@@ -107,7 +112,7 @@ def analyze(queries: List[Query]) -> List[Suggestion]:
     ]
 
 
-def materialize_properties_task(time_to_analyze_hours: int = 7 * 24, maximum: int = 10) -> List[Suggestion]:
+def materialize_properties_task(time_to_analyze_hours: int = 7 * 24, maximum: int = 10) -> None:
     """
     Creates materialized columns for event and person properties based off of slow queries
     """
@@ -118,6 +123,7 @@ def materialize_properties_task(time_to_analyze_hours: int = 7 * 24, maximum: in
         if property_name not in get_materialized_columns(table):
             result.append(suggestion)
 
+    event_properties: List[PropertyName] = []
     for table, property_name, cost in result[:maximum]:
         # :TODO: Ignore person properties until https://github.com/PostHog/posthog/issues/5735 is resolved
         if table == "person":
@@ -126,3 +132,7 @@ def materialize_properties_task(time_to_analyze_hours: int = 7 * 24, maximum: in
         logger.info(f"Materializing column. table={table}, property_name={property_name}, cost={cost}")
 
         materialize(table, property_name)
+        event_properties.append(property_name)
+
+    if MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS > 0:
+        backfill_materialized_events_column(event_properties, timedelta(days=MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS))
