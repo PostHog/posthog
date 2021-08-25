@@ -7,8 +7,8 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.paths.paths import ClickhousePathsNew
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import PAGEVIEW_EVENT, SCREEN_EVENT
-from posthog.models.filters.path_filter import PathFilter
+from posthog.constants import INSIGHT_FUNNELS, PAGEVIEW_EVENT, SCREEN_EVENT
+from posthog.models.filters import Filter, PathFilter
 from posthog.models.person import Person
 from posthog.queries.test.test_paths import paths_test_factory
 
@@ -27,10 +27,11 @@ class TestClickhousePathsOld(ClickhouseTestMixin, paths_test_factory(ClickhouseP
         materialize("events", "$current_url")
         materialize("events", "$screen_name")
 
-        query, _ = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
+        filter = PathFilter(data={"path_type": PAGEVIEW_EVENT})
+        query, _ = ClickhousePaths(team=self.team, filter=filter).get_query(team=self.team, filter=filter)
         self.assertNotIn("json", query.lower())
 
-        query, _ = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
+        query, _ = ClickhousePaths(team=self.team, filter=filter).get_query(team=self.team, filter=filter)
         self.assertNotIn("json", query.lower())
 
         self.test_current_url_paths_and_logic()
@@ -41,10 +42,10 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         materialize("events", "$current_url")
         materialize("events", "$screen_name")
 
-        query, _ = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
+        query = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
 
-        query, _ = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
+        query = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
 
         self.test_current_url_paths_and_logic()
@@ -191,5 +192,69 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 {"source": "1_step one", "target": "2_step two", "value": 50, "average_conversion_time": 60000.0},
                 {"source": "2_step two", "target": "3_step three", "value": 50, "average_conversion_time": 60000.0},
                 {"source": "3_step three", "target": "4_step branch", "value": 25, "average_conversion_time": 60000.0},
+            ],
+        )
+
+    def _create_sample_data_multiple_dropoffs(self):
+        for i in range(5):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+
+        for i in range(5, 15):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+
+        for i in range(15, 35):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(
+                event="step dropoff1", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00"
+            )
+            _create_event(
+                event="step dropoff2", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
+            )
+            if i % 2 == 0:
+                _create_event(
+                    event="step branch", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
+                )
+
+    def test_path_by_funnel(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": True,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "funnel_step": -2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_step one", "target": "2_step dropoff1", "value": 20, "average_conversion_time": 60000.0},
+                {
+                    "source": "2_step dropoff1",
+                    "target": "3_step dropoff2",
+                    "value": 20,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_step dropoff2",
+                    "target": "4_step branch",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
             ],
         )

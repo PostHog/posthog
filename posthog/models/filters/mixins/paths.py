@@ -3,6 +3,7 @@ from typing import Dict, Literal, Optional, Tuple, cast
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
     CUSTOM_EVENT,
+    FUNNEL_PATHS,
     PAGEVIEW_EVENT,
     PATH_TYPE,
     SCREEN_EVENT,
@@ -10,7 +11,7 @@ from posthog.constants import (
     STEP_LIMIT,
 )
 from posthog.models.filters.mixins.common import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict
+from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 
 PathType = Literal["$pageview", "$autocapture", "$screen", "custom_event"]
 
@@ -82,3 +83,14 @@ class PathStepLimitMixin(BaseParamMixin):
     @include_dict
     def step_limit_to_dict(self):
         return {"step_limit": self.step_limit} if self.step_limit else {}
+
+
+class FunnelPathsMixin(BaseParamMixin):
+    @cached_property
+    def funnel_paths(self) -> bool:
+        _funnel_paths = self._data.get(FUNNEL_PATHS, None)
+        return process_bool(_funnel_paths)
+
+    @include_dict
+    def funnel_paths_to_dict(self):
+        return {"funnel_paths": self.funnel_paths} if self.funnel_paths else {}

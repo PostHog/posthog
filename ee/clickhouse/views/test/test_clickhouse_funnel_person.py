@@ -78,7 +78,7 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
     def test_basic_pagination(self):
         cache.clear()
-        self._create_sample_data(250)
+        self._create_sample_data(110)
         request_data = {
             "insight": INSIGHT_FUNNELS,
             "interval": "day",
@@ -101,25 +101,19 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         people = j["results"][0]["people"]
         next = j["next"]
         self.assertEqual(100, len(people))
-
-        response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        j = response.json()
-        people = j["results"][0]["people"]
-        next = j["next"]
-        self.assertEqual(100, len(people))
         self.assertNotEqual(None, next)
 
         response = self.client.get(next)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
         people = j["results"][0]["people"]
-        self.assertEqual(50, len(people))
+        next = j["next"]
+        self.assertEqual(10, len(people))
         self.assertEqual(None, j["next"])
 
     def test_breakdown_basic_pagination(self):
         cache.clear()
-        self._create_sample_data(250)
+        self._create_sample_data(110)
         request_data = {
             "insight": INSIGHT_FUNNELS,
             "interval": "day",
@@ -151,20 +145,13 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         j = response.json()
         people = j["results"][0]["people"]
         next = j["next"]
-        self.assertEqual(100, len(people))
-        self.assertNotEqual(None, next)
-
-        response = self.client.get(next)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        j = response.json()
-        people = j["results"][0]["people"]
-        self.assertEqual(50, len(people))
+        self.assertEqual(10, len(people))
         self.assertEqual(None, j["next"])
 
     @patch("ee.clickhouse.models.person.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
         cache.clear()
-        self._create_sample_data(250, delete=True)
+        self._create_sample_data(110, delete=True)
         request_data = {
             "insight": INSIGHT_FUNNELS,
             "interval": "day",
