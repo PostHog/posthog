@@ -3,6 +3,7 @@ from typing import Dict, Literal, Optional, Tuple, cast
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
     CUSTOM_EVENT,
+    END_POINT,
     FUNNEL_PATHS,
     PAGEVIEW_EVENT,
     PATH_TYPE,
@@ -34,6 +35,16 @@ class StartPointMixin(BaseParamMixin):
     @include_dict
     def start_point_to_dict(self):
         return {"start_point": self.start_point} if self.start_point else {}
+
+
+class EndPointMixin(BaseParamMixin):
+    @cached_property
+    def end_point(self) -> Optional[str]:
+        return self._data.get(END_POINT, None)
+
+    @include_dict
+    def end_point_to_dict(self):
+        return {"end_point": self.end_point} if self.end_point else {}
 
 
 class PropTypeDerivedMixin(PathTypeMixin):

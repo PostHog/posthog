@@ -168,11 +168,11 @@ FROM (
                     , arrayMap((x,y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping
                     , arrayFilter((x,y) -> y, time, mapping) as timings
                     , arrayFilter((x,y)->y, path_basic, mapping) as compact_path
-                    , indexOf(compact_path, %(start_point)s) as start_index
-                    , if(start_index > 0, arraySlice(compact_path, start_index), compact_path) as filtered_path
-                    , if(start_index > 0, arraySlice(timings, start_index), timings) as filtered_timings
-                    , arraySlice(filtered_path, 1, %(event_in_session_limit)s) as limited_path
-                    , arraySlice(filtered_timings, 1, %(event_in_session_limit)s) as limited_timings
+                    , indexOf(compact_path, %(target_point)s) as target_index
+                    , if(target_index > 0, {compacting_function}(compact_path, target_index), compact_path) as filtered_path
+                    , if(target_index > 0, {compacting_function}(timings, target_index), timings) as filtered_timings
+                    , {path_limiting_clause} as limited_path
+                    , {time_limiting_clause} as limited_timings
                     , arrayZip(limited_path, limited_timings) as limited_path_timings
                 FROM (
                     SELECT person_id
