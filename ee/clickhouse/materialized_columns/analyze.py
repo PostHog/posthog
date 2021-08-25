@@ -13,7 +13,7 @@ from posthog.models.team import Team
 
 Suggestion = Tuple[TableWithProperties, PropertyName, int]
 
-INSPECT_QUERY_THRESHOLD_MS = 50
+INSPECT_QUERY_THRESHOLD_MS = 3000
 
 
 class TeamManager:
@@ -114,7 +114,3 @@ def suggested_columns_to_materialize(since_hours_ago: int, maximum: int = 10) ->
             result.append(suggestion)
 
     return result[:maximum]
-
-
-if __name__ == "__main__":
-    print(analyze(get_queries(120)))
