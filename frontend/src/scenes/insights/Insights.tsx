@@ -48,7 +48,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
-import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { Description } from 'lib/components/Description/Description'
 import { FunnelInsight } from './FunnelInsight'
@@ -339,7 +338,6 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
                         <Col span={24}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}

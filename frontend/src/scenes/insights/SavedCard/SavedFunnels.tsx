@@ -34,7 +34,7 @@ export function SavedFunnels(): JSX.Element {
             renderItem={(funnel) => {
                 return (
                     <List.Item>
-                        <Col style={{ whiteSpace: 'pre-line', width: '100%' }}>
+                        <Col style={{ whiteSpace: 'pre-line', width: '100%', padding: 0 }}>
                             <Row justify="space-between" align="middle">
                                 <Link to={'/insights?' + toParams(funnel.filters)} style={{ flex: 1 }}>
                                     {funnel.name}
