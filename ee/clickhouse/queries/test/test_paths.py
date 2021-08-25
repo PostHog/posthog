@@ -158,8 +158,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             timestamp="2012-01-01T03:27:34.000Z",
         )
 
-        # with freeze_time("2012-01-7T03:21:34.000Z"):
-        filter = PathFilter(data={"step_limit": 4, "date_from": "2012-01-01"})
+        filter = PathFilter(data={"step_limit": 4, "date_from": "2012-01-01", "include_event_types": ["$pageview"]})
         response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
@@ -184,7 +183,9 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     event="step branch", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
                 )
 
-        filter = PathFilter(data={"date_from": "2021-05-01", "date_to": "2021-05-03"})
+        filter = PathFilter(
+            data={"date_from": "2021-05-01", "date_to": "2021-05-03", "include_event_types": ["custom_event"]}
+        )
         response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
@@ -256,5 +257,273 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     "value": 10,
                     "average_conversion_time": 60000.0,
                 },
+            ],
+        )
+
+    def test_event_inclusion_exclusion_filters(self):
+
+        # P1 for pageview event
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/2"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        # P2 for screen event
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        _create_event(
+            properties={"$screen_name": "/screen1"},
+            distinct_id="p2",
+            event="$screen",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$screen_name": "/screen2"},
+            distinct_id="p2",
+            event="$screen",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$screen_name": "/screen3"},
+            distinct_id="p2",
+            event="$screen",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        # P3 for custom event
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"])
+        _create_event(
+            distinct_id="p3", event="/custom1", team=self.team, timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            distinct_id="p3", event="/custom2", team=self.team, timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            distinct_id="p3", event="/custom3", team=self.team, timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        filter = PathFilter(data={"step_limit": 4, "date_from": "2012-01-01", "include_event_types": ["$pageview"]})
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+        filter = filter.with_data({"include_event_types": ["$screen"]})
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/screen1", "target": "2_/screen2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/screen2", "target": "3_/screen3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+        filter = filter.with_data({"include_event_types": ["custom_event"]})
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/custom1", "target": "2_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/custom2", "target": "3_/custom3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+        filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom1", "/custom2"]})
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [{"source": "1_/custom1", "target": "2_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE},],
+        )
+
+        filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom3", "blah"]})
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response, [],
+        )
+
+        filter = filter.with_data(
+            {"include_event_types": ["$pageview", "$screen", "custom_event"], "include_custom_events": []}
+        )
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "1_/custom1", "target": "2_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "1_/screen1", "target": "2_/screen2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                {"source": "2_/custom2", "target": "3_/custom3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                {"source": "2_/screen2", "target": "3_/screen3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+        filter = filter.with_data(
+            {
+                "include_event_types": ["$pageview", "$screen", "custom_event"],
+                "include_custom_events": [],
+                "exclude_events": ["/custom1", "$pageview"],
+            }
+        )
+        # TODO: сделать проверку на пустые списки # <- CoPilot changed languages suddenly LOL
+        # real TODO: don't allow including $pageview and excluding $pageview at the same time
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/custom2", "target": "2_/custom3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                {"source": "1_/screen1", "target": "2_/screen2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/screen2", "target": "3_/screen3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+    def test_event_inclusion_exclusion_filters_across_single_person(self):
+
+        # P1 for pageview event, screen event, and custom event all together
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/2"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+        _create_event(
+            properties={"$screen_name": "/screen1"},
+            distinct_id="p1",
+            event="$screen",
+            team=self.team,
+            timestamp="2012-01-01T03:25:34.000Z",
+        )
+        _create_event(
+            properties={"$screen_name": "/screen2"},
+            distinct_id="p1",
+            event="$screen",
+            team=self.team,
+            timestamp="2012-01-01T03:26:34.000Z",
+        )
+        _create_event(
+            properties={"$screen_name": "/screen3"},
+            distinct_id="p1",
+            event="$screen",
+            team=self.team,
+            timestamp="2012-01-01T03:28:34.000Z",
+        )
+        _create_event(
+            distinct_id="p1", event="/custom1", team=self.team, timestamp="2012-01-01T03:29:34.000Z",
+        )
+        _create_event(
+            distinct_id="p1", event="/custom2", team=self.team, timestamp="2012-01-01T03:30:34.000Z",
+        )
+        _create_event(
+            distinct_id="p1", event="/custom3", team=self.team, timestamp="2012-01-01T03:32:34.000Z",
+        )
+
+        filter = PathFilter(data={"step_limit": 10, "date_from": "2012-01-01"})  # include everything, exclude nothing
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                {"source": "3_/3", "target": "4_/screen1", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "4_/screen1", "target": "5_/screen2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "5_/screen2", "target": "6_/screen3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                {"source": "6_/screen3", "target": "7_/custom1", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "7_/custom1", "target": "8_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "8_/custom2", "target": "9_/custom3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+        filter = filter.with_data({"include_event_types": ["$pageview", "$screen"]})
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                {"source": "3_/3", "target": "4_/screen1", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "4_/screen1", "target": "5_/screen2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "5_/screen2", "target": "6_/screen3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+        filter = filter.with_data(
+            {"include_event_types": ["$pageview", "$screen"], "include_custom_events": ["/custom2"]}
+        )
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                {"source": "3_/3", "target": "4_/screen1", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "4_/screen1", "target": "5_/screen2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "5_/screen2", "target": "6_/screen3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                {"source": "6_/screen3", "target": "7_/custom2", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+            ],
+        )
+
+        filter = filter.with_data(
+            {
+                "include_event_types": ["$pageview", "custom_event"],
+                "include_custom_events": [],
+                "exclude_events": ["/custom1", "/custom3"],
+            }
+        )
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                {"source": "3_/3", "target": "4_/custom2", "value": 1, "average_conversion_time": 6 * ONE_MINUTE},
             ],
         )
