@@ -6,14 +6,13 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from ee.clickhouse.materialized_columns.util import instance_memoize
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
+from ee.settings import MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
 
 Suggestion = Tuple[TableWithProperties, PropertyName, int]
-
-INSPECT_QUERY_THRESHOLD_MS = 3000
 
 
 class TeamManager:
@@ -34,7 +33,7 @@ class Query:
 
     @property
     def cost(self) -> int:
-        return int((self.query_time_ms - INSPECT_QUERY_THRESHOLD_MS) / 1000) + 1
+        return int((self.query_time_ms - MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME) / 1000) + 1
 
     @cached_property
     def is_valid(self):
@@ -75,10 +74,10 @@ def get_queries(since_hours_ago: int) -> List[Query]:
             AND query NOT LIKE '%%INSERT%%'
             AND type = 'QueryFinish'
             AND query_start_time > now() - toIntervalHour(%(since)s)
-            AND query_duration_ms > {INSPECT_QUERY_THRESHOLD_MS}
+            AND query_duration_ms > %(min_query_time)s
         ORDER BY query_duration_ms desc
         """,
-        {"since": since_hours_ago},
+        {"since": since_hours_ago, "min_query_time": MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME},
     )
     return [Query(query, query_duration_ms) for query, query_duration_ms in raw_queries]
 

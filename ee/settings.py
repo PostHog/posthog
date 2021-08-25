@@ -5,7 +5,7 @@ import os
 from typing import Dict, List
 
 from posthog.constants import RDBMS
-from posthog.settings import AUTHENTICATION_BACKENDS, PRIMARY_DB, TEST
+from posthog.settings import AUTHENTICATION_BACKENDS, PRIMARY_DB, TEST, get_from_env
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -31,3 +31,7 @@ AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
 
 # ClickHouse and Kafka
 KAFKA_ENABLED = PRIMARY_DB == RDBMS.CLICKHOUSE and not TEST
+
+# Settings specific for materialized columns
+# Minimum query time before a query if considered for optimization by adding materialized columns
+MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME = get_from_env("MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME", 3000, type_cast=int)
