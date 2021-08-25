@@ -40,8 +40,7 @@
         "format:js": "yarn prettier && yarn eslint --fix",
         "format": "yarn format:python && yarn format:js",
         "storybook": "start-storybook -p 6006",
-        "build-storybook": "build-storybook",
-        "chromatic": "chromatic --exit-zero-on-changes"
+        "build-storybook": "build-storybook"
     },
     "dependencies": {
         "@babel/core": "^7.10.4",
