@@ -1,18 +1,21 @@
+import logging
 import re
 from collections import defaultdict
 from typing import Generator, List, Optional, Set, Tuple
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 from ee.clickhouse.materialized_columns.util import instance_memoize
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
-from ee.settings import MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME
+from ee.settings import MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
 
 Suggestion = Tuple[TableWithProperties, PropertyName, int]
+
+logger = logging.getLogger(__name__)
 
 
 class TeamManager:
@@ -33,7 +36,7 @@ class Query:
 
     @property
     def cost(self) -> int:
-        return int((self.query_time_ms - MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME) / 1000) + 1
+        return int((self.query_time_ms - MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME) / 1000) + 1
 
     @cached_property
     def is_valid(self):
@@ -77,7 +80,7 @@ def get_queries(since_hours_ago: int) -> List[Query]:
             AND query_duration_ms > %(min_query_time)s
         ORDER BY query_duration_ms desc
         """,
-        {"since": since_hours_ago, "min_query_time": MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME},
+        {"since": since_hours_ago, "min_query_time": MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME},
     )
     return [Query(query, query_duration_ms) for query, query_duration_ms in raw_queries]
 
@@ -104,12 +107,22 @@ def analyze(queries: List[Query]) -> List[Suggestion]:
     ]
 
 
-def suggested_columns_to_materialize(since_hours_ago: int, maximum: int = 10) -> List[Suggestion]:
-    analysis_results = analyze(get_queries(since_hours_ago))
+def materialize_properties_task(time_to_analyze_hours: int = 7 * 24, maximum: int = 10) -> List[Suggestion]:
+    """
+    Creates materialized columns for event and person properties based off of slow queries
+    """
+    analysis_results = analyze(get_queries(time_to_analyze_hours))
     result = []
     for suggestion in analysis_results:
         table, property_name, _ = suggestion
         if property_name not in get_materialized_columns(table):
             result.append(suggestion)
 
-    return result[:maximum]
+    for table, property_name, cost in result[:maximum]:
+        # :TODO: Ignore person properties until https://github.com/PostHog/posthog/issues/5735 is resolved
+        if table == "person":
+            continue
+
+        logger.info(f"Materializing column. table={table}, property_name={property_name}, cost={cost}")
+
+        materialize(table, property_name)

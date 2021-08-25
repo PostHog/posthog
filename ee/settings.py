@@ -33,5 +33,9 @@ AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
 KAFKA_ENABLED = PRIMARY_DB == RDBMS.CLICKHOUSE and not TEST
 
 # Settings specific for materialized columns
+
+# Schedule to run column materialization on. Follows crontab syntax.
+# Use empty string to prevent from materializing
+MATERIALIZE_COLUMNS_SCHEDULE_CRON = get_from_env("MATERIALIZE_COLUMNS_SCHEDULE_CRON", "0 5 * * SAT")
 # Minimum query time before a query if considered for optimization by adding materialized columns
-MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME = get_from_env("MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME", 3000, type_cast=int)
+MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME = get_from_env("MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME", 3000, type_cast=int)

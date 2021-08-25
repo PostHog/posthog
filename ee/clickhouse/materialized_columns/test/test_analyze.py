@@ -27,7 +27,7 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
         )
 
     def test_query_class(self):
-        with self.settings(MATERIALIZED_COLUMNS_MINIMUM_QUERY_TIME=3000):
+        with self.settings(MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME=3000):
             event_query = Query(*self.DUMMY_QUERIES[0])
             person_query = Query(*self.DUMMY_QUERIES[1])
 
