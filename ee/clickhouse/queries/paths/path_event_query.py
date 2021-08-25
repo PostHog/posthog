@@ -29,7 +29,7 @@ class PathEventQuery(ClickhouseEventQuery):
         funnel_paths_filter = ""
 
         if self._filter.funnel_paths:
-            funnel_paths_timestamp = f", {self.FUNNEL_PERSONS_ALIAS}.timestamp as min_timestamp"
+            funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.timestamp as min_timestamp"
             funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.person_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
             funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp >= min_timestamp"
 
