@@ -217,7 +217,7 @@ jobs:
                   CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy/
-                  pytest ee -s -m "not skip_on_multitenancy"
+                  pytest ee -s -m "not skip_on_multitenancy" -n auto
 
     foss:
         name: Django tests – FOSS
