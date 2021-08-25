@@ -118,7 +118,7 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                         <h3>{item.name}</h3>
                         {item?.cohort?.count && (
                             <>
-                                <strong>{item.cohort.count}</strong> users in cohort.
+                                <strong>{item.cohort.count}</strong> persons in cohort.
                             </>
                         )}
                     </>
@@ -146,15 +146,15 @@ export function SessionsFilterBox({ selector }: { selector: FilterSelector }): J
                 name: name,
                 usage_count: count,
             })),
-            renderInfo: function renderUserProperty({ item }) {
+            renderInfo: function renderPersonProperty({ item }) {
                 return (
                     <>
-                        <UsergroupAddOutlined /> User property
+                        <UsergroupAddOutlined /> Person property
                         <br />
                         <h3>{item.name}</h3>
                         {item?.query_usage_30_day && (
                             <>
-                                <strong>{item.query_usage_30_day}</strong> users have this property.
+                                <strong>{item.query_usage_30_day}</strong> persons have this property.
                             </>
                         )}
                     </>

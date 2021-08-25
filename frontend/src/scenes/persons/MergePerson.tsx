@@ -41,7 +41,7 @@ export function MergePerson({
                 }
             }}
         >
-            Merge all properties and events of the selected users into <strong>{person.name}.</strong>
+            Merge all properties and events of the selected persons into <strong>{person.name}.</strong>
             <br />
             <br />
             Note: If there is a conflict, the properties of <strong>{person.name}</strong> will take precedence.
@@ -52,7 +52,7 @@ export function MergePerson({
                 allowClear
                 showSearch
                 style={{ width: '100%' }}
-                placeholder="Please select people to merge"
+                placeholder="Please select persons to merge"
                 onChange={(value) => setSelectedPeople(value)}
                 filterOption={false}
                 onSearch={(value) => {
