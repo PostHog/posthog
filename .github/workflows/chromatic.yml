@@ -14,8 +14,8 @@ jobs:
         # Job steps
         steps:
             - uses: actions/checkout@v1
-            - name: Install dependencies
-              run: yarn
+            - name: Install dependencies and chromatic
+              run: yarn add --dev chromatic
               # 👇 Adds Chromatic as a step in the workflow
             - name: Publish to Chromatic
               uses: chromaui/action@v1
