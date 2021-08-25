@@ -512,12 +512,6 @@ class LifecycleTrend:
 
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
     counts = stats[1]
-    dates = [
-        ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
-            "%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
-        )
-        for item in stats[0]
-    ]
     labels = [
         ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
             "%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
@@ -533,7 +527,6 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     return {
         "data": counts,
         "count": sum(counts),
-        "dates": dates,
         "labels": labels,
         "days": days,
         **additional_values,

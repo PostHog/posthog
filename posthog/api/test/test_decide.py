@@ -22,10 +22,10 @@ class TestDecide(BaseTest):
     def _dict_to_b64(self, data: dict) -> str:
         return base64.b64encode(json.dumps(data).encode("utf-8")).decode("utf-8")
 
-    def _post_decide(self, data=None, origin="http://127.0.0.1:8000"):
+    def _post_decide(self, data=None, origin="http://127.0.0.1:8000", api_version=1, distinct_id="example_id"):
         return self.client.post(
-            "/decide/",
-            {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": "example_id"})},
+            f"/decide/?v={api_version}",
+            {"data": self._dict_to_b64(data or {"token": self.team.api_token, "distinct_id": distinct_id})},
             HTTP_ORIGIN=origin,
         )
 
@@ -145,6 +145,122 @@ class TestDecide(BaseTest):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
+
+    def test_feature_flags_v2(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ],
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=1)  # v1 functionality should not break
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIn("beta-feature", response.json()["featureFlags"])
+            self.assertIn("default-flag", response.json()["featureFlags"])
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=2)
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # assigned by distinct_id hash
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=2, distinct_id="other_id")
+            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
+            self.assertTrue(response.json()["featureFlags"]["default-flag"])
+            self.assertEqual(
+                "third-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # different hash, different variant assigned
+
+    def test_feature_flags_v2_complex(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(
+            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "realm": "cloud"}
+        )
+        Person.objects.create(
+            team=self.team, distinct_ids=["hosted_id"], properties={"email": "sam@posthog.com", "realm": "hosted"}
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "realm", "type": "person", "value": "cloud"}], "rollout_percentage": 80}
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 25},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {"key": "fourth-variant", "name": "Fourth Variant", "rollout_percentage": 25},
+                    ],
+                },
+            },
+            name="This is a feature flag with top-level property filtering and percentage rollout.",
+            key="multivariate-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=2, distinct_id="hosted_id")
+            self.assertIsNone(
+                (response.json()["featureFlags"]).get("multivariate-flag", None)
+            )  # User is does not have realm == "cloud". Value is None.
+            self.assertTrue(
+                (response.json()["featureFlags"]).get("default-flag")
+            )  # User still receives the default flag
+
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=2, distinct_id="example_id")
+            self.assertIsNotNone(
+                response.json()["featureFlags"]["multivariate-flag"]
+            )  # User has an 80% chance of being assigned any non-empty value.
+            self.assertEqual(
+                "second-variant", response.json()["featureFlags"]["multivariate-flag"]
+            )  # If the user falls in the rollout group, they have a 25% chance of being assigned any particular variant.
+            # Their overall probability is therefore 80% * 25% = 20%.
+            # To give another example, if n = 100 Cloud users and rollout_percentage = 80:
+            # None:           20 (100 * (100% - 80%))
+            # first-variant:  20 (100 * 80% * 25% = 20 users)
+            # second-variant: 20 (100 * 80% * 25% = 20 users)
+            # third-variant:  20 (100 * 80% * 25% = 20 users)
+            # fourth-variant: 20 (100 * 80% * 25% = 20 users)
 
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user)

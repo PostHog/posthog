@@ -57,8 +57,10 @@ export function uuid(): string {
     )
 }
 
-export function isObjectEmpty(obj: Record<string, any>): boolean {
-    return obj && Object.keys(obj).length === 0 && obj.constructor === Object
+export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
+    return (
+        !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
+    )
 }
 
 export function toParams(obj: Record<string, any>): string {
@@ -632,12 +634,29 @@ export function dateFilterToText(
     }
     dateFrom = (dateFrom || undefined) as string | undefined
     dateTo = (dateTo || undefined) as string | undefined
+
     if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
         return `${dateFrom} - ${dateTo}`
     }
+
     if (dateFrom === 'dStart') {
+        // Changed to "last 24 hours" but this is backwards compatibility
         return 'Today'
-    } // Changed to "last 24 hours" but this is backwards compatibility
+    }
+
+    if (isDate.test(dateFrom || '') && !isDate.test(dateTo || '')) {
+        const days = dayjs().diff(dayjs(dateFrom), 'days')
+        if (days > 366) {
+            return `${dateFrom} - Today`
+        } else if (days > 0) {
+            return `Last ${days} days`
+        } else if (days === 0) {
+            return `Today`
+        } else {
+            return `Starting from ${dateFrom}`
+        }
+    }
+
     let name = defaultValue
     Object.entries(dateMapping).map(([key, value]) => {
         if (value[0] === dateFrom && value[1] === dateTo && key !== 'Custom') {

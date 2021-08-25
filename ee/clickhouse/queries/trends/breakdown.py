@@ -2,9 +2,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
+    ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
+    get_breakdown_cohort_name,
     get_breakdown_event_prop_values,
     get_breakdown_person_prop_values,
 )
@@ -21,11 +23,8 @@ from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_PERSON_PROP_JOIN_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
-    NONE_BREAKDOWN_PERSON_PROP_JOIN_SQL,
-    NONE_BREAKDOWN_PROP_JOIN_SQL,
 )
 from posthog.constants import MONTHLY_ACTIVE, TREND_FILTER_TYPE_ACTIONS, TRENDS_DISPLAY_BY_VALUE, WEEKLY_ACTIVE
-from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 
@@ -42,7 +41,7 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts
+            props_to_filter, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
         )
         aggregate_operation, _, math_params = process_math(entity)
 
@@ -91,7 +90,15 @@ class ClickhouseTrendsBreakdown:
             )
 
         if len(_params["values"]) == 0:
-            return "SELECT 1", {}, lambda _: []
+            # If there are no breakdown values, we are sure that there's no relevant events, so instead of adjusting
+            # a "real" SELECT for this, we only include the below dummy SELECT.
+            # It's a drop-in replacement for a "real" one, simply always returning 0 rows.
+            # See https://github.com/PostHog/posthog/pull/5674 for context.
+            return (
+                "SELECT [now()] AS date, [0] AS data, '' AS breakdown_value LIMIT 0",
+                {},
+                lambda _: [],
+            )
 
         params = {**params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
@@ -184,14 +191,16 @@ class ClickhouseTrendsBreakdown:
         values_arr = get_breakdown_event_prop_values(
             filter, entity, aggregate_operation, team_id, extra_params=math_params
         )
-        params = {
-            "values": values_arr,
-        }
+
+        # :TRICKY: We only support string breakdown for event/person properties
+        assert isinstance(filter.breakdown, str)
+        breakdown_value, _ = get_property_string_expr("events", filter.breakdown, "%(key)s", "properties")
+
         return (
-            params,
+            {"values": values_arr, "key": filter.breakdown},
             BREAKDOWN_PROP_JOIN_SQL,
-            {},
-            "trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s))",
+            {"breakdown_value_expr": breakdown_value},
+            breakdown_value,
         )
 
     def _parse_single_aggregate_result(
@@ -229,7 +238,7 @@ class ClickhouseTrendsBreakdown:
             "label": label,
         }
         if filter.breakdown_type == "cohort":
-            additional_values["breakdown_value"] = "all" if breakdown_value == 0 else breakdown_value
+            additional_values["breakdown_value"] = "all" if breakdown_value == ALL_USERS_COHORT_ID else breakdown_value
         else:
             additional_values["breakdown_value"] = breakdown_value
 
@@ -244,9 +253,6 @@ class ClickhouseTrendsBreakdown:
     ) -> str:
         breakdown = breakdown if breakdown and isinstance(breakdown, list) else []
         if breakdown_type == "cohort":
-            if breakdown_value == 0:
-                return "all users"
-            else:
-                return Cohort.objects.get(pk=breakdown_value).name
+            return get_breakdown_cohort_name(breakdown_value)
         else:
             return str(value) or "none"

@@ -1,23 +1,35 @@
 from typing import Any, Dict, Tuple
 
-from django.conf import settings
-
-from ee.clickhouse.materialized_columns import get_materialized_columns
+from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 
 class FunnelEventQuery(ClickhouseEventQuery):
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
+        column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         _fields = (
-            f"{self.EVENT_TABLE_ALIAS}.event as event, {self.EVENT_TABLE_ALIAS}.team_id as team_id, {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id, {self.EVENT_TABLE_ALIAS}.timestamp as timestamp, {self.EVENT_TABLE_ALIAS}.properties as properties, {self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
+            f"{self.EVENT_TABLE_ALIAS}.event as event, "
+            + f"{self.EVENT_TABLE_ALIAS}.team_id as team_id, "
+            + f"{self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id, "
+            + f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp"
+            + (
+                f", {self.EVENT_TABLE_ALIAS}.properties as properties"
+                if column_optimizer.should_query_event_properties_column
+                else ""
+            )
+            + (
+                f", {self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
+                if column_optimizer.should_query_elements_chain_column
+                else ""
+            )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
             + (
                 " ".join(
                     [
                         f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
-                        for column_name in get_materialized_columns("events").values()
+                        for column_name in column_optimizer.materialized_event_columns_to_query
                     ]
                 )
             )
@@ -27,7 +39,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
         self.params.update(date_params)
 
         prop_filters = self._filter.properties
-        prop_query, prop_params = self._get_props(prop_filters, allow_denormalized_props=True)
+        prop_query, prop_params = self._get_props(prop_filters)
         self.params.update(prop_params)
 
         if skip_entity_filter:

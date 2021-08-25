@@ -1,11 +1,12 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property, Team
+from posthog.models.filters.path_filter import PathFilter
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -14,7 +15,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     EVENT_TABLE_ALIAS = "e"
 
     _PERSON_PROPERTIES_ALIAS = "person_props"
-    _filter: Filter
+    _filter: Union[Filter, PathFilter]
     _team_id: int
     _should_join_distinct_ids = False
     _should_join_persons = False
@@ -22,7 +23,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def __init__(
         self,
-        filter: Filter,
+        filter: Union[Filter, PathFilter],
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,
@@ -31,7 +32,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     ) -> None:
         self._filter = filter
         self._team_id = team_id
-        self.params = {
+        self.params: Dict[str, Any] = {
             "team_id": self._team_id,
         }
 
@@ -113,7 +114,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._should_join_persons:
             return f"""
             INNER JOIN (
-                SELECT id, properties as person_props
+                SELECT id, properties as {self._PERSON_PROPERTIES_ALIAS}
                 FROM (
                     SELECT id,
                         argMax(properties, person._timestamp) as properties,
@@ -140,11 +141,10 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         return query, date_params
 
-    def _get_props(self, filters: List[Property], allow_denormalized_props: bool = False) -> Tuple[str, Dict]:
+    def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
 
         filter_test_accounts = self._filter.filter_test_accounts
         team_id = self._team_id
-        table_name = f"{self.EVENT_TABLE_ALIAS}."
         prepend = "global"
 
         final = []
@@ -152,7 +152,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         if filter_test_accounts:
             test_account_filters = Team.objects.only("test_account_filters").get(id=team_id).test_account_filters
-            filters.extend([Property(**prop) for prop in test_account_filters])
+            filters += [Property(**prop) for prop in test_account_filters]
 
         for idx, prop in enumerate(filters):
             if prop.type == "cohort":
@@ -165,18 +165,21 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     prop,
                     idx,
                     "{}person".format(prepend),
-                    allow_denormalized_props=allow_denormalized_props,
+                    allow_denormalized_props=False,
                     prop_var=self._PERSON_PROPERTIES_ALIAS,
                 )
                 final.append(filter_query)
                 params.update(filter_params)
             elif prop.type == "element":
-                query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
-                final.append(f" AND {query if len(query) > 0 else '1=2'}")
-                params.update(filter_params)
+                query, filter_params = filter_element(
+                    {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
+                )
+                if query:
+                    final.append(f" AND {query}")
+                    params.update(filter_params)
             else:
                 filter_query, filter_params = prop_filter_json_extract(
-                    prop, idx, prepend, prop_var="properties", allow_denormalized_props=allow_denormalized_props,
+                    prop, idx, prepend, prop_var="properties", allow_denormalized_props=True
                 )
 
                 final.append(filter_query)
@@ -187,7 +190,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         try:
             cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self._team_id)
         except Cohort.DoesNotExist:
-            return "0 = 1", {}  # If cohort doesn't exist, nothing can match
+            return "0 = 11", {}  # If cohort doesn't exist, nothing can match
 
         is_precalculated = is_precalculated_query(cohort)
 

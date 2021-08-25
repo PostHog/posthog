@@ -15,6 +15,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
+from posthog.test.base import test_with_materialized_columns
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -41,7 +42,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_person)):  # type: ignore
+class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_action, _create_person)):  # type: ignore
     maxDiff = None
     pass
 
@@ -51,7 +52,7 @@ class TestFunnelConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_
     pass
 
 
-class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
+class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
 
     maxDiff = None
 
@@ -83,8 +84,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
         )
 
-        with self.assertNumQueries(1):
-            result = funnel.run()
+        result = funnel.run()
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
@@ -131,6 +131,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
         )
 
+    @test_with_materialized_columns(["key"])
     def test_basic_funnel_with_derivative_steps(self):
         filters = {
             "events": [
@@ -653,6 +654,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 5), [person5_stopped_after_many_pageview.uuid],
         )
 
+    @test_with_materialized_columns(["key"])
     def test_funnel_with_actions(self):
 
         sign_up_action = _create_action(
@@ -697,6 +699,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
         )
 
+    @test_with_materialized_columns(["key"])
     def test_funnel_with_actions_and_events(self):
 
         sign_up_action = _create_action(
@@ -773,6 +776,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
 
         self.assertCountEqual(self._get_people_at_step(filter, 4), [person1_stopped_after_two_signups.uuid,])
 
+    @test_with_materialized_columns(["$current_url"])
     def test_funnel_with_matching_properties(self):
         filters = {
             "events": [
@@ -1054,6 +1058,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 2), [person1.uuid],
         )
 
+    @test_with_materialized_columns(["key"])
     def test_funnel_exclusions_with_actions(self):
 
         sign_up_action = _create_action(

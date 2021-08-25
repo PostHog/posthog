@@ -7,7 +7,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_action import factory_test_action_api
 from posthog.api.test.test_action_people import action_people_test_factory
-from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
+from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization, Person
 
 
@@ -235,6 +235,7 @@ class TestActionPeople(
                 "date_to": "2020-01-12",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "$pageview",
+                "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
                 "breakdown_type": "event",
                 "breakdown_value": "val",
                 "breakdown": "key",
@@ -249,6 +250,7 @@ class TestActionPeople(
                 "date_to": "2020-01-12",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "$pageview",
+                "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
                 "breakdown_type": "event",
                 "breakdown_value": "",
                 "breakdown": "key",

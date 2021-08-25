@@ -39,6 +39,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import push_scope
 
+from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -187,19 +188,12 @@ def get_git_commit() -> Optional[str]:
 
 
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
-    from posthog.models import Team
+    from loginas.utils import is_impersonated_session
 
     template = get_template(template_name)
 
-    # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
-    team: Optional[Team] = None
-    try:
-        team = request.user.team  # type: ignore
-    except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.first()
-
     context["self_capture"] = False
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -211,8 +205,10 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     if settings.SELF_CAPTURE:
         context["self_capture"] = True
-        if team:
-            context["js_posthog_api_key"] = f"'{team.api_token}'"
+        api_token = get_self_capture_api_token(request)
+
+        if api_token:
+            context["js_posthog_api_key"] = f"'{api_token}'"
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
@@ -242,6 +238,21 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     html = template.render(context, request=request)
     return HttpResponse(html)
+
+
+def get_self_capture_api_token(request: HttpRequest) -> Optional[str]:
+    from posthog.models import Team
+
+    # Get the current user's team (or first team in the instance) to set self capture configs
+    team: Optional[Team] = None
+    try:
+        team = request.user.team  # type: ignore
+    except (Team.DoesNotExist, AttributeError):
+        team = Team.objects.only("api_token").first()
+
+    if team:
+        return team.api_token
+    return None
 
 
 def get_default_event_name():
@@ -548,7 +559,7 @@ def get_instance_realm() -> str:
     """
     if settings.MULTI_TENANCY:
         return "cloud"
-    elif os.getenv("HELM_INSTALL_INFO", False):
+    elif is_clickhouse_enabled():
         return "hosted-clickhouse"
     else:
         return "hosted"

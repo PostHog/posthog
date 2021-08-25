@@ -1,11 +1,23 @@
-import { compactNumber } from 'lib/utils'
+import { clamp, compactNumber } from 'lib/utils'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
-import { FunnelStep, FunnelsTimeConversionBins } from '~/types'
+import api from 'lib/api'
+import {
+    FilterType,
+    FunnelExclusionEntityFilter,
+    FunnelRequestParams,
+    FunnelResult,
+    FunnelStep,
+    FunnelStepWithNestedBreakdown,
+    FunnelsTimeConversionBins,
+} from '~/types'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
 
 export function formatDisplayPercentage(percentage: number): string {
+    if (Number.isNaN(percentage)) {
+        percentage = 0
+    }
     // Returns a formatted string properly rounded to ensure consistent results
     return (percentage * 100).toFixed(PERCENTAGE_DISPLAY_PRECISION)
 }
@@ -84,5 +96,102 @@ export function cleanBinResult(binsResult: FunnelsTimeConversionBins): FunnelsTi
         ...binsResult,
         bins: binsResult.bins.map(([time, count]) => [time ?? 0, count ?? 0]),
         average_conversion_time: binsResult.average_conversion_time ?? 0,
+    }
+}
+
+export function aggregateBreakdownResult(
+    breakdownList: FunnelStep[][],
+    breakdownProperty?: string | number | number[]
+): FunnelStepWithNestedBreakdown[] {
+    if (breakdownList.length) {
+        return breakdownList[0].map((step, i) => ({
+            ...step,
+            count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
+            breakdown: breakdownProperty,
+            nested_breakdown: breakdownList.reduce(
+                (allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]],
+                []
+            ),
+            average_conversion_time: null,
+            people: [],
+        }))
+    }
+    return []
+}
+
+export function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): results is FunnelStep[][] {
+    return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
+}
+
+// breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
+export function isValidBreakdownParameter(breakdown: FunnelRequestParams['breakdown']): boolean {
+    return ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) || Array.isArray(breakdown)
+}
+
+export function wait(ms = 1000): Promise<any> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms)
+    })
+}
+
+export const SECONDS_TO_POLL = 3 * 60
+
+export const EMPTY_FUNNEL_RESULTS = {
+    results: [],
+    timeConversionResults: {
+        bins: [],
+        average_conversion_time: 0,
+    },
+}
+
+export async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Promise<FunnelResult<T>> {
+    // Tricky: This API endpoint has wildly different return types depending on parameters.
+    const { refresh, ...bodyParams } = apiParams
+    let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
+    const start = window.performance.now()
+    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
+        await wait()
+        result = await api.create('api/insight/funnel', bodyParams)
+    }
+    // if endpoint is still loading after 3 minutes just return default
+    if (result.loading) {
+        throw { status: 0, statusText: 'Funnel timeout' }
+    }
+    return result
+}
+
+export const isStepsEmpty = (filters: FilterType): boolean =>
+    [...(filters.actions || []), ...(filters.events || [])].length === 0
+
+export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelExclusionEntityFilter[] | undefined => {
+    if (!filters.exclusions) {
+        return filters.exclusions
+    }
+
+    const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
+    return filters.exclusions.map((event) => {
+        const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
+        return {
+            ...event,
+            ...{ funnel_from_step },
+            ...{
+                funnel_to_step: event.funnel_to_step
+                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
+                    : lastIndex,
+            },
+        }
+    })
+}
+
+export const getClampedExclusionFilter = (
+    event: FunnelExclusionEntityFilter,
+    filters: FilterType
+): FunnelExclusionEntityFilter => {
+    const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
+    const funnel_from_step = clamp(event.funnel_from_step, 0, maxStepIndex)
+    return {
+        ...event,
+        funnel_from_step,
+        funnel_to_step: clamp(event.funnel_to_step, funnel_from_step + 1, maxStepIndex),
     }
 }

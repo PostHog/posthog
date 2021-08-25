@@ -121,6 +121,10 @@
                 {
                     "name": "PERSISTED_FEATURE_FLAGS",
                     "value": "0"
+                },
+                {
+                    "name": "CALCULATE_X_COHORTS_PARALLEL",
+                    "value": "50"
                 }
             ],
             "secrets": [

@@ -31,6 +31,7 @@ export type AvailableFeatures =
 export interface ColumnConfig {
     active: string[] | 'DEFAULT'
 }
+
 export interface UserType {
     uuid: string
     date_joined: string
@@ -121,6 +122,7 @@ export interface PropertyUsageType {
     usage_count: number
     volume: number
 }
+
 export interface TeamBasicType {
     id: number
     uuid: string
@@ -308,6 +310,7 @@ export type SessionsPropertyFilter =
     | EventTypePropertyFilter
 
 export type EntityType = 'actions' | 'events' | 'new_entity'
+
 export interface Entity {
     id: string | number
     name: string
@@ -327,6 +330,11 @@ export type EntityFilter = {
     name: string | null
     index?: number
     order?: number
+}
+
+export interface FunnelExclusionEntityFilter extends EntityFilter {
+    funnel_from_step: number
+    funnel_to_step: number
 }
 
 export interface EntityWithProperties extends Entity {
@@ -387,6 +395,13 @@ export interface SavedFunnel extends InsightHistory {
 }
 
 export type BinCountValue = number | typeof BinCountAuto
+
+// https://github.com/PostHog/posthog/blob/master/posthog/constants.py#L106
+export enum StepOrderValue {
+    STRICT = 'strict',
+    UNORDERED = 'unordered',
+    ORDERED = 'ordered',
+}
 
 export enum PersonsTabType {
     EVENTS = 'events',
@@ -503,6 +518,7 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
 }
+
 export interface PluginType {
     id: number
     plugin_type: PluginInstallationType
@@ -595,6 +611,7 @@ export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 // NB! Keep InsightType and ViewType in sync!
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+
 export enum ViewType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
@@ -644,6 +661,7 @@ export interface FilterType {
     path_type?: PathType
     start_point?: string | number
     stickiness_days?: number
+    type?: EntityType
     entity_id?: string | number
     entity_type?: EntityType
     entity_math?: string
@@ -651,7 +669,7 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
-    from_dashboard?: boolean
+    from_dashboard?: boolean | number
     layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
@@ -662,6 +680,10 @@ export interface FilterType {
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     compare?: boolean
     bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
+    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
+    funnel_window_interval?: number | undefined // length of conversion window
+    funnel_order_type?: StepOrderValue
+    exclusions?: FunnelExclusionEntityFilter[] // used in funnel exclusion filters
 }
 
 export interface SystemStatusSubrows {
@@ -805,7 +827,7 @@ export enum FunnelConversionWindowTimeUnit {
 
 export interface FunnelRequestParams extends FilterType {
     refresh?: boolean
-    from_dashboard?: boolean
+    from_dashboard?: boolean | number
     funnel_window_days?: number
 }
 
@@ -845,9 +867,11 @@ export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
 }
+
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
 }
+
 export interface FeatureFlagType {
     id: number | null
     key: string
@@ -1027,6 +1051,7 @@ export interface TiledIconModuleProps {
 }
 
 export type EventOrPropType = EventDefinition & PropertyDefinition
+
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus

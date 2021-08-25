@@ -335,6 +335,7 @@ class TestSignupAPI(APIBaseTest):
         )  # show the user an error; operation not permitted
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
+    @pytest.mark.ee
     def test_api_social_login_to_create_organization(self, mock_request):
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -349,6 +350,7 @@ class TestSignupAPI(APIBaseTest):
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.skip_on_multitenancy
+    @pytest.mark.ee
     def test_api_social_login_cannot_create_second_organization(self, mock_request):
         Organization.objects.create(name="Test org")
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -366,6 +368,7 @@ class TestSignupAPI(APIBaseTest):
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.skip_on_multitenancy
+    @pytest.mark.ee
     def test_social_signup_with_whitelisted_domain(self, mock_request):
         new_org = Organization.objects.create(name="Hogflix Movies", domain_whitelist=["hogflix.posthog.com"])
         new_project = Team.objects.create(organization=new_org, name="My First Project")
@@ -393,7 +396,8 @@ class TestSignupAPI(APIBaseTest):
         )
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
-    def test_social_signup_is_disabled_in_cloud(self, mock_request):
+    @pytest.mark.ee
+    def test_social_signup_to_existing_org_with_whitelisted_domains_is_disabled_in_cloud(self, mock_request):
         Organization.objects.create(name="Hogflix Movies", domain_whitelist=["hogflix.posthog.com"])
         user_count = User.objects.count()
         org_count = Organization.objects.count()
@@ -415,6 +419,7 @@ class TestSignupAPI(APIBaseTest):
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.skip_on_multitenancy
+    @pytest.mark.ee
     def test_api_cannot_use_whitelist_for_different_domain(self, mock_request):
         Organization.objects.create(name="Test org", domain_whitelist=["good.com"])
 

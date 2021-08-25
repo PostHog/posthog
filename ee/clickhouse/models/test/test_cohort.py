@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import List, Tuple, cast
 from uuid import uuid4
 
 import pytest
@@ -48,7 +49,7 @@ def _create_person(**kwargs) -> Person:
     distinct_ids = kwargs.pop("distinct_ids")
     person = create_person(uuid=uuid, **kwargs)
     for id in distinct_ids:
-        create_person_distinct_id(0, kwargs["team_id"], id, str(person))
+        create_person_distinct_id(kwargs["team_id"], id, str(person))
     return Person(id=person, uuid=person)
 
 
@@ -645,7 +646,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                             team_id
                     HAVING max(is_deleted) = 0)
                 GROUP BY distinct_id)
-                where person_id IN
+                WHERE person_id IN
                     (SELECT person_id
                     FROM person_static_cohort
                     WHERE cohort_id = %(cohort_id_0)s
@@ -654,3 +655,65 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                     reindent=True,
                 ),
             )
+
+    def test_cohortpeople_with_valid_other_cohort_filter(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+
+        cohort0: Cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"foo": "bar"}}], name="cohort0",
+        )
+        cohort0.calculate_people_ch()
+
+        cohort1: Cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "id", "type": "cohort", "value": cohort0.id}]}],
+            name="cohort1",
+        )
+
+        cohort1.calculate_people_ch()
+
+        count_result = sync_execute(
+            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+        )[0][0]
+        self.assertEqual(count_result, 1)
+
+    def test_cohortpeople_with_nonexistent_other_cohort_filter(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+
+        cohort1: Cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "id", "type": "cohort", "value": 666}]}], name="cohort1",
+        )
+
+        cohort1.calculate_people_ch()
+
+        count_result = sync_execute(
+            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+        )[0][0]
+        self.assertEqual(count_result, 0)
+
+    def test_cohortpeople_with_cyclic_cohort_filter(self):
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"},)
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"},)
+
+        cohort1: Cohort = Cohort.objects.create(
+            team=self.team, groups=[], name="cohort1",
+        )
+        cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
+        cohort1.save()
+
+        cohort1.calculate_people_ch()
+
+        count_result = sync_execute(
+            "SELECT count(person_id) FROM cohortpeople where cohort_id = %(cohort_id)s", {"cohort_id": cohort1.pk}
+        )[0][0]
+        self.assertEqual(count_result, 2)
+
+    def test_clickhouse_empty_query(self):
+        cohort2 = Cohort.objects.create(
+            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
+        )
+
+        cohort2.calculate_people()
+        self.assertFalse(Cohort.objects.get().is_calculating)

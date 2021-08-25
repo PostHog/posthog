@@ -8,17 +8,15 @@ import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
 import { InsightTitle } from '../InsightTitle'
-import { SaveOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { InsightActionBar } from '../InsightActionBar'
 import { Tooltip } from 'lib/components/Tooltip'
+import { FunnelStepOrderPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepOrderPicker'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
 
@@ -44,23 +42,54 @@ export function FunnelTab(): JSX.Element {
                     ) : undefined
                 }
             />
-            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && <ToggleButtonChartFilter />}
+            <ToggleButtonChartFilter />
             <form
                 onSubmit={(e): void => {
                     e.preventDefault()
                     loadResults()
                 }}
             >
-                <h4 className="secondary">Steps</h4>
+                <Row justify="space-between" align="middle">
+                    <h4 className="secondary" style={{ marginBottom: 0 }}>
+                        Steps
+                    </h4>
+                    {clickhouseFeaturesEnabled && (
+                        <Row align="middle">
+                            <span className="l5 text-muted-alt">
+                                <span style={{ marginRight: 5 }}>Step Order</span>
+                                <FunnelStepOrderPicker />
+                                <Tooltip
+                                    title={
+                                        <ul style={{ paddingLeft: '1.2rem' }}>
+                                            <li>
+                                                <b>Sequential</b> - Step B must happen after Step A, but any number
+                                                events can happen between A and B.
+                                            </li>
+                                            <li>
+                                                <b>Strict Order</b> - Step B must happen directly after Step A without
+                                                any events in between.
+                                            </li>
+                                            <li>
+                                                <b>Any Order</b> - Steps can be completed in any sequence.
+                                            </li>
+                                        </ul>
+                                    }
+                                >
+                                    <InfoCircleOutlined className="info-indicator" />
+                                </Tooltip>
+                            </span>
+                        </Row>
+                    )}
+                </Row>
                 <ActionFilter
                     filters={filters}
                     setFilters={(newFilters: Record<string, any>): void => setFilters(newFilters, false)}
                     typeKey={`EditFunnel-action`}
                     hideMathSelector={true}
                     buttonCopy="Add funnel step"
-                    showSeriesIndicator={!isStepsEmpty && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    showSeriesIndicator={!isStepsEmpty}
                     seriesIndicatorType="numeric"
-                    fullWidth={featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]}
+                    fullWidth
                     sortable
                     showNestedArrow={true}
                 />

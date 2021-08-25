@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from 'react'
-import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { isMobile } from 'lib/utils'
+import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Row, Col, Card, Input } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
+import { Card, Col, Input, Row } from 'antd'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -14,17 +14,23 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 
 import { Paths } from 'scenes/paths/Paths'
 
-import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
+import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
-import { logicFromInsight } from './utils'
+import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { DownOutlined, UpOutlined, EditOutlined } from '@ant-design/icons'
+import { DownOutlined, EditOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import { ErrorMessage, TimeOut } from './EmptyStates'
-import { People } from 'scenes/funnels/People'
+import {
+    ErrorMessage,
+    FunnelEmptyState,
+    FunnelInvalidExclusionFiltersEmptyState,
+    FunnelInvalidFiltersEmptyState,
+    TimeOut,
+} from './EmptyStates'
+import { People } from 'scenes/funnels/FunnelPeople'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -44,7 +50,6 @@ import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import './Insights.scss'
 import { Description } from 'lib/components/Description/Description'
 import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
@@ -90,7 +95,7 @@ export function Insights(): JSX.Element {
     } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
-    const { areFiltersValid } = useValues(funnelLogic)
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
     const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
@@ -101,9 +106,9 @@ export function Insights(): JSX.Element {
     const { user } = useValues(userLogic)
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
-    const { loadResults } = useActions(
-        logicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
-    )
+    const logicFromInsight = getLogicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
+    const { loadResults } = useActions(logicFromInsight)
+    const { resultsLoading } = useValues(logicFromInsight)
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -151,6 +156,40 @@ export function Insights(): JSX.Element {
             disabled: insightMode !== ItemMode.Edit,
         },
     })
+
+    // Empty states that completely replace the graph
+    const BlockingEmptyState = (() => {
+        // Insight specific empty states - note order is important here
+        if (activeView === ViewType.FUNNELS) {
+            if (!areFiltersValid) {
+                return <FunnelInvalidFiltersEmptyState />
+            }
+            if (!areExclusionFiltersValid) {
+                return <FunnelInvalidExclusionFiltersEmptyState />
+            }
+            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+                return <FunnelEmptyState />
+            }
+        }
+
+        // Insight agnostic empty states
+        if (showErrorMessage) {
+            return <ErrorMessage />
+        }
+        if (showTimeoutMessage) {
+            return <TimeOut isLoading={isLoading} />
+        }
+
+        return null
+    })()
+
+    // Empty states that can coexist with the graph (e.g. Loading)
+    const CoexistingEmptyState = (() => {
+        if (isLoading || resultsLoading) {
+            return <Loading />
+        }
+        return null
+    })()
 
     return (
         <div className="insights-page">
@@ -244,7 +283,7 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col span={24} lg={verticalLayout ? 7 : undefined}>
+                        <Col span={24} xl={verticalLayout ? 9 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
@@ -303,7 +342,7 @@ export function Insights(): JSX.Element {
                             </Card>
                             {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
-                        <Col span={24} lg={verticalLayout ? 17 : undefined}>
+                        <Col span={24} xl={verticalLayout ? 15 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
@@ -338,43 +377,31 @@ export function Insights(): JSX.Element {
                                             />
                                         )}
                                     </Row>
-                                    {showErrorMessage ? (
-                                        <ErrorMessage />
-                                    ) : (
-                                        showTimeoutMessage && <TimeOut isLoading={isLoading} />
-                                    )}
-                                    <div
-                                        style={{
-                                            display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
-                                        }}
-                                    >
-                                        {showErrorMessage ? (
-                                            <ErrorMessage />
-                                        ) : showTimeoutMessage ? (
-                                            <TimeOut isLoading={isLoading} />
-                                        ) : (
-                                            {
-                                                [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-                                                [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-                                                [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                                [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                [`${ViewType.PATHS}`]: <Paths />,
-                                            }[activeView]
-                                        )}
+                                    {!BlockingEmptyState && CoexistingEmptyState}
+                                    <div style={{ display: 'block' }}>
+                                        {!!BlockingEmptyState
+                                            ? BlockingEmptyState
+                                            : {
+                                                  [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                  [`${ViewType.STICKINESS}`]: (
+                                                      <TrendInsight view={ViewType.STICKINESS} />
+                                                  ),
+                                                  [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
+                                                  [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                  [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                  [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                  [`${ViewType.PATHS}`]: <Paths />,
+                                              }[activeView]}
                                     </div>
                                 </div>
                             </Card>
-                            {(!featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] ||
-                                (featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] && !preflight?.is_clickhouse_enabled)) &&
+                            {!preflight?.is_clickhouse_enabled &&
                                 !showErrorMessage &&
                                 !showTimeoutMessage &&
                                 areFiltersValid &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && <People />}
-                            {featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ] &&
-                                preflight?.is_clickhouse_enabled &&
+                            {preflight?.is_clickhouse_enabled &&
                                 activeView === ViewType.FUNNELS &&
                                 !showErrorMessage &&
                                 allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}

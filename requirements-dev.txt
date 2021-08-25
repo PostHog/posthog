@@ -43,8 +43,6 @@ djangorestframework-stubs==1.4.0
     # via -r requirements-dev.in
 djangorestframework==3.12.2
     # via -r requirements-dev.in
-entrypoints==0.3
-    # via flake8
 fakeredis==1.4.5
     # via -r requirements-dev.in
 flake8-bugbear==20.1.4
@@ -61,7 +59,7 @@ flake8-logging-format==0.6.0
     # via -r requirements-dev.in
 flake8-print==3.1.4
     # via -r requirements-dev.in
-flake8==3.7.9
+flake8==3.9.2
     # via
     #   -r requirements-dev.in
     #   flake8-bugbear
@@ -106,12 +104,12 @@ pluggy==0.13.1
     # via pytest
 py==1.10.0
     # via pytest
-pycodestyle==2.5.0
+pycodestyle==2.7.0
     # via
     #   flake8
     #   flake8-import-order
     #   flake8-print
-pyflakes==2.1.1
+pyflakes==2.3.1
     # via flake8
 pyparsing==2.4.7
     # via packaging

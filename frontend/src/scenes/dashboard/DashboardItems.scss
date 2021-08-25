@@ -123,19 +123,11 @@
                 background: var(--item-darkest);
             }
         }
-        .svg-funnel-js__label .label__title {
-            opacity: 0.8;
-        }
-        .svg-funnel-js:not(.svg-funnel-js--vertical) .svg-funnel-js__label:not(:first-child) {
-            border-left: 1px solid rgba(255, 255, 255, 0.4);
-        }
-        .svg-funnel-js__container path {
-            fill: var(--item-lighter);
-            stroke: var(--item-lighter);
-        }
+
         h1 {
             color: rgba(255, 255, 255, 0.9);
         }
+
         .ant-table {
             background: none;
             table {
@@ -169,6 +161,28 @@
 
     &:hover .sample-dasbhoard-overlay {
         display: flex;
+    }
+
+    .insight-empty-state {
+        display: flex;
+        height: 100%;
+        align-items: center;
+
+        .illustration-main,
+        .ant-btn {
+            display: none;
+        }
+
+        h2 {
+            font-size: 1.1rem !important;
+        }
+
+        span,
+        p,
+        a {
+            font-size: 0.9rem !important;
+            line-height: 1.2rem;
+        }
     }
 }
 

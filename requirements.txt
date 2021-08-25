@@ -147,7 +147,7 @@ ptyprocess==0.6.0
     # via pexpect
 pycparser==2.20
     # via cffi
-pyjwt==1.7.1
+pyjwt==2.1.0
     # via social-auth-core
 python-dateutil==2.8.1
     # via
@@ -196,12 +196,10 @@ six==1.14.0
     #   posthoganalytics
     #   protobuf
     #   python-dateutil
-    #   social-auth-app-django
-    #   social-auth-core
     #   tenacity
-social-auth-app-django==4.0.0
+social-auth-app-django==5.0.0
     # via -r requirements.in
-social-auth-core==4.0.2
+social-auth-core==4.1.0
     # via
     #   -r requirements.in
     #   social-auth-app-django
