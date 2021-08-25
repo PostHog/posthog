@@ -60,4 +60,7 @@ export const workerTasks: Record<string, TaskRunner> = {
     sendPluginMetrics: (hub) => {
         hub.pluginMetricsManager.sendPluginMetrics(hub)
     },
+    enqueueJob: async (hub, { job }: { job: EnqueuedJob }) => {
+        await hub.jobQueueManager.enqueue(job)
+    },
 }

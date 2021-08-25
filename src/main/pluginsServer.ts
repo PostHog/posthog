@@ -12,7 +12,7 @@ import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { statusReport } from '../utils/status-report'
 import { delay, getPiscinaStats } from '../utils/utils'
-import { startQueue } from './ingestion-queues/queue'
+import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startSchedule } from './services/schedule'
@@ -48,7 +48,8 @@ export async function startPluginsServer(
     let internalMetricsStatsJob: schedule.Job | undefined
     let pluginMetricsJob: schedule.Job | undefined
     let piscina: Piscina | undefined
-    let queue: Queue | undefined
+    let queue: Queue | undefined // ingestion queue
+    let redisQueueForPluginJobs: Queue | undefined | null
     let jobQueueConsumer: JobQueueConsumerControl | undefined
     let closeHub: () => Promise<void> | undefined
     let scheduleControl: ScheduleControl | undefined
@@ -71,6 +72,7 @@ export async function startPluginsServer(
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         await queue?.stop()
+        await redisQueueForPluginJobs?.stop()
         await pubSub?.stop()
         actionsReloadJob && schedule.cancelJob(actionsReloadJob)
         pingJob && schedule.cancelJob(pingJob)
@@ -134,9 +136,19 @@ export async function startPluginsServer(
         scheduleControl = await startSchedule(hub, piscina)
         jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
 
-        queue = await startQueue(hub, piscina)
+        const queues = await startQueues(hub, piscina)
+
+        // `queue` refers to the ingestion queue. With Celery ingestion, we only
+        // have one queue for plugin jobs and ingestion. With Kafka ingestion, we
+        // use Kafka for events but still start Redis for plugin jobs.
+        // Thus, if Kafka is disabled, we don't need to call anything on
+        // redisQueueForPluginJobs, as that will also be the ingestion queue.
+        queue = queues.ingestion
+        redisQueueForPluginJobs = config.KAFKA_ENABLED ? queues.auxiliary : null
         piscina.on('drain', () => {
             void queue?.resume()
+            void redisQueueForPluginJobs?.resume()
+
             void jobQueueConsumer?.resume()
         })
 

@@ -1,5 +1,5 @@
 import { setupPiscina } from '../../benchmarks/postgres/helpers/piscina'
-import { startQueue } from '../../src/main/ingestion-queues/queue'
+import { startQueues } from '../../src/main/ingestion-queues/queue'
 import { Hub, LogLevel } from '../../src/types'
 import { Client } from '../../src/utils/celery/client'
 import { createHub } from '../../src/utils/db/hub'
@@ -61,10 +61,12 @@ test('pause and resume queue', async () => {
     // There'll be a "tick lag" with the events moving from one queue to the next. :this_is_fine:
     expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).toBe(6)
     const piscina = setupPiscina(2, 2)
-    const queue = await startQueue(hub, piscina, {
-        processEvent: (event) => runProcessEvent(hub, event),
-        ingestEvent: () => Promise.resolve({ success: true }),
-    })
+    const queue = (
+        await startQueues(hub, piscina, {
+            processEvent: (event) => runProcessEvent(hub, event),
+            ingestEvent: () => Promise.resolve({ success: true }),
+        })
+    ).ingestion
     await advanceOneTick()
 
     expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).not.toBe(6)
@@ -93,4 +95,57 @@ test('pause and resume queue', async () => {
     await hub.redisPool.release(redis)
     await closeHub()
     await piscina.destroy()
+})
+
+test('plugin jobs queue', async () => {
+    const [hub, closeHub] = await createTestHub()
+    const redis = await hub.redisPool.acquire()
+
+    // Nothing in the redis queue
+    const queue1 = await redis.llen(hub.PLUGINS_CELERY_QUEUE)
+    expect(queue1).toBe(0)
+
+    const kwargs = {
+        pluginConfigTeam: 2,
+        pluginConfigId: 39,
+        type: 'someJobName',
+        jobOp: 'start',
+        payload: { a: 1 },
+    }
+    const args = Object.values(kwargs)
+
+    const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
+    for (let i = 0; i < 6; i++) {
+        client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
+    }
+
+    await delay(1000)
+
+    expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).toBe(6)
+    const fakePiscina = { run: jest.fn() } as any
+    const queue = (await startQueues(hub, fakePiscina, {})).ingestion
+    await advanceOneTick()
+
+    expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).not.toBe(6)
+
+    await queue.pause()
+
+    expect(fakePiscina.run).toHaveBeenCalledWith(
+        expect.objectContaining({
+            task: 'enqueueJob',
+            args: {
+                job: {
+                    pluginConfigTeam: 2,
+                    pluginConfigId: 39,
+                    type: 'someJobName',
+                    payload: { a: 1, $operation: 'start' },
+                    timestamp: expect.any(Number),
+                },
+            },
+        })
+    )
+
+    await queue.stop()
+    await hub.redisPool.release(redis)
+    await closeHub()
 })
