@@ -116,7 +116,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee/ -n auto
+                  pytest ee/
 
     cloud:
         name: Django tests – Cloud
@@ -202,7 +202,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog --reuse-db -m "not skip_on_multitenancy"
+                  pytest posthog --reuse-db -m "not skip_on_multitenancy" -n auto
 
             - name: Run cloud tests (posthog-cloud)
               env:
@@ -214,7 +214,7 @@ jobs:
               run: |
                   source .env.template
                   cd deploy
-                  pytest multi_tenancy messaging -m "not skip_on_multitenancy"
+                  pytest multi_tenancy messaging -m "not skip_on_multitenancy" -n auto
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'

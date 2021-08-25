@@ -89,6 +89,7 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> Optiona
     if result:
         cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
         return result
+    return None
 
 
 def update_dashboard_items_cache(dashboard: Dashboard) -> None:
