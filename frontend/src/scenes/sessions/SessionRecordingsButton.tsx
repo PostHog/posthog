@@ -1,4 +1,4 @@
-import './SessionsPlayerButton.scss'
+import './SessionRecordingsButton.scss'
 import React, { useState } from 'react'
 import { PlayCircleOutlined, CaretDownOutlined } from '@ant-design/icons'
 import { SessionRecordingType } from '~/types'
@@ -7,7 +7,7 @@ import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 import { Popup } from '../../lib/components/Popup/Popup'
 
-interface SessionsPlayerButtonProps {
+interface SessionRecordingsButtonProps {
     sessionRecordings: SessionRecordingType[]
 }
 
@@ -15,7 +15,7 @@ export const sessionPlayerUrl = (sessionRecordingId: string): string => {
     return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId })}`
 }
 
-export function SessionsPlayerButton({ sessionRecordings }: SessionsPlayerButtonProps): JSX.Element {
+export function SessionRecordingsButton({ sessionRecordings }: SessionRecordingsButtonProps): JSX.Element {
     const [areRecordingsShown, setAreRecordingsShown] = useState(false)
 
     return (
@@ -35,6 +35,7 @@ export function SessionsPlayerButton({ sessionRecordings }: SessionsPlayerButton
                         event.stopPropagation()
                         setAreRecordingsShown(false)
                     }}
+                    data-attr="sessions-player-button"
                 >
                     <div className="session-recordings-popup__row">
                         <div className="session-recordings-popup__label">
@@ -57,6 +58,7 @@ export function SessionsPlayerButton({ sessionRecordings }: SessionsPlayerButton
                     event.stopPropagation()
                     setAreRecordingsShown((previousValue) => !previousValue)
                 }}
+                data-attr="session-recordings-button"
             >
                 Watch session
                 <CaretDownOutlined

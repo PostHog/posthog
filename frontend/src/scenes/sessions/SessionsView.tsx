@@ -16,7 +16,7 @@ import {
     ArrowLeftOutlined,
     PlayCircleOutlined,
 } from '@ant-design/icons'
-import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
+import { SessionRecordingsButton, sessionPlayerUrl } from './SessionRecordingsButton'
 import { SessionsPlay } from './SessionsPlay'
 import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { LinkButton } from 'lib/components/LinkButton'
@@ -181,7 +181,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             ),
             render: function RenderEndPoint(session: SessionType) {
                 return session.session_recordings.length ? (
-                    <SessionsPlayerButton sessionRecordings={session.session_recordings} />
+                    <SessionRecordingsButton sessionRecordings={session.session_recordings} />
                 ) : null
             },
             span: 4,
