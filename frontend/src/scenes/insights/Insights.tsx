@@ -50,6 +50,7 @@ import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
 import { userLogic } from 'scenes/userLogic'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
+import { SaveToDashboardModal } from 'lib/components/SaveToDashboard/SaveToDashboardModal'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -60,7 +61,7 @@ dayjs.extend(relativeTime)
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
     const {
-        hashParams: { fromItem },
+        hashParams: { fromItem, fromDashboard, fromItemName },
     } = useValues(router)
 
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
@@ -75,6 +76,7 @@ export function Insights(): JSX.Element {
         controlsCollapsed,
         insight,
         insightName,
+        saveToDashboardModal,
         insightLoading,
         insightMode,
         lastInsightModeSource,
@@ -87,6 +89,9 @@ export function Insights(): JSX.Element {
         updateInsight,
         setInsightMode,
         setInsight,
+        openSaveToDashboardModal,
+        editInsightName,
+        editInsightDescription
     } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
@@ -145,11 +150,11 @@ export function Insights(): JSX.Element {
         l: {
             action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
         },
-        escape: {
-            // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
-            action: () => setInsightMode({ mode: null, source: InsightEventSource.Hotkey }),
-            disabled: insightMode !== ItemMode.Edit,
-        },
+        // escape: {
+        //     // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
+        //     action: () => setInsightMode({ mode: null, source: InsightEventSource.Hotkey }),
+        //     disabled: insightMode !== ItemMode.Edit,
+        // },
     })
 
     return (
@@ -173,8 +178,7 @@ export function Insights(): JSX.Element {
                 onCancel={() => setCohortModalVisible(false)}
             />
 
-            {insightMode === ItemMode.Edit ? (
-                <Input
+                {/* <Input
                     placeholder="Insight name (e.g. Weekly KPIs)"
                     value={insightName}
                     size="large"
@@ -183,52 +187,73 @@ export function Insights(): JSX.Element {
                         setInsight({ ...insight, name: e.target.value }) // To update the input immediately
                         updateInsight({ name: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
                     }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            setInsightMode({ mode: null, source: InsightEventSource.InputEnter })
-                        }
-                    }}
+                    // onKeyDown={(e) => {
+                    //     if (e.key === 'Enter') {
+                    //         setInsightMode({ mode: null, source: InsightEventSource.InputEnter })
+                    //     }
+                    // }}
                     ref={nameInputRef}
                     tabIndex={0}
-                />
-            ) : (
-                <Row style={{ alignItems: 'baseline' }}>
-                    <PageHeader title={'Insights'} />
-                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                        true && (
-                            <EditOutlined
-                                style={{ paddingLeft: 16 }}
-                                onClick={() =>
-                                    setInsightMode({ mode: ItemMode.Edit, source: InsightEventSource.InsightHeader })
-                                }
-                            />
-                        )}
-                    <Button>Cancel</Button>
-                    <Button type="primary">Create</Button>
-                    <Button>Edit</Button>
-                    <Button type="primary">Save</Button>
-                    <Dropdown
-                        overlay={
-                            <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
-                                <Menu.Item>Save as a new insight</Menu.Item>
-                                <Menu.Item>Save and add to a dashboard</Menu.Item>
-                            </Menu>
+                /> */}
+                {saveToDashboardModal && (
+                    <SaveToDashboardModal
+                        closeModal={() => openSaveToDashboardModal(false)}
+                        name={insight.name || ''}
+                        filters={insight.filters}
+                        fromItem={fromItem}
+                        fromDashboard={fromDashboard}
+                        fromItemName={fromItemName}
+                        annotations={null}
+                    />
+                )}
+                <Row style={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline' }}>
+                        <PageHeader title={insight.name || `Insight #${insight.id}`} />
+                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
+                            true && insightMode === ItemMode.Edit && (
+                                <EditOutlined
+                                    style={{ paddingLeft: 16, color: 'var(--primary)' }}
+                                    onClick={() =>
+                                        editInsightName(true)
+                                    }
+                                />
+                            )}
+                    </div>
+                    <Col>
+                        {insightMode === ItemMode.View && 
+                            <>
+                                <Button style={{marginRight: 8}} onClick={() => setInsightMode(ItemMode.Edit, null)}>Edit</Button>
+                                <Button type="primary" onClick={() => openSaveToDashboardModal(true)}>Add to dashboard</Button>
+                            </>
                         }
-                        trigger={['click']}
-                    >
-                        <a style={{backgroundColor: 'var(--primary)', color: 'white'}} onClick={(e) => e.preventDefault()}>
-                            Save <CaretDownFilled style={{paddingLeft: 12}}/>
-                        </a>
-                    </Dropdown>
-                    <Button type="primary">Add to dashboard</Button>
+                        {insightMode === ItemMode.Edit && 
+                        <>
+                            <Button style={{marginRight: 8}} onClick={() => setInsightMode(ItemMode.View, null)}>Cancel</Button>
+                            <Dropdown
+                                overlay={
+                                    <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
+                                        <Menu.Item>Save as a new insight</Menu.Item>
+                                        <Menu.Item>Save and add to a dashboard</Menu.Item>
+                                    </Menu>
+                                }
+                                trigger={['click']}
+                            >
+                                <Button type="primary" onClick={(e) => e.preventDefault()}>
+                                    Save <CaretDownFilled />
+                                </Button>
+                            </Dropdown>
+                        </>
+                        }
+                    </Col>
                 </Row>
-            )}
 
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <Row>
                     {true && (
                         <Col style={{ width: '100%' }}>
-                            <div className="mb" data-attr="insight-tags">
+                            <span className="text-muted-alt" style={{fontStyle: 'italic'}}>{insight.description ? insight.description : 'Give your insight a meaningful description'}</span>
+                            {insightMode === ItemMode.Edit && <EditOutlined onClick={() => editInsightDescription(true)} style={{color: 'var(--primary)', paddingLeft: 8}} />}
+                            <div className="mb" style={{marginTop: 8}} data-attr="insight-tags">
                                 <ObjectTags
                                     tags={insight.tags || []}
                                     onTagSave={saveNewTag}
@@ -237,15 +262,6 @@ export function Insights(): JSX.Element {
                                     tagsAvailable={[]}
                                 />
                             </div>
-                            <Description
-                                item={insight}
-                                itemMode={insightMode}
-                                setItemMode={(mode: ItemMode | null, source: DashboardEventSource | null) =>
-                                    setInsightMode({ mode, source })
-                                }
-                                triggerItemUpdate={updateInsight}
-                                descriptionInputRef={descriptionInputRef}
-                            />
                         </Col>
                     )}
                 </Row>

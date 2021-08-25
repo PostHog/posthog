@@ -61,6 +61,10 @@ export const insightLogic = kea<insightLogicType>({
         toggleControlsCollapsed: true,
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
+        setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
+        openSaveToDashboardModal: (open: boolean) => ({ open }),
+        editInsightName: (editing: boolean) => ({ editing }),
+        editInsightDescription: (editing: boolean) => ({ editing }),
     }),
 
     reducers: {
@@ -146,8 +150,32 @@ export const insightLogic = kea<insightLogicType>({
                 setInsightMode: (_, { source }) => source,
             },
         ],
+        insightMode: [
+            ItemMode.View as ItemMode,
+            {
+                setInsightMode: (_, { mode }) => mode,
+            },
+        ],
+        saveToDashboardModal: [
+            false,
+            {
+                openSaveToDashboardModal: (_, { open }) => open,
+            }
+        ],
+        editingInsightName: [
+            false,
+            {
+                editInsightName: (_, { editing }) => editing,
+            }
+        ],
+        editingInsightDescription: [
+            false,
+            {
+                editInsightDescription: (_, { editing }) => editing,
+            }
+        ]
     },
-    loaders: ({ values, actions }) => ({
+    loaders: ({ values }) => ({
         insight: {
             __default: { tags: [] } as Partial<DashboardItemType>,
             loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
@@ -160,29 +188,6 @@ export const insightLogic = kea<insightLogicType>({
             },
             setInsight: (insight) => insight,
         },
-        insightMode: [
-            ItemMode.View as ItemMode,
-            {
-                setInsightMode: ({ mode }) => {
-                    if (mode === ItemMode.Edit) {
-                        clearDOMTextSelection()
-                        setTimeout(
-                            () =>
-                                editingToast(
-                                    'Insight',
-                                    (insightMode: ItemMode | null, source: DashboardEventSource | null) => {
-                                        actions.setInsightMode({ mode: insightMode, source })
-                                    }
-                                ),
-                            100
-                        )
-                    } else {
-                        toast.dismiss()
-                    }
-                    return mode
-                },
-            },
-        ],
     }),
     selectors: {
         insightName: [(s) => [s.insight], (insight) => insight?.name],
@@ -274,6 +279,24 @@ export const insightLogic = kea<insightLogicType>({
             await breakpoint(100)
             actions.updateInsight({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
+        // setInsightMode: ({ mode }) => {
+        //     if (mode === ItemMode.Edit) {
+        //         clearDOMTextSelection()
+        //         setTimeout(
+        //             () =>
+        //                 editingToast(
+        //                     'Insight',
+        //                     (insightMode: ItemMode | null, source: DashboardEventSource | null) => {
+        //                         actions.setInsightMode({ mode: insightMode, source })
+        //                     }
+        //                 ),
+        //             100
+        //         )
+        //     } else {
+        //         toast.dismiss()
+        //     }
+        //     return mode
+        // }, 
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }) => {
