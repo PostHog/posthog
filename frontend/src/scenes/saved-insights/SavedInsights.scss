@@ -2,10 +2,18 @@
 
 .saved-insights {
     .insight-dropdown-actions {
-        font-size: 18px;
-        color: $text_muted;
+        font-size: 24px;
         &:hover {
             background: rgba(83, 117, 255, 0.05);
+        }
+    }
+
+    .order-by {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        &:hover {
+            color: $primary;
         }
     }
 
@@ -74,5 +82,15 @@
         &:hover {
             border-color: var(--primary);
         }
+    }
+
+    .dashboard-item-footer {
+        bottom: 0;
+        position: absolute;
+        background: #fff;
+        padding: 0.25rem;
+        border-top: 1px solid var(--muted);
+        width: 100%;
+        font-size: 11px;
     }
 }

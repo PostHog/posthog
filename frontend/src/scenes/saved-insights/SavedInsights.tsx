@@ -14,6 +14,13 @@ import {
     UnorderedListOutlined,
     AppstoreFilled,
     EllipsisOutlined,
+    LineChartOutlined,
+    BarChartOutlined,
+    PartitionOutlined,
+    TableOutlined,
+    CalendarOutlined,
+    ArrowDownOutlined,
+    MenuOutlined,
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -23,7 +30,13 @@ import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
+import dayjs from 'dayjs'
 const { TabPane } = Tabs
+
+interface InsightType {
+    type: string
+    icon?: JSX.Element
+}
 
 export function SavedInsights(): JSX.Element {
     const {
@@ -39,6 +52,8 @@ export function SavedInsights(): JSX.Element {
         duplicateInsight,
         addToDashboard,
         setDates,
+        orderByUpdatedAt,
+        orderByCreator,
     } = useActions(savedInsightsLogic)
     const {
         insights,
@@ -54,7 +69,16 @@ export function SavedInsights(): JSX.Element {
     const { dashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { members } = useValues(membersLogic)
-    const insightTypes = ['All types', 'Trends', 'Funnels', 'Retention', 'Paths', 'Sessions', 'Stickiness', 'Lifecycle']
+    const insightTypes: InsightType[] = [
+        { type: 'All types' },
+        { type: 'Trends', icon: <LineChartOutlined /> },
+        { type: 'Funnels', icon: <BarChartOutlined /> },
+        { type: 'Retention', icon: <TableOutlined /> },
+        { type: 'Paths', icon: <PartitionOutlined /> },
+        { type: 'Sessions', icon: <CalendarOutlined /> },
+        { type: 'Stickiness', icon: <LineChartOutlined /> },
+        { type: 'Lifecycle', icon: <BarChartOutlined /> },
+    ]
     const pageLimit = 15
     const paginationCount = (): number => {
         if (!previousResult) {
@@ -116,23 +140,31 @@ export function SavedInsights(): JSX.Element {
               }
             : {},
         {
-            title: 'Last modified',
+            title: (
+                <div className="order-by" onClick={orderByUpdatedAt}>
+                    Last modified{' '}
+                    <div style={{ fontSize: 10, paddingLeft: 8 }}>
+                        <ArrowDownOutlined />
+                        <MenuOutlined />
+                    </div>
+                </div>
+            ),
             dataIndex: 'updated_at',
             key: 'updated_at',
             render: function renderLastModified(updated_at: string) {
                 return <span>{humanFriendlyDetailedTime(updated_at)}</span>
             },
-            sorter: (a: DashboardItemType, b: DashboardItemType) =>
-                new Date(a.updated_at) > new Date(b.updated_at) ? 1 : -1,
         },
         {
-            title: normalizeColumnTitle('Created by'),
+            title: (
+                <div className="order-by" onClick={orderByCreator}>
+                    {normalizeColumnTitle('Created by')}
+                </div>
+            ),
             render: function Render(_: any, item: DashboardItemType) {
                 return (
-                    <Row style={{ alignItems: 'center' }}>
-                        <div style={{ maxWidth: 250, width: 'auto', paddingRight: 16 }}>
-                            {item.created_by ? item.created_by.first_name || item.created_by.email : '-'}
-                        </div>
+                    <Row style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>{item.created_by ? item.created_by.first_name || item.created_by.email : '-'}</div>
                         <Dropdown
                             placement="bottomRight"
                             trigger={['click']}
@@ -192,10 +224,6 @@ export function SavedInsights(): JSX.Element {
                     </Row>
                 )
             },
-            sorter: (a: Record<string, any>, b: Record<string, any>) =>
-                (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
-                    b.created_by?.first_name || b.created_by?.email || ''
-                ),
         },
     ]
 
@@ -221,9 +249,10 @@ export function SavedInsights(): JSX.Element {
                 <Col>
                     Type
                     <Select defaultValue="All types" style={{ paddingLeft: 8, width: 120 }} onChange={setInsightType}>
-                        {insightTypes.map((type, index) => (
-                            <Select.Option key={index} value={type}>
-                                {type}
+                        {insightTypes.map((insight: InsightType, index) => (
+                            <Select.Option key={index} value={insight.type}>
+                                {insight.icon}
+                                <span style={{ paddingLeft: 8 }}>{insight.type}</span>
                             </Select.Option>
                         ))}
                     </Select>
@@ -340,6 +369,18 @@ export function SavedInsights(): JSX.Element {
                                     preventLoading={true}
                                     index={index}
                                     isOnEditMode={false}
+                                    footer={
+                                        <div className="dashboard-item-footer">
+                                            {
+                                                <>
+                                                    Saved {dayjs(insight.created_at).fromNow()} by{' '}
+                                                    {insight.created_by?.first_name ||
+                                                        insight.created_by?.email ||
+                                                        'unknown'}
+                                                </>
+                                            }
+                                        </div>
+                                    }
                                 />
                             </Col>
                         ))}
