@@ -101,14 +101,14 @@ def backfill_materialized_events_column(properties: List[PropertyName], backfill
     assignments = ", ".join(
         f"{materialized_columns[property]} = {materialized_columns[property]}" for property in properties
     )
-    cutoff = (now() - backfill_period).strftime("%Y-%m-%d")
     sync_execute(
         f"""
         ALTER TABLE {table}
         ON CLUSTER {CLICKHOUSE_CLUSTER}
         UPDATE {assignments}
-        WHERE timestamp > {cutoff}
-        """
+        WHERE timestamp > %(cutoff)s
+        """,
+        {"cutoff": (now() - backfill_period).strftime("%Y-%m-%d")},
     )
 
     # Update the schema back even though updates are ongoing - no validations against this at least.
