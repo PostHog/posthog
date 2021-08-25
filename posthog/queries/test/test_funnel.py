@@ -379,7 +379,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             ).run()
             self.assertEqual(result[0]["count"], 2)
 
-        @test_with_materialized_columns(person_properties=["email"])
+        @test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
         def test_funnel_filter_by_action_with_person_properties(self):
             person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
             person_factory(distinct_ids=["person2"], team_id=self.team.pk, properties={"email": "another@example.com"})
@@ -391,22 +391,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             action = Action.objects.create(team_id=self.team.pk, name="event1")
             ActionStep.objects.create(
                 action=action,
-                event="event2",
+                event="event1",
                 properties=[{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}],
             )
             action.calculate_events()
-
-            result = Funnel(
-                filter=Filter(
-                    data={
-                        "events": [{"id": "event1", "order": 0}],
-                        "insight": INSIGHT_FUNNELS,
-                        "funnel_window_days": 14,
-                    }
-                ),
-                team=self.team,
-            ).run()
-            self.assertEqual(result[0]["count"], 2)
 
             result = Funnel(
                 filter=Filter(
