@@ -43,15 +43,6 @@
         }
         .dashboard-item-settings {
             white-space: nowrap;
-            .anticon {
-                margin-left: 10px;
-                background: hsl(210, 8%, 95%);
-                border-radius: 100%;
-                padding: 4px;
-                &:hover {
-                    background: hsl(210, 8%, 90%);
-                }
-            }
         }
     }
     .dashboard-item-content {

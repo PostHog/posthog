@@ -232,7 +232,7 @@ export enum PropertyOperator {
     IsNotSet = 'is_not_set',
 }
 
-export enum SavedInsightsParamOptions {
+export enum SavedInsightsTabs {
     All = 'all',
     Yours = 'yours',
     Favorites = 'favorites',
@@ -406,6 +406,11 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     EVENTS = 'events',
     SESSIONS = 'sessions',
+}
+
+export enum LayoutView {
+    Card = 'card',
+    List = 'list',
 }
 
 export interface EventType {
