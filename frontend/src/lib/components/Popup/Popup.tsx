@@ -1,16 +1,18 @@
 import './Popup.scss'
-import React, { HTMLProps, ReactElement, useContext, useEffect, useMemo, useState } from 'react'
+import React, { ReactElement, useContext, useEffect, useMemo, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { usePopper } from 'react-popper'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { Placement } from '@popperjs/core'
 
-interface PopupProps extends HTMLProps<HTMLDivElement> {
+interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
+    children: React.ReactChild | ((props: { setRef?: (ref: HTMLElement) => void }) => JSX.Element)
     overlay: React.ReactNode
     placement?: Placement
     fallbackPlacements?: Placement[]
+    className?: string
 }
 
 // if we're inside a popup inside a popup, prevent the parent's onClickOutside from working
@@ -26,7 +28,7 @@ export function Popup({
     onClickOutside,
     placement = 'bottom-start',
     fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
-    ...divProps
+    className,
 }: PopupProps): JSX.Element {
     const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
 
@@ -82,8 +84,7 @@ export function Popup({
             {visible
                 ? ReactDOM.createPortal(
                       <div
-                          {...divProps}
-                          className={`popper-tooltip ${divProps.className}`}
+                          className={className ? `popper-tooltip ${className}` : 'popper-tooltip'}
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}
