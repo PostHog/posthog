@@ -22,6 +22,7 @@ import { BreakdownType, FunnelVizType } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
+import { FunnelExclusionsFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelExclusionsFilter'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
@@ -134,6 +135,26 @@ export function FunnelTab(): JSX.Element {
                                     </Row>
                                 </>
                             )}
+                            {clickhouseFeaturesEnabled && (
+                                <>
+                                    <hr />
+                                    <h4 className="secondary">
+                                        Exclusion Steps
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    Exclude users who completed the specified event between two specific
+                                                    steps. Note that these users will be{' '}
+                                                    <b>completely excluded from the entire funnel</b>.
+                                                </>
+                                            }
+                                        >
+                                            <InfoCircleOutlined className="info-indicator" />
+                                        </Tooltip>
+                                    </h4>
+                                    <FunnelExclusionsFilter />
+                                </>
+                            )}
                         </form>
                         <SaveModal
                             title="Save Funnel"
@@ -145,7 +166,8 @@ export function FunnelTab(): JSX.Element {
                         />
                     </div>
                 </Col>
-                <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
+                <Col md={8} xs={24}>
+                    {isSmallScreen && <hr />}
                     <GlobalFiltersTitle unit="steps" />
                     <PropertyFilters
                         pageKey={`EditFunnel-property`}
