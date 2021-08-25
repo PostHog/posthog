@@ -606,23 +606,26 @@ export function determineDifferenceType(
     }
 }
 
-export const dateMapping: Record<string, string[]> = {
-    Custom: [],
-    Today: ['dStart'],
-    Yesterday: ['-1d', 'dStart'],
-    'Last 24 hours': ['-24h'],
-    'Last 7 days': ['-7d'],
-    'Last 14 days': ['-14d'],
-    'Last 30 days': ['-30d'],
-    'Last 90 days': ['-90d'],
-    //'This month': ['mStart'],
-    'Year to date': ['yStart'],
-    'All time': ['all'],
+interface dateMappingOption {
+    inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
+    values: string[]
 }
 
-// The following constants are also supported for dateMapping but where removed due to low usage (see relevant PR)
-//  'Previous month': ['-1mStart', '-1mEnd'],
-//  'Last 48 hours': ['-48h'],
+export const dateMapping: Record<string, dateMappingOption> = {
+    Custom: { values: [] },
+    Today: { values: ['dStart'] },
+    Yesterday: { values: ['-1d', 'dStart'] },
+    'Last 24 hours': { values: ['-24h'] },
+    'Last 48 hours': { values: ['-48h'], inactive: true },
+    'Last 7 days': { values: ['-7d'] },
+    'Last 14 days': { values: ['-14d'] },
+    'Last 30 days': { values: ['-30d'] },
+    'Last 90 days': { values: ['-90d'] },
+    'This month': { values: ['mStart'], inactive: true },
+    'Previous month': { values: ['-1mStart', '-1mEnd'], inactive: true },
+    'Year to date': { values: ['yStart'] },
+    'All time': { values: ['all'] },
+}
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
@@ -660,8 +663,8 @@ export function dateFilterToText(
     }
 
     let name = defaultValue
-    Object.entries(dateMapping).map(([key, value]) => {
-        if (value[0] === dateFrom && value[1] === dateTo && key !== 'Custom') {
+    Object.entries(dateMapping).map(([key, { values }]) => {
+        if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
             name = key
         }
     })[0]
