@@ -119,7 +119,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(10, len(results))
 
     def _create_sample_data(self):
-        for i in range(250):
+        for i in range(110):
             _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
             _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
@@ -147,11 +147,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         filter_offset = Filter(data={**data, "offset": 100,})
         results, _ = ClickhouseFunnelPersons(filter_offset, self.team).run()
-        self.assertEqual(100, len(results))
-
-        filter_offset = Filter(data={**data, "offset": 200,})
-        results, _ = ClickhouseFunnelPersons(filter_offset, self.team).run()
-        self.assertEqual(50, len(results))
+        self.assertEqual(10, len(results))
 
     def test_first_step_breakdowns(self):
 

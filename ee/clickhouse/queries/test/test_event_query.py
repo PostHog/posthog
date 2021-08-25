@@ -36,13 +36,14 @@ def _create_cohort(**kwargs):
 
 class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
-        self._create_sample_data()
         super().setUp()
+        self._create_sample_data()
 
     def _create_sample_data(self):
-        _create_person(distinct_ids=["user_one"], team=self.team)
+        distinct_id = "user_one_{}".format(self.team.pk)
+        _create_person(distinct_ids=[distinct_id], team=self.team)
 
-        _create_event(event="viewed", distinct_id="user_one", team=self.team, timestamp="2021-05-01 00:00:00")
+        _create_event(event="viewed", distinct_id=distinct_id, team=self.team, timestamp="2021-05-01 00:00:00")
 
     def _run_query(self, filter: Filter, entity=None):
         entity = entity or filter.entities[0]

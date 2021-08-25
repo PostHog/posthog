@@ -134,7 +134,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         conditions: List[str] = []
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
+                f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
+                f"dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
             )
 
         formatted = ", ".join(conditions)
@@ -277,7 +278,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action()
             for action_step in action.steps.all():
-                self.params[entity_name].append(action_step.event)
+                if entity_name not in self.params[entity_name]:
+                    self.params[entity_name].append(action_step.event)
             action_query, action_params = format_action_filter(action, f"{entity_name}_{step_prefix}step_{index}")
             if action_query == "":
                 return ""
@@ -285,7 +287,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update(action_params)
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
-            self.params[entity_name].append(entity.id)
+            if entity.id not in self.params[entity_name]:
+                self.params[entity_name].append(entity.id)
             event_param_key = f"{entity_name}_{step_prefix}event_{index}"
             self.params[event_param_key] = entity.id
             content_sql = f"event = %({event_param_key})s {filters}"
