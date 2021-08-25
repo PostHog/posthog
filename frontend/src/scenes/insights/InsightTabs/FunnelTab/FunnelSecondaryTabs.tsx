@@ -13,6 +13,7 @@ import { CloseButton } from 'lib/components/CloseButton'
 import { BreakdownType, FunnelVizType } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
+import { FunnelExclusionsFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelExclusionsFilter'
 
 export function FunnelSecondaryTabs(): JSX.Element | null {
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
@@ -20,11 +21,29 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
 
     return (
         <>
-            <Card className="funnel-options" data-attr="funnel-options">
+            <Card className="insight-controls funnel-options" data-attr="funnel-options">
                 <h4 className="secondary">Options</h4>
                 <FunnelConversionWindowFilter />
             </Card>
-            <Card style={{ marginTop: 16 }}>
+            {clickhouseFeaturesEnabled && (
+                <Card className="insight-controls" style={{ marginTop: 16 }} data-attr="funnel-exclusion-options">
+                    <h4 className="secondary">
+                        Exclusion Steps
+                        <Tooltip
+                            title={
+                                <>
+                                    Exclude users who completed the specified event between two specific steps. Note
+                                    that these users will be <b>completely excluded from the entire funnel</b>.
+                                </>
+                            }
+                        >
+                            <InfoCircleOutlined className="info-indicator" />
+                        </Tooltip>
+                    </h4>
+                    <FunnelExclusionsFilter />
+                </Card>
+            )}
+            <Card className="insight-controls" style={{ marginTop: 16 }}>
                 <GlobalFiltersTitle unit="steps" />
                 <PropertyFilters
                     pageKey={`EditFunnel-property`}
@@ -76,7 +95,11 @@ export function FunnelSecondaryTabs(): JSX.Element | null {
                     </>
                 )}
             </Card>
-            <Card title={<Row align="middle">Funnels Saved in Project</Row>} style={{ marginTop: 16 }}>
+            <Card
+                className="insight-controls"
+                title={<Row align="middle">Funnels Saved in Project</Row>}
+                style={{ marginTop: 16 }}
+            >
                 <SavedFunnels />
             </Card>
         </>

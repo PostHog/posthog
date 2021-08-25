@@ -1464,6 +1464,33 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "bryanyi",
+      "name": "bryanyi",
+      "avatar_url": "https://avatars.githubusercontent.com/u/66971225?v=4",
+      "profile": "http://bryanyi.com",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "benbz",
+      "name": "Ben Banfield-Zanin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1325121?v=4",
+      "profile": "https://github.com/benbz",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "julianharty",
+      "name": "Julian Harty",
+      "avatar_url": "https://avatars.githubusercontent.com/u/785891?v=4",
+      "profile": "http://blog.bettersoftwaretesting.com",
+      "contributions": [
+        "doc"
+      ]
     }
   ],
   "contributorsPerLine": 7,

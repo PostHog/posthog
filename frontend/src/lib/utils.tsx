@@ -57,8 +57,10 @@ export function uuid(): string {
     )
 }
 
-export function isObjectEmpty(obj: Record<string, any>): boolean {
-    return obj && Object.keys(obj).length === 0 && obj.constructor === Object
+export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
+    return (
+        !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
+    )
 }
 
 export function toParams(obj: Record<string, any>): string {

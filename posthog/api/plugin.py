@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, Set, cast
 
 import requests
 from dateutil.relativedelta import relativedelta
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Q
@@ -15,6 +16,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.celery import app as celery_app
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.models.organization import Organization
 from posthog.models.plugin import update_validated_data_from_url
@@ -320,6 +322,30 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 plugin_config.save()
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
+
+    @action(methods=["POST"], detail=True)
+    def job(self, request: request.Request, **kwargs):
+        if not can_configure_plugins(self.team.organization_id):
+            raise ValidationError("Plugin configuration is not available for the current organization!")
+
+        plugin_config_id = self.get_object().id
+        job = request.data.get("job", {})
+
+        if "type" not in job:
+            raise ValidationError("The job type must be specified!")
+
+        # the plugin server uses "type" for job names but "name" makes for a more friendly API
+        job_type = job.get("type")
+        job_payload = job.get("payload", {})
+        job_op = job.get("operation", "start")
+
+        celery_app.send_task(
+            name="posthog.tasks.plugins.plugin_job",
+            queue=settings.PLUGINS_CELERY_QUEUE,
+            args=[self.team.pk, plugin_config_id, job_type, job_op, job_payload],
+        )
+
+        return Response(status=200)
 
 
 def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:

@@ -16,7 +16,9 @@
         "node": ">=14"
     },
     "scripts": {
-        "copy-scripts": "cp node_modules/posthog-js/dist/array.js* frontend/dist/; cp node_modules/rrweb/dist/rrweb.min.js frontend/dist/recorder.js",
+        "copy-scripts": "yarn copy-scripts:array && yarn copy-scripts:recorder",
+        "copy-scripts:array": "cp node_modules/posthog-js/dist/array.js* frontend/dist/",
+        "copy-scripts:recorder": "cp node_modules/rrweb/dist/rrweb.min.js frontend/dist/recorder.js && cp node_modules/rrweb/dist/rrweb.min.js.map frontend/dist/recorder.js.map && sed -i -e s/rrweb.min.js.map/recorder.js.map/ frontend/dist/recorder.js",
         "test": "jest",
         "start": "concurrently -n WEBPACK,TYPEGEN -c blue,green \"yarn run start-http\" \"yarn run typegen:watch\"",
         "start-http": "mkdir -p frontend/dist/ && cp -a frontend/public/* frontend/dist/ && npm run copy-scripts && webpack serve",
