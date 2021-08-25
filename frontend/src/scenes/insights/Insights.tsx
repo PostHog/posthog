@@ -80,6 +80,8 @@ export function Insights(): JSX.Element {
         insightLoading,
         insightMode,
         lastInsightModeSource,
+        editingInsightName,
+        editingInsightDescription,
     } = useValues(insightLogic)
     const {
         setActiveView,
@@ -91,7 +93,8 @@ export function Insights(): JSX.Element {
         setInsight,
         openSaveToDashboardModal,
         editInsightName,
-        editInsightDescription
+        editInsightDescription,
+        saveAsNewInsight,
     } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
@@ -178,8 +181,8 @@ export function Insights(): JSX.Element {
                 onCancel={() => setCohortModalVisible(false)}
             />
 
-                {/* <Input
-                    placeholder="Insight name (e.g. Weekly KPIs)"
+                {editingInsightName && <Input
+                    placeholder=""
                     value={insightName}
                     size="large"
                     style={{ maxWidth: 400, margin: '16px 0' }}
@@ -194,7 +197,7 @@ export function Insights(): JSX.Element {
                     // }}
                     ref={nameInputRef}
                     tabIndex={0}
-                /> */}
+                />}
                 {saveToDashboardModal && (
                     <SaveToDashboardModal
                         closeModal={() => openSaveToDashboardModal(false)}
@@ -207,7 +210,7 @@ export function Insights(): JSX.Element {
                     />
                 )}
                 <Row style={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline' }}>
+                    {!editingInsightName && <div style={{ display: 'flex', alignItems: 'baseline' }}>
                         <PageHeader title={insight.name || `Insight #${insight.id}`} />
                         {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
                             true && insightMode === ItemMode.Edit && (
@@ -218,7 +221,7 @@ export function Insights(): JSX.Element {
                                     }
                                 />
                             )}
-                    </div>
+                    </div>}
                     <Col>
                         {insightMode === ItemMode.View && 
                             <>
@@ -228,12 +231,16 @@ export function Insights(): JSX.Element {
                         }
                         {insightMode === ItemMode.Edit && 
                         <>
-                            <Button style={{marginRight: 8}} onClick={() => setInsightMode(ItemMode.View, null)}>Cancel</Button>
+                            <Button style={{marginRight: 8}} onClick={() => {
+                                setInsightMode(ItemMode.View, null)
+                                editInsightName(false)
+                                editInsightDescription(false)
+                            }}>Cancel</Button>
                             <Dropdown
                                 overlay={
                                     <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
-                                        <Menu.Item>Save as a new insight</Menu.Item>
-                                        <Menu.Item>Save and add to a dashboard</Menu.Item>
+                                        <Menu.Item onClick={saveAsNewInsight}>Save as a new insight</Menu.Item>
+                                        <Menu.Item onClick={() => openSaveToDashboardModal(true)}>Save and add to a dashboard</Menu.Item>
                                     </Menu>
                                 }
                                 trigger={['click']}

@@ -65,6 +65,7 @@ export const insightLogic = kea<insightLogicType>({
         openSaveToDashboardModal: (open: boolean) => ({ open }),
         editInsightName: (editing: boolean) => ({ editing }),
         editInsightDescription: (editing: boolean) => ({ editing }),
+        saveAsNewInsight: true,
     }),
 
     reducers: {
@@ -279,6 +280,13 @@ export const insightLogic = kea<insightLogicType>({
             await breakpoint(100)
             actions.updateInsight({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
+        saveAsNewInsight: async () => {
+            const newInsight = await api.create('api/insight', values.insight)
+            toast(
+                `New insight ${newInsight.name || newInsight.id} saved!`
+            )
+            router.actions.push(`/i/${newInsight.short_id}`)
+        }
         // setInsightMode: ({ mode }) => {
         //     if (mode === ItemMode.Edit) {
         //         clearDOMTextSelection()
