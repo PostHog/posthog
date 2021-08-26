@@ -9,6 +9,7 @@ import sqlparse
 from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import make_ch_pool, sync_execute
 from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_STABLE_HOST, CLICKHOUSE_USER
@@ -206,30 +207,33 @@ def get_query_timing_info(random_id: str, conn: Client) -> Tuple[str, Dict]:
 
 
 def get_flamegraphs(query_id: str) -> Dict:
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        # :TODO: This may throw, handle that!
-        subprocess.run(
-            [
-                CLICKHOUSE_FLAMEGRAPH_EXECUTABLE,
-                "--query-id",
-                query_id,
-                "--clickhouse-dsn",
-                f"http://{CLICKHOUSE_USER}:{CLICKHOUSE_PASSWORD}@{CLICKHOUSE_STABLE_HOST}:8123/",
-                "--console",
-                "--flamegraph-script",
-                FLAMEGRAPH_PL,
-                "--date-from",
-                "2021-01-01",
-                "--width",
-                "1900",
-            ],
-            cwd=tmpdirname,
-            check=True,
-        )
+    try:
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            subprocess.run(
+                [
+                    CLICKHOUSE_FLAMEGRAPH_EXECUTABLE,
+                    "--query-id",
+                    query_id,
+                    "--clickhouse-dsn",
+                    f"http://{CLICKHOUSE_USER}:{CLICKHOUSE_PASSWORD}@{CLICKHOUSE_STABLE_HOST}:8123/",
+                    "--console",
+                    "--flamegraph-script",
+                    FLAMEGRAPH_PL,
+                    "--date-from",
+                    "2021-01-01",
+                    "--width",
+                    "1900",
+                ],
+                cwd=tmpdirname,
+                check=True,
+            )
 
-        flamegraphs = {}
-        for file_path in glob.glob(join(tmpdirname, "*/*/global*.svg")):
-            with open(file_path) as file:
-                flamegraphs[basename(file_path)] = file.read()
+            flamegraphs = {}
+            for file_path in glob.glob(join(tmpdirname, "*/*/global*.svg")):
+                with open(file_path) as file:
+                    flamegraphs[basename(file_path)] = file.read()
 
-        return flamegraphs
+            return flamegraphs
+    except Exception as err:
+        capture_exception(err)
+        return {}
