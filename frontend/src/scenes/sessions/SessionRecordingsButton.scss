@@ -7,15 +7,15 @@
 .session-recordings-popup__link {
     color: black;
 
-    .anticon {
+    .anticon-play-circle {
         color: $primary;
     }
-}
 
-.session-recordings-popup__link--viewed,
-.session-recordings-popup__link:visited {
-    .anticon {
-        color: $text_muted;
+    &.session-recordings-popup__link--viewed,
+    &:visited {
+        .anticon-play-circle {
+            color: $text_muted;
+        }
     }
 }
 
@@ -45,18 +45,27 @@
 }
 
 .session-recordings-button {
-    .session-recordings-button__indicator {
-        transition: transform 0.15s cubic-bezier(0.645, 0.045, 0.355, 1);
-        // We center at 14 / 16 * 50% verticaly to compensate for CaretDownOutlined's offset when inverted,
-        // to make it appear exactly as CaretUpOutlined
-        transform-origin: 50% 43.75%;
+    .anticon-play-circle {
+        color: $primary;
     }
+    &.session-recordings-button--all-viewed {
+        .anticon-play-circle {
+            color: $text-muted;
+        }
+    }
+}
 
-    .session-recordings-button__indicator--closed {
-        transform: rotate(0deg);
-    }
+.session-recordings-button__indicator {
+    transition: transform 0.15s cubic-bezier(0.645, 0.045, 0.355, 1);
+    // We center at 14 / 16 * 50% verticaly to compensate for CaretDownOutlined's offset when inverted,
+    // to make it appear exactly as CaretUpOutlined
+    transform-origin: 50% 43.75%;
+}
 
-    .session-recordings-button__indicator--open {
-        transform: rotate(180deg);
-    }
+.session-recordings-button__indicator--closed {
+    transform: rotate(0deg);
+}
+
+.session-recordings-button__indicator--open {
+    transform: rotate(180deg);
 }

@@ -77,6 +77,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 session_recording_results = [r["session_recordings"] for r in results]
                 for session_recording_package in session_recording_results:
                     for session_recording in session_recording_package:
+                        # TODO: Include start_time and end_time in asserts
                         del session_recording["start_time"]
                         del session_recording["end_time"]
                 self.assertEqual([r["session_recordings"] for r in results], expected)

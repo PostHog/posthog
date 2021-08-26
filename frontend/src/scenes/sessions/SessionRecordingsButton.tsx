@@ -6,6 +6,7 @@ import { colonDelimitedDuration, fromParams, humanFriendlyDetailedTime, toParams
 import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 import { Popup } from '../../lib/components/Popup/Popup'
+import clsx from 'clsx'
 
 interface SessionRecordingsButtonProps {
     sessionRecordings: SessionRecordingType[]
@@ -18,6 +19,8 @@ export const sessionPlayerUrl = (sessionRecordingId: string): string => {
 export function SessionRecordingsButton({ sessionRecordings }: SessionRecordingsButtonProps): JSX.Element {
     const [areRecordingsShown, setAreRecordingsShown] = useState(false)
 
+    const wereAllRecordingsViewed = !sessionRecordings.some(({ viewed }) => !viewed)
+
     return (
         <Popup
             visible={areRecordingsShown}
@@ -28,9 +31,10 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
                 <Link
                     key={id}
                     to={sessionPlayerUrl(id)}
-                    className={`session-recordings-popup__link${
-                        viewed ? ' session-recordings-popup__link--viewed' : ''
-                    }`}
+                    className={clsx(
+                        'session-recordings-popup__link',
+                        viewed && 'session-recordings-popup__link--viewed'
+                    )}
                     onClick={(event) => {
                         event.stopPropagation()
                         setAreRecordingsShown(false)
@@ -39,7 +43,7 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
                 >
                     <div className="session-recordings-popup__row">
                         <div className="session-recordings-popup__label">
-                            <PlayCircleOutlined />
+                            <PlayCircleOutlined className={viewed ? 'text-muted' : undefined} />
                             Recording {index + 1}
                         </div>
                         <div className="session-recordings-popup__detail text-muted">
@@ -53,20 +57,25 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
             }}
         >
             <Button
-                className="session-recordings-button"
+                className={clsx(
+                    'session-recordings-button',
+                    wereAllRecordingsViewed && 'session-recordings-button--all-viewed'
+                )}
+                data-attr="session-recordings-button"
+                icon={<PlayCircleOutlined />}
                 onClick={(event) => {
                     event.stopPropagation()
                     setAreRecordingsShown((previousValue) => !previousValue)
                 }}
-                data-attr="session-recordings-button"
             >
                 Watch session
                 <CaretDownOutlined
-                    className={`session-recordings-button__indicator ${
+                    className={clsx(
+                        'session-recordings-button__indicator',
                         areRecordingsShown
                             ? 'session-recordings-button__indicator--open'
                             : 'session-recordings-button__indicator--closed'
-                    }`}
+                    )}
                 />
             </Button>
         </Popup>
