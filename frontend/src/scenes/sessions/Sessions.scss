@@ -75,20 +75,6 @@
     border: 1px dashed $text_muted;
 }
 
-.sessions-player-button {
-    color: $success;
-    font-size: 16px;
-    margin-right: 5px;
-
-    &:visited * {
-        color: $text_muted;
-    }
-
-    &.viewed {
-        color: $text_muted;
-    }
-}
-
 .session-player {
     padding: $default_spacing * 2 $default_spacing $default_spacing;
     height: calc(

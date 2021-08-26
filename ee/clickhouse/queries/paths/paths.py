@@ -1,5 +1,7 @@
 from typing import Dict, List, Literal, Optional, Tuple
 
+from rest_framework.exceptions import ValidationError
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
@@ -27,6 +29,12 @@ class ClickhousePathsNew:
             "autocapture_match": "%autocapture:%",
         }
         self._funnel_filter = funnel_filter
+
+        if self._filter.include_all_custom_events and self._filter.custom_events:
+            raise ValidationError("Cannot include all custom events and specific custom events in the same query")
+
+        # TODO: don't allow including $pageview and excluding $pageview at the same time
+        # TODO: Filter on specific autocapture / page URLs
 
     def run(self, *args, **kwargs):
 
