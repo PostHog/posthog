@@ -1058,15 +1058,15 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
   integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
 
-"@posthog/plugin-scaffold@0.12.5":
-  version "0.12.5"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.5.tgz#596539ea69df21f07640a2ce0a335c7ead940b06"
-  integrity sha512-EuRoYM17vYI1m2SmXpYe7LC9hFPWsRnN6rAi6q3unFIW26pT40sV/TYSWnBEihZXIWdVShwiGXORQMHjpnJOig==
+"@posthog/plugin-scaffold@0.12.8":
+  version "0.12.8"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.8.tgz#540ae95bf672fcd0b28cdb0f047dec3b4c935140"
+  integrity sha512-T0ldNkc2maWlfa8XIthnfVzur2pg4+JDXhKm2ohuWmWB7wyP5/Sg7uIWohZ4bI+nW794uU5Uc9iMvpKHjQiX/Q==
 
-"@posthog/plugin-server@1.4.0":
-  version "1.4.0"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.4.0.tgz#9e84a15d9b86bc41d53ca4c317163305694fe54c"
-  integrity sha512-NBwpMd3gx0CfZDU1GeWphmY1dtcmYt1YpBC7fm/NsgDCYjinU1SiD9ZkJaXcfbRG2AzsAOmy9Tc1YDbe+iSeQQ==
+"@posthog/plugin-server@1.4.1":
+  version "1.4.1"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.4.1.tgz#3a9f026cb2578b2c7c785bccae54d765e85f4893"
+  integrity sha512-6kXa10Od5T/mmYiQRi3NpELxwpGCyu+Qm8CLHas4BT+u4T1fnYiUK2NZQdCItdSj7NztWhG8KRbuIdAdtCtxyQ==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -1079,7 +1079,7 @@
     "@posthog/clickhouse" "^1.7.0"
     "@posthog/piscina" "^3.2.0-posthog"
     "@posthog/plugin-contrib" "^0.0.5"
-    "@posthog/plugin-scaffold" "0.12.5"
+    "@posthog/plugin-scaffold" "0.12.8"
     "@sentry/node" "^6.7.0"
     "@sentry/tracing" "^6.7.0"
     "@types/lru-cache" "^5.1.0"
