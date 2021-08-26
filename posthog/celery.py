@@ -82,6 +82,27 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
         sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
+
+        try:
+            from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
+
+            minute, hour, day_of_month, month_of_year, day_of_week = MATERIALIZE_COLUMNS_SCHEDULE_CRON.strip().split(
+                " "
+            )
+
+            sender.add_periodic_task(
+                crontab(
+                    minute=minute,
+                    hour=hour,
+                    day_of_month=day_of_month,
+                    month_of_year=month_of_year,
+                    day_of_week=day_of_week,
+                ),
+                clickhouse_materialize_columns.s(),
+                name="clickhouse materialize columns",
+            )
+        except:
+            pass
     elif settings.PLUGIN_SERVER_ACTION_MATCHING >= 2:
         sender.add_periodic_task(
             ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
@@ -212,6 +233,15 @@ def clickhouse_mutation_count():
             gauge(f"posthog_celery_clickhouse_table_mutations_count", muts, tags={"table": table})
     else:
         pass
+
+
+@app.task(ignore_result=True)
+def clickhouse_materialize_columns():
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+        from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+
+        # :TODO: Noop until ready
+        # materialize_properties_task()
 
 
 @app.task(ignore_result=True)
