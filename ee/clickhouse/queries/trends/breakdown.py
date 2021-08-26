@@ -10,10 +10,11 @@ from ee.clickhouse.queries.breakdown_props import (
     get_breakdown_event_prop_values,
     get_breakdown_person_prop_values,
 )
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from ee.clickhouse.sql.events import EVENT_JOIN_PERSON_SQL
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
@@ -41,7 +42,11 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*filter.properties, *entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter, team_id, table_name="e", filter_test_accounts=filter.filter_test_accounts,
+            props_to_filter,
+            team_id,
+            table_name="e",
+            filter_test_accounts=filter.filter_test_accounts,
+            person_properties_column="person_props" if filter.breakdown_type == "person" else None,
         )
         aggregate_operation, _, math_params = process_math(entity)
 
@@ -171,18 +176,19 @@ class ClickhouseTrendsBreakdown:
         values_arr = get_breakdown_person_prop_values(
             filter, entity, aggregate_operation, team_id, extra_params=math_params
         )
-        breakdown_filter_params = {
-            "latest_person_sql": GET_LATEST_PERSON_SQL.format(query=""),
-        }
-        params = {
-            "values": values_arr,
-        }
+
+        # :TRICKY: We only support string breakdown for event/person properties
+        assert isinstance(filter.breakdown, str)
+        breakdown_value, _ = get_property_string_expr("person", filter.breakdown, "%(key)s", "person_props")
 
         return (
-            params,
+            {"values": values_arr},
             BREAKDOWN_PERSON_PROP_JOIN_SQL,
-            breakdown_filter_params,
-            "value",
+            {
+                "person_query": ClickhousePersonQuery(filter, team_id).get_query(),
+                "breakdown_value_expr": breakdown_value,
+            },
+            breakdown_value,
         )
 
     def _breakdown_prop_params(
