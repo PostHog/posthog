@@ -1,14 +1,8 @@
-.person-modal {
-    .ant-modal-body {
-        padding: 0;
-        max-height: 60vh;
-        overflow-y: scroll;
-    }
+@import '~/vars';
 
-    .ant-btn {
-        a {
-            color: var(--primary);
-        }
+.person-modal {
+    .ant-modal-header {
+        padding: 16px;
     }
 
     .ant-modal-title {
@@ -16,14 +10,42 @@
         text-overflow: ellipsis;
     }
 
-    .ant-modal-header {
-        padding: 16px 16px;
-        width: 575px;
+    .ant-modal-content {
+        overflow: hidden;
     }
-}
 
-.person-modal-properties {
+    .ant-modal-body {
+        padding: 0;
+        max-height: 60vh;
+        overflow-y: scroll;
+    }
+
+    .ant-modal-footer .ant-btn {
+        color: $primary;
+    }
+
+    .ant-input-search {
+        padding: 16px;
+    }
+
     .ant-table-wrapper {
         width: 100%;
+        padding: 0 16px;
+    }
+
+    .person-row-container {
+        border-top: 1px solid var(--border-light);
+    }
+
+    .person-row {
+        display: flex;
+        align-items: center;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-light);
+    }
+
+    .person-ids {
+        display: flex;
+        flex-direction: column;
     }
 }
