@@ -152,6 +152,8 @@ def analyze_query(query: str):
                 "max_untracked_memory": 1048576,
                 "memory_profiler_sample_probability": 0.01,
                 "use_uncompressed_cache": 0,
+                "readonly": 1,
+                "allow_ddl": 0,
             },
         )
 
