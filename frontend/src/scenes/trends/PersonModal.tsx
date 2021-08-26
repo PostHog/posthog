@@ -7,14 +7,13 @@ import { FilterType, PersonType, ViewType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
-import { Link } from 'lib/components/Link'
 import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { urls } from '../sceneLogic'
+import { PersonHeader } from '../persons/PersonHeader'
 
 export interface PersonModalProps {
     visible: boolean
@@ -189,9 +188,9 @@ export function PersonRow({ person }: PersonRowProps): JSX.Element {
             <div className="person-row">
                 <ExpandIcon {...expandProps} />
                 <div className="person-ids">
-                    <Link to={urls.person(person.distinct_ids[0])} className="text-default">
-                        <strong>{person.properties.email}</strong>
-                    </Link>
+                    <strong>
+                        <PersonHeader person={person} withIcon={false} />
+                    </strong>
                     <CopyToClipboardInline
                         explicitValue={person.distinct_ids[0]}
                         iconStyle={{ color: 'var(--primary)' }}
