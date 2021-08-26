@@ -14,7 +14,7 @@ interface InsightTooltipProps {
     referenceDate?: string
     interval?: IntervalType
     bodyLines?: BodyLine[] // bodyLines is in here for its similarity to LineChart's built-in tooltips, but children is easier to use in other React components
-    inspectUsersLabel?: boolean
+    inspectPersonsLabel?: boolean
     children?: React.ReactNode
     preferAltTitle?: boolean // Whether `altTitle` should be prefered over the default DateDisplay to show as header of the tooltip
     hideHeader?: boolean
@@ -25,7 +25,7 @@ export function InsightTooltip({
     referenceDate,
     interval,
     bodyLines = [],
-    inspectUsersLabel,
+    inspectPersonsLabel,
     children,
     preferAltTitle,
     hideHeader,
@@ -49,10 +49,10 @@ export function InsightTooltip({
                 </ul>
             )}
             {children}
-            {inspectUsersLabel && (
-                <footer>
-                    <IconHandClick /> Click to inspect users
-                </footer>
+            {inspectPersonsLabel && (
+                <div>
+                    <IconHandClick /> Click to inspect persons
+                </div>
             )}
         </div>
     )
