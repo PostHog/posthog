@@ -1,14 +1,21 @@
+import glob
+import subprocess
+import tempfile
 import uuid
-from typing import Dict, Generator, List
+from os.path import abspath, basename, dirname, join
+from typing import Dict, Generator, List, Tuple
 
+import sqlparse
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
-import sqlparse
 
 from ee.clickhouse.client import sync_execute
 
 SLOW_THRESHOLD_MS = 10000
 SLOW_AFTER = relativedelta(hours=6)
+
+CLICKHOUSE_FLAMEGRAPH_EXECUTABLE = abspath(join(dirname(__file__), "bin", "clickhouse-flamegraph"))
+FLAMEGRAPH_PL = abspath(join(dirname(__file__), "bin", "flamegraph.pl"))
 
 SystemStatusRow = Dict
 
@@ -119,37 +126,42 @@ def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
 
     return rows
 
-def analyze_query(query: str):
-    result = {}
 
-    query_id = str(uuid.uuid4())
+def analyze_query(query: str):
+    random_id = str(uuid.uuid4())
 
     # Run the query once
-    sync_execute(f"""
-        -- analyze_query:${query_id}
+    sync_execute(
+        f"""
+        -- analyze_query:{random_id}
         {query}
-    """, settings={
-        "allow_introspection_functions": 1,
-        "query_profiler_real_time_period_ns": 40000000,
-        "query_profiler_cpu_time_period_ns": 40000000,
-        "memory_profiler_step": 1048576,
-        "max_untracked_memory": 1048576,
-        "memory_profiler_sample_probability": 0.01,
-        "use_uncompressed_cache": 0
-    })
+    """,
+        settings={
+            "allow_introspection_functions": 1,
+            "query_profiler_real_time_period_ns": 40000000,
+            "query_profiler_cpu_time_period_ns": 40000000,
+            "memory_profiler_step": 1048576,
+            "max_untracked_memory": 1048576,
+            "memory_profiler_sample_probability": 0.01,
+            "use_uncompressed_cache": 0,
+        },
+    )
 
-    # :TODO: Stable host?
+    query_id, timing_info = get_query_timing_info(random_id)
 
     return {
         "query": sqlparse.format(query, reindent_aligned=True),
-        "timing": get_query_timing_info(query_id),
+        "timing": timing_info,
         "flamegraphs": get_flamegraphs(query_id),
     }
 
 
-def get_query_timing_info(query_id: str) -> Dict:
-    results = sync_execute(f"""
+def get_query_timing_info(random_id: str) -> Tuple[str, Dict]:
+    sync_execute("SYSTEM FLUSH LOGS")
+    results = sync_execute(
+        """
         SELECT
+            query_id,
             event_time,
             query_duration_ms,
             read_rows,
@@ -158,11 +170,59 @@ def get_query_timing_info(query_id: str) -> Dict:
             formatReadableSize(result_bytes) as result_size,
             formatReadableSize(memory_usage) as memory_usage
         FROM system.query_log
-        WHERE query_id=%(query_id)s AND type = 'QueryFinish'
+        WHERE query NOT LIKE '%%query_log%%'
+          AND match(query, %(expr)s)
+          AND type = 'QueryFinish'
         LIMIT 1
-    """, { query_id: query_id })
+    """,
+        {"expr": f"analyze_query:{random_id}"},
+    )
 
-    return dict(zip(["event_time", "query_duration_ms", "read_rows", "read_size", "result_rows", "result_size", "memory_usage"], results[0]))
+    return (
+        results[0][0],
+        dict(
+            zip(
+                [
+                    "query_id",
+                    "event_time",
+                    "query_duration_ms",
+                    "read_rows",
+                    "read_size",
+                    "result_rows",
+                    "result_size",
+                    "memory_usage",
+                ],
+                results[0],
+            )
+        ),
+    )
 
-# def get_flamegraphs(query_id: str) -> Dict:
 
+def get_flamegraphs(query_id: str) -> Dict:
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        # :TODO: This may throw, handle that!
+        subprocess.run(
+            [
+                CLICKHOUSE_FLAMEGRAPH_EXECUTABLE,
+                "--query-id",
+                query_id,
+                "--clickhouse-dsn",
+                "http://default:@localhost:8123/",
+                "--console",
+                "--flamegraph-script",
+                FLAMEGRAPH_PL,
+                "--date-from",
+                "2021-01-01",
+                "--width",
+                "1900",
+            ],
+            cwd=tmpdirname,
+            check=True,
+        )
+
+        flamegraphs = {}
+        for file_path in glob.glob(join(tmpdirname, "*/*/global*.svg")):
+            with open(file_path) as file:
+                flamegraphs[basename(file_path)] = file.read()
+
+        return flamegraphs
