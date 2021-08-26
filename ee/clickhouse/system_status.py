@@ -6,10 +6,12 @@ from os.path import abspath, basename, dirname, join
 from typing import Dict, Generator, List, Tuple
 
 import sqlparse
+from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import make_ch_pool, sync_execute
+from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_STABLE_HOST, CLICKHOUSE_USER
 
 SLOW_THRESHOLD_MS = 10000
 SLOW_AFTER = relativedelta(hours=6)
@@ -132,35 +134,38 @@ def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
 def analyze_query(query: str):
     random_id = str(uuid.uuid4())
 
-    # Run the query once
-    sync_execute(
-        f"""
-        -- analyze_query:{random_id}
-        {query}
-    """,
-        settings={
-            "allow_introspection_functions": 1,
-            "query_profiler_real_time_period_ns": 40000000,
-            "query_profiler_cpu_time_period_ns": 40000000,
-            "memory_profiler_step": 1048576,
-            "max_untracked_memory": 1048576,
-            "memory_profiler_sample_probability": 0.01,
-            "use_uncompressed_cache": 0,
-        },
-    )
+    # :TRICKY: Ensure all queries run on the same host.
+    ch_pool = make_ch_pool(host=CLICKHOUSE_STABLE_HOST)
 
-    query_id, timing_info = get_query_timing_info(random_id)
+    with ch_pool.get_client() as conn:
+        conn.execute(
+            f"""
+            -- analyze_query:{random_id}
+            {query}
+            """,
+            settings={
+                "allow_introspection_functions": 1,
+                "query_profiler_real_time_period_ns": 40000000,
+                "query_profiler_cpu_time_period_ns": 40000000,
+                "memory_profiler_step": 1048576,
+                "max_untracked_memory": 1048576,
+                "memory_profiler_sample_probability": 0.01,
+                "use_uncompressed_cache": 0,
+            },
+        )
 
-    return {
-        "query": sqlparse.format(query, reindent_aligned=True),
-        "timing": timing_info,
-        "flamegraphs": get_flamegraphs(query_id),
-    }
+        query_id, timing_info = get_query_timing_info(random_id, conn)
+
+        return {
+            "query": sqlparse.format(query, reindent_aligned=True),
+            "timing": timing_info,
+            "flamegraphs": get_flamegraphs(query_id),
+        }
 
 
-def get_query_timing_info(random_id: str) -> Tuple[str, Dict]:
-    sync_execute("SYSTEM FLUSH LOGS")
-    results = sync_execute(
+def get_query_timing_info(random_id: str, conn: Client) -> Tuple[str, Dict]:
+    conn.execute("SYSTEM FLUSH LOGS")
+    results = conn.execute(
         """
         SELECT
             query_id,
@@ -209,7 +214,7 @@ def get_flamegraphs(query_id: str) -> Dict:
                 "--query-id",
                 query_id,
                 "--clickhouse-dsn",
-                "http://default:@localhost:8123/",
+                f"http://{CLICKHOUSE_USER}:{CLICKHOUSE_PASSWORD}@{CLICKHOUSE_STABLE_HOST}:8123/",
                 "--console",
                 "--flamegraph-script",
                 FLAMEGRAPH_PL,
