@@ -84,35 +84,6 @@ def django_db_setup(django_db_setup, django_db_keepdb):
             pass
 
 
-@pytest.fixture(scope="session")
-def django_db_modify_db_settings_xdist_suffix(request, worker_id):
-    """This fixture will generate and add a unique suffix to the database name when tests are run via pytest-xdist."""
-    # Put a suffix like _gw0, _gw1 on xdist processes + timestamp.
-    if worker_id != "master":
-        _add_suffix_to_test_databases(suffix=f'{worker_id}_{datetime.now().strftime("%M%S%f")}')
-
-
-def _add_suffix_to_test_databases(suffix):
-    """This function adds a unique suffix to the database name."""
-
-    from django.conf import settings
-
-    for db_settings in settings.DATABASES.values():
-        test_name = db_settings.get("TEST", {}).get("NAME")
-
-        # Nothing to do for in-memory database.
-        if test_name == ":memory:":
-            continue
-
-        # If None, append 'test_' to the database name.
-        if test_name is None:
-            test_name = f'test_{db_settings["NAME"]}'
-
-        # Append timestamp to the database name to prevent conflicts (multiple users running the tests).
-        db_settings.setdefault("TEST", {})
-        db_settings["TEST"]["NAME"] = f"{test_name}_{suffix}"
-
-
 @pytest.fixture
 def base_test_mixin_fixture():
     kls = TestMixin()

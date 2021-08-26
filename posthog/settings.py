@@ -157,7 +157,7 @@ if IS_BEHIND_PROXY:
 ALLOWED_IP_BLOCKS = get_list(os.getenv("ALLOWED_IP_BLOCKS", ""))
 
 # Clickhouse Settings
-CLICKHOUSE_TEST_DB = "posthog_test"
+CLICKHOUSE_TEST_DB = os.getenv("CLICKHOUSE_TEST_DB", "posthog_test")
 
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")

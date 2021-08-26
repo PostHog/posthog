@@ -116,12 +116,21 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee/
+                  pytest ee/ -n auto -p ee.override_clickhouse_db
 
     cloud:
         name: Django tests – Cloud
         runs-on: ubuntu-latest
         steps:
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-backend-tests
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+              run: |
+                  python -m pip install -r requirements-dev.txt
+                  python -m pip install -r requirements.txt
             - name: Fetch posthog-cloud
               run: |
                   curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
@@ -145,16 +154,6 @@ jobs:
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-backend-tests
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-            - name: Install python dependencies
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-              run: |
-                  python -m pip install -r deploy/requirements-dev.txt
-                  python -m pip install -r deploy/requirements.txt
-
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
             - name: Migrate initially at master, then remove master deploy code
@@ -217,7 +216,7 @@ jobs:
                   CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy/
-                  pytest ee -s -m "not skip_on_multitenancy" -n auto
+                  python -m pytest ee -s -m "not skip_on_multitenancy" -n auto  -p ee.override_clickhouse_db
 
     foss:
         name: Django tests – FOSS
