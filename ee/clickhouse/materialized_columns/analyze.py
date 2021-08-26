@@ -58,6 +58,7 @@ class Query:
 
     def properties(self, team_manager: TeamManager) -> Generator[Tuple[TableWithProperties, PropertyName], None, None]:
         # Reverse-engineer whether a property is an "event" or "person" property by getting their event definitions.
+        # :KLUDGE: Note that the same property will be found on both tables if both are used.
         person_props = team_manager.person_properties(self.team_id)
         event_props = team_manager.event_properties(self.team_id)
         for property in self._all_properties:
