@@ -2,6 +2,7 @@ import copy
 import os
 from typing import Dict, cast
 
+import pytest
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from freezegun.api import freeze_time
@@ -52,6 +53,7 @@ MOCK_SETTINGS = {
 CURRENT_FOLDER = os.path.dirname(__file__)
 
 
+@pytest.mark.skip_on_multitenancy
 class TestEEAuthenticationAPI(APILicensedTest):
 
     # SAML Metadata
@@ -65,7 +67,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         with self.settings(**MOCK_SETTINGS):
             response = self.client.get("/api/saml/metadata/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue("http://testserver/complete/saml/" in response.content.decode())
+        self.assertTrue("/complete/saml/" in response.content.decode())
 
     def test_need_to_be_authenticated_to_get_saml_metadata(self):
         self.client.logout()
