@@ -638,7 +638,7 @@ export const funnelLogic = kea<funnelLogicType>({
         changeStepRange: ({ funnel_from_step, funnel_to_step }) => {
             // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
             // for all steps
-            const maxStepIndex = values.numberOfSeries - 1
+            const maxStepIndex = Math.max(values.numberOfSeries - 1, 1)
             const nextFromStep = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
             const nextToStep = clamp(funnel_to_step ?? maxStepIndex, nextFromStep + 1, maxStepIndex)
 

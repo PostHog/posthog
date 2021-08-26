@@ -17,6 +17,11 @@ export function FunnelStepsPicker(): JSX.Element | null {
         changeStepRange(funnel_from_step, funnel_to_step)
     }
 
+    const fromRange = areFiltersValid ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice(0, -1) : [0]
+    const toRange = areFiltersValid
+        ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice((filters.funnel_from_step ?? 0) + 1)
+        : [1]
+
     return (
         <Row className="funnel-options-inputs">
             <span className="text-muted-alt">between</span>
@@ -31,17 +36,15 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 onChange={(fromStep: number) => onChange(fromStep)}
                 style={{ marginLeft: 4, marginRight: 4 }}
             >
-                {Array.from(Array(numberOfSeries).keys())
-                    .slice(0, -1)
-                    .map((stepIndex) => (
-                        <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
-                            Step {stepIndex + 1}
-                        </Select.Option>
-                    ))}
+                {fromRange.map((stepIndex) => (
+                    <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
+                        Step {stepIndex + 1}
+                    </Select.Option>
+                ))}
             </Select>
             <span className="text-muted-alt">to</span>
             <Select
-                defaultValue={numberOfSeries - 1}
+                defaultValue={Math.max(numberOfSeries - 1, 1)}
                 disabled={!areFiltersValid}
                 dropdownMatchSelectWidth={false}
                 dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
@@ -51,13 +54,11 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 onChange={(toStep: number) => onChange(undefined, toStep)}
                 style={{ marginLeft: 4, marginRight: 4 }}
             >
-                {Array.from(Array(numberOfSeries).keys())
-                    .slice((filters.funnel_from_step ?? 0) + 1)
-                    .map((stepIndex) => (
-                        <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
-                            Step {stepIndex + 1}
-                        </Select.Option>
-                    ))}
+                {toRange.map((stepIndex) => (
+                    <Select.Option key={stepIndex} value={stepIndex} label={`Step ${stepIndex + 1}`}>
+                        Step {stepIndex + 1}
+                    </Select.Option>
+                ))}
             </Select>
         </Row>
     )
