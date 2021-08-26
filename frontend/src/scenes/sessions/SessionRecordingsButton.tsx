@@ -7,6 +7,7 @@ import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 import { Popup } from '../../lib/components/Popup/Popup'
 import clsx from 'clsx'
+import { Tooltip } from '../../lib/components/Tooltip'
 
 interface SessionRecordingsButtonProps {
     sessionRecordings: SessionRecordingType[]
@@ -43,7 +44,15 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
                 >
                     <div className="session-recordings-popup__row">
                         <div className="session-recordings-popup__label">
-                            <PlayCircleOutlined className={viewed ? 'text-muted' : undefined} />
+                            <Tooltip
+                                title={
+                                    viewed
+                                        ? 'This recording has been watched already.'
+                                        : 'This recording has not been watched yet.'
+                                }
+                            >
+                                <PlayCircleOutlined className={viewed ? 'text-muted' : undefined} />
+                            </Tooltip>
                             Recording {index + 1}
                         </div>
                         <div className="session-recordings-popup__detail text-muted">
