@@ -1,16 +1,20 @@
-from typing import Dict, Literal, Optional, Tuple, cast
+from typing import Dict, List, Literal, Optional, Tuple, cast
 
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
     CUSTOM_EVENT,
+    FUNNEL_PATHS,
     PAGEVIEW_EVENT,
     PATH_TYPE,
+    PATHS_EXCLUDE_EVENTS,
+    PATHS_INCLUDE_CUSTOM_EVENTS,
+    PATHS_INCLUDE_EVENT_TYPES,
     SCREEN_EVENT,
     START_POINT,
     STEP_LIMIT,
 )
 from posthog.models.filters.mixins.common import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property, include_dict
+from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 
 PathType = Literal["$pageview", "$autocapture", "$screen", "custom_event"]
 
@@ -74,6 +78,49 @@ class TargetEventDerivedMixin(PropTypeDerivedMixin):
             return cast(PathType, PAGEVIEW_EVENT), {"event": PAGEVIEW_EVENT}
 
 
+class TargetEventsMixin(BaseParamMixin):
+    @cached_property
+    def target_events(self) -> List[str]:
+        return self._data.get(PATHS_INCLUDE_EVENT_TYPES, [])
+
+    @cached_property
+    def custom_events(self) -> List[str]:
+        return self._data.get(PATHS_INCLUDE_CUSTOM_EVENTS, [])
+
+    @cached_property
+    def exclude_events(self) -> List[str]:
+        return self._data.get(PATHS_EXCLUDE_EVENTS, [])
+
+    @property
+    def include_pageviews(self) -> bool:
+        return PAGEVIEW_EVENT in self.target_events
+
+    @property
+    def include_screenviews(self) -> bool:
+        return SCREEN_EVENT in self.target_events
+
+    @property
+    def include_autocaptures(self) -> bool:
+        return AUTOCAPTURE_EVENT in self.target_events
+
+    @property
+    def include_all_custom_events(self) -> bool:
+        return CUSTOM_EVENT in self.target_events
+
+    @include_dict
+    def target_events_to_dict(self) -> dict:
+        result = {}
+        if self.target_events:
+            result["target_events"] = self.target_events
+
+        if self.custom_events:
+            result["custom_events"] = self.custom_events
+
+        if self.exclude_events:
+            result["exclude_events"] = self.exclude_events
+        return result
+
+
 class PathStepLimitMixin(BaseParamMixin):
     @cached_property
     def step_limit(self) -> Optional[str]:
@@ -82,3 +129,14 @@ class PathStepLimitMixin(BaseParamMixin):
     @include_dict
     def step_limit_to_dict(self):
         return {"step_limit": self.step_limit} if self.step_limit else {}
+
+
+class FunnelPathsMixin(BaseParamMixin):
+    @cached_property
+    def funnel_paths(self) -> bool:
+        _funnel_paths = self._data.get(FUNNEL_PATHS, None)
+        return process_bool(_funnel_paths)
+
+    @include_dict
+    def funnel_paths_to_dict(self):
+        return {"funnel_paths": self.funnel_paths} if self.funnel_paths else {}

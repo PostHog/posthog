@@ -35,8 +35,8 @@ from posthog.constants import (
 )
 from posthog.models.entity import Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType, IntervalType
-from posthog.models.filters.mixins.utils import cached_property, include_dict
-from posthog.utils import relative_date_parse, str_to_bool
+from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
+from posthog.utils import relative_date_parse
 
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)]+)"
 
@@ -226,18 +226,10 @@ class LimitMixin(BaseParamMixin):
 
 
 class CompareMixin(BaseParamMixin):
-    def _process_compare(self, compare: Optional[Union[str, bool]]) -> bool:
-        if isinstance(compare, bool):
-            return compare
-        elif isinstance(compare, str):
-            return str_to_bool(compare)
-        else:
-            return False
-
     @cached_property
     def compare(self) -> bool:
         _compare = self._data.get(COMPARE, None)
-        return self._process_compare(_compare)
+        return process_bool(_compare)
 
     @include_dict
     def compare_to_dict(self):

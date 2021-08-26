@@ -1,6 +1,6 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, Logic, useActions, useValues } from 'kea'
 import { Dropdown, Menu, Alert, Button, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
@@ -9,28 +9,13 @@ import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/viz/ActionsTable'
 import { ActionsPie } from 'scenes/trends/viz/ActionsPie'
 import { Paths } from 'scenes/paths/Paths'
-import {
-    EllipsisOutlined,
-    EditOutlined,
-    DeleteOutlined,
-    LineChartOutlined,
-    TableOutlined,
-    PieChartOutlined,
-    FunnelPlotOutlined,
-    BgColorsOutlined,
-    BlockOutlined,
-    CopyOutlined,
-    DeliveredProcedureOutlined,
-    BarChartOutlined,
-    SaveOutlined,
-    ReloadOutlined,
-} from '@ant-design/icons'
+import { EllipsisOutlined, SaveOutlined } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { logicFromInsight } from 'scenes/insights/utils'
+import { getLogicFromInsight } from 'scenes/insights/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
@@ -40,6 +25,15 @@ import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { Tooltip } from 'lib/components/Tooltip'
+import {
+    ErrorMessage,
+    FunnelEmptyState,
+    FunnelInvalidExclusionFiltersEmptyState,
+    FunnelInvalidFiltersEmptyState,
+    TimeOut,
+} from 'scenes/insights/EmptyStates'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 dayjs.extend(relativeTime)
 
@@ -67,7 +61,6 @@ export type DisplayedType = ChartDisplayType | 'RetentionContainer'
 interface DisplayProps {
     className: string
     element: (props: any) => JSX.Element | null
-    icon: (props: any) => JSX.Element | null
     viewText: string
     link: (item: DashboardItemType) => string
 }
@@ -76,7 +69,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsLineGraph: {
         className: 'graph',
         element: ActionsLineGraph,
-        icon: LineChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
@@ -84,7 +76,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsLineGraphCumulative: {
         className: 'graph',
         element: ActionsLineGraph,
-        icon: LineChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
@@ -92,7 +83,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsBar: {
         className: 'bar',
         element: ActionsLineGraph,
-        icon: BarChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
@@ -100,7 +90,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsBarValue: {
         className: 'bar',
         element: ActionsBarValueGraph,
-        icon: BarChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
@@ -108,7 +97,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsTable: {
         className: 'table',
         element: ActionsTable,
-        icon: TableOutlined,
         viewText: 'View table',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
@@ -116,7 +104,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     ActionsPie: {
         className: 'pie',
         element: ActionsPie,
-        icon: PieChartOutlined,
         viewText: 'View graph',
         link: ({ filters, id, dashboard, name }: DashboardItemType): string =>
             combineUrl('/insights', filters, { fromItem: id, fromItemName: name, fromDashboard: dashboard }).url,
@@ -124,7 +111,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     FunnelViz: {
         className: 'funnel',
         element: Funnel,
-        icon: FunnelPlotOutlined,
         viewText: 'View funnel',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
@@ -137,7 +123,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     RetentionContainer: {
         className: 'retention',
         element: RetentionContainer,
-        icon: TableOutlined,
         viewText: 'View graph',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
@@ -150,7 +135,6 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     PathsViz: {
         className: 'paths-viz',
         element: Paths,
-        icon: FunnelPlotOutlined,
         viewText: 'View graph',
         link: ({ id, dashboard, name, filters }: DashboardItemType): string => {
             return combineUrl(
@@ -209,7 +193,6 @@ export function DashboardItem({
 
     const className = displayMap[_type].className
     const Element = displayMap[_type].element
-    const Icon = displayMap[_type].icon
     const viewText = displayMap[_type].viewText
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
@@ -229,10 +212,13 @@ export function DashboardItem({
         cachedResults: (item as any).result,
         preventLoading,
     }
-
+    const { showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { loadResults } = useActions(logicFromInsight(item.filters.insight, logicProps))
-    const { results, resultsLoading } = useValues(logicFromInsight(item.filters.insight, logicProps))
+    const { loadResults } = useActions(getLogicFromInsight(item.filters.insight, logicProps))
+    const { results, resultsLoading, isLoading } = useValues(getLogicFromInsight(item.filters.insight, logicProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(
+        funnelLogic(logicProps) as Logic & BuiltLogic
+    )
     const previousLoading = usePrevious(resultsLoading)
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
@@ -241,6 +227,40 @@ export function DashboardItem({
             setInitialLoaded(true)
         }
     }, [resultsLoading])
+
+    // Empty states that completely replace the graph
+    const BlockingEmptyState = (() => {
+        // Insight specific empty states - note order is important here
+        if (item.filters.insight === ViewType.FUNNELS) {
+            if (!areFiltersValid) {
+                return <FunnelInvalidFiltersEmptyState />
+            }
+            if (!areExclusionFiltersValid) {
+                return <FunnelInvalidExclusionFiltersEmptyState />
+            }
+            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+                return <FunnelEmptyState />
+            }
+        }
+
+        // Insight agnostic empty states
+        if (showErrorMessage) {
+            return <ErrorMessage />
+        }
+        if (showTimeoutMessage) {
+            return <TimeOut isLoading={isLoading} />
+        }
+
+        return null
+    })()
+
+    // Empty states that can coexist with the graph (e.g. Loading)
+    const CoexistingEmptyState = (() => {
+        if (isLoading || resultsLoading) {
+            return <Loading />
+        }
+        return null
+    })()
 
     return (
         <div
@@ -314,18 +334,19 @@ export function DashboardItem({
                                 ))}
                             {dashboardMode !== DashboardMode.Internal && (
                                 <Dropdown
+                                    overlayStyle={{ minWidth: 240, border: '1px solid var(--primary)' }}
                                     placement="bottomRight"
                                     trigger={['click']}
                                     overlay={
-                                        <Menu data-attr={'dashboard-item-' + index + '-dropdown-menu'}>
+                                        <Menu
+                                            data-attr={'dashboard-item-' + index + '-dropdown-menu'}
+                                            style={{ padding: '12px 4px' }}
+                                        >
                                             <Menu.Item data-attr={'dashboard-item-' + index + '-dropdown-view'}>
-                                                <Link to={link}>
-                                                    <Icon /> {viewText}
-                                                </Link>
+                                                <Link to={link}>{viewText}</Link>
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
-                                                icon={<ReloadOutlined />}
                                                 onClick={() => {
                                                     loadResults(true)
                                                     reportDashboardItemRefreshed(item)
@@ -347,7 +368,6 @@ export function DashboardItem({
                                             </Menu.Item>
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-rename'}
-                                                icon={<EditOutlined />}
                                                 onClick={() => renameDashboardItem(item)}
                                             >
                                                 Rename
@@ -356,7 +376,6 @@ export function DashboardItem({
                                                 <Menu.SubMenu
                                                     data-attr={'dashboard-item-' + index + '-dropdown-color'}
                                                     key="colors"
-                                                    icon={<BgColorsOutlined />}
                                                     title="Set Color"
                                                 >
                                                     {Object.entries(dashboardColorNames).map(
@@ -393,8 +412,7 @@ export function DashboardItem({
                                                 <Menu.SubMenu
                                                     data-attr={'dashboard-item-' + index + '-dropdown-copy'}
                                                     key="copy"
-                                                    icon={<CopyOutlined />}
-                                                    title="Copy to..."
+                                                    title="Copy to"
                                                 >
                                                     {otherDashboards.map((dashboard, copyIndex) => (
                                                         <Menu.Item
@@ -429,8 +447,7 @@ export function DashboardItem({
                                                     <Menu.SubMenu
                                                         data-attr={'dashboard-item-' + index + '-dropdown-move'}
                                                         key="move"
-                                                        icon={<DeliveredProcedureOutlined />}
-                                                        title="Move to..."
+                                                        title="Move to"
                                                     >
                                                         {otherDashboards.map((dashboard, moveIndex) => (
                                                             <Menu.Item
@@ -451,7 +468,6 @@ export function DashboardItem({
                                             {duplicateDashboardItem && (
                                                 <Menu.Item
                                                     data-attr={'dashboard-item-' + index + '-dropdown-duplicate'}
-                                                    icon={<BlockOutlined />}
                                                     onClick={() => duplicateDashboardItem(item)}
                                                 >
                                                     Duplicate
@@ -459,7 +475,6 @@ export function DashboardItem({
                                             )}
                                             <Menu.Item
                                                 data-attr={'dashboard-item-' + index + '-dropdown-delete'}
-                                                icon={<DeleteOutlined />}
                                                 onClick={() =>
                                                     deleteWithUndo({
                                                         object: item,
@@ -490,7 +505,10 @@ export function DashboardItem({
                 )}
 
                 <div className={`dashboard-item-content ${_type}`} onClickCapture={onClick}>
-                    {Element ? (
+                    {!BlockingEmptyState && CoexistingEmptyState}
+                    {!!BlockingEmptyState ? (
+                        BlockingEmptyState
+                    ) : (
                         <Alert.ErrorBoundary message="Error rendering graph!">
                             {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (
                                 <Skeleton />
@@ -504,8 +522,6 @@ export function DashboardItem({
                                 />
                             )}
                         </Alert.ErrorBoundary>
-                    ) : (
-                        <Loading />
                     )}
                 </div>
                 {footer}

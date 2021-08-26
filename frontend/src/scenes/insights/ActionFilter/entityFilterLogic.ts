@@ -39,6 +39,7 @@ export interface EntityFilterProps {
     filters: Record<string, any>
     typeKey: string
     singleMode?: boolean
+    addFilterDefaultOptions?: Record<string, any>
 }
 
 // required props:
@@ -176,6 +177,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                         type: EntityTypes.NEW_ENTITY,
                         order: 0,
                         name: null,
+                        ...props.addFilterDefaultOptions,
                     },
                 ])
             }
