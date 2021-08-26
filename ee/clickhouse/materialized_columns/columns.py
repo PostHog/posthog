@@ -24,7 +24,6 @@ def get_materialized_columns(table: TableWithProperties) -> Dict[PropertyName, C
         FROM system.columns
         WHERE database = %(database)s
           AND table = %(table)s
-          AND default_kind = 'MATERIALIZED'
           AND comment LIKE '%%column_materializer::%%'
     """,
         {"database": CLICKHOUSE_DATABASE, "table": table},
