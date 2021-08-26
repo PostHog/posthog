@@ -223,7 +223,7 @@ class TestPreflight(APIBaseTest):
                     "db": True,
                     "initiated": True,
                     "cloud": False,
-                    "realm": "hosted",
+                    "realm": "hosted-clickhouse",
                     "available_social_auth_providers": {
                         "google-oauth2": False,
                         "github": False,
