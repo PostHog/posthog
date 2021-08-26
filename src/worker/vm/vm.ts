@@ -11,6 +11,7 @@ import { createJobs } from './extensions/jobs'
 import { createMetrics, setupMetrics } from './extensions/metrics'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
+import { createUtils } from './extensions/utilities'
 import { imports } from './imports'
 import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
@@ -83,6 +84,7 @@ export async function createPluginConfigVM(
             geoip: createGeoIp(hub),
             jobs: createJobs(hub, pluginConfig),
             metrics: createMetrics(hub, pluginConfig),
+            utils: createUtils(hub, pluginConfig.id),
         },
         '__pluginHostMeta'
     )
