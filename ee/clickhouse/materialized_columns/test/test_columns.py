@@ -120,7 +120,9 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         self.assertEqual(self._count_materialized_rows("mat_another"), 0)
 
         with freeze_time("2021-05-10T14:00:01Z"):
-            backfill_materialized_events_column(["prop", "another"], timedelta(days=50))
+            backfill_materialized_events_column(
+                ["prop", "another"], timedelta(days=50), test_settings={"mutations_sync": "0"}
+            )
 
         _create_event(
             event="fifth_event",

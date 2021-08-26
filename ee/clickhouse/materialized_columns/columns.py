@@ -72,12 +72,13 @@ def materialize(table: TableWithProperties, property: PropertyName) -> None:
     )
 
 
-def backfill_materialized_events_column(properties: List[PropertyName], backfill_period: timedelta) -> None:
+def backfill_materialized_events_column(
+    properties: List[PropertyName], backfill_period: timedelta, test_settings=None
+) -> None:
     """
     Backfills the materialized column after its creation.
 
-    This will require reading and writing a lot of data on clickhouse disk, hack from
-
+    This will require reading and writing a lot of data on clickhouse disk.
     """
     table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
 
@@ -95,6 +96,7 @@ def backfill_materialized_events_column(properties: List[PropertyName], backfill
             {materialized_columns[property]} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY}
             """,
             {"property": property},
+            settings=test_settings,
         )
 
     # Kick off mutations which will update clickhouse partitions in the background. This will return immediately
@@ -109,6 +111,7 @@ def backfill_materialized_events_column(properties: List[PropertyName], backfill
         WHERE timestamp > %(cutoff)s
         """,
         {"cutoff": (now() - backfill_period).strftime("%Y-%m-%d")},
+        settings=test_settings,
     )
 
     # Update the schema back even though updates are ongoing - no validations against this at least.
