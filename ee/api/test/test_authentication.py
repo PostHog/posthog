@@ -1,9 +1,12 @@
+import copy
 import os
 from typing import cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from freezegun.api import freeze_time
 from rest_framework import status
+from social_core.exceptions import AuthFailed
 
 from ee.api.test.base import APILicensedTest
 from posthog.models import User
@@ -164,6 +167,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         # User is created
         self.assertEqual(User.objects.count(), user_count + 1)
         user = cast(User, User.objects.last())
+        self.assertEqual(user.first_name, "PostHog")
         self.assertEqual(user.email, "engineering@posthog.com")
         self.assertEqual(user.organization, self.organization)
         self.assertEqual(user.team, self.team)
@@ -175,3 +179,191 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
         _session = self.client.session
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_cannot_signup_on_non_whitelisted_domain_with_saml(self):
+        self.client.logout()
+
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.get("/login/saml/?idp=posthog_custom")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update(
+            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+        )
+        _session.save()
+
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
+        saml_response = f.read()
+        f.close()
+
+        user_count = User.objects.count()
+
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                format="multipart",
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/login?error=no_new_organizations")  # redirect to the home page
+
+        # No user is created
+        self.assertEqual(User.objects.count(), user_count)
+
+        _session = self.client.session
+        self.assertFalse(_session.has_key("_auth_user_id"))
+
+    @freeze_time("2021-08-25T23:37:55.345Z")
+    def test_can_configure_saml_assertion_attribute_names(self):
+        settings = copy.deepcopy(MOCK_SETTINGS)
+
+        settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_first_name"] = "urn:oid:2.5.4.42"
+        settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_last_name"] = "urn:oid:2.5.4.4"
+        settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_email"] = "urn:oid:0.9.2342.19200300.100.1.3"
+
+        self.client.logout()
+
+        self.organization.domain_whitelist = ["posthog.com"]
+        self.organization.save()
+
+        with self.settings(**settings):
+            response = self.client.get("/login/saml/?idp=posthog_custom")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update(
+            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+        )
+        _session.save()
+
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_custom_attribute_names"), "r")
+        saml_response = f.read()
+        f.close()
+
+        user_count = User.objects.count()
+
+        with self.settings(**settings):
+            response = self.client.post(
+                "/complete/saml/",
+                {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                format="multipart",
+                follow=True,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/")  # redirect to the home page
+
+        # User is created
+        self.assertEqual(User.objects.count(), user_count + 1)
+        user = cast(User, User.objects.last())
+        self.assertEqual(user.first_name, "PostHog")
+        self.assertEqual(user.email, "engineering@posthog.com")
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.team, self.team)
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(
+            cast(OrganizationMembership, user.organization_memberships.first()).level,
+            OrganizationMembership.Level.MEMBER,
+        )
+
+        _session = self.client.session
+        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_cannot_login_with_improperly_signed_payload(self):
+        settings = copy.deepcopy(MOCK_SETTINGS)
+
+        settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"][
+            "x509cert"
+        ] = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
+UzELMAkGA1UECAwCVVMxCzAJBgNVBAcMAlVTMQswCQYDVQQKDAJVUzELMAkGA1UE
+CwwCVVMxCzAJBgNVBAMMAlVTMREwDwYJKoZIhvcNAQkBFgJVUzAeFw0yMTA4MjYw
+MDAxMzNaFw0zMTA4MjYwMDAxMzNaMGExCzAJBgNVBAYTAlVTMQswCQYDVQQIDAJV
+UzELMAkGA1UEBwwCVVMxCzAJBgNVBAoMAlVTMQswCQYDVQQLDAJVUzELMAkGA1UE
+AwwCVVMxETAPBgkqhkiG9w0BCQEWAlVTMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+MIIBCgKCAQEA25s1++GpP9vcXKJ+SN/xdlvPYLir3yMZd/bRfolygQ4BbuzCbqKv
+04AGzKfwV11HXxjtQAU/KDtXuVRa+3vZroWcK01GL1C1aH/x0Q2Wy4XZ8Ooi7NlF
+MME6vbCIBmXuo4TNouE/VFTz6ntwDNopIdlGDq4M60tFeoT99eDD4OhoCSaIo0aH
+2s14CzF0sec3W742yuMHCVyTDrxFzkjMel/CdoNzysvwrqvkGYtLYJn2GSUIoCpG
+y6N5CaVkNpAinNSeHKP9qN/z9hSsDNgz0QuTwZ2BxfDWtwJmRJzdQ3Oeq6RlniNY
+BBI71zpuQhPeAlyoBg0wG+2ikiCllGug7wIDAQABMA0GCSqGSIb3DQEBCwUAA4IB
+AQB8ytXAmU4oYjANiEJVVO5LZUCx3OrY/P1OX73eoXi624yj7xvhaa7whlk1SSL/
+2ks8NZNLBFJbUwShdpzR2X+7AlvsLHmodAMq2Oj5x8O+mFB/6DBl0r40NAAsuzVw
+2shE4kRi4RXVB0KiyBuExry5YSVTUu8spG4/oTQYJNZFZoSfsHS2mTyprBqqca1j
+yh4jGarFborxwACgg6fCiMbHVq8qlcSkRvSW03u89s3Y4mxhMX3F4AZb56ddyfMk
+LERK8jfXCMVmWPTy830CtQaZX2AJyBwHG4ElP2BOZNbFAvGzrKaBmK2Ym/OJxkhx
+YotAcSbU3p5bzd11wpyebYHB"""
+
+        self.client.logout()
+
+        self.organization.domain_whitelist = ["posthog.com"]
+        self.organization.save()
+
+        with self.settings(**settings):
+            response = self.client.get("/login/saml/?idp=posthog_custom")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update(
+            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+        )
+        _session.save()
+
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r")
+        saml_response = f.read()
+        f.close()
+
+        user_count = User.objects.count()
+
+        with self.assertRaises(AuthFailed) as e:
+            with self.settings(**settings):
+                response = self.client.post(
+                    "/complete/saml/",
+                    {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                    format="multipart",
+                    follow=True,
+                )
+
+        self.assertIn("Signature validation failed. SAML Response rejected", str(e.exception))
+
+        self.assertEqual(User.objects.count(), user_count)
+
+    @freeze_time("2021-08-25T23:53:51.000Z")
+    def test_cannot_create_account_without_first_name_in_payload(self):
+        self.client.logout()
+
+        self.organization.domain_whitelist = ["posthog.com"]
+        self.organization.save()
+
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.get("/login/saml/?idp=posthog_custom")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update(
+            {"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6",}
+        )
+        _session.save()
+
+        f = open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_no_first_name"), "r")
+        saml_response = f.read()
+        f.close()
+
+        user_count = User.objects.count()
+
+        with self.assertRaises(ValidationError) as e:
+            with self.settings(**MOCK_SETTINGS):
+                response = self.client.post(
+                    "/complete/saml/",
+                    {"SAMLResponse": saml_response, "RelayState": "posthog_custom",},
+                    format="multipart",
+                    follow=True,
+                )
+
+        self.assertEqual(str(e.exception), "{'name': ['This field is required and was not provided by the IdP.']}")
+
+        self.assertEqual(User.objects.count(), user_count)
