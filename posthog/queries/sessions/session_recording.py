@@ -141,6 +141,8 @@ def collect_matching_recordings(
                 "id": recording["session_id"],
                 "recording_duration": recording_duration or 0,
                 "viewed": recording["session_id"] in viewed,
+                "start_time": recording["start_time"],
+                "end_time": recording["end_time"],
             }
 
 

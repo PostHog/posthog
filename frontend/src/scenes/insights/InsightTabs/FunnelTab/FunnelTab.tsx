@@ -24,14 +24,18 @@ import { CloseButton } from 'lib/components/CloseButton'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
 import { FunnelExclusionsFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelExclusionsFilter'
 import { SavedFunnels } from 'scenes/insights/SavedCard'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
     const screens = useBreakpoint()
-    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
+    const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
+    const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
 
     const showModal = (): void => setSavingModal(true)
     const closeModal = (): void => setSavingModal(false)
@@ -40,10 +44,12 @@ export function FunnelTab(): JSX.Element {
         closeModal()
     }
 
+    console.log('Small screen', isSmallScreen)
+
     return (
         <>
             <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
-                <Col md={16} xs={24}>
+                <Col xs={24} md={16} xl={isHorizontalUIEnabled ? undefined : 24}>
                     <div style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
                         <InsightTitle
                             actionBar={
@@ -167,7 +173,7 @@ export function FunnelTab(): JSX.Element {
                         />
                     </div>
                 </Col>
-                <Col md={8} xs={24}>
+                <Col xs={24} md={8} xl={isHorizontalUIEnabled ? undefined : 24}>
                     {isSmallScreen && <hr />}
                     <GlobalFiltersTitle unit="steps" />
                     <PropertyFilters

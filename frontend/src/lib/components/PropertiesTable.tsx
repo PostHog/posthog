@@ -145,7 +145,7 @@ export function PropertiesTable({
     sortProperties = false,
     nestingLevel = 0,
     onDelete,
-    className = '',
+    className,
 }: PropertiesTableType): JSX.Element {
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {
