@@ -129,7 +129,7 @@ export function TopNavigation(): JSX.Element {
                         style={{ width: '100%' }}
                         icon={<SettingOutlined />}
                     >
-                        Organization Settings
+                        Organization settings
                     </LinkButton>
                 </div>
                 {preflight?.cloud ? (

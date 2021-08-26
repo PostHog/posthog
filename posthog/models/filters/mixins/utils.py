@@ -1,5 +1,7 @@
 from functools import lru_cache
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Optional, TypeVar, Union
+
+from posthog.utils import str_to_bool
 
 T = TypeVar("T")
 
@@ -11,3 +13,12 @@ def cached_property(func: Callable[..., T]) -> T:
 def include_dict(f):
     f.include_dict = True
     return f
+
+
+def process_bool(bool_to_test: Optional[Union[str, bool]]) -> bool:
+    if isinstance(bool_to_test, bool):
+        return bool_to_test
+    elif isinstance(bool_to_test, str):
+        return str_to_bool(bool_to_test)
+    else:
+        return False

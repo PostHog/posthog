@@ -39,6 +39,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import push_scope
 
+from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -187,10 +188,12 @@ def get_git_commit() -> Optional[str]:
 
 
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
+    from loginas.utils import is_impersonated_session
+
     template = get_template(template_name)
 
     context["self_capture"] = False
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -556,7 +559,7 @@ def get_instance_realm() -> str:
     """
     if settings.MULTI_TENANCY:
         return "cloud"
-    elif os.getenv("HELM_INSTALL_INFO", False):
+    elif is_clickhouse_enabled():
         return "hosted-clickhouse"
     else:
         return "hosted"

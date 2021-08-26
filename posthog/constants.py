@@ -78,6 +78,7 @@ RETENTION_TYPE = "retention_type"
 TOTAL_INTERVALS = "total_intervals"
 SELECTED_INTERVAL = "selected_interval"
 START_POINT = "start_point"
+STEP_LIMIT = "step_limit"
 TARGET_ENTITY = "target_entity"
 RETURNING_ENTITY = "returning_entity"
 OFFSET = "offset"
@@ -101,6 +102,7 @@ FUNNEL_VIZ_TYPE = "funnel_viz_type"
 BIN_COUNT = "bin_count"
 ENTRANCE_PERIOD_START = "entrance_period_start"
 DROP_OFF = "drop_off"
+FUNNEL_PATHS = "funnel_paths"
 
 
 class FunnelOrderType(str, Enum):
