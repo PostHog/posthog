@@ -40,5 +40,17 @@ export function createCache(server: Hub, pluginId: number, teamId: number): Cach
         llen: async function (key) {
             return await server.db.redisLLen(getKey(key))
         },
+        lrem: async function (key, count, elementKey) {
+            if (typeof count !== 'number') {
+                throw new Error('cache.lrem expects a number for the "count" argument')
+            }
+            return await server.db.redisLRem(getKey(key), count, elementKey)
+        },
+        lpop: async function (key, count) {
+            if (typeof count !== 'number') {
+                throw new Error('cache.lpop expects a number for the "count" argument')
+            }
+            return await server.db.redisLPop(getKey(key), count)
+        },
     }
 }

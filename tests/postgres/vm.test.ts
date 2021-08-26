@@ -415,6 +415,7 @@ test('meta.cache set/get', async () => {
             return event
         }
     `
+
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
@@ -433,7 +434,7 @@ test('meta.cache set/get', async () => {
     expect(event.properties!['counter']).toEqual(3)
 })
 
-test('meta.storage set/get', async () => {
+test('meta.storage set/get/del', async () => {
     const indexJs = `
         async function setupPlugin (meta) {
             await meta.storage.set('counter', -1)
@@ -450,9 +451,16 @@ test('meta.storage set/get', async () => {
             const counter = await meta.storage.get('counter', 999)
             await meta.storage.set('counter', counter + 1)
             event.properties['counter'] = counter + 1
+
+            await meta.storage.set('deleteme', 10)
+            await meta.storage.del('deleteme')
+            const deleteMeResult = await meta.storage.get('deleteme', null)
+            event.properties['deleteme'] = deleteMeResult
+
             return event
         }
     `
+
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
@@ -463,6 +471,7 @@ test('meta.storage set/get', async () => {
 
     await vm.methods.processEvent!(event)
     expect(event.properties!['counter']).toEqual(1)
+    expect(event.properties!['deleteme']).toEqual(null)
 
     await vm.methods.processEvent!(event)
     expect(event.properties!['counter']).toEqual(2)
@@ -484,6 +493,7 @@ test('meta.cache expire', async () => {
             return event
         }
     `
+
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
@@ -516,6 +526,7 @@ test('meta.cache set ttl', async () => {
             return event
         }
     `
+
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
@@ -547,6 +558,7 @@ test('meta.cache incr', async () => {
             return event
         }
     `
+
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
@@ -584,6 +596,7 @@ test('meta.cache lpush/lrange/llen', async () => {
         }
 
     `
+
     await resetTestDatabase(indexJs)
     const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
     const event: PluginEvent = {
@@ -596,6 +609,51 @@ test('meta.cache lpush/lrange/llen', async () => {
     expect(event.properties!['mylist_before']).toEqual(expect.arrayContaining(['a string', 'an', 'array']))
     expect(event.properties!['mylist_len']).toEqual(3)
     expect(event.properties!['mylist_after']).toEqual([])
+})
+
+test('meta.cache lrem/lpop/lpush/lrange', async () => {
+    const indexJs = `
+        async function setupPlugin (meta) {
+            await meta.cache.lpush('mylist2', ['1', '2', '3'])
+
+        }
+        async function processEvent (event, meta) {
+            const mylistBefore = await meta.cache.lrange('mylist2', 0, 3)
+            event.properties['mylist_before'] = mylistBefore
+
+            const poppedElements = await meta.cache.lpop('mylist2', 1)
+            event.properties['popped_elements'] = poppedElements
+
+            const myListAfterLpop = await meta.cache.lrange('mylist2', 0, 3)
+            event.properties['mylist_after_lpop'] = myListAfterLpop
+
+            const removedElementsCount = await meta.cache.lrem('mylist2', 1, '2')
+            event.properties['removed_elements_count'] = removedElementsCount
+
+            const myListAfterLrem = await meta.cache.lrange('mylist2', 0, 3)
+            event.properties['mylist_after_lrem'] = myListAfterLrem
+
+            await meta.cache.expire('mylist2', 0)
+
+            return event
+        }
+
+    `
+
+    await resetTestDatabase(indexJs)
+    const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const event: PluginEvent = {
+        ...defaultEvent,
+        event: 'original event',
+        properties: {},
+    }
+
+    await vm.methods.processEvent!(event)
+    expect(event.properties!['mylist_before']).toEqual(expect.arrayContaining(['1', '2', '3']))
+    expect(event.properties!['popped_elements']).toEqual(['3'])
+    expect(event.properties!['mylist_after_lpop']).toEqual(expect.arrayContaining(['1', '2']))
+    expect(event.properties!['removed_elements_count']).toEqual(1)
+    expect(event.properties!['mylist_after_lrem']).toEqual(['1'])
 })
 
 test('console.log', async () => {
