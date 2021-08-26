@@ -11,6 +11,7 @@ from posthog.constants import INSIGHT_FUNNELS, PAGEVIEW_EVENT, SCREEN_EVENT
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.person import Person
 from posthog.queries.test.test_paths import paths_test_factory
+from posthog.test.base import test_with_materialized_columns
 
 
 def _create_event(**kwargs):
@@ -259,6 +260,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ],
         )
 
+    @test_with_materialized_columns(["$current_url"])
     def test_paths_end(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"])
         _create_event(

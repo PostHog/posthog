@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
@@ -99,7 +99,7 @@ class ClickhousePathsNew:
 
         return "WHERE arrayElement(limited_path, -1) = %(target_point)s", {"target_point": self._filter.end_point}
 
-    def get_array_compacting_function(self) -> str:
+    def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
         if self._filter.end_point:
             return "arrayResize"
         else:
