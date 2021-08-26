@@ -1,6 +1,6 @@
 import './SessionRecordingsButton.scss'
 import React, { useState } from 'react'
-import { PlayCircleOutlined, CaretDownOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined, DownOutlined } from '@ant-design/icons'
 import { SessionRecordingType } from '~/types'
 import { colonDelimitedDuration, fromParams, humanFriendlyDetailedTime, toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
@@ -69,14 +69,7 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
                 }}
             >
                 Watch session
-                <CaretDownOutlined
-                    className={clsx(
-                        'session-recordings-button__indicator',
-                        areRecordingsShown
-                            ? 'session-recordings-button__indicator--open'
-                            : 'session-recordings-button__indicator--closed'
-                    )}
-                />
+                <DownOutlined className="session-recordings-button__indicator" />
             </Button>
         </Popup>
     )
