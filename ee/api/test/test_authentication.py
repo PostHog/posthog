@@ -1,6 +1,6 @@
 import copy
 import os
-from typing import cast
+from typing import Dict, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -219,7 +219,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T23:37:55.345Z")
     def test_can_configure_saml_assertion_attribute_names(self):
-        settings = copy.deepcopy(MOCK_SETTINGS)
+        settings = cast(Dict, copy.deepcopy(MOCK_SETTINGS))
 
         settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_first_name"] = "urn:oid:2.5.4.42"
         settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"]["attr_last_name"] = "urn:oid:2.5.4.4"
@@ -275,7 +275,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_improperly_signed_payload(self):
-        settings = copy.deepcopy(MOCK_SETTINGS)
+        settings = cast(Dict, copy.deepcopy(MOCK_SETTINGS))
 
         settings["SOCIAL_AUTH_SAML_ENABLED_IDPS"]["posthog_custom"][
             "x509cert"
