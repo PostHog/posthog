@@ -91,19 +91,19 @@ class TargetEventsMixin(BaseParamMixin):
     def exclude_events(self) -> List[str]:
         return self._data.get(PATHS_EXCLUDE_EVENTS, [])
 
-    @cached_property
+    @property
     def include_pageviews(self) -> bool:
         return PAGEVIEW_EVENT in self.target_events
 
-    @cached_property
+    @property
     def include_screenviews(self) -> bool:
         return SCREEN_EVENT in self.target_events
 
-    @cached_property
+    @property
     def include_autocaptures(self) -> bool:
         return AUTOCAPTURE_EVENT in self.target_events
 
-    @cached_property
+    @property
     def include_all_custom_events(self) -> bool:
         return CUSTOM_EVENT in self.target_events
 

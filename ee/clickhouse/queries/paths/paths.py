@@ -33,7 +33,8 @@ class ClickhousePathsNew:
         if self._filter.include_all_custom_events and self._filter.custom_events:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
 
-        # TODO: do we want atleast 1 inclusion to be set?
+        # TODO: don't allow including $pageview and excluding $pageview at the same time
+        # TODO: Filter on specific autocapture / page URLs
 
     def run(self, *args, **kwargs):
 

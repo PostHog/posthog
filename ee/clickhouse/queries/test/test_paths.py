@@ -394,8 +394,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 "exclude_events": ["/custom1", "$pageview"],
             }
         )
-        # TODO: сделать проверку на пустые списки # <- CoPilot changed languages suddenly LOL
-        # real TODO: don't allow including $pageview and excluding $pageview at the same time
         response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
