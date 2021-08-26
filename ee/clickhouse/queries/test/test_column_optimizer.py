@@ -111,7 +111,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(optimizer().materialized_event_columns_to_query, ["mat_event_prop"])
         self.assertEqual(optimizer().should_query_event_properties_column, False)
 
-        self.assertEqual(optimizer().materialized_person_columns_to_query, ["mat_person_prop"])
+        self.assertEqual(optimizer().materialized_person_columns_to_query, ["pmat_person_prop"])
         self.assertEqual(optimizer().should_query_person_properties_column, False)
 
     def test_should_query_element_chain_column(self):
