@@ -20,10 +20,7 @@ interface SessionPlayerData {
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
     connect: {
         values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
-        actions: [
-            sessionsTableLogic,
-            ['fetchNextSessions', 'appendNewSessions', 'closeSessionPlayer', 'loadSessionEvents'],
-        ],
+        actions: [sessionsTableLogic, ['fetchNextSessions', 'appendNewSessions', 'loadSessionEvents']],
     },
     actions: {
         toggleAddingTagShown: () => {},

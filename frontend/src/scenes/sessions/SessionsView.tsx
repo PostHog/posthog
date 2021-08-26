@@ -13,7 +13,6 @@ import {
     CaretRightOutlined,
     PoweroffOutlined,
     QuestionCircleOutlined,
-    ArrowLeftOutlined,
     PlayCircleOutlined,
 } from '@ant-design/icons'
 import { SessionRecordingsButton, sessionPlayerUrl } from './SessionRecordingsButton'
@@ -37,21 +36,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
-interface SessionsTableProps {
-    personIds?: string[]
-    isPersonPage?: boolean
-}
-
-function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }): JSX.Element {
-    const { closeSessionPlayer } = useActions(sessionsTableLogic)
+function SessionPlayerDrawer(): JSX.Element {
     return (
-        <Drawer destroyOnClose visible width="100%" onClose={closeSessionPlayer}>
-            <>
-                <a onClick={closeSessionPlayer}>
-                    <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'sessions'}
-                </a>
-                <SessionsPlay />
-            </>
+        <Drawer destroyOnClose visible width="100%" onClose={() => history.back()}>
+            <SessionsPlay />
         </Drawer>
     )
 }
@@ -62,7 +50,11 @@ function getSessionRecordingsDurationSum(session: SessionType): number {
 
 export const MATCHING_EVENT_ICON_SIZE = 26
 
-export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
+export interface SessionsTableProps {
+    personIds?: string[]
+}
+
+export function SessionsView({ personIds }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
     const {
         sessions,
@@ -316,7 +308,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     ...expandedRowKeysProps,
                 }}
             />
-            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}
+            {!!sessionRecordingId && <SessionPlayerDrawer />}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{

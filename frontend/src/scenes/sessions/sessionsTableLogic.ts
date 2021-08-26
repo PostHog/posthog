@@ -64,7 +64,6 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             selectedDate,
         }),
         setSessionRecordingId: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
-        closeSessionPlayer: true,
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
         setLastAppliedFilters: (filters: SessionsPropertyFilter[]) => ({ filters }),
@@ -96,7 +95,6 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             null as SessionRecordingId | null,
             {
                 setSessionRecordingId: (_, { sessionRecordingId }) => sessionRecordingId,
-                closeSessionPlayer: () => null,
             },
         ],
         loadedSessionEvents: [
@@ -273,7 +271,6 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             setFilters: () => buildURL({}, true),
             loadSessions: () => buildURL({}, true),
             setSessionRecordingId: () => buildURL(),
-            closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
     },
     urlToAction: ({ actions, values }) => {

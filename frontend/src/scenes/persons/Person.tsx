@@ -77,7 +77,6 @@ export function Person(): JSX.Element {
                                     <SessionsView
                                         key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                                         personIds={person.distinct_ids}
-                                        isPersonPage
                                     />
                                 </>
                             )}
