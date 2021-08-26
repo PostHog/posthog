@@ -1,16 +1,13 @@
-from abc import ABC
 from typing import Dict, List, Optional, Tuple
 
-import sqlparse
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
-from posthog.constants import LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
-from posthog.queries.paths import Paths
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
@@ -32,6 +29,12 @@ class ClickhousePathsNew:
             "autocapture_match": "%autocapture:%",
         }
         self._funnel_filter = funnel_filter
+
+        if self._filter.include_all_custom_events and self._filter.custom_events:
+            raise ValidationError("Cannot include all custom events and specific custom events in the same query")
+
+        # TODO: don't allow including $pageview and excluding $pageview at the same time
+        # TODO: Filter on specific autocapture / page URLs
 
     def run(self, *args, **kwargs):
 
