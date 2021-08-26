@@ -11,7 +11,7 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
             offset=self._filter.offset,
             steps_per_person_query=self.get_step_counts_query(),
             persons_steps=self._get_funnel_person_step_condition(),
-            timestamp=", timestamp",
+            extra_columns=", timestamp",
         )
 
     def _format_results(self, results):

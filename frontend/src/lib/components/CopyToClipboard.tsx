@@ -16,8 +16,8 @@ interface InlineProps extends HTMLProps<HTMLSpanElement> {
 
 interface InputProps {
     value: string
+    description: string
     placeholder?: string
-    description?: string
     isValueSensitive?: boolean
 }
 

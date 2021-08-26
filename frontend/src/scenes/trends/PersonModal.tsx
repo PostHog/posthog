@@ -15,6 +15,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { urls } from '../sceneLogic'
+import { SessionRecordingsButton } from '../sessions/SessionRecordingsButton'
 
 export interface PersonModalProps {
     visible: boolean
@@ -183,22 +184,36 @@ export function PersonRow({ person }: PersonRowProps): JSX.Element {
     } as ExpandIconProps
 
     return (
-        <div key={person.id} className="person-row-container">
-            <div className="person-row">
-                <ExpandIcon {...expandProps} />
-                <div className="person-ids">
-                    <Link to={urls.person(person.distinct_ids[0])} className="text-default">
-                        <strong>{person.properties.email}</strong>
-                    </Link>
-                    <CopyToClipboardInline
-                        explicitValue={person.distinct_ids[0]}
-                        iconStyle={{ color: 'var(--primary)' }}
-                        iconPosition="end"
-                        className="text-small text-muted-alt"
-                    >
-                        {midEllipsis(person.distinct_ids[0], 32)}
-                    </CopyToClipboardInline>
+        <div key={person.id} className="person-row">
+            <div className="person-row-contents">
+                <div className="person-row-info">
+                    <ExpandIcon {...expandProps} />
+                    <div className="person-ids">
+                        <Link to={urls.person(person.distinct_ids[0])} className="text-default">
+                            <strong>{person.properties.email}</strong>
+                        </Link>
+                        <CopyToClipboardInline
+                            explicitValue={person.distinct_ids[0]}
+                            description="person distinct ID"
+                            iconStyle={{ color: 'var(--primary)' }}
+                            iconPosition="end"
+                            className="text-small text-muted-alt"
+                        >
+                            {midEllipsis(person.distinct_ids[0], 32)}
+                        </CopyToClipboardInline>
+                    </div>
                 </div>
+                <SessionRecordingsButton
+                    sessionRecordings={[
+                        {
+                            id: '17b82c82bdc60f-0059679deedf22-35667c03-4b9600-17b82c82bdd1304',
+                            viewed: false,
+                            recording_duration: 2,
+                            start_time: new Date().toISOString(),
+                            end_time: new Date().toISOString(),
+                        },
+                    ]}
+                />
             </div>
             {showProperties && <PropertiesTable properties={person.properties} className="person-modal-properties" />}
         </div>

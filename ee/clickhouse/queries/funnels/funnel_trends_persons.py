@@ -2,8 +2,7 @@ from typing import cast
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.funnels.funnel_trends import TIMESTAMP_FORMAT, ClickhouseFunnelTrends
-from ee.clickhouse.queries.util import get_trunc_func_ch
+from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.constants import DROP_OFF, ENTRANCE_PERIOD_START
 from posthog.models.person import Person
@@ -33,7 +32,7 @@ class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends):
             offset=self._filter.offset,
             steps_per_person_query=step_counts_query,
             persons_steps=did_not_reach_to_step_count_condition if drop_off else reached_to_step_count_condition,
-            timestamp="",
+            extra_columns="",
         )
 
     def _summarize_data(self, results):

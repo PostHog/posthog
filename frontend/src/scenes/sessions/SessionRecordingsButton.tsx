@@ -13,8 +13,12 @@ interface SessionRecordingsButtonProps {
     sessionRecordings: SessionRecordingType[]
 }
 
-export const sessionPlayerUrl = (sessionRecordingId: string): string => {
-    return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId })}`
+export function sessionPlayerUrl(sessionRecordingId: string): string {
+    if (location.pathname.startsWith('/sessions')) {
+        // If used on the Sessions page, keep existing params to simplify coming back
+        return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId })}`
+    }
+    return `/sessions?sessionRecordingId=${sessionRecordingId}`
 }
 
 export function SessionRecordingsButton({ sessionRecordings }: SessionRecordingsButtonProps): JSX.Element {
