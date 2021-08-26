@@ -89,6 +89,8 @@ def get_clickhouse_slow_log() -> List[Dict]:
             FROM system.query_log
             WHERE query_duration_ms > {SLOW_THRESHOLD_MS}
               AND event_time > %(after)s
+              AND query NOT LIKE 'system.query_log'
+              AND query NOT LIKE '%%analyze_query:%%'
             ORDER BY duration DESC
             LIMIT 200
         """,

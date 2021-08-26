@@ -162,12 +162,13 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         return Response({"results": queries})
 
-    # :TODO:
-    @action(methods=["POST"], defail=False)
-    def analyze_query(self, request: Request) -> Response:
+    @action(methods=["POST"], detail=False)
+    def analyze_ch_query(self, request: Request) -> Response:
         response = {}
         if is_clickhouse_enabled():
-            response
+            from ee.clickhouse.system_status import analyze_query
+
+            response["results"] = analyze_query(request.data["query"])
 
         return Response(response)
 
