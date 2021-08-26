@@ -873,8 +873,19 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
 }
 
+export interface MultivariateFlagVariant {
+    key: string
+    name: string | null
+    rollout_percentage: number
+}
+
+export interface MultivariateFlagOptions {
+    variants: MultivariateFlagVariant[]
+}
+
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
+    multivariate: MultivariateFlagOptions | null
 }
 
 export interface FeatureFlagType {
