@@ -334,6 +334,39 @@ export class DB {
         })
     }
 
+    public redisLRem(key: string, count: number, elementKey: string): Promise<number> {
+        return instrumentQuery(this.statsd, 'query.redisLRem', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('LREM delayed. Waiting over 30 sec to perform LRANGE', {
+                key,
+                count,
+                elementKey,
+            })
+            try {
+                return await client.lrem(key, count, elementKey)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisLPop(key: string, count: number): Promise<string[]> {
+        return instrumentQuery(this.statsd, 'query.redisLPop', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('LPOP delayed. Waiting over 30 sec to perform LRANGE', {
+                key,
+                count,
+            })
+            try {
+                return await client.lpop(key, count)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
     // Person
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
