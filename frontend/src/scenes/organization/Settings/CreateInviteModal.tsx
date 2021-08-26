@@ -77,7 +77,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                         showIcon
                         message={
                             <>
-                                You've hit the limit of users you can invite to your PostHog instance given your
+                                You've hit the limit of teammates you can invite to your PostHog instance given your
                                 license. Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to
                                 upgrade your license.
                             </>

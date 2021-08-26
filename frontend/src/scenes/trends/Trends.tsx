@@ -26,7 +26,7 @@ interface Props {
 export function TrendInsight({ view }: Props): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
-    const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading, resultsLoading } = useValues(
+    const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
     const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, view, filters: null }))
@@ -72,7 +72,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     {renderViz()}
                 </div>
             )}
-            {_filters.breakdown && !resultsLoading && (
+            {_filters.breakdown && (
                 <div className="mt text-center">
                     {loadMoreBreakdownUrl ? (
                         <>

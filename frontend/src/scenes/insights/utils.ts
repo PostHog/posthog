@@ -5,7 +5,7 @@ import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
-export const logicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
+export const getLogicFromInsight = (insight: string, logicProps: Record<string, any>): Logic & BuiltLogic => {
     if (insight === ViewType.FUNNELS) {
         return funnelLogic(logicProps)
     } else if (insight === ViewType.RETENTION) {

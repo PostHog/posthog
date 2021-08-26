@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .person-modal {
     .ant-modal-header {
         padding: 16px;
@@ -16,6 +18,10 @@
         padding: 0;
         max-height: 60vh;
         overflow-y: scroll;
+    }
+
+    .ant-modal-footer .ant-btn {
+        color: $primary;
     }
 
     .ant-input-search {

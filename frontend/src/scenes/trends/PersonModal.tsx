@@ -39,7 +39,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
     const title = useMemo(
         () =>
             isInitialLoad ? (
-                'Loading users…'
+                'Loading persons…'
             ) : filters.shown_as === 'Stickiness' ? (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
@@ -145,7 +145,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                 ))
                             ) : (
                                 <div className="person-row-container person-row">
-                                    We couldn't find any matching users for this datapoint.
+                                    We couldn't find any matching persons for this data point.
                                 </div>
                             )}
                         </div>

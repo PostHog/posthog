@@ -8,7 +8,7 @@ from posthog.models import Cohort, Event, Organization, Person, Team
 from posthog.test.base import APIBaseTest
 
 
-def factory_test_person(event_factory, person_factory, get_events, get_people):
+def factory_test_person(event_factory, person_factory, get_events):
     class TestPerson(APIBaseTest):
         def test_search(self) -> None:
             person_factory(
@@ -225,10 +225,11 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             event_factory(event="test", team=self.team, distinct_id="someone_else")
 
             response = self.client.delete(f"/api/person/{person.pk}/")
+
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
             self.assertEqual(response.content, b"")  # Empty response
-            self.assertEqual(len(get_people()), 0)
-            self.assertEqual(len(get_events()), 1)
+            self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
+            self.assertEqual(len(get_events(team_id=self.team.pk)), 1)
 
             response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -327,6 +328,6 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
 
 
 class TestPerson(
-    factory_test_person(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)  # type: ignore
+    factory_test_person(Event.objects.create, Person.objects.create, Event.objects.filter)  # type: ignore
 ):
     pass
