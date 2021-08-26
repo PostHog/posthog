@@ -19,4 +19,6 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data, len(results) > cast(int, self._filter.limit) - 1
+        persons_serialized = PersonSerializer(people, many=True).data
+
+        return persons_serialized, len(results) > cast(int, self._filter.limit) - 1

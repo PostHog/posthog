@@ -80,7 +80,7 @@ class SessionRecording:
 
 
 def query_sessions_in_range(
-    team: Team, start_time: datetime.datetime, end_time: datetime.datetime, filter: SessionsFilter
+    team: Team, start_time: datetime.datetime, end_time: datetime.datetime, filter: SessionsFilter, **kwargs
 ) -> List[dict]:
     filter_query, filter_params = "", {}
 
@@ -103,7 +103,11 @@ def query_sessions_in_range(
 
 # :TRICKY: This mutates sessions list
 def join_with_session_recordings(
-    team: Team, sessions_results: List[Any], filter: SessionsFilter, query: Callable = query_sessions_in_range
+    team: Team,
+    sessions_results: List[Any],
+    filter: SessionsFilter,
+    query: Callable = query_sessions_in_range,
+    distinct_ids: Optional[List[str]] = None,
 ) -> List[Any]:
     if len(sessions_results) == 0:
         return sessions_results
@@ -111,7 +115,7 @@ def join_with_session_recordings(
     min_ts = min(it["start_time"] for it in sessions_results)
     max_ts = max(it["end_time"] for it in sessions_results)
 
-    session_recordings = query(team, min_ts, max_ts, filter)
+    session_recordings = query(team, min_ts, max_ts, filter, distinct_ids=distinct_ids)
     viewed_session_recordings = set(
         SessionRecordingViewed.objects.filter(team=team, user_id=filter.user_id).values_list("session_id", flat=True)
     )

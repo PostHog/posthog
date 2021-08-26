@@ -42,6 +42,7 @@ SESSIONS_IN_RANGE_QUERY = """
             AND timestamp >= %(start_time)s
             AND timestamp <= %(end_time)s
         GROUP BY distinct_id, session_id
+        {inner_where_clause}
     )
     WHERE full_snapshots > 0 {filter_query}
 """
@@ -58,28 +59,40 @@ class SessionRecording(BaseSessionRecording):
         return response[0][0], response[0][1], [json.loads(snapshot_data) for _, _, snapshot_data in response]
 
 
-def join_with_session_recordings(team: Team, sessions_results: List[Any], filter: SessionsFilter) -> List[Any]:
-    return _join_with_session_recordings(team, sessions_results, filter, query=query_sessions_in_range)
+def join_with_session_recordings(
+    team: Team, sessions_results: List[Any], filter: SessionsFilter, distinct_ids: Optional[List[str]] = None
+) -> List[Any]:
+    return _join_with_session_recordings(
+        team, sessions_results, filter, query=query_sessions_in_range, distinct_ids=distinct_ids
+    )
 
 
 def query_sessions_in_range(
-    team: Team, start_time: datetime.datetime, end_time: datetime.datetime, filter: SessionsFilter
+    team: Team,
+    start_time: datetime.datetime,
+    end_time: datetime.datetime,
+    filter: SessionsFilter,
+    distinct_ids: Optional[List[str]] = None,
 ) -> List[dict]:
-    filter_query, filter_params = "", {}
+    filter_query, extra_params = "", {}
 
     if filter.recording_duration_filter:
         filter_query = f"AND duration {OPERATORS[filter.recording_duration_filter.operator]} %(min_recording_duration)s"  # type: ignore
-        filter_params = {
-            "min_recording_duration": filter.recording_duration_filter.value,
-        }
+        extra_params["min_recording_duration"] = filter.recording_duration_filter.value
+
+    if distinct_ids is not None:
+        inner_where_clause = "WHERE has(%(distinct_ids)s, distinct_id)" ""
+        extra_params["distinct_ids"] = distinct_ids
+    else:
+        inner_where_clause = ""
 
     results = sync_execute(
-        SESSIONS_IN_RANGE_QUERY.format(filter_query=filter_query),
+        SESSIONS_IN_RANGE_QUERY.format(filter_query=filter_query, inner_where_clause=inner_where_clause),
         {
             "team_id": team.id,
             "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
             "end_time": end_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            **filter_params,
+            **extra_params,
         },
     )
 
