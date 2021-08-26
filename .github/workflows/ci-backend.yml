@@ -116,7 +116,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee/ -n auto -p ee.override_clickhouse_db
+                  python -m pytest ee/ -n auto -p ee.override_clickhouse_db
 
     cloud:
         name: Django tests – Cloud
