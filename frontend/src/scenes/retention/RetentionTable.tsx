@@ -192,8 +192,12 @@ export function RetentionTable({
                                         }}
                                     >
                                         {people.next ? (
-                                            <Button type="primary" onClick={() => loadMorePeople()}>
-                                                {loadingMore ? <Spin /> : 'Load More People'}
+                                            <Button
+                                                type="primary"
+                                                onClick={() => loadMorePeople()}
+                                                loading={loadingMore}
+                                            >
+                                                Load more people
                                             </Button>
                                         ) : null}
                                     </div>

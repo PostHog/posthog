@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
-import { Modal, Button, Spin, Input, Skeleton } from 'antd'
+import { Modal, Button, Input, Skeleton } from 'antd'
 import { FilterType, PersonType, ViewType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -157,7 +157,9 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                 }}
                             >
                                 <Button type="primary" style={{ color: 'white' }} onClick={loadMorePeople}>
-                                    {loadingMorePeople ? <Spin /> : 'Load more people'}
+                                    {' '}
+                                    loading={loadingMorePeople}
+                                    Load more people
                                 </Button>
                             </div>
                         )}
