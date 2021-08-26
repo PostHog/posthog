@@ -1,12 +1,12 @@
-import React, { useState } from 'react'
-import { PlayCircleOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
+import React from 'react'
+import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
 import { Tooltip, Form, Input, Radio, InputNumber } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import MonacoEditor from '@monaco-editor/react'
-import api from 'lib/api'
+import { useValues, useActions } from 'kea'
 import { JobSpec } from '~/types'
-import { toast } from 'react-toastify'
-import { errorToast, validateJsonFormItem } from 'lib/utils'
+import { validateJsonFormItem } from 'lib/utils'
+import { interfaceJobsLogic } from './interfaceJobsLogic'
 
 interface PluginJobConfigurationProps {
     jobName: string
@@ -20,55 +20,24 @@ const requiredRule = {
 }
 
 export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: PluginJobConfigurationProps): JSX.Element {
-    const [isJobModalOpen, setIsJobModalOpen] = useState(false)
-    const [runJobAvailable, setRunJobAvailable] = useState(true)
+    const { setIsJobModalOpen, runJob } = useActions(interfaceJobsLogic)
+    const { runJobAvailable, isJobModalOpen } = useValues(interfaceJobsLogic)
 
     const [form] = Form.useForm()
 
     const jobHasEmptyPayload = Object.keys(jobSpec.payload || {}).length === 0
 
-    const runJob = async (): Promise<void> => {
-        try {
-            await form.validateFields()
-        } catch {
-            return
-        }
-
-        setIsJobModalOpen(false)
-
-        try {
-            await api.create(`api/plugin_config/${pluginConfigId}/job`, {
-                job: {
-                    type: jobName,
-                    payload: form.getFieldsValue(),
-                },
-            })
-        } catch (error) {
-            errorToast(`Enqueuing job '${jobName}' failed`)
-            return
-        }
-
-        // temporary handling to prevent people from rage
-        // clicking and creating multiple jobs - this will be
-        // subsituted by better feedback tools like progress bars
-        setRunJobAvailable(false)
-        setTimeout(() => {
-            setRunJobAvailable(true)
-        }, 15000)
-        toast.success('Job enqueued succesfully.')
-    }
-
     const playButtonOnClick = (): void => {
         if (runJobAvailable) {
             if (jobHasEmptyPayload) {
-                runJob()
+                runJob(form, jobName, pluginConfigId)
                 return
             }
             setIsJobModalOpen(true)
         }
     }
 
-    const playCircleTooltip = runJobAvailable
+    const configureOrRunJobTooltip = runJobAvailable
         ? jobHasEmptyPayload
             ? `Run job`
             : `Configure and run job`
@@ -83,17 +52,23 @@ export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: Plu
                 }}
                 onClick={playButtonOnClick}
             >
-                <Tooltip title={playCircleTooltip}>
-                    <PlayCircleOutlined
-                        className={runJobAvailable ? 'plugin-run-job-button' : 'plugin-run-job-button-disabled'}
-                    />
+                <Tooltip title={configureOrRunJobTooltip}>
+                    {jobHasEmptyPayload ? (
+                        <PlayCircleOutlined
+                            className={runJobAvailable ? 'plugin-run-job-button' : 'plugin-run-job-button-disabled'}
+                        />
+                    ) : (
+                        <SettingOutlined
+                            className={runJobAvailable ? 'plugin-run-job-button' : 'plugin-run-job-button-disabled'}
+                        />
+                    )}
                 </Tooltip>
             </span>
 
             <Modal
                 visible={isJobModalOpen}
                 onCancel={() => setIsJobModalOpen(false)}
-                onOk={async () => await runJob()}
+                onOk={() => runJob(form, jobName, pluginConfigId)}
                 okText={'Run job now'}
                 title={`Configuring job '${jobName}'`}
             >

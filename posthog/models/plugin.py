@@ -69,7 +69,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["name"] = plugin_json["name"]
             validated_data["description"] = plugin_json.get("description", "")
             validated_data["config_schema"] = plugin_json.get("config", [])
-            validated_data["public_jobs"] = plugin_json.get("public_jobs", {})
+            validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
             validated_data["source"] = None
             posthog_version = plugin_json.get("posthogVersion", None)
         else:

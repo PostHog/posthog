@@ -1,5 +1,5 @@
 import React from 'react'
-import { PluginTypeWithConfig } from '../types'
+import { PluginTypeWithConfig } from '../../types'
 import { PluginJobConfiguration } from './PluginJobConfiguration'
 
 interface PluginJobOptionsProps {
@@ -14,7 +14,6 @@ export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsPro
         return <></>
     }
 
-    console.log(capabilities, public_jobs)
     return (
         <>
             <h3 className="l3" style={{ marginTop: 32 }}>

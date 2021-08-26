@@ -18,7 +18,7 @@ import { canGloballyManagePlugins, canInstallPlugins } from '../access'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/components/Tooltip'
-import { PluginJobOptions } from './PluginJobOptions'
+import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -375,6 +375,3 @@ export function PluginDrawer(): JSX.Element {
         </>
     )
 }
-
-/*                             <MonacoEditor language="json" theme="vs-dark" height={200} />
- */
