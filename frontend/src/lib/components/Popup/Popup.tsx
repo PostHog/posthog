@@ -70,7 +70,7 @@ export function Popup({
     const clonedChildren =
         typeof children === 'function'
             ? children({
-                  setRef: setReferenceElement as (ref: HTMLElement) => void,
+                  setRef: setReferenceElement as (ref: HTMLElement | null) => void,
               })
             : React.Children.toArray(children).map((child) =>
                   React.cloneElement(child as ReactElement, {
