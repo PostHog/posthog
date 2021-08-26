@@ -123,7 +123,7 @@ export function RetentionTable({
                     {results && !peopleLoading ? (
                         <div>
                             {results[selectedRow]?.values[0]?.count === 0 ? (
-                                <span>No users during this period.</span>
+                                <span>No persons during this period.</span>
                             ) : (
                                 <div>
                                     <table className="table-bordered full-width">
