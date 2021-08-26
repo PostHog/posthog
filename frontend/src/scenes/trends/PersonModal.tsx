@@ -145,7 +145,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                 ))
                             ) : (
                                 <div className="person-row-container person-row">
-                                    We couldn't find any matching persons for this datapoint.
+                                    We couldn't find any matching persons for this data point.
                                 </div>
                             )}
                         </div>
