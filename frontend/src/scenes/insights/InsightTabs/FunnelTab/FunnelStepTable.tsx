@@ -3,16 +3,16 @@ import { useActions, useValues } from 'kea'
 import { FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
-import { SeriesToggleWrapper } from 'scenes/insights/InsightsTable/components/SeriesToggleWrapper'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
-import { InsightLabel } from 'lib/components/InsightLabel'
+import { IconSize, InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { formatDisplayPercentage, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { humanFriendlyDuration } from 'lib/utils'
 import { FlattenedFunnelStep } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { PHCheckbox } from 'lib/components/PHCheckbox'
 
 interface FunnelStepTableProps {
     layout?: FunnelLayout // Not yet implemented
@@ -33,8 +33,8 @@ function isBreakdownChildType(
 }
 
 export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
-    const { stepsWithCount, flattenedSteps, filters, steps } = useValues(funnelLogic)
-    const { openPersonsModal } = useActions(funnelLogic)
+    const { stepsWithCount, flattenedSteps, filters, steps, visibilityMap } = useValues(funnelLogic)
+    const { openPersonsModal, toggleVisibility, setVisibilityById } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
     const tableScrollBreakpoint = getBreakpoint('lg')
     const columns: ColumnsType<FlattenedFunnelStep> = []
@@ -51,9 +51,44 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
             return null
         },
         fixed: 'left',
-        width: 30,
+        width: 20,
         align: 'center',
     })
+
+    if (!!filters.breakdown) {
+        columns.push({
+            title: '',
+            render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
+                // Breakdown parent
+                if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {
+                    return (
+                        <PHCheckbox
+                            checked={!!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])}
+                            indeterminate={step.nestedRowKeys?.some((rowKey) => visibilityMap[rowKey])}
+                            onChange={() => {
+                                const currentState = !!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])
+                                setVisibilityById(
+                                    Object.fromEntries(
+                                        (step.nestedRowKeys ?? []).map((rowKey) => [rowKey, !currentState])
+                                    )
+                                )
+                            }}
+                        />
+                    )
+                }
+                // Breakdown child
+                return (
+                    <PHCheckbox
+                        checked={visibilityMap[step.rowKey]}
+                        onChange={() => toggleVisibility(step.rowKey as string)}
+                    />
+                )
+            },
+            fixed: 'left',
+            width: 20,
+            align: 'center',
+        })
+    }
 
     columns.push({
         title: 'Step',
@@ -61,29 +96,27 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
             const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
             const color = getStepColor(step, !!filters.breakdown)
             return (
-                <SeriesToggleWrapper id={step.order} style={{ display: 'flex', alignItems: 'center' }}>
-                    <div style={{ flexGrow: 1, maxWidth: 270, wordBreak: 'break-word' }}>
-                        <InsightLabel
-                            seriesColor={color}
-                            fallbackName={
-                                isBreakdownChild && isBreakdownChildType(step.breakdown)
-                                    ? formatBreakdownLabel(step.breakdown, cohorts)
-                                    : step.name
-                            }
-                            hasMultipleSeries={steps.length > 1}
-                            breakdownValue={
-                                step.breakdown === ''
-                                    ? 'None'
-                                    : isBreakdownChildType(step.breakdown)
-                                    ? step.breakdown
-                                    : undefined
-                            }
-                            hideBreakdown
-                            hideIcon={!isBreakdownChild}
-                            allowWrap
-                        />
-                    </div>
-                </SeriesToggleWrapper>
+                <InsightLabel
+                    seriesColor={color}
+                    fallbackName={
+                        isBreakdownChild && isBreakdownChildType(step.breakdown)
+                            ? formatBreakdownLabel(step.breakdown, cohorts)
+                            : step.name
+                    }
+                    hasMultipleSeries={steps.length > 1}
+                    breakdownValue={
+                        step.breakdown === ''
+                            ? 'None'
+                            : isBreakdownChildType(step.breakdown)
+                            ? step.breakdown
+                            : undefined
+                    }
+                    hideBreakdown
+                    iconSize={IconSize.Small}
+                    iconStyle={{ marginRight: 12 }}
+                    hideIcon={!isBreakdownChild}
+                    allowWrap
+                />
             )
         },
         fixed: 'left',

@@ -132,6 +132,8 @@ export const funnelLogic = kea<funnelLogicType>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
+        toggleVisibility: (index: string) => ({ index }),
+        setVisibilityById: (entry: Record<string, boolean>) => ({ entry }),
     }),
 
     connect: {
@@ -315,6 +317,33 @@ export const funnelLogic = kea<funnelLogicType>({
                 [insightLogic.actionTypes.startQuery]: () => null,
                 [insightLogic.actionTypes.endQuery]: (_, { exception }) => exception ?? null,
                 [insightLogic.actionTypes.abortQuery]: (_, { exception }) => exception ?? null,
+            },
+        ],
+        visibilityMap: [
+            {} as Record<string, any>,
+            {
+                setVisibilityById: (
+                    state: Record<string, any>,
+                    {
+                        entry,
+                    }: {
+                        entry: Record<string, any>
+                    }
+                ) => ({
+                    ...state,
+                    ...entry,
+                }),
+                toggleVisibility: (
+                    state: Record<string, any>,
+                    {
+                        index,
+                    }: {
+                        index: string
+                    }
+                ) => ({
+                    ...state,
+                    [`${index}`]: !state[index],
+                }),
             },
         ],
     }),
@@ -521,6 +550,9 @@ export const funnelLogic = kea<funnelLogicType>({
                     flattenedSteps.push({
                         ...step,
                         rowKey: step.order,
+                        nestedRowKeys: step.nested_breakdown
+                            ? step.nested_breakdown.map((_, i) => `${step.order}-${i}`)
+                            : [],
                         isBreakdownParent: !!step.nested_breakdown?.length,
                     })
                     if (step.nested_breakdown?.length) {
