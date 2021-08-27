@@ -394,7 +394,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             timestamp="2012-01-01T03:21:34.000Z",
         )
         _create_event(
-            properties={"$current_url": "/2"},
+            properties={"$current_url": "/2/"},
             distinct_id="p1",
             event="$pageview",
             team=self.team,
@@ -645,5 +645,134 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
                 {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
                 {"source": "3_/3", "target": "4_/custom2", "value": 1, "average_conversion_time": 6 * ONE_MINUTE},
+            ],
+        )
+
+    def test_path_respect_session_limits(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/2"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-02T03:21:54.000Z",  # new day, new session
+        )
+        _create_event(
+            properties={"$current_url": "/2/"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-02T03:22:54.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-02T03:26:54.000Z",
+        )
+
+        filter = PathFilter(data={"date_from": "2012-01-01"})
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 2, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 2, "average_conversion_time": 3 * ONE_MINUTE},
+            ],
+        )
+
+    def test_path_removes_duplicates(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:54.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/2"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/2/"},  # trailing slash should be removed
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:54.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="fake",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:54.000Z",
+        )
+
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["fake2"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="fake2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/2/"},
+            distinct_id="fake2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:23:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="fake2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:27:34.000Z",
+        )
+
+        filter = PathFilter(data={"date_from": "2012-01-01"})
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/1", "target": "2_/2", "value": 2, "average_conversion_time": 1.5 * ONE_MINUTE},
+                {"source": "2_/2", "target": "3_/3", "value": 2, "average_conversion_time": 3 * ONE_MINUTE},
             ],
         )
