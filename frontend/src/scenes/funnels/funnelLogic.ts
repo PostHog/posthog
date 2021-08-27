@@ -25,7 +25,7 @@ import {
     BinCountValue,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
-    FunnelExclusionEntityFilter,
+    FunnelStepRangeEntityFilter,
 } from '~/types'
 import { FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -36,7 +36,7 @@ import {
     deepCleanFunnelExclusionEvents,
     EMPTY_FUNNEL_RESULTS,
     formatDisplayPercentage,
-    getClampedExclusionFilter,
+    getClampedStepRangeFilter,
     getLastFilledStep,
     getReferenceStep,
     isBreakdownFunnelResults,
@@ -110,7 +110,7 @@ export const funnelLogic = kea<funnelLogicType>({
             mergeWithExisting,
         }),
         setEventExclusionFilters: (filters: Partial<FilterType>) => ({ filters }),
-        setOneEventExclusionFilter: (eventFilter: FunnelExclusionEntityFilter, index: number) => ({
+        setOneEventExclusionFilter: (eventFilter: FunnelStepRangeEntityFilter, index: number) => ({
             eventFilter,
             index,
         }),
@@ -248,21 +248,22 @@ export const funnelLogic = kea<funnelLogicType>({
                     // make sure exclusion steps are clamped within new step range
                     const newFilters = {
                         ...filters,
+                        ...getClampedStepRangeFilter({ filters }),
                         exclusions: (filters.exclusions || state.exclusions || []).map((e) =>
-                            getClampedExclusionFilter(e, filters)
+                            getClampedStepRangeFilter({ stepRange: e, filters })
                         ),
                     }
                     return mergeWithExisting ? { ...state, ...newFilters } : newFilters
                 },
                 setEventExclusionFilters: (state, { filters }) => ({
                     ...state,
-                    exclusions: filters.events as FunnelExclusionEntityFilter[],
+                    exclusions: filters.events as FunnelStepRangeEntityFilter[],
                 }),
                 setOneEventExclusionFilter: (state, { eventFilter, index }) => ({
                     ...state,
                     exclusions: state.exclusions
                         ? state.exclusions.map((e, e_i) =>
-                              e_i === index ? getClampedExclusionFilter(eventFilter, state) : e
+                              e_i === index ? getClampedStepRangeFilter({ stepRange: eventFilter, filters: state }) : e
                           )
                         : [],
                 }),
@@ -546,7 +547,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         exclusionDefaultStepRange: [
             () => [selectors.numberOfSeries, selectors.areFiltersValid],
-            (numberOfSeries, areFiltersValid): Omit<FunnelExclusionEntityFilter, 'id' | 'name'> => ({
+            (numberOfSeries, areFiltersValid): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
                 funnel_from_step: 0,
                 funnel_to_step: areFiltersValid ? numberOfSeries - 1 : 1,
             }),

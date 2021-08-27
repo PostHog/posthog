@@ -4,7 +4,7 @@ import { getChartColors } from 'lib/colors'
 import api from 'lib/api'
 import {
     FilterType,
-    FunnelExclusionEntityFilter,
+    FunnelStepRangeEntityFilter,
     FunnelRequestParams,
     FunnelResult,
     FunnelStep,
@@ -163,7 +163,7 @@ export async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParam
 export const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
-export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelExclusionEntityFilter[] | undefined => {
+export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepRangeEntityFilter[] | undefined => {
     if (!filters.exclusions) {
         return filters.exclusions
     }
@@ -183,15 +183,22 @@ export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelExclu
     })
 }
 
-export const getClampedExclusionFilter = (
-    event: FunnelExclusionEntityFilter,
+export const getClampedStepRangeFilter = ({
+    stepRange,
+    filters,
+}: {
+    stepRange?: FunnelStepRangeEntityFilter
     filters: FilterType
-): FunnelExclusionEntityFilter => {
+}): FunnelStepRangeEntityFilter => {
     const maxStepIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-    const funnel_from_step = clamp(event.funnel_from_step, 0, maxStepIndex)
+    const funnel_from_step = clamp(stepRange?.funnel_from_step ?? filters.funnel_from_step ?? 0, 0, maxStepIndex)
     return {
-        ...event,
+        ...(stepRange as FunnelStepRangeEntityFilter),
         funnel_from_step,
-        funnel_to_step: clamp(event.funnel_to_step, funnel_from_step + 1, maxStepIndex),
+        funnel_to_step: clamp(
+            stepRange?.funnel_to_step ?? filters.funnel_to_step ?? maxStepIndex,
+            funnel_from_step + 1,
+            maxStepIndex
+        ),
     }
 }

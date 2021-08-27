@@ -332,7 +332,7 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelExclusionEntityFilter extends EntityFilter {
+export interface FunnelStepRangeEntityFilter extends EntityFilter {
     funnel_from_step: number
     funnel_to_step: number
 }
@@ -693,7 +693,7 @@ export interface FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
-    exclusions?: FunnelExclusionEntityFilter[] // used in funnel exclusion filters
+    exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
 }
 
 export interface SystemStatusSubrows {

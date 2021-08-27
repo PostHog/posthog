@@ -6,7 +6,7 @@ import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import posthog from 'posthog-js'
-import { ActionFilter as ActionFilterType, FilterType, FunnelExclusionEntityFilter, Optional } from '~/types'
+import { ActionFilter as ActionFilterType, FilterType, FunnelStepRangeEntityFilter, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -29,7 +29,7 @@ export interface ActionFilterProps {
         | string
         | JSX.Element
         | ((props: {
-              filter: ActionFilterType | FunnelExclusionEntityFilter
+              filter: ActionFilterType | FunnelStepRangeEntityFilter
               index: number
               onClose: () => void
           }) => JSX.Element) // Custom prefix element to show in each ActionFilterRow
@@ -37,7 +37,7 @@ export interface ActionFilterProps {
         | string
         | JSX.Element
         | ((props: {
-              filter: ActionFilterType | FunnelExclusionEntityFilter
+              filter: ActionFilterType | FunnelStepRangeEntityFilter
               index: number
               onClose: () => void
           }) => JSX.Element) // Custom suffix element to show in each ActionFilterRow
