@@ -5,7 +5,7 @@ import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Row, Col, Card, Input, Button, Dropdown, Menu } from 'antd'
+import { Row, Col, Card, Input, Button } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -19,7 +19,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
 import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { DownOutlined, UpOutlined, EditOutlined, CaretDownFilled } from '@ant-design/icons'
+import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
@@ -65,7 +65,7 @@ dayjs.extend(relativeTime)
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
     const {
-        hashParams: { fromItem, fromDashboard, fromItemName },
+        hashParams: { fromItem, fromDashboard },
     } = useValues(router)
 
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
@@ -84,8 +84,6 @@ export function Insights(): JSX.Element {
         insightLoading,
         insightMode,
         lastInsightModeSource,
-        editingInsightName,
-        editingInsightDescription,
     } = useValues(insightLogic)
     const {
         setActiveView,
@@ -96,10 +94,7 @@ export function Insights(): JSX.Element {
         setInsightMode,
         setInsight,
         openSaveToDashboardModal,
-        editInsightName,
-        editInsightDescription,
         loadInsight,
-        saveAsNewInsight,
     } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
@@ -256,14 +251,9 @@ export function Insights(): JSX.Element {
                     <Col>
                         {insightMode === ItemMode.View ? (
                             <>
-                                {true && (
-                                    <Button
-                                        style={{ marginRight: 8 }}
-                                        onClick={() => setInsightMode(ItemMode.Edit, null)}
-                                    >
-                                        Edit
-                                    </Button>
-                                )}
+                                <Button style={{ marginRight: 8 }} onClick={() => setInsightMode(ItemMode.Edit, null)}>
+                                    Edit
+                                </Button>
                                 <Button type="primary" onClick={() => openSaveToDashboardModal(true)}>
                                     Add to dashboard
                                 </Button>
@@ -274,7 +264,7 @@ export function Insights(): JSX.Element {
                                     style={{ marginRight: 8 }}
                                     onClick={() => {
                                         setInsightMode(ItemMode.View, null)
-                                        loadInsight(insight.id)
+                                        insight.id && loadInsight(insight.id)
                                     }}
                                 >
                                     Cancel
@@ -296,7 +286,7 @@ export function Insights(): JSX.Element {
 
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <Row>
-                    {true && (
+                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
                         <Col style={{ width: '100%' }}>
                             {insightMode === ItemMode.View ? (
                                 <span className="text-muted-alt" style={{ fontStyle: 'italic' }}>

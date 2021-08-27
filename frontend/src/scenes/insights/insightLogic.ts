@@ -1,7 +1,7 @@
 import { kea } from 'kea'
-import { toParams, fromParams, errorToast, clearDOMTextSelection, editingToast } from 'lib/utils'
+import { toParams, fromParams, errorToast } from 'lib/utils'
 import posthog from 'posthog-js'
-import { DashboardEventSource, eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
 import { DashboardItemType, Entity, FilterType, FunnelVizType, ItemMode, PropertyFilter, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
@@ -63,13 +63,24 @@ export const insightLogic = kea<insightLogicType>({
         deleteTag: (tag: string) => ({ tag }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         openSaveToDashboardModal: (open: boolean) => ({ open }),
-        // editInsightName: (editing: boolean) => ({ editing }),
-        // editInsightDescription: (editing: boolean) => ({ editing }),
         setInsightDescription: (description: string) => ({ description }),
         saveAsNewInsight: true,
     }),
-
-    reducers: ({ selectors }) => ({
+    loaders: ({ values }) => ({
+        insight: {
+            __default: { tags: [] } as Partial<DashboardItemType>,
+            loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
+            updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
+                if (!Object.entries(payload).length) {
+                    return
+                }
+                await breakpoint(300)
+                return await api.update(`api/insight/${values.insight.id}`, payload)
+            },
+            setInsight: (insight) => insight,
+        },
+    }),
+    reducers: {
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
         maybeShowTimeoutMessage: [
             false,
@@ -164,21 +175,7 @@ export const insightLogic = kea<insightLogicType>({
                 openSaveToDashboardModal: (_, { open }) => open,
             },
         ],
-    }),
-    loaders: ({ values }) => ({
-        insight: {
-            __default: { tags: [] } as Partial<DashboardItemType>,
-            loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
-            updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
-                if (!Object.entries(payload).length) {
-                    return
-                }
-                await breakpoint(300)
-                return await api.update(`api/insight/${values.insight.id}`, payload)
-            },
-            setInsight: (insight) => insight,
-        },
-    }),
+    },
     selectors: {
         insightName: [(s) => [s.insight], (insight) => insight.name],
     },
