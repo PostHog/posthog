@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -51,8 +51,11 @@ def is_input_valid(inp_type, val):
 
 
 # Try to include EE endpoints
+ee_urlpatterns: List[Any] = []
 try:
     from ee.urls import extend_api_router
+    from ee.urls import urlpatterns as ee_urlpatterns
+
 except ImportError:
     pass
 else:
@@ -73,6 +76,8 @@ urlpatterns = [
     # admin
     path("admin/", include("loginas.urls")),
     path("admin/", admin.site.urls),
+    # ee
+    *ee_urlpatterns,
     # api
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),

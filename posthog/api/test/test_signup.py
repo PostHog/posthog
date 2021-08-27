@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 import pytz
 from django.core import mail
+from django.core.exceptions import ValidationError
 from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -15,6 +16,12 @@ from posthog.models import Dashboard, Organization, Team, User, organization
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
+
+MOCK_GITLAB_SSO_RESPONSE = {
+    "access_token": "123",
+    "email": "testemail@posthog.com",
+    "name": "John Doe",
+}
 
 
 class TestSignupAPI(APIBaseTest):
@@ -297,12 +304,12 @@ class TestSignupAPI(APIBaseTest):
             key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
         )
 
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, 302)
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123"}
+        url = reverse("social:complete", kwargs={"backend": "gitlab"})
+        url += f"?code=2&state={response.client.session['gitlab_state']}"
+        mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         with self.settings(MULTI_ORG_ENABLED=True):
             response = self.client.get(url, follow=True)
@@ -321,12 +328,12 @@ class TestSignupAPI(APIBaseTest):
             key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
         )
 
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123"}
+        url = reverse("social:complete", kwargs={"backend": "gitlab"})
+        url += f"?code=2&state={response.client.session['gitlab_state']}"
+        mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
@@ -342,7 +349,7 @@ class TestSignupAPI(APIBaseTest):
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123"}
+        mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
@@ -358,7 +365,7 @@ class TestSignupAPI(APIBaseTest):
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {"access_token": "123"}
+        mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         response = self.client.get(url, follow=True)
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
