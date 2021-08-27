@@ -1,4 +1,4 @@
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from django.forms.models import model_to_dict
 
@@ -9,7 +9,12 @@ from posthog.models.property import Property, PropertyName, PropertyType
 
 
 def format_action_filter(
-    action: Action, prepend: str = "action", use_loop: bool = False, filter_by_team=True, table_name: str = ""
+    action: Action,
+    prepend: str = "action",
+    use_loop: bool = False,
+    filter_by_team=True,
+    table_name: str = "",
+    person_properties_column: Optional[str] = None,
 ) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
@@ -43,6 +48,7 @@ def format_action_filter(
                 team_id=action.team.pk if filter_by_team else None,
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
+                person_properties_column=person_properties_column,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}

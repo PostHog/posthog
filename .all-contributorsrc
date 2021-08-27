@@ -1482,6 +1482,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "julianharty",
+      "name": "Julian Harty",
+      "avatar_url": "https://avatars.githubusercontent.com/u/785891?v=4",
+      "profile": "http://blog.bettersoftwaretesting.com",
+      "contributions": [
+        "doc"
+      ]
+    },
+    {
+      "login": "bencgreenberg",
+      "name": "Ben Greenberg",
+      "avatar_url": "https://avatars.githubusercontent.com/u/13892277?v=4",
+      "profile": "http://www.bengreenberg.dev",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
