@@ -63,12 +63,13 @@ export const insightLogic = kea<insightLogicType>({
         deleteTag: (tag: string) => ({ tag }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         openSaveToDashboardModal: (open: boolean) => ({ open }),
-        editInsightName: (editing: boolean) => ({ editing }),
-        editInsightDescription: (editing: boolean) => ({ editing }),
+        // editInsightName: (editing: boolean) => ({ editing }),
+        // editInsightDescription: (editing: boolean) => ({ editing }),
+        setInsightDescription: (description: string) => ({ description }),
         saveAsNewInsight: true,
     }),
 
-    reducers: {
+    reducers: ({ selectors }) => ({
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
         maybeShowTimeoutMessage: [
             false,
@@ -161,21 +162,9 @@ export const insightLogic = kea<insightLogicType>({
             false,
             {
                 openSaveToDashboardModal: (_, { open }) => open,
-            }
+            },
         ],
-        editingInsightName: [
-            false,
-            {
-                editInsightName: (_, { editing }) => editing,
-            }
-        ],
-        editingInsightDescription: [
-            false,
-            {
-                editInsightDescription: (_, { editing }) => editing,
-            }
-        ]
-    },
+    }),
     loaders: ({ values }) => ({
         insight: {
             __default: { tags: [] } as Partial<DashboardItemType>,
@@ -184,16 +173,19 @@ export const insightLogic = kea<insightLogicType>({
                 if (!Object.entries(payload).length) {
                     return
                 }
-                await breakpoint(700)
+                await breakpoint(300)
                 return await api.update(`api/insight/${values.insight.id}`, payload)
             },
             setInsight: (insight) => insight,
         },
     }),
     selectors: {
-        insightName: [(s) => [s.insight], (insight) => insight?.name],
+        insightName: [(s) => [s.insight], (insight) => insight.name],
     },
     listeners: ({ actions, values }) => ({
+        updateInsightSuccess: () => {
+            actions.setInsightMode(ItemMode.View, null)
+        },
         setAllFilters: async (filters, breakpoint) => {
             const { fromDashboard } = router.values.hashParams
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard))
@@ -282,29 +274,9 @@ export const insightLogic = kea<insightLogicType>({
         },
         saveAsNewInsight: async () => {
             const newInsight = await api.create('api/insight', values.insight)
-            toast(
-                `New insight ${newInsight.name || newInsight.id} saved!`
-            )
+            toast(`New insight ${newInsight.name || newInsight.id} saved!`)
             router.actions.push(`/i/${newInsight.short_id}`)
-        }
-        // setInsightMode: ({ mode }) => {
-        //     if (mode === ItemMode.Edit) {
-        //         clearDOMTextSelection()
-        //         setTimeout(
-        //             () =>
-        //                 editingToast(
-        //                     'Insight',
-        //                     (insightMode: ItemMode | null, source: DashboardEventSource | null) => {
-        //                         actions.setInsightMode({ mode: insightMode, source })
-        //                     }
-        //                 ),
-        //             100
-        //         )
-        //     } else {
-        //         toast.dismiss()
-        //     }
-        //     return mode
-        // }, 
+        },
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }) => {

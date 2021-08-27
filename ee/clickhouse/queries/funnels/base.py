@@ -82,6 +82,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if exclusion.funnel_to_step > len(self._filter.entities) - 1:
                 raise ValidationError("Exclusion event range is invalid. End of range is greater than number of steps.")
 
+            for entity in self._filter.entities[exclusion.funnel_from_step : exclusion.funnel_to_step + 1]:
+                if entity.equals(exclusion) or exclusion.is_superset(entity):
+                    raise ValidationError("Exclusion event can't be the same as funnel step")
+
         self._filter = self._filter.with_data(data)
 
     def _format_single_funnel(self, results, with_breakdown=False):
@@ -130,7 +134,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         conditions: List[str] = []
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
+                f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
+                f"dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
             )
 
         formatted = ", ".join(conditions)
@@ -273,7 +278,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action()
             for action_step in action.steps.all():
-                self.params[entity_name].append(action_step.event)
+                if entity_name not in self.params[entity_name]:
+                    self.params[entity_name].append(action_step.event)
             action_query, action_params = format_action_filter(action, f"{entity_name}_{step_prefix}step_{index}")
             if action_query == "":
                 return ""
@@ -281,16 +287,15 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update(action_params)
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
-            self.params[entity_name].append(entity.id)
+            if entity.id not in self.params[entity_name]:
+                self.params[entity_name].append(entity.id)
             event_param_key = f"{entity_name}_{step_prefix}event_{index}"
             self.params[event_param_key] = entity.id
             content_sql = f"event = %({event_param_key})s {filters}"
         return content_sql
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            entity.properties, self._team.pk, prepend=str(index), allow_denormalized_props=True
-        )
+        prop_filters, prop_filter_params = parse_prop_clauses(entity.properties, self._team.pk, prepend=str(index))
         self.params.update(prop_filter_params)
         if entity.properties:
             return prop_filters

@@ -1,5 +1,7 @@
-from typing import Dict, Optional
+import inspect
+from typing import Any, Dict, Optional
 
+import pytest
 from django.test import TestCase
 from rest_framework.test import APITestCase as DRFTestCase
 
@@ -111,7 +113,7 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     """
     Base class for performing Postgres-based backend unit tests on.
     Each class and each test is wrapped inside an atomic block to rollback DB commits after each test.
-    Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase 
+    Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
     pass
@@ -126,3 +128,43 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         super().setUp()
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
+
+
+def test_with_materialized_columns(event_properties=[], verify_no_jsonextract=True):
+    """
+    Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
+
+    Requires a unittest class with ClickhouseTestMixin mixed in
+    """
+
+    try:
+        from ee.clickhouse.materialized_columns import materialize
+    except:
+        # EE not available? Just run the main test
+        return lambda fn: fn
+
+    def decorator(fn):
+        @pytest.mark.ee
+        def fn_with_materialized(self, *args, **kwargs):
+            # Don't run these tests under non-clickhouse classes even if decorated in base classes
+            if not getattr(self, "RUN_MATERIALIZED_COLUMN_TESTS", False):
+                return
+
+            for prop in event_properties:
+                materialize("events", prop)
+
+            with self.capture_select_queries() as sqls:
+                fn(self, *args, **kwargs)
+
+            if verify_no_jsonextract:
+                for sql in sqls:
+                    self.assertNotIn("JSONExtract", sql)
+                    self.assertNotIn("properties", sql)
+
+        # To add the test, we inspect the frame this function was called in and add the test there
+        frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+        frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
+
+        return fn
+
+    return decorator

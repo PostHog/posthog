@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react'
-import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { isMobile } from 'lib/utils'
+import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
@@ -14,23 +14,29 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 
 import { Paths } from 'scenes/paths/Paths'
 
-import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
+import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
-import { logicFromInsight } from './utils'
+import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { DownOutlined, UpOutlined, EditOutlined, CaretDownFilled } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import { ErrorMessage, TimeOut } from './EmptyStates'
+import {
+    ErrorMessage,
+    FunnelEmptyState,
+    FunnelInvalidExclusionFiltersEmptyState,
+    FunnelInvalidFiltersEmptyState,
+    TimeOut,
+} from './EmptyStates'
 import { People } from 'scenes/funnels/FunnelPeople'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardEventSource, eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -44,8 +50,6 @@ import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import './Insights.scss'
-import { Description } from 'lib/components/Description/Description'
 import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
 import { userLogic } from 'scenes/userLogic'
@@ -94,24 +98,25 @@ export function Insights(): JSX.Element {
         openSaveToDashboardModal,
         editInsightName,
         editInsightDescription,
+        loadInsight,
         saveAsNewInsight,
     } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
-    const { areFiltersValid } = useValues(funnelLogic)
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
     const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
+    const { user } = useValues(userLogic)
 
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
-    const { user } = useValues(userLogic)
     const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
 
-    const { loadResults } = useActions(
-        logicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
-    )
+    const logicFromInsight = getLogicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
+    const { loadResults } = useActions(logicFromInsight)
+    const { resultsLoading } = useValues(logicFromInsight)
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -153,12 +158,46 @@ export function Insights(): JSX.Element {
         l: {
             action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
         },
-        // escape: {
-        //     // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
-        //     action: () => setInsightMode({ mode: null, source: InsightEventSource.Hotkey }),
-        //     disabled: insightMode !== ItemMode.Edit,
-        // },
+        escape: {
+            // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
+            action: () => setInsightMode(ItemMode.View, InsightEventSource.Hotkey),
+            disabled: insightMode !== ItemMode.Edit,
+        },
     })
+
+    // Empty states that completely replace the graph
+    const BlockingEmptyState = (() => {
+        // Insight specific empty states - note order is important here
+        if (activeView === ViewType.FUNNELS) {
+            if (!areFiltersValid) {
+                return <FunnelInvalidFiltersEmptyState />
+            }
+            if (!areExclusionFiltersValid) {
+                return <FunnelInvalidExclusionFiltersEmptyState />
+            }
+            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+                return <FunnelEmptyState />
+            }
+        }
+
+        // Insight agnostic empty states
+        if (showErrorMessage) {
+            return <ErrorMessage />
+        }
+        if (showTimeoutMessage) {
+            return <TimeOut isLoading={isLoading} />
+        }
+
+        return null
+    })()
+
+    // Empty states that can coexist with the graph (e.g. Loading)
+    const CoexistingEmptyState = (() => {
+        if (isLoading || resultsLoading) {
+            return <Loading />
+        }
+        return null
+    })()
 
     return (
         <div className="insights-page">
@@ -180,87 +219,107 @@ export function Insights(): JSX.Element {
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />
-
-                {editingInsightName && <Input
-                    placeholder=""
-                    value={insightName}
-                    size="large"
-                    style={{ maxWidth: 400, margin: '16px 0' }}
-                    onChange={(e) => {
-                        setInsight({ ...insight, name: e.target.value }) // To update the input immediately
-                        updateInsight({ name: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
-                    }}
-                    // onKeyDown={(e) => {
-                    //     if (e.key === 'Enter') {
-                    //         setInsightMode({ mode: null, source: InsightEventSource.InputEnter })
-                    //     }
-                    // }}
-                    ref={nameInputRef}
-                    tabIndex={0}
-                />}
-                {saveToDashboardModal && (
-                    <SaveToDashboardModal
-                        closeModal={() => openSaveToDashboardModal(false)}
-                        name={insight.name || ''}
-                        filters={insight.filters}
-                        fromItem={fromItem}
-                        fromDashboard={fromDashboard}
-                        fromItemName={fromItemName}
-                        annotations={null}
-                    />
-                )}
+            {saveToDashboardModal && (
+                <SaveToDashboardModal
+                    closeModal={() => openSaveToDashboardModal(false)}
+                    name={insight.name || ''}
+                    filters={insight}
+                    fromItem={insight.id}
+                    fromDashboard={fromDashboard}
+                    fromItemName={insight.name || ''}
+                    annotations={null}
+                />
+            )}
+            {insight.id && (
                 <Row style={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
-                    {!editingInsightName && <div style={{ display: 'flex', alignItems: 'baseline' }}>
-                        <PageHeader title={insight.name || `Insight #${insight.id}`} />
-                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                            true && insightMode === ItemMode.Edit && (
-                                <EditOutlined
-                                    style={{ paddingLeft: 16, color: 'var(--primary)' }}
-                                    onClick={() =>
-                                        editInsightName(true)
-                                    }
-                                />
-                            )}
-                    </div>}
-                    <Col>
-                        {insightMode === ItemMode.View && 
-                            <>
-                                <Button style={{marginRight: 8}} onClick={() => setInsightMode(ItemMode.Edit, null)}>Edit</Button>
-                                <Button type="primary" onClick={() => openSaveToDashboardModal(true)}>Add to dashboard</Button>
-                            </>
-                        }
-                        {insightMode === ItemMode.Edit && 
-                        <>
-                            <Button style={{marginRight: 8}} onClick={() => {
-                                setInsightMode(ItemMode.View, null)
-                                editInsightName(false)
-                                editInsightDescription(false)
-                            }}>Cancel</Button>
-                            <Dropdown
-                                overlay={
-                                    <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
-                                        <Menu.Item onClick={saveAsNewInsight}>Save as a new insight</Menu.Item>
-                                        <Menu.Item onClick={() => openSaveToDashboardModal(true)}>Save and add to a dashboard</Menu.Item>
-                                    </Menu>
+                    {insightMode === ItemMode.View ? (
+                        <div style={{ display: 'flex', alignItems: 'baseline' }}>
+                            <PageHeader title={insight.name || `Insight #${insight.id}`} />
+                        </div>
+                    ) : (
+                        <Input
+                            placeholder="Insight name (e.g. Weekly KPIs)"
+                            value={insightName || ''}
+                            size="large"
+                            style={{ maxWidth: 400, marginTop: 30 }}
+                            onChange={(e) => setInsight({ ...insight, name: e.target.value })}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    updateInsight(insight)
                                 }
-                                trigger={['click']}
-                            >
-                                <Button type="primary" onClick={(e) => e.preventDefault()}>
-                                    Save <CaretDownFilled />
+                            }}
+                            ref={nameInputRef}
+                            tabIndex={0}
+                        />
+                    )}
+
+                    <Col>
+                        {insightMode === ItemMode.View ? (
+                            <>
+                                {true && (
+                                    <Button
+                                        style={{ marginRight: 8 }}
+                                        onClick={() => setInsightMode(ItemMode.Edit, null)}
+                                    >
+                                        Edit
+                                    </Button>
+                                )}
+                                <Button type="primary" onClick={() => openSaveToDashboardModal(true)}>
+                                    Add to dashboard
                                 </Button>
-                            </Dropdown>
-                        </>
-                        }
+                            </>
+                        ) : (
+                            <>
+                                <Button
+                                    style={{ marginRight: 8 }}
+                                    onClick={() => {
+                                        setInsightMode(ItemMode.View, null)
+                                        loadInsight(insight.id)
+                                    }}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    style={{ marginRight: 8, color: 'var(--primary)' }}
+                                    onClick={() => openSaveToDashboardModal(true)}
+                                >
+                                    Save to dashboard
+                                </Button>
+                                <Button type="primary" onClick={() => updateInsight(insight)}>
+                                    Save
+                                </Button>
+                            </>
+                        )}
                     </Col>
                 </Row>
+            )}
 
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <Row>
                     {true && (
                         <Col style={{ width: '100%' }}>
-                            <span className="text-muted-alt" style={{fontStyle: 'italic'}}>{insight.description ? insight.description : 'Give your insight a meaningful description'}</span>
-                            {insightMode === ItemMode.Edit && <EditOutlined onClick={() => editInsightDescription(true)} style={{color: 'var(--primary)', paddingLeft: 8}} />}
-                            <div className="mb" style={{marginTop: 8}} data-attr="insight-tags">
+                            {insightMode === ItemMode.View ? (
+                                <span className="text-muted-alt" style={{ fontStyle: 'italic' }}>
+                                    {insight.description
+                                        ? insight.description
+                                        : 'Give your insight a meaningful description'}
+                                </span>
+                            ) : (
+                                <Input
+                                    placeholder="Give your insight a meaningful description"
+                                    style={{ marginTop: 8 }}
+                                    value={insight.description}
+                                    onChange={(e) => setInsight({ ...insight, description: e.target.value })}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                            updateInsight(insight)
+                                        }
+                                    }}
+                                    tabIndex={5}
+                                    allowClear
+                                />
+                            )}
+                            <div className="mb" style={{ marginTop: 8 }} data-attr="insight-tags">
                                 <ObjectTags
                                     tags={insight.tags || []}
                                     onTagSave={saveNewTag}
@@ -274,7 +333,9 @@ export function Insights(): JSX.Element {
                 </Row>
             )}
 
-            <InsightsNav />
+            <Row style={{ marginTop: 16 }}>
+                <InsightsNav />
+            </Row>
 
             <Row gutter={16}>
                 {activeView === ViewType.HISTORY ? (
@@ -285,7 +346,7 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col span={24} lg={verticalLayout ? 8 : undefined}>
+                        <Col span={24} xl={verticalLayout ? 9 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
@@ -344,7 +405,7 @@ export function Insights(): JSX.Element {
                             </Card>
                             {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
-                        <Col span={24} lg={verticalLayout ? 16 : undefined}>
+                        <Col span={24} xl={verticalLayout ? 15 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
@@ -379,31 +440,21 @@ export function Insights(): JSX.Element {
                                             />
                                         )}
                                     </Row>
-                                    {showErrorMessage ? (
-                                        <ErrorMessage />
-                                    ) : (
-                                        showTimeoutMessage && <TimeOut isLoading={isLoading} />
-                                    )}
-                                    <div
-                                        style={{
-                                            display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
-                                        }}
-                                    >
-                                        {showErrorMessage ? (
-                                            <ErrorMessage />
-                                        ) : showTimeoutMessage ? (
-                                            <TimeOut isLoading={isLoading} />
-                                        ) : (
-                                            {
-                                                [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-                                                [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-                                                [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                                [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                [`${ViewType.PATHS}`]: <Paths />,
-                                            }[activeView]
-                                        )}
+                                    {!BlockingEmptyState && CoexistingEmptyState}
+                                    <div style={{ display: 'block' }}>
+                                        {!!BlockingEmptyState
+                                            ? BlockingEmptyState
+                                            : {
+                                                  [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                  [`${ViewType.STICKINESS}`]: (
+                                                      <TrendInsight view={ViewType.STICKINESS} />
+                                                  ),
+                                                  [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
+                                                  [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                  [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                  [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                  [`${ViewType.PATHS}`]: <Paths />,
+                                              }[activeView]}
                                     </div>
                                 </div>
                             </Card>
