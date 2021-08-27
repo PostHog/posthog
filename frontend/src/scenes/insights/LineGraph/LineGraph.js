@@ -515,8 +515,6 @@ export function LineGraph({
             }
         }
 
-        console.log('TYPE', type, options)
-
         myLineChart.current = new Chart(myChartRef, {
             type: type === 'histogram' ? 'bar' : type,
             data: { labels, datasets },
