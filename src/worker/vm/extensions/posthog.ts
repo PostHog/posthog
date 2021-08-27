@@ -17,23 +17,23 @@ interface InternalData {
 }
 
 export interface DummyPostHog {
-    capture(event: string, properties?: Record<string, any>): void
+    capture(event: string, properties?: Record<string, any>): Promise<void>
     api: ApiExtension
 }
 
 export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
-    let sendEvent: (data: InternalData) => void
+    let sendEvent: (data: InternalData) => Promise<void>
 
     if (server.KAFKA_ENABLED) {
         // Sending event to our Kafka>ClickHouse pipeline
-        sendEvent = (data) => {
+        sendEvent = async (data) => {
             if (!server.kafkaProducer) {
                 throw new Error('kafkaProducer not configured!')
             }
             // ignore the promise, run in the background just like with celery
-            void server.kafkaProducer.queueMessage({
+            await server.kafkaProducer.queueMessage({
                 topic: server.KAFKA_CONSUMPTION_TOPIC!,
                 messages: [
                     {
@@ -55,8 +55,8 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
     } else {
         // Sending event to our Redis>Postgres pipeline
         const client = new Client(server.db, server.PLUGINS_CELERY_QUEUE)
-        sendEvent = (data) => {
-            client.sendTask(
+        sendEvent = async (data) => {
+            await client.sendTaskAsync(
                 'posthog.tasks.process_event.process_event_with_plugins',
                 [data.distinct_id, null, null, data, pluginConfig.team_id, data.timestamp, data.timestamp],
                 {}
@@ -65,7 +65,7 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
     }
 
     return {
-        capture(event, properties = {}) {
+        async capture(event, properties = {}) {
             const { timestamp = DateTime.utc().toISO(), distinct_id = distinctId, ...otherProperties } = properties
             const data: InternalData = {
                 distinct_id,
@@ -80,7 +80,7 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
                 team_id: pluginConfig.team_id,
                 uuid: new UUIDT().toString(),
             }
-            sendEvent(data)
+            await sendEvent(data)
         },
         api: createApi(server, pluginConfig),
     }

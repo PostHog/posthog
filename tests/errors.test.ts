@@ -54,7 +54,7 @@ describe('error do not take down ingestion', () => {
         expect(await getErrorForPluginConfig(pluginConfig39.id)).toBe(null)
 
         for (let i = 0; i < 4; i++) {
-            posthog.capture('broken event', { crash: 'throw' })
+            await posthog.capture('broken event', { crash: 'throw' })
         }
 
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
@@ -70,7 +70,7 @@ describe('error do not take down ingestion', () => {
         expect(await getErrorForPluginConfig(pluginConfig39.id)).toBe(null)
 
         for (let i = 0; i < 4; i++) {
-            posthog.capture('broken event', { crash: 'throw in promise' })
+            await posthog.capture('broken event', { crash: 'throw in promise' })
         }
 
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
@@ -86,7 +86,7 @@ describe('error do not take down ingestion', () => {
         expect(await getErrorForPluginConfig(pluginConfig39.id)).toBe(null)
 
         for (let i = 0; i < 4; i++) {
-            posthog.capture('broken event', { crash: 'reject in promise' })
+            await posthog.capture('broken event', { crash: 'reject in promise' })
         }
 
         await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)

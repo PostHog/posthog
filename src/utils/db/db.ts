@@ -1163,7 +1163,13 @@ export class DB {
         return createUserResult
     }
 
-    public async createPersonalApiKey({ id, user_id, label, value, created_at }: CreatePersonalApiKeyPayload) {
+    public async createPersonalApiKey({
+        id,
+        user_id,
+        label,
+        value,
+        created_at,
+    }: CreatePersonalApiKeyPayload): Promise<QueryResult> {
         return await this.postgresQuery(
             `INSERT INTO posthog_personalapikey (id, user_id, label, value, created_at)
             VALUES ($1, $2, $3, $4, $5)

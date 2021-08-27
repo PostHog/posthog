@@ -105,10 +105,19 @@ export class Client extends Base {
         return new Task(this, name)
     }
 
-    public sendTask(taskName: string, args?: Array<any>, kwargs?: Record<string, any>, taskId?: string): void {
+    public async sendTaskAsync(
+        taskName: string,
+        args?: Array<any>,
+        kwargs?: Record<string, any>,
+        taskId?: string
+    ): Promise<void> {
         taskId = taskId || v4()
         const message = this.createTaskMessage(taskId, taskName, args || [], kwargs || {})
         // run in the background
-        void this.sendTaskMessage(taskName, message)
+        await this.sendTaskMessage(taskName, message)
+    }
+
+    public sendTask(taskName: string, args?: Array<any>, kwargs?: Record<string, any>, taskId?: string): void {
+        void this.sendTaskAsync(taskName, args, kwargs, taskId)
     }
 }

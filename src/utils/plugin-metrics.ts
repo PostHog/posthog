@@ -21,11 +21,11 @@ export class PluginMetricsManager {
         this.metricsPerPluginConfig = {}
     }
 
-    sendPluginMetrics(hub: Hub): void {
+    async sendPluginMetrics(hub: Hub): Promise<void> {
         for (const pluginConfigMetrics of Object.values(this.metricsPerPluginConfig)) {
             const config = pluginConfigMetrics.pluginConfig
             const posthog = createPosthog(hub, config)
-            posthog.capture(`$$plugin_metrics`, {
+            await posthog.capture(`$$plugin_metrics`, {
                 ...pluginConfigMetrics.metrics,
                 plugin_name: config.plugin!.name,
                 plugin_id: config.plugin!.id,

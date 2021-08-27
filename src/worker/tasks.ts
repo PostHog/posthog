@@ -57,8 +57,8 @@ export const workerTasks: Record<string, TaskRunner> = {
     flushKafkaMessages: async (hub) => {
         await hub.kafkaProducer?.flush()
     },
-    sendPluginMetrics: (hub) => {
-        hub.pluginMetricsManager.sendPluginMetrics(hub)
+    sendPluginMetrics: async (hub) => {
+        await hub.pluginMetricsManager.sendPluginMetrics(hub)
     },
     enqueueJob: async (hub, { job }: { job: EnqueuedJob }) => {
         await hub.jobQueueManager.enqueue(job)
