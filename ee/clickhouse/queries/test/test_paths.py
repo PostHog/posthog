@@ -2,7 +2,6 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
