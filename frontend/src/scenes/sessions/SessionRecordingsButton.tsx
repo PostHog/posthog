@@ -1,6 +1,6 @@
 import './SessionRecordingsButton.scss'
 import React, { ReactNode, useState } from 'react'
-import { PlayCircleOutlined, DownOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined, DownOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { SessionRecordingType } from '~/types'
 import { colonDelimitedDuration, fromParams, humanFriendlyDetailedTime, toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
@@ -110,14 +110,17 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
                     <Button
                         className={clsx(
                             'session-recordings-button',
-                            wereAllRecordingsViewed && 'session-recordings-button--all-viewed',
-                            isSingleRecording && 'session-recordings-button--single-recording'
+                            wereAllRecordingsViewed && 'session-recordings-button--all-viewed'
                         )}
                         data-attr="session-recordings-button"
                         icon={<PlayCircleOutlined />}
                     >
                         Watch session
-                        {!isSingleRecording && <DownOutlined className="session-recordings-button__indicator" />}
+                        {isSingleRecording ? (
+                            <ArrowRightOutlined className="session-recordings-button__indicator" />
+                        ) : (
+                            <DownOutlined className="session-recordings-button__indicator" />
+                        )}
                     </Button>
                 </ButtonWrapper>
             )}
