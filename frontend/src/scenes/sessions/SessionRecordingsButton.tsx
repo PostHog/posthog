@@ -23,7 +23,10 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
     const wereAllRecordingsViewed = !sessionRecordings.some(({ viewed }) => !viewed)
     const isSingleRecording = sessionRecordings.length === 1
 
-    // If there's only one
+    /** A wrapper for the button, that handles differing behavior based on the number of recordings available:
+     * When there's only one recording, hovering over the button shows the dropdown, and clicking opens the recording.
+     * When there are more recordings, hovering over the button does nothing, and clicking shows the dropdown.
+     */
     function ButtonWrapper({
         setRef,
         children,
@@ -35,7 +38,6 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
             <div className="session-recordings-button__wrapper" ref={setRef}>
                 <Link
                     to={sessionPlayerUrl(sessionRecordings[0].id)}
-                    data-attr="session-recordings-button"
                     onClick={(event) => {
                         event.stopPropagation()
                         setAreRecordingsShown(false)
@@ -50,7 +52,6 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
             <div
                 ref={setRef}
                 className="session-recordings-button__wrapper"
-                data-attr="session-recordings-button"
                 onClick={(event) => {
                     event.stopPropagation()
                     setAreRecordingsShown((previousValue) => !previousValue)
@@ -111,6 +112,7 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
                             'session-recordings-button',
                             wereAllRecordingsViewed && 'session-recordings-button--all-viewed'
                         )}
+                        data-attr="session-recordings-button"
                         icon={isSingleRecording ? <PlayCircleFilled /> : <PlayCircleOutlined />}
                     >
                         Watch session
