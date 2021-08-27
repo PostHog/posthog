@@ -2,7 +2,7 @@ import { isBreakpoint, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, clamp, sum, uuid } from 'lib/utils'
+import { autocorrectInterval, sum, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -248,7 +248,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     // make sure exclusion steps are clamped within new step range
                     const newFilters = {
                         ...filters,
-                        ...getClampedStepRangeFilter({ filters }),
+                        ...getClampedStepRangeFilter({ filters: { ...state, ...filters } }),
                         exclusions: (filters.exclusions || state.exclusions || []).map((e) =>
                             getClampedStepRangeFilter({ stepRange: e, filters })
                         ),
@@ -637,15 +637,9 @@ export const funnelLogic = kea<funnelLogicType>({
             })
         },
         changeStepRange: ({ funnel_from_step, funnel_to_step }) => {
-            // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
-            // for all steps
-            const maxStepIndex = Math.max(values.numberOfSeries - 1, 1)
-            const nextFromStep = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
-            const nextToStep = clamp(funnel_to_step ?? maxStepIndex, nextFromStep + 1, maxStepIndex)
-
             actions.setFilters({
-                funnel_from_step: nextFromStep,
-                funnel_to_step: nextToStep,
+                funnel_from_step,
+                funnel_to_step,
             })
         },
         setBinCount: async () => {
