@@ -6,6 +6,7 @@ from typing import Dict, List
 
 from posthog.constants import RDBMS
 from posthog.settings import AUTHENTICATION_BACKENDS, PRIMARY_DB, SITE_URL, TEST, get_from_env
+from posthog.utils import str_to_bool
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -59,6 +60,7 @@ if os.getenv("SAML_ENTITY_ID") and os.getenv("SAML_ACS_URL") and os.getenv("SAML
             "attr_email": os.getenv("SAML_ATTR_EMAIL", "email"),
         },
     }
+    SAML_ENFORCED = get_from_env("SAML_ENFORCED", False, type_cast=str_to_bool)
 
 
 # ClickHouse and Kafka

@@ -369,3 +369,32 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(str(e.exception), "{'name': ['This field is required and was not provided by the IdP.']}")
 
         self.assertEqual(User.objects.count(), user_count)
+
+    def test_saml_can_be_enforced(self):
+        self.client.logout()
+
+        # Can log in regularly with SAML configured
+        with self.settings(**MOCK_SETTINGS):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Forcing only SAML disables regular API password login
+        with self.settings(**MOCK_SETTINGS, SAML_ENFORCED=True):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "saml_enforced",
+                "detail": "This instance only allows SAML login.",
+                "attr": None,
+            },
+        )
+
+        # Client is automatically redirected to SAML login
+        with self.settings(**MOCK_SETTINGS, SAML_ENFORCED=True):
+            response = self.client.get("/login")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], "/login/saml/?idp=posthog_custom")

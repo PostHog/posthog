@@ -5,7 +5,9 @@ from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.http import HttpResponse
+from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
+from django.urls.base import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView
 from social_core.pipeline.partial import partial
@@ -30,6 +32,13 @@ from .views import health, login_required, preflight_check, robots_txt, stats
 
 def home(request, *args, **kwargs):
     return render_template("index.html", request)
+
+
+def login(request):
+    if getattr(settings, "SAML_ENFORCED", False):
+        return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
+
+    return home(request)
 
 
 def authorize_and_redirect(request):
@@ -118,6 +127,7 @@ urlpatterns = [
         ),
     ),
     path("accounts/", include("django.contrib.auth.urls")),
+    path("login", login),
 ]
 
 # Allow crawling on PostHog Cloud, disable for all self-hosted installations
@@ -137,7 +147,7 @@ if settings.TEST:
 
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "login"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
