@@ -31,6 +31,7 @@ export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsPro
                             jobName={jobName}
                             jobSpec={public_jobs[jobName]}
                             pluginConfigId={pluginConfigId}
+                            pluginId={plugin.id}
                         />
                     </div>
                 )

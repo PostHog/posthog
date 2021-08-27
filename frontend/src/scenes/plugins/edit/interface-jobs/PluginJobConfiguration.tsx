@@ -7,11 +7,11 @@ import { useValues, useActions } from 'kea'
 import { JobSpec } from '~/types'
 import { validateJsonFormItem } from 'lib/utils'
 import { interfaceJobsLogic } from './interfaceJobsLogic'
-
 interface PluginJobConfigurationProps {
     jobName: string
     jobSpec: JobSpec
     pluginConfigId: number
+    pluginId: number
 }
 
 const requiredRule = {
@@ -19,23 +19,19 @@ const requiredRule = {
     message: 'Please enter a value!',
 }
 
-export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: PluginJobConfigurationProps): JSX.Element {
-    const { setIsJobModalOpen, runJob } = useActions(interfaceJobsLogic)
-    const { runJobAvailable, isJobModalOpen } = useValues(interfaceJobsLogic)
-
-    const [form] = Form.useForm()
+export function PluginJobConfiguration({
+    jobName,
+    jobSpec,
+    pluginConfigId,
+    pluginId,
+}: PluginJobConfigurationProps): JSX.Element {
+    const logicProps = { jobName, pluginConfigId, pluginId }
+    const { setIsJobModalOpen, runJob, playButtonOnClick } = useActions(interfaceJobsLogic(logicProps))
+    const { runJobAvailable, isJobModalOpen } = useValues(interfaceJobsLogic(logicProps))
 
     const jobHasEmptyPayload = Object.keys(jobSpec.payload || {}).length === 0
 
-    const playButtonOnClick = (): void => {
-        if (runJobAvailable) {
-            if (jobHasEmptyPayload) {
-                runJob(form, jobName, pluginConfigId)
-                return
-            }
-            setIsJobModalOpen(true)
-        }
-    }
+    const [form] = Form.useForm()
 
     const configureOrRunJobTooltip = runJobAvailable
         ? jobHasEmptyPayload
@@ -50,7 +46,7 @@ export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: Plu
                     marginLeft: 10,
                     marginRight: 5,
                 }}
-                onClick={playButtonOnClick}
+                onClick={() => playButtonOnClick(form, jobHasEmptyPayload)}
             >
                 <Tooltip title={configureOrRunJobTooltip}>
                     {jobHasEmptyPayload ? (
@@ -68,7 +64,7 @@ export function PluginJobConfiguration({ jobName, jobSpec, pluginConfigId }: Plu
             <Modal
                 visible={isJobModalOpen}
                 onCancel={() => setIsJobModalOpen(false)}
-                onOk={() => runJob(form, jobName, pluginConfigId)}
+                onOk={() => runJob(form)}
                 okText={'Run job now'}
                 title={`Configuring job '${jobName}'`}
             >
