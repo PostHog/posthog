@@ -109,19 +109,19 @@ describe('job queues', () => {
         })
 
         test('jobs get scheduled with runIn', async () => {
-            posthog.capture('my event', { type: 'runIn' })
+            await posthog.capture('my event', { type: 'runIn' })
             await waitForLogEntries(2)
             expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runIn']])
         })
 
         test('jobs get scheduled with runAt', async () => {
-            posthog.capture('my event', { type: 'runAt' })
+            await posthog.capture('my event', { type: 'runAt' })
             await waitForLogEntries(2)
             expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runAt']])
         })
 
         test('jobs get scheduled with runNow', async () => {
-            posthog.capture('my event', { type: 'runNow' })
+            await posthog.capture('my event', { type: 'runNow' })
             await waitForLogEntries(2)
             expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runNow']])
         })
@@ -147,7 +147,7 @@ describe('job queues', () => {
             })
 
             test('graphile job queue', async () => {
-                posthog.capture('my event', { type: 'runIn' })
+                await posthog.capture('my event', { type: 'runIn' })
                 await waitForLogEntries(2)
                 expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runIn']])
             })
@@ -182,7 +182,7 @@ describe('job queues', () => {
                 const config = await initTest({ JOB_QUEUES: 'graphile', JOB_QUEUE_GRAPHILE_URL: '' }, true)
                 server = await startPluginsServer(config, makePiscina)
                 posthog = createPosthog(server.hub, pluginConfig39)
-                posthog.capture('my event', { type: 'runIn' })
+                await posthog.capture('my event', { type: 'runIn' })
                 await waitForLogEntries(2)
                 expect(testConsole.read()).toEqual([['processEvent'], ['reply', 'runIn']])
             })
@@ -216,7 +216,7 @@ describe('job queues', () => {
                     )
                     server = await startPluginsServer(config, makePiscina)
                     posthog = createPosthog(server.hub, pluginConfig39)
-                    posthog.capture('my event', { type: 'runIn' })
+                    await posthog.capture('my event', { type: 'runIn' })
                     await waitForLogEntries(1)
                     expect(testConsole.read()).toEqual([['processEvent']])
                 })

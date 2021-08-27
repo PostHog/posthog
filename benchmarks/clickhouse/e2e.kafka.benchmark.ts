@@ -58,13 +58,13 @@ describe('e2e kafka & clickhouse benchmark', () => {
         const count = 3000
 
         // fill in the queue
-        function createEvent() {
+        async function createEvent() {
             const uuid = new UUIDT().toString()
-            posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
+            await posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
         }
         await queue.pause()
         for (let i = 0; i < count; i++) {
-            createEvent()
+            await createEvent()
         }
 
         // hope that 5sec is enough to load kafka with all the events (posthog.capture can't be awaited)

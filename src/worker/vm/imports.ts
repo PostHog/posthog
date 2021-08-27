@@ -5,6 +5,7 @@ import * as contrib from '@posthog/plugin-contrib'
 import * as scaffold from '@posthog/plugin-scaffold'
 import * as AWS from 'aws-sdk'
 import crypto from 'crypto'
+import * as faker from 'faker'
 import * as genericPool from 'generic-pool'
 import fetch from 'node-fetch'
 import * as pg from 'pg'
@@ -16,23 +17,24 @@ import * as zlib from 'zlib'
 import { writeToFile } from './extensions/test-utils'
 
 export const imports = {
-    crypto: crypto,
-    url: url,
-    zlib: zlib,
-    'generic-pool': genericPool,
-    'node-fetch': fetch,
-    'snowflake-sdk': snowflake,
-    '@google-cloud/bigquery': bigquery,
-    '@google-cloud/pubsub': pubsub,
-    '@google-cloud/storage': gcs,
-    '@posthog/plugin-scaffold': scaffold,
-    '@posthog/plugin-contrib': contrib,
-    'aws-sdk': AWS,
-    stream: { PassThrough },
-    pg: pg,
     ...(process.env.NODE_ENV === 'test'
         ? {
               'test-utils/write-to-file': writeToFile,
           }
         : {}),
+    '@google-cloud/bigquery': bigquery,
+    '@google-cloud/pubsub': pubsub,
+    '@google-cloud/storage': gcs,
+    '@posthog/plugin-contrib': contrib,
+    '@posthog/plugin-scaffold': scaffold,
+    'aws-sdk': AWS,
+    'generic-pool': genericPool,
+    'node-fetch': fetch,
+    'snowflake-sdk': snowflake,
+    crypto: crypto,
+    faker: faker,
+    pg: pg,
+    stream: { PassThrough },
+    url: url,
+    zlib: zlib,
 }

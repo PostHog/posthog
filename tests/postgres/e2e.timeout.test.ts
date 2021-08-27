@@ -54,7 +54,7 @@ describe('e2e postgres ingestion timeout', () => {
     test('event captured, processed, ingested', async () => {
         expect((await hub.db.fetchEvents()).length).toBe(0)
         const uuid = new UUIDT().toString()
-        posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
+        await posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
         await delayUntilEventIngested(() => hub.db.fetchEvents())
         const events = await hub.db.fetchEvents()
         expect(events.length).toBe(1)

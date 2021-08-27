@@ -908,8 +908,8 @@ test('runEvery must be a function', async () => {
 
 test('posthog in runEvery', async () => {
     const indexJs = `
-        function runEveryMinute(meta) {
-            posthog.capture('my-new-event', { random: 'properties' })
+        async function runEveryMinute(meta) {
+            await posthog.capture('my-new-event', { random: 'properties' })
             return 'haha'
         }
     `
@@ -926,7 +926,7 @@ test('posthog in runEvery', async () => {
     expect((Client as any).mock.calls[1][1]).toEqual(hub.PLUGINS_CELERY_QUEUE) // events out to start of plugin queue
 
     const mockClientInstance = (Client as any).mock.instances[1]
-    const mockSendTask = mockClientInstance.sendTask
+    const mockSendTask = mockClientInstance.sendTaskAsync
 
     expect(mockSendTask.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
     expect(mockSendTask.mock.calls[0][1]).toEqual([
@@ -951,8 +951,8 @@ test('posthog in runEvery', async () => {
 
 test('posthog in runEvery with timestamp', async () => {
     const indexJs = `
-        function runEveryMinute(meta) {
-            posthog.capture('my-new-event', { random: 'properties', timestamp: '2020-02-23T02:15:00Z' })
+        async function runEveryMinute(meta) {
+            await posthog.capture('my-new-event', { random: 'properties', timestamp: '2020-02-23T02:15:00Z' })
             return 'haha'
         }
     `
@@ -969,7 +969,7 @@ test('posthog in runEvery with timestamp', async () => {
     expect((Client as any).mock.calls[1][1]).toEqual(hub.PLUGINS_CELERY_QUEUE) // events out to start of plugin queue
 
     const mockClientInstance = (Client as any).mock.instances[1]
-    const mockSendTask = mockClientInstance.sendTask
+    const mockSendTask = mockClientInstance.sendTaskAsync
 
     expect(mockSendTask.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
     expect(mockSendTask.mock.calls[0][1]).toEqual([
@@ -1005,7 +1005,7 @@ test('posthog.capture accepts user-defined distinct id', async () => {
     expect(response).toBe('haha')
 
     const mockClientInstance = (Client as any).mock.instances[1]
-    const mockSendTask = mockClientInstance.sendTask
+    const mockSendTask = mockClientInstance.sendTaskAsync
 
     expect(mockSendTask.mock.calls[0][0]).toEqual('posthog.tasks.process_event.process_event_with_plugins')
     expect(mockSendTask.mock.calls[0][1]).toEqual([

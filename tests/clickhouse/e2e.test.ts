@@ -70,7 +70,7 @@ describe('e2e clickhouse ingestion', () => {
 
         const uuid = new UUIDT().toString()
 
-        posthog.capture('custom event', { name: 'haha', uuid })
+        await posthog.capture('custom event', { name: 'haha', uuid })
 
         await delayUntilEventIngested(() => hub.db.fetchEvents())
 
@@ -93,7 +93,7 @@ describe('e2e clickhouse ingestion', () => {
 
         const uuid = new UUIDT().toString()
 
-        posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
+        await posthog.capture('$snapshot', { $session_id: '1234abc', $snapshot_data: 'yes way' })
 
         await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
@@ -114,7 +114,7 @@ describe('e2e clickhouse ingestion', () => {
         const logCount = (await hub.db.fetchPluginLogEntries()).length
         const getLogsSinceStart = async () => (await hub.db.fetchPluginLogEntries()).slice(logCount)
 
-        posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
+        await posthog.capture('custom event', { name: 'hehe', uuid: new UUIDT().toString() })
 
         await hub.kafkaProducer?.flush()
         await delayUntilEventIngested(() => hub.db.fetchEvents())
