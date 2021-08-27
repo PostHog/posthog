@@ -2,7 +2,7 @@ import random
 import re
 import string
 from datetime import timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from django.utils.timezone import now
 
@@ -36,11 +36,14 @@ def get_materialized_columns(table: TableWithProperties) -> Dict[PropertyName, C
 
 def materialize(table: TableWithProperties, property: PropertyName) -> None:
     column_name = materialized_column_name(table, property)
+    # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
+    execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
+
     if CLICKHOUSE_REPLICATION and table == "events":
         sync_execute(
             f"""
             ALTER TABLE sharded_{table}
-            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
             {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
         """,
@@ -49,7 +52,7 @@ def materialize(table: TableWithProperties, property: PropertyName) -> None:
         sync_execute(
             f"""
             ALTER TABLE {table}
-            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
             {column_name} VARCHAR
         """
@@ -58,7 +61,7 @@ def materialize(table: TableWithProperties, property: PropertyName) -> None:
         sync_execute(
             f"""
             ALTER TABLE {table}
-            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
             {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
         """,
@@ -66,22 +69,30 @@ def materialize(table: TableWithProperties, property: PropertyName) -> None:
         )
 
     sync_execute(
-        f"ALTER TABLE {table} ON CLUSTER {CLICKHOUSE_CLUSTER} COMMENT COLUMN {column_name} %(comment)s",
+        f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_name} %(comment)s",
         {"comment": f"column_materializer::{property}"},
     )
 
 
-def backfill_materialized_events_column(
-    properties: List[PropertyName], backfill_period: timedelta, test_settings=None
+def backfill_materialized_columns(
+    table: TableWithProperties, properties: List[PropertyName], backfill_period: timedelta, test_settings=None
 ) -> None:
     """
     Backfills the materialized column after its creation.
 
     This will require reading and writing a lot of data on clickhouse disk.
     """
-    table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
 
-    materialized_columns = get_materialized_columns("events")
+    from ee.tasks.materialized_column_backfill import DELAY_SECONDS, check_backfill_done
+
+    if len(properties) == 0:
+        return
+
+    updated_table = "sharded_events" if CLICKHOUSE_REPLICATION and table == "events" else table
+    # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
+    execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
+
+    materialized_columns = get_materialized_columns(table, use_cache=False)
 
     # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
     # Note that for this to work all inserts should list columns explicitly
@@ -89,8 +100,8 @@ def backfill_materialized_events_column(
     for property in properties:
         sync_execute(
             f"""
-            ALTER TABLE {table}
-            ON CLUSTER {CLICKHOUSE_CLUSTER}
+            ALTER TABLE {updated_table}
+            {execute_on_cluster}
             MODIFY COLUMN
             {materialized_columns[property]} VARCHAR DEFAULT {TRIM_AND_EXTRACT_PROPERTY}
             """,
@@ -102,28 +113,19 @@ def backfill_materialized_events_column(
     assignments = ", ".join(
         f"{materialized_columns[property]} = {materialized_columns[property]}" for property in properties
     )
+
     sync_execute(
         f"""
-        ALTER TABLE {table}
-        ON CLUSTER {CLICKHOUSE_CLUSTER}
+        ALTER TABLE {updated_table}
+        {execute_on_cluster}
         UPDATE {assignments}
-        WHERE timestamp > %(cutoff)s
+        WHERE {"timestamp > %(cutoff)s" if table == "events" else "1 = 1"}
         """,
         {"cutoff": (now() - backfill_period).strftime("%Y-%m-%d")},
         settings=test_settings,
     )
 
-    # Update the schema back even though updates are ongoing - no validations against this at least.
-    for property in properties:
-        sync_execute(
-            f"""
-            ALTER TABLE {table}
-            ON CLUSTER {CLICKHOUSE_CLUSTER}
-            MODIFY COLUMN
-            {materialized_columns[property]} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY}
-            """,
-            {"property": property},
-        )
+    check_backfill_done.apply_async((table, property,), countdown=DELAY_SECONDS)
 
 
 def materialized_column_name(table: TableWithProperties, property: PropertyName) -> str:
