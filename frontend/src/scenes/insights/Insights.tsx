@@ -219,7 +219,7 @@ export function Insights(): JSX.Element {
                     closeModal={() => openSaveToDashboardModal(false)}
                     name={insight.name || ''}
                     filters={insight}
-                    fromItem={insight.id}
+                    fromItem={fromItem}
                     fromDashboard={fromDashboard}
                     fromItemName={insight.name || ''}
                     annotations={null}
