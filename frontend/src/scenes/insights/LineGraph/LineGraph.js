@@ -162,6 +162,7 @@ export function LineGraph({
             pointHoverBorderWidth: 2,
             pointHitRadius: 8,
             ...dataset,
+            type,
         }
     }
 
@@ -200,7 +201,7 @@ export function LineGraph({
                     }
 
                     datasetCopy.data =
-                        datasetCopy.data.length > 2
+                        datasetCopy.data?.length > 2
                             ? datasetCopy.data.map((datum, idx) =>
                                   idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
                               )

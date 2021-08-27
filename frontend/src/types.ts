@@ -332,7 +332,7 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelExclusionEntityFilter extends EntityFilter {
+export interface FunnelStepRangeEntityFilter extends EntityFilter {
     funnel_from_step: number
     funnel_to_step: number
 }
@@ -693,7 +693,7 @@ export interface FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
-    exclusions?: FunnelExclusionEntityFilter[] // used in funnel exclusion filters
+    exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
 }
 
 export interface SystemStatusSubrows {
@@ -804,15 +804,6 @@ export interface FunnelsTimeConversionResult {
     last_refresh: string | null
     is_cached: boolean
     type: 'Funnel'
-}
-
-// Indexing boundaries = [from_step, to_step)
-export interface FunnelTimeConversionStep {
-    from_step: number // set this to -1 if querying for all steps
-    to_step: number
-    label?: string
-    average_conversion_time?: number
-    count?: number
 }
 
 export interface FunnelTimeConversionMetrics {
