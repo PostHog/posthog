@@ -117,8 +117,8 @@ class ClickhousePathsNew:
 
         if self._filter.end_point:
             return (
-                "reverse(arraySlice(reverse(filtered_path), 1, %(event_in_session_limit)s))",
-                "reverse(arraySlice(reverse(filtered_timings), 1, %(event_in_session_limit)s))",
+                "arraySlice(filtered_path, (-1) * %(event_in_session_limit)s)",
+                "arraySlice(filtered_timings, (-1) * %(event_in_session_limit)s)",
             )
         else:
             return (
