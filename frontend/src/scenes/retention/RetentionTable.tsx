@@ -215,8 +215,7 @@ const renderPercentage = (value: number, total: number, latest = false, periodZe
     const _percentage = total > 0 ? (100.0 * value) / total : 0
     const percentageBasisForColor = periodZero ? 100 : _percentage // So that Period 0 is always shown consistently
     const backgroundColor = `hsl(212, 63%, ${30 + (100 - percentageBasisForColor) * 0.65}%)`
-    const color =
-        periodZero && value == 0 ? 'var(--warning)' : percentageBasisForColor >= 65 ? 'hsl(0, 0%, 80%)' : undefined
+    const color = percentageBasisForColor >= 65 ? 'hsl(0, 0%, 80%)' : undefined
 
     const numberCell = (
         <div style={{ backgroundColor, color }} className={clsx('percentage-cell', { 'period-in-progress': latest })}>
