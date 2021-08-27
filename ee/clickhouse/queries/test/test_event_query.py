@@ -93,14 +93,6 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         self._run_query(filter, entity)
 
-        filter = Filter(
-            data={
-                "date_from": "2021-05-01 00:00:00",
-                "date_to": "2021-05-07 00:00:00",
-                "events": [{"id": "viewed", "order": 0},],
-            }
-        )
-
         entity = Entity(
             {
                 "id": "viewed",
@@ -110,6 +102,10 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
                     {"key": "key", "value": "val"},
                 ],
             }
+        )
+
+        filter = Filter(
+            data={"date_from": "2021-05-01 00:00:00", "date_to": "2021-05-07 00:00:00", "events": [entity.to_dict()],}
         )
 
         self._run_query(filter, entity)
