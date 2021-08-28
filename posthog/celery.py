@@ -7,6 +7,7 @@ from celery.signals import task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+from sentry_sdk.api import capture_exception
 
 from posthog.ee import is_clickhouse_enabled
 from posthog.redis import get_client
@@ -101,8 +102,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
                 clickhouse_materialize_columns.s(),
                 name="clickhouse materialize columns",
             )
-        except:
-            pass
+        except Exception as err:
+            capture_exception(err)
+            print(f"Scheduling materialized column task failed: {err}")
+
     elif settings.PLUGIN_SERVER_ACTION_MATCHING >= 2:
         sender.add_periodic_task(
             ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
@@ -240,8 +243,7 @@ def clickhouse_materialize_columns():
     if is_clickhouse_enabled() and settings.EE_AVAILABLE:
         from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
-        # :TODO: Noop until ready
-        # materialize_properties_task()
+        materialize_properties_task()
 
 
 @app.task(ignore_result=True)
