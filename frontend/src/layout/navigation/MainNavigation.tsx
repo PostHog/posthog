@@ -23,6 +23,7 @@ import {
     IconCohorts,
     IconDashboard,
     IconEvents,
+    IconExplore,
     IconFeatureFlags,
     IconInsights,
     IconPerson,
@@ -265,11 +266,25 @@ export function MainNavigation(): JSX.Element {
                     {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
                         <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to={urls.home()} />
                     )}
+                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                        <MenuItem
+                            title="Explore"
+                            icon={<IconExplore />}
+                            identifier="insights"
+                            to={urls.insightView(ViewType.TRENDS)}
+                            hotkey="i"
+                            tooltip="Explore"
+                        />
+                    )}
                     <MenuItem
                         title="Insights"
                         icon={<IconInsights />}
-                        identifier="insights"
-                        to={urls.insightView(ViewType.TRENDS)}
+                        identifier="savedInsights"
+                        to={
+                            featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                                ? urls.savedInsights()
+                                : urls.insightView(ViewType.TRENDS)
+                        }
                         hotkey="i"
                         tooltip="Answers to all your analytics questions."
                     />
