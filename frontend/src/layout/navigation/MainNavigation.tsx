@@ -272,8 +272,8 @@ export function MainNavigation(): JSX.Element {
                             icon={<IconExplore />}
                             identifier="insights"
                             to={urls.insightView(ViewType.TRENDS)}
-                            hotkey="i"
-                            tooltip="Explore"
+                            hotkey="x"
+                            tooltip="Answers to all your analytics questions"
                         />
                     )}
                     <MenuItem
@@ -286,7 +286,7 @@ export function MainNavigation(): JSX.Element {
                                 : urls.insightView(ViewType.TRENDS)
                         }
                         hotkey="i"
-                        tooltip="Answers to all your analytics questions."
+                        tooltip="See your saved insights"
                     />
                     <Popover
                         content={PinnedDashboards}
