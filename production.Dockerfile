@@ -9,6 +9,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.*' \
+    && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
     && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
     && apt-get install -y --no-install-recommends 'nodejs=14.*' \
     && npm install -g yarn@1 \
@@ -28,7 +29,7 @@ RUN pip install -r requirements.txt --no-cache-dir --compile \
 RUN SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 # remove build dependencies not needed at runtime
-RUN apt-get purge -y git curl build-essential && apt-get autoremove -y
+RUN apt-get purge -y git curl pkg-config build-essential && apt-get autoremove -y
 
 # add posthog user, move runtime files into home and change permissions
 # this alleviates compliance issue for not running a container as root

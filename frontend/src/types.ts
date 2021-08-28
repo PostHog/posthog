@@ -909,6 +909,7 @@ interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    saml?: boolean
 }
 
 export interface PreflightStatus {

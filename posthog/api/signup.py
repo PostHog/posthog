@@ -285,11 +285,22 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         return {"is_new": False}
     backend_processor = "social_create_user"
     user_email = details["email"][0] if isinstance(details["email"], (list, tuple)) else details["email"]
-    user_name = details["fullname"] or details["username"]
+    user_name = (
+        details["fullname"]
+        or f"{details['first_name'] or ''} {details['last_name'] or ''}".strip()
+        or details["username"]
+    )
     strategy.session_set("user_name", user_name)
     strategy.session_set("backend", backend.name)
     from_invite = False
     invite_id = strategy.session_get("invite_id")
+
+    if not user_email or not user_name:
+        missing_attr = "email" if not user_email else "name"
+        raise ValidationError(
+            {missing_attr: "This field is required and was not provided by the IdP."}, code="required"
+        )
+
     if not invite_id:
 
         domain_organization: Optional[Organization] = None

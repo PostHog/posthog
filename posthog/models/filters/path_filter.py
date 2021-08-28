@@ -15,6 +15,7 @@ from posthog.models.filters.mixins.common import (
 )
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
+    EndPointMixin,
     FunnelPathsMixin,
     PathStepLimitMixin,
     PropTypeDerivedMixin,
@@ -27,6 +28,7 @@ from posthog.models.filters.mixins.property import PropertyMixin
 
 class PathFilter(
     StartPointMixin,
+    EndPointMixin,
     TargetEventDerivedMixin,
     ComparatorDerivedMixin,
     PropTypeDerivedMixin,
