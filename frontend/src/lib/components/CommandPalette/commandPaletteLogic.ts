@@ -142,7 +142,6 @@ export const commandPaletteLogic = kea<
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
         deregisterScope: (scope: string) => ({ scope }),
-        shareFeedbackCommand: (instruction?: string) => ({ instruction }),
     },
     reducers: {
         isPaletteShown: [
@@ -264,30 +263,6 @@ export const commandPaletteLogic = kea<
                     })
                 }
             }
-        },
-        shareFeedbackCommand: ({ instruction = "What's on your mind?" }) => {
-            actions.showPalette()
-            actions.activateFlow({
-                scope: 'Sharing Feedback',
-                instruction,
-                icon: CommentOutlined,
-                resolver: (argument) => ({
-                    icon: SendOutlined,
-                    display: 'Send',
-                    executor: !argument?.length
-                        ? undefined
-                        : () => {
-                              posthog.capture('palette feedback', { message: argument })
-                              return {
-                                  resolver: {
-                                      icon: CheckOutlined,
-                                      display: 'Message Sent!',
-                                      executor: true,
-                                  },
-                              }
-                          },
-                }),
-            })
         },
     }),
     selectors: {

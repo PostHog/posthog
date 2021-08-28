@@ -16,7 +16,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
-import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from '../../../lib/constants'
@@ -67,8 +66,6 @@ export function ProjectSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
-
-    const { shareFeedbackCommand } = useActions(commandPaletteLogic)
 
     useAnchor(location.hash)
 
@@ -225,11 +222,6 @@ export function ProjectSettings(): JSX.Element {
                     installed.
                 </p>
                 <SessionRecording />
-                <p>
-                    This is a new feature of PostHog. Please{' '}
-                    <a onClick={() => shareFeedbackCommand('How can we improve session recording?')}>share feedback</a>{' '}
-                    with us!
-                </p>
                 <Divider />
                 <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
             </Card>

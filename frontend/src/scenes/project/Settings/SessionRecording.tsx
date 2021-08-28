@@ -52,10 +52,10 @@ export function SessionRecording(): JSX.Element {
                                 marginLeft: '10px',
                             }}
                         >
-                            Automatically delete old session recordings after
+                            Automatically delete old session recordings{period !== null && ' after'}
                         </label>
                     </div>
-                    {period != null && (
+                    {period !== null && (
                         <div style={{ maxWidth: '15rem', marginLeft: 54 }}>
                             <Input
                                 type="number"
