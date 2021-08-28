@@ -203,17 +203,7 @@ export function PersonRow({ person }: PersonRowProps): JSX.Element {
                         </CopyToClipboardInline>
                     </div>
                 </div>
-                <SessionRecordingsButton
-                    sessionRecordings={[
-                        {
-                            id: '17b82c82bdc60f-0059679deedf22-35667c03-4b9600-17b82c82bdd1304',
-                            viewed: false,
-                            recording_duration: 2,
-                            start_time: new Date().toISOString(),
-                            end_time: new Date().toISOString(),
-                        },
-                    ]}
-                />
+                {person.session_recordings && <SessionRecordingsButton sessionRecordings={person.session_recordings} />}
             </div>
             {showProperties && <PropertiesTable properties={person.properties} className="person-modal-properties" />}
         </div>

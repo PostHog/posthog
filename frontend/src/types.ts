@@ -349,6 +349,8 @@ export interface PersonType {
     properties: Record<string, any>
     is_identified: boolean
     created_at?: string
+    /** Relevant session recordings may be included for linking in the persons modal. */
+    session_recordings?: SessionRecordingType[]
 }
 
 export interface CohortGroupType {
