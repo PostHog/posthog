@@ -159,7 +159,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                 <QuestionCircleOutlined className="info-indicator" />
                             </>
                         ) : (
-                            <Link to={urls.projectSettings()}>
+                            <Link to={urls.projectSettings() + '#session-recording'}>
                                 Recordings
                                 <PoweroffOutlined className="info-indicator text-warning" />
                             </Link>
@@ -173,6 +173,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 ) : null
             },
             span: 4,
+            defaultWidth: 184,
         },
     ]
 
