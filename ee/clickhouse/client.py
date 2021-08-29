@@ -96,6 +96,7 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
+            settings={"mutations_sync": "1"} if TEST else {},
         )
 
         ch_pool = ChPool(
@@ -108,6 +109,7 @@ else:
             verify=CLICKHOUSE_VERIFY,
             connections_min=CLICKHOUSE_CONN_POOL_MIN,
             connections_max=CLICKHOUSE_CONN_POOL_MAX,
+            settings={"mutations_sync": "1"} if TEST else {},
         )
 
         def async_execute(query, args=None, settings=None, with_column_types=False):

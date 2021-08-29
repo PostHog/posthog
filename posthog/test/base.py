@@ -130,7 +130,7 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
             self.client.force_login(self.user)
 
 
-def test_with_materialized_columns(event_properties=[], verify_no_jsonextract=True):
+def test_with_materialized_columns(event_properties=[], person_properties=[], verify_no_jsonextract=True):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
 
@@ -152,6 +152,8 @@ def test_with_materialized_columns(event_properties=[], verify_no_jsonextract=Tr
 
             for prop in event_properties:
                 materialize("events", prop)
+            for prop in person_properties:
+                materialize("person", prop)
 
             with self.capture_select_queries() as sqls:
                 fn(self, *args, **kwargs)

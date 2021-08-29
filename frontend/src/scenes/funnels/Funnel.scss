@@ -49,18 +49,14 @@
             padding-left: 16px !important;
         }
     }
-}
 
-.funnel-options {
-    margin-top: 16px;
-
-    .funnel-options-conversion-window {
+    .funnel-options-container {
         margin: 0.25rem 0;
         padding: 0.25rem 0;
         display: flex;
         flex-direction: column;
 
-        .funnel-options-conversion-window-label {
+        .funnel-options-label {
             padding: 4px 2px;
 
             .info-indicator {
@@ -68,7 +64,8 @@
             }
         }
 
-        .funnel-options-conversion-window-inputs {
+        .funnel-options-inputs {
+            align-items: center;
             padding: 4px 2px;
 
             .time-value-input {

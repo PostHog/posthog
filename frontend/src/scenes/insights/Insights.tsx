@@ -46,9 +46,7 @@ import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
-import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
-import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { Description } from 'lib/components/Description/Description'
 import { FunnelInsight } from './FunnelInsight'
@@ -104,7 +102,7 @@ export function Insights(): JSX.Element {
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const { user } = useValues(userLogic)
-    const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
+    const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
     const logicFromInsight = getLogicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
     const { loadResults } = useActions(logicFromInsight)
@@ -283,7 +281,7 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col span={24} xl={verticalLayout ? 9 : undefined}>
+                        <Col span={24} xl={verticalLayout ? 8 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
@@ -340,9 +338,8 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
-                        <Col span={24} xl={verticalLayout ? 15 : undefined}>
+                        <Col span={24} xl={verticalLayout ? 16 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
@@ -361,15 +358,16 @@ export function Insights(): JSX.Element {
                             >
                                 <div>
                                     <Row
+                                        align="top"
+                                        justify="space-between"
                                         style={{
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
                                             marginTop: -8,
                                             marginBottom: 16,
                                         }}
                                     >
-                                        <FunnelCanvasLabel />
-                                        <FunnelHistogramHeader />
+                                        <Col>
+                                            <FunnelCanvasLabel />
+                                        </Col>
                                         {lastRefresh && (
                                             <ComputationTimeWithRefresh
                                                 lastRefresh={lastRefresh}

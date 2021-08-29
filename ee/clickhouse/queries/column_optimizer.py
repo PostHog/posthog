@@ -35,8 +35,23 @@ class ColumnOptimizer:
         ]
 
     @cached_property
+    def materialized_person_columns_to_query(self) -> List[ColumnName]:
+        "Returns a list of person table columns containing materialized properties that this query needs"
+
+        materialized_columns = get_materialized_columns("person")
+        return [
+            materialized_columns[property_name]
+            for property_name, type in self._used_properties_with_type("person")
+            if property_name in materialized_columns
+        ]
+
+    @cached_property
     def should_query_event_properties_column(self) -> bool:
         return len(self.materialized_event_columns_to_query) != len(self._used_properties_with_type("event"))
+
+    @cached_property
+    def should_query_person_properties_column(self) -> bool:
+        return len(self.materialized_person_columns_to_query) != len(self._used_properties_with_type("person"))
 
     @cached_property
     def should_query_elements_chain_column(self) -> bool:

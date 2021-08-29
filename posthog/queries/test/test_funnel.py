@@ -260,6 +260,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
 
+        @test_with_materialized_columns(person_properties=["email"])
         def test_funnel_person_prop(self):
             action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
             ActionStep.objects.create(
@@ -330,6 +331,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
 
+        @test_with_materialized_columns(person_properties=["email"])
         def test_funnel_filter_test_accounts(self):
             person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
             person_factory(distinct_ids=["person2"], team_id=self.team.pk)
@@ -347,6 +349,65 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 team=self.team,
             ).run()
             self.assertEqual(result[0]["count"], 1)
+
+        @test_with_materialized_columns(person_properties=["email"])
+        def test_funnel_with_entity_person_property_filters(self):
+            person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
+            person_factory(distinct_ids=["person2"], team_id=self.team.pk, properties={"email": "another@example.com"})
+            person_factory(distinct_ids=["person3"], team_id=self.team.pk)
+            event_factory(distinct_id="person1", event="event1", team=self.team)
+            event_factory(distinct_id="person2", event="event1", team=self.team)
+            event_factory(distinct_id="person3", event="event1", team=self.team)
+
+            result = Funnel(
+                filter=Filter(
+                    data={
+                        "events": [
+                            {
+                                "id": "event1",
+                                "order": 0,
+                                "properties": [
+                                    {"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}
+                                ],
+                            }
+                        ],
+                        "insight": INSIGHT_FUNNELS,
+                        "funnel_window_days": 14,
+                    }
+                ),
+                team=self.team,
+            ).run()
+            self.assertEqual(result[0]["count"], 2)
+
+        @test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
+        def test_funnel_filter_by_action_with_person_properties(self):
+            person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
+            person_factory(distinct_ids=["person2"], team_id=self.team.pk, properties={"email": "another@example.com"})
+            person_factory(distinct_ids=["person3"], team_id=self.team.pk)
+            event_factory(distinct_id="person1", event="event1", team=self.team)
+            event_factory(distinct_id="person2", event="event1", team=self.team)
+            event_factory(distinct_id="person3", event="event1", team=self.team)
+
+            action = Action.objects.create(team_id=self.team.pk, name="event1")
+            ActionStep.objects.create(
+                action=action,
+                event="event1",
+                properties=[{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}],
+            )
+            action.calculate_events()
+
+            result = Funnel(
+                filter=Filter(
+                    data={
+                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
+                        "insight": INSIGHT_FUNNELS,
+                        "funnel_window_days": 14,
+                    }
+                ),
+                team=self.team,
+            ).run()
+
+            self.assertEqual(result[0]["count"], 2)
 
     return TestGetFunnel
 

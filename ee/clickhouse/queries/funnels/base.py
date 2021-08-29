@@ -1,13 +1,12 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Dict, List, Tuple, Union, cast
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns import get_materialized_columns
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_event_prop_values,
@@ -295,7 +294,9 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return content_sql
 
     def _build_filters(self, entity: Entity, index: int) -> str:
-        prop_filters, prop_filter_params = parse_prop_clauses(entity.properties, self._team.pk, prepend=str(index))
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            entity.properties, self._team.pk, prepend=str(index), person_properties_column="person_props"
+        )
         self.params.update(prop_filter_params)
         if entity.properties:
             return prop_filters
@@ -384,13 +385,19 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) AS prop"
+                # :TRICKY: We only support string breakdown for event/person properties
+                assert isinstance(self._filter.breakdown, str)
+                expression, _ = get_property_string_expr(
+                    "person", self._filter.breakdown, "%(breakdown)s", "person_props"
+                )
+                return f", {expression} AS prop"
             elif self._filter.breakdown_type == "event":
-                column_name = get_materialized_columns("events").get(self._filter.breakdown)
-                if column_name is not None:
-                    return f", {column_name} AS prop"
-                else:
-                    return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) AS prop"
+                # :TRICKY: We only support string breakdown for event/person properties
+                assert isinstance(self._filter.breakdown, str)
+                expression, _ = get_property_string_expr(
+                    "events", self._filter.breakdown, "%(breakdown)s", "properties"
+                )
+                return f", {expression} AS prop"
             elif self._filter.breakdown_type == "cohort":
                 return ", value AS prop"
 

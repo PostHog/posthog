@@ -42,6 +42,7 @@ export function FunnelStepOrderPicker(): JSX.Element {
             dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
             optionLabelProp="label"
             options={options}
+            style={{ marginRight: 4 }}
         />
     )
 }

@@ -7,7 +7,7 @@ import {
     ActionFilter,
     EntityType,
     EntityTypes,
-    FunnelExclusionEntityFilter,
+    FunnelStepRangeEntityFilter,
     PropertyFilter,
     PropertyFilterValue,
     SelectOption,
@@ -60,7 +60,7 @@ export interface ActionFilterRowProps {
         | string
         | JSX.Element
         | ((props: {
-              filter: ActionFilterType | FunnelExclusionEntityFilter
+              filter: ActionFilterType | FunnelStepRangeEntityFilter
               index: number
               onClose: () => void
           }) => JSX.Element) // Custom prefix element to show in each row
@@ -68,7 +68,7 @@ export interface ActionFilterRowProps {
         | string
         | JSX.Element
         | ((props: {
-              filter: ActionFilterType | FunnelExclusionEntityFilter
+              filter: ActionFilterType | FunnelStepRangeEntityFilter
               index: number
               onClose: () => void
           }) => JSX.Element) // Custom suffix element to show in each row
