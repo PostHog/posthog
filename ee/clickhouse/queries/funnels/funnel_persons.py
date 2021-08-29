@@ -1,10 +1,7 @@
 import datetime as dt
 from typing import Any, Dict, List, cast
 
-from ee.clickhouse.queries.clickhouse_session_recording import (
-    query_sessions_for_funnel_persons,
-    query_sessions_in_range,
-)
+from ee.clickhouse.queries.clickhouse_session_recording import query_sessions_for_funnel_persons
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.models import Person
@@ -34,7 +31,7 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
 
         session_recordings = query_sessions_for_funnel_persons(
             self._team,
-            self._filter.date_from,
+            cast(dt.datetime, self._filter.date_from),
             cast(dt.datetime, self._filter.date_to)
             + dt.timedelta(
                 **{(self._filter.funnel_window_interval_unit or "day") + "s": self._filter.funnel_window_interval or 14}
