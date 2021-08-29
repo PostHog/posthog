@@ -430,7 +430,7 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
 export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Omit<ChartParams, 'view'>): JSX.Element {
     const logic = funnelLogic({ dashboardItemId, filters })
     const {
-        stepsWithConversionMetrics: steps,
+        visibleStepsWithConversionMetrics: steps,
         stepReference,
         barGraphLayout: layout,
         clickhouseFeaturesEnabled,

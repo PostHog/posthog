@@ -133,6 +133,7 @@ export const funnelLogic = kea<funnelLogicType>({
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
         toggleVisibility: (index: string) => ({ index }),
+        toggleBreakdownVisibility: (breakdownIndex: number) => ({ breakdownIndex }),
         setVisibilityById: (entry: Record<string, boolean>) => ({ entry }),
     }),
 
@@ -542,6 +543,17 @@ export const funnelLogic = kea<funnelLogicType>({
                 })
             },
         ],
+        visibleStepsWithConversionMetrics: [
+            () => [selectors.stepsWithConversionMetrics, selectors.visibilityMap],
+            (steps, visibilityMap) => {
+                return steps.map((step) => ({
+                    ...step,
+                    nested_breakdown: step?.nested_breakdown?.filter(
+                        (_, breakdownIndex: number) => visibilityMap[`${step.order}-${breakdownIndex}`]
+                    ),
+                }))
+            },
+        ],
         flattenedSteps: [
             () => [selectors.stepsWithConversionMetrics],
             (steps): FlattenedFunnelStep[] => {
@@ -600,11 +612,29 @@ export const funnelLogic = kea<funnelLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         loadResultsSuccess: async () => {
+            // set visibility of first five breakdowns for each step
+            if (!!values.filters.breakdown) {
+                values.steps?.forEach((step) => {
+                    step?.nested_breakdown?.slice(0, 5).forEach((_, i) => {
+                        actions.setVisibilityById({ [`${step.order}-${i}`]: true })
+                    })
+                })
+            }
+
             // load the old people table
             if (!values.clickhouseFeaturesEnabled) {
                 if ((values.stepsWithCount[0]?.people?.length ?? 0) > 0) {
                     actions.loadPeople(values.stepsWithCount)
                 }
+            }
+        },
+        toggleBreakdownVisibility: ({ breakdownIndex }) => {
+            // toggle breakdowns with this index for all steps
+            if (!!values.filters.breakdown) {
+                values.steps?.forEach((step) => {
+                    const key = `${step.order}-${breakdownIndex}`
+                    actions.setVisibilityById({ [key]: !values.visibilityMap[key] })
+                })
             }
         },
         setFilters: ({ refresh }) => {

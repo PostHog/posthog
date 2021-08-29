@@ -34,7 +34,7 @@ function isBreakdownChildType(
 
 export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
     const { stepsWithCount, flattenedSteps, filters, steps, visibilityMap } = useValues(funnelLogic)
-    const { openPersonsModal, toggleVisibility, setVisibilityById } = useActions(funnelLogic)
+    const { openPersonsModal, toggleBreakdownVisibility, setVisibilityById } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
     const tableScrollBreakpoint = getBreakpoint('lg')
     const columns: ColumnsType<FlattenedFunnelStep> = []
@@ -66,10 +66,13 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                             checked={!!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])}
                             indeterminate={step.nestedRowKeys?.some((rowKey) => visibilityMap[rowKey])}
                             onChange={() => {
+                                // either toggle all data on or off
                                 const currentState = !!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])
                                 setVisibilityById(
                                     Object.fromEntries(
-                                        (step.nestedRowKeys ?? []).map((rowKey) => [rowKey, !currentState])
+                                        (
+                                            flattenedSteps?.filter((s) => s.breakdownIndex !== undefined) ?? []
+                                        ).map(({ rowKey }) => [rowKey, !currentState])
                                     )
                                 )
                             }}
@@ -80,7 +83,7 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                 return (
                     <PHCheckbox
                         checked={visibilityMap[step.rowKey]}
-                        onChange={() => toggleVisibility(step.rowKey as string)}
+                        onChange={() => toggleBreakdownVisibility(step.breakdownIndex as number)}
                     />
                 )
             },

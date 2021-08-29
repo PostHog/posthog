@@ -846,6 +846,7 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
         fromBasisStep: number // either fromPrevious or total, depending on FunnelStepReference
     }
     nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
+    rowKey?: number | string
 }
 
 export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
