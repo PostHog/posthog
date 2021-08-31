@@ -1,4 +1,3 @@
-from distutils.util import strtobool
 from typing import Optional, Type, TypeVar
 
 from django.db import connection, models
