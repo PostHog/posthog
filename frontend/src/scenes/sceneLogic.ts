@@ -29,6 +29,7 @@ export enum Scene {
     Action = 'action',
     FeatureFlags = 'featureFlags',
     FeatureFlag = 'featureFlag',
+    Groups = 'groups',
     OrganizationSettings = 'organizationSettings',
     OrganizationCreateFirst = 'organizationCreateFirst',
     ProjectSettings = 'projectSettings',
@@ -75,6 +76,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.FeatureFlag]: () => import(/* webpackChunkName: 'featureFlag' */ './experimentation/FeatureFlag'),
+    [Scene.Groups]: () => import(/* webpackChunkName: 'groups' */ './groups/Groups'),
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
     [Scene.OrganizationCreateFirst]: () =>
@@ -189,6 +191,7 @@ export const urls = {
     cohorts: () => '/cohorts',
     featureFlags: () => '/feature_flags',
     featureFlag: (id: string | number) => `/feature_flags/${id}`,
+    groups: () => '/groups',
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
     projectCreateFirst: () => '/project/create',
@@ -227,6 +230,7 @@ export const routes: Record<string, Scene> = {
     [urls.cohorts()]: Scene.Cohorts,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
+    [urls.groups()]: Scene.Groups,
     [urls.annotations()]: Scene.Annotations,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.plugins()]: Scene.Plugins,
