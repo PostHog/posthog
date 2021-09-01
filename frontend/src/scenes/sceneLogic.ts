@@ -10,7 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ViewType } from '~/types'
+import { GroupType, ViewType } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
 
@@ -29,6 +29,7 @@ export enum Scene {
     Action = 'action',
     FeatureFlags = 'featureFlags',
     FeatureFlag = 'featureFlag',
+    GroupTypes = 'groupTypes',
     Groups = 'groups',
     OrganizationSettings = 'organizationSettings',
     OrganizationCreateFirst = 'organizationCreateFirst',
@@ -76,6 +77,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
     [Scene.FeatureFlags]: () => import(/* webpackChunkName: 'featureFlags' */ './experimentation/FeatureFlags'),
     [Scene.FeatureFlag]: () => import(/* webpackChunkName: 'featureFlag' */ './experimentation/FeatureFlag'),
+    [Scene.GroupTypes]: () => import(/* webpackChunkName: 'groupTypes' */ './groups/GroupTypes'),
     [Scene.Groups]: () => import(/* webpackChunkName: 'groups' */ './groups/Groups'),
     [Scene.OrganizationSettings]: () =>
         import(/* webpackChunkName: 'organizationSettings' */ './organization/Settings'),
@@ -191,7 +193,7 @@ export const urls = {
     cohorts: () => '/cohorts',
     featureFlags: () => '/feature_flags',
     featureFlag: (id: string | number) => `/feature_flags/${id}`,
-    groups: () => '/groups',
+    groups: (typeKey?: GroupType['type_key']) => (typeKey ? `/groups/${typeKey}` : '/groups'),
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
     projectCreateFirst: () => '/project/create',
@@ -230,7 +232,8 @@ export const routes: Record<string, Scene> = {
     [urls.cohorts()]: Scene.Cohorts,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
-    [urls.groups()]: Scene.Groups,
+    [urls.groups()]: Scene.GroupTypes,
+    [urls.groups(':id')]: Scene.Groups,
     [urls.annotations()]: Scene.Annotations,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.plugins()]: Scene.Plugins,
