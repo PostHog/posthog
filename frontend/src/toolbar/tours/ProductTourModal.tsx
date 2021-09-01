@@ -5,11 +5,16 @@ import React from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
 import { StepsTab } from '~/toolbar/tours/StepsTab'
 import { toursLogic } from './toursLogic'
+import { toolbarButtonLogic } from '../button/toolbarButtonLogic'
 
 export function ProductTourModal(): JSX.Element {
-    const { setSlide, setParams, setElementSelection } = useActions(toursLogic)
-    const { cohorts } = useValues(cohortsModel)
     const { slide, params, newTourStepCount, onElementSelection } = useValues(toursLogic)
+    const { setParams, setSlide, setElementSelection } = useActions(toursLogic)
+    const { cohorts } = useValues(cohortsModel)
+    const { toursWindowVisible } = useValues(toolbarButtonLogic)
+    const { hideToursInfo } = useActions(toolbarButtonLogic)
+
+    console.log('HELLOE')
 
     return (
         <Modal
@@ -27,7 +32,9 @@ export function ProductTourModal(): JSX.Element {
                     )}
                 </>
             }
-            visible={true && !onElementSelection}
+            visible={toursWindowVisible && !onElementSelection}
+            onCancel={hideToursInfo}
+            destroyOnClose
             title={<div style={{ fontSize: 20 }}>{slide === 0 ? 'Product tours' : 'Create a product tour'}</div>}
         >
             {slide === 0 && (
