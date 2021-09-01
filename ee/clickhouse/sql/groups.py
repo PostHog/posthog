@@ -10,7 +10,7 @@ DROP_PERSON_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER {CLICKHOUSE_CLUST
 GROUPS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
-    id Int64,
+    id VARCHAR,
     type_id Int64,
     created_at DateTime64,
     team_id Int64,
