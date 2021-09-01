@@ -87,6 +87,23 @@ export const MATHS: Record<string, any> = {
         onProperty: false,
         type: EVENT_MATH_TYPE,
     },
+    // :TODO: Don't hardcode this
+    unique_group: {
+        name: 'Unique organizations',
+        description: (
+            <>
+                Number of unique organizations who performed the event in the specified period.
+                <br />
+                <br />
+                <i>
+                    Example: If a single organization performs an event 3 times in a given day/week/month, it counts
+                    only as 1.
+                </i>
+            </>
+        ),
+        onProperty: false,
+        type: EVENT_MATH_TYPE,
+    },
     weekly_active: {
         name: 'Weekly Active',
         description: (
