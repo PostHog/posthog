@@ -1,3 +1,5 @@
+import json
+
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 
@@ -18,8 +20,8 @@ class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = sync_execute(
-            "SELECT id, type_id, created_at, properties FROM groups WHERE team_id = %(team_id)s AND id = %(group_id)s",
-            {"team_id": self.team_id, "group_id": self.kwargs["id"]},
+            "SELECT id, type_id, created_at, properties FROM groups WHERE team_id = %(team_id)s AND type_id = %(type_id)s AND id = %(id)s",
+            {"team_id": self.team_id, "id": self.kwargs["id"], "type_id": self.kwargs["type_id"]},
         )
         if not instance:
             raise exceptions.NotFound(detail="Group not found.")
@@ -27,9 +29,16 @@ class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ViewSet):
         return response.Response(serializer.data)
 
     def list(self, request, *args, **kwargs):
-        instances = sync_execute(
-            "SELECT id, type_id, created_at, team_id, properties FROM groups WHERE team_id = %(team_id)s",
-            {"team_id": self.team_id},
+        group_type_mapping = GroupTypeMapping.objects.get(type_key=self.kwargs["parent_lookup_type_key"])
+        instances = (
+            {"id": row[0], "type_id": row[1], "created_at": row[2], "team_id": row[3], "properties": json.loads(row[4])}
+            for row in sync_execute(
+                """
+                SELECT id, type_id, created_at, team_id, properties FROM groups
+                WHERE team_id = %(team_id)s AND type_id = %(type_id)s
+            """,
+                {"team_id": self.team_id, "type_id": group_type_mapping.type_id},
+            )
         )
         serializer = self.serializer_class(instances, many=True)
         return response.Response(serializer.data)

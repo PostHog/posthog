@@ -93,6 +93,7 @@ if is_clickhouse_enabled():
         from ee.clickhouse.views.cohort import ClickhouseCohortViewSet
         from ee.clickhouse.views.element import ClickhouseElementViewSet
         from ee.clickhouse.views.events import ClickhouseEventsViewSet
+        from ee.clickhouse.views.groups import ClickhouseGroupsView, ClickhouseGroupTypesView
         from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
         from ee.clickhouse.views.paths import ClickhousePathsViewSet
         from ee.clickhouse.views.person import ClickhousePersonViewSet
@@ -110,6 +111,10 @@ if is_clickhouse_enabled():
         router.register(r"cohort", ClickhouseCohortViewSet, basename="cohort")
         # nested endpoints
         projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
+        group_types_router = projects_router.register(
+            r"group_types", ClickhouseGroupTypesView, "group_types", ["team_id"]
+        )
+        group_types_router.register(r"groups", ClickhouseGroupsView, "groups", ["team_id", "type_key"])
 else:
     # legacy endpoints (to be removed eventually)
     router.register(r"insight", insight.InsightViewSet)
