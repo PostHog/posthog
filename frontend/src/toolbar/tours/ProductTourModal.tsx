@@ -6,8 +6,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { toursLogic } from './toursLogic'
 
 export function ProductTourModal(): JSX.Element {
-    const { slide, tourName } = useValues(toursLogic)
-    const { setSlide, setTourName, setTourCohort } = useActions(toursLogic)
+    const { slide, tourName, onElementSelection } = useValues(toursLogic)
+    const { setSlide, setTourName, setTourCohort, setElementSelection } = useActions(toursLogic)
     const { cohorts } = useValues(cohortsModel)
 
     return (
@@ -26,7 +26,7 @@ export function ProductTourModal(): JSX.Element {
                     )}
                 </>
             }
-            visible={true}
+            visible={true && !onElementSelection}
             title={<div style={{ fontSize: 20 }}>{slide === 0 ? 'Product tours' : 'Create a product tour'}</div>}
         >
             {slide === 0 && (
@@ -132,6 +132,7 @@ export function ProductTourModal(): JSX.Element {
                     </Row>
                 </>
             )}
+            <Button onClick={() => setElementSelection(true)}>element selection</Button>
         </Modal>
     )
 }
