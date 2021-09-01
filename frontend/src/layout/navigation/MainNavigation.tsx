@@ -10,6 +10,7 @@ import {
     ProjectFilled,
     PushpinFilled,
     SettingOutlined,
+    CompassOutlined,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -348,6 +349,9 @@ export function MainNavigation(): JSX.Element {
                             tooltip="Extend your analytics functionality"
                         />
                     )}
+                    <div className="divider" />
+                    <MenuItem title="Product Tours" icon={<CompassOutlined />} identifier="tours" to={urls.tours()} />
+                    <div className="divider" />
                     <MenuItem
                         title="Annotations"
                         icon={<MessageOutlined />}
