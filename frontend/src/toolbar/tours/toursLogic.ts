@@ -1,16 +1,16 @@
 import { kea } from 'kea'
-import { ElementsEventType } from '~/toolbar/types'
+import { TourType } from '~/toolbar/types'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { posthog } from '~/toolbar/posthog'
-import { tourLogicType } from './tourLogicType'
+import { toursLogicType } from './toursLogicType'
 
-export const tourLogic = kea<tourLogicType>({
+export const toursLogic = kea<toursLogicType>({
     actions: {
         enableTour: true,
         disableTour: true,
-        setShowTourTooltip: (showTourTooltip: boolean) => ({ showTourTooltip }),
+        setShowToursTooltip: (showTourTooltip: boolean) => ({ showTourTooltip }),
         setTourFilter: (filter: Record<string, any>) => ({ filter }),
     },
 
@@ -32,10 +32,10 @@ export const tourLogic = kea<tourLogicType>({
                 resetTours: () => false,
             },
         ],
-        showTourTooltip: [
+        showToursTooltip: [
             false,
             {
-                setShowTourTooltip: (_, { showTourTooltip }) => showTourTooltip,
+                setShowToursTooltip: (_, { showTourTooltip }) => showTourTooltip,
             },
         ],
         tourFilter: [
@@ -48,7 +48,7 @@ export const tourLogic = kea<tourLogicType>({
 
     loaders: ({ values }) => ({
         tours: [
-            [] as ElementsEventType[],
+            [] as TourType[],
             {
                 resetTours: () => [],
                 getTours: async (_, breakpoint) => {
@@ -58,8 +58,37 @@ export const tourLogic = kea<tourLogicType>({
                     }
 
                     const url = `${toolbarLogic.values.apiURL}api/tours/${encodeParams(params, '?')}`
-                    const response = await fetch(url)
-                    const results = await response.json()
+                    console.log('Fetching url', url)
+                    // const response = await fetch(url)
+                    // const results = await response.json()
+                    const response = {
+                        status: 200,
+                    }
+                    const results = [
+                        {
+                            uuid: '1',
+                            created_at: '',
+                            name: 'Test Product Tour',
+                            cohort: 1,
+                            start_url: 'https://www.posthog.com/*',
+                            team_id: 1,
+                            delay_ms: 200,
+                            is_active: true,
+                            steps: [
+                                {
+                                    html_el: 'div.navigation-inner > div.nth-child(3) > a',
+                                    tooltip_title: 'Add a funnel step',
+                                    tooltip_text: 'Click add funnel step to create a funnel.',
+                                },
+                                {
+                                    html_el: 'div.navigation-inner > div.nth-child(3) > a',
+                                    tooltip_title: 'Add breakdown',
+                                    tooltip_text:
+                                        'Use breakdown to see the aggregation for each value of that property.',
+                                },
+                            ],
+                        },
+                    ]
 
                     if (response.status === 403) {
                         toolbarLogic.actions.authenticate()
@@ -78,7 +107,9 @@ export const tourLogic = kea<tourLogicType>({
         ],
     }),
 
-    selectors: {},
+    selectors: {
+        toursCount: [(selectors) => [selectors.tours], (tours: TourType[]) => tours.length],
+    },
 
     events: ({ actions, values }) => ({
         afterMount() {
@@ -101,16 +132,16 @@ export const tourLogic = kea<tourLogicType>({
         },
         disableTour: () => {
             actions.resetTours()
-            actions.setShowTourTooltip(false)
+            actions.setShowToursTooltip(false)
             posthog.capture('toolbar mode triggered', { mode: 'tour', enabled: false })
         },
         getEventsSuccess: () => {
-            actions.setShowTourTooltip(true)
+            actions.setShowToursTooltip(true)
         },
-        setShowTourTooltip: async ({ showTourTooltip }, breakpoint) => {
+        setShowToursTooltip: async ({ showTourTooltip }, breakpoint) => {
             if (showTourTooltip) {
                 await breakpoint(1000)
-                actions.setShowTourTooltip(false)
+                actions.setShowToursTooltip(false)
             }
         },
         setTourFilter: () => {

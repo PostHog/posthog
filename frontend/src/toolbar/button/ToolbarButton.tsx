@@ -18,6 +18,7 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { toursLogic } from '~/toolbar/tours/toursLogic'
 
 const HELP_URL =
     'https://posthog.com/docs/tutorials/toolbar?utm_medium=in-product&utm_source=in-product&utm_campaign=toolbar-help-button'
@@ -35,6 +36,7 @@ export function ToolbarButton(): JSX.Element {
         heatmapExtensionPercentage,
         actionsExtensionPercentage,
         actionsInfoVisible,
+        toursExtensionPercentage,
     } = useValues(toolbarButtonLogic)
     const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } = useActions(
         toolbarButtonLogic
@@ -49,12 +51,17 @@ export function ToolbarButton(): JSX.Element {
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
+    const { enableTour, disableTour } = useActions(toursLogic)
+    const { tourEnabled, tourLoading, showToursTooltip, toursCount } = useValues(toursLogic)
+
     const { isAuthenticated } = useValues(toolbarLogic)
     const { authenticate, logout } = useActions(toolbarLogic)
 
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
     })
+
+    console.log('TOUR ENABLED', tourEnabled)
 
     useEffect(() => {
         globalMouseMove.current = function (e: MouseEvent): void {
@@ -310,6 +317,61 @@ export function ToolbarButton(): JSX.Element {
                             />
                         ) : null}
                     </Circle>
+                    {/**/}
+                    <Circle
+                        width={buttonWidth}
+                        x={side === 'left' ? 80 : -80}
+                        y={toolbarListVerticalPadding + n++ * 60}
+                        extensionPercentage={toursExtensionPercentage}
+                        rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
+                        label={tourEnabled && (!tourLoading || toursCount > 0) ? null : 'Product Tours'}
+                        labelPosition={side === 'left' ? 'right' : 'left'}
+                        labelStyle={{
+                            opacity: toursExtensionPercentage > 0.8 ? (toursExtensionPercentage - 0.8) / 0.2 : 0,
+                        }}
+                        content={<Flag style={{ height: 29 }} engaged={tourEnabled} animated={tourLoading} />}
+                        zIndex={1}
+                        onClick={tourEnabled ? disableTour : enableTour}
+                        style={{
+                            cursor: 'pointer',
+                            transform: `scale(${0.2 + 0.8 * toursExtensionPercentage})`,
+                            background: tourEnabled ? '#94D674' : '#D6EBCC',
+                            borderRadius,
+                        }}
+                    >
+                        {tourEnabled && !tourLoading ? (
+                            <Circle
+                                width={26}
+                                x={(side === 'left' ? 50 : -50) * toursExtensionPercentage * toursExtensionPercentage}
+                                y={0}
+                                content={
+                                    <Tooltip
+                                        visible={showToursTooltip}
+                                        title="Click for details"
+                                        placement={side === 'left' ? 'right' : 'left'}
+                                        getPopupContainer={getShadowRootPopupContainer}
+                                    >
+                                        <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{toursCount}</div>
+                                    </Tooltip>
+                                }
+                                zIndex={4}
+                                onClick={tourEnabled ? disableTour : enableTour}
+                                style={{
+                                    cursor: 'pointer',
+                                    background: tourEnabled ? 'hsl(100, 65%, 31%)' : 'hsla(101, 44%, 93%, 1)',
+                                    color: tourEnabled ? 'hsl(100, 22%, 93%)' : 'hsla(100, 34%, 35%, 1)',
+                                    width: 'auto',
+                                    minWidth: 26,
+                                    fontSize: '20px',
+                                    lineHeight: '26px',
+                                    padding: '0 4px',
+                                    transform: `scale(${0.2 + 0.8 * toursExtensionPercentage})`,
+                                    borderRadius: 7,
+                                }}
+                            />
+                        ) : null}
+                    </Circle>
+                    {/**/}
                 </>
             ) : null}
         </Circle>

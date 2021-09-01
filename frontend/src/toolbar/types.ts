@@ -8,10 +8,10 @@ export type ElementsEventType = {
 }
 
 export type TourType = {
-    id: string
+    uuid: string
     created_at: string
     name: string
-    cohort_id: number
+    cohort: number
     start_url: string
     team_id: number
     delay_ms: number

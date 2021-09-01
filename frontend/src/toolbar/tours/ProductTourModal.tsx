@@ -3,10 +3,11 @@ import { Button, Col, Input, Modal, Row, Select } from 'antd'
 import { useValues } from 'kea'
 import React, { useState } from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
+// import {toursLogic} from "~/toolbar/tours/toursLogic";
 
 export function ProductTourModal(): JSX.Element {
     const [step, setStep] = useState(0)
-    // const { tour } = useValues(productTourModalLogic)
+    // const { tours } = useValues(toursLogic)
     const tour = { steps: [1, 2, 3] }
     const { cohorts } = useValues(cohortsModel)
 

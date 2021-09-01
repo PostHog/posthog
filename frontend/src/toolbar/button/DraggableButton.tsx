@@ -26,7 +26,7 @@ export function DraggableButton(): JSX.Element {
         saveActionsPosition,
         hideActionsInfo,
         hideHeatmapInfo,
-        hideTourInfo,
+        hideToursInfo,
         saveToursPosition,
     } = useActions(toolbarButtonLogic)
 
@@ -81,7 +81,7 @@ export function DraggableButton(): JSX.Element {
                 label="Product Tours"
                 icon={<Flag engaged />}
                 visible={toursWindowVisible}
-                close={hideTourInfo}
+                close={hideToursInfo}
                 position={toursPosition}
                 savePosition={saveToursPosition}
             >
