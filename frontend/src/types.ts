@@ -1073,3 +1073,15 @@ export interface AppContext {
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
+
+export interface GroupType {
+    type_key: string
+    type_id: number
+}
+
+export interface Group {
+    id: string
+    type_id: number
+    created_at: string
+    properties: Record<any, any>
+}
