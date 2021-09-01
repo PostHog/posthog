@@ -15,8 +15,6 @@ export const toursLogic = kea<toursLogicType>({
         createTour: (params: TourType) => ({ params }),
         setParams: (params: Partial<TourType>) => ({ params }),
         setSlide: (slide: number) => ({ slide }),
-        setTourName: (name: string) => ({ name }),
-        setTourCohort: (cohort: number) => ({ cohort }),
         setElementSelection: (selecting: boolean) => ({ selecting }),
     },
 
@@ -60,6 +58,12 @@ export const toursLogic = kea<toursLogicType>({
             0,
             {
                 setSlide: (_, { slide }) => slide,
+            },
+        ],
+        onElementSelection: [
+            false,
+            {
+                setElementSelection: (_, { selecting }) => selecting,
             },
         ],
     },
