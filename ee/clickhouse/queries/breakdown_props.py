@@ -4,6 +4,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
@@ -43,14 +44,6 @@ def get_breakdown_person_prop_values(
         person_properties_column="person_props",
         allow_denormalized_props=True,
     )
-    person_prop_filters, person_prop_params = parse_prop_clauses(
-        [prop for prop in filter.properties if prop.type == "person"],
-        team_id,
-        filter_test_accounts=filter.filter_test_accounts,
-        person_properties_column="person_props",
-        prepend="person",
-        allow_denormalized_props=True,
-    )
 
     entity_params, entity_format_params = get_entity_filtering_params(
         entity, team_id, table_name=_event_table_name, with_prop_filters=True, person_properties_column="person_props"
@@ -64,7 +57,6 @@ def get_breakdown_person_prop_values(
         parsed_date_to=parsed_date_to,
         person_query=ClickhousePersonQuery(filter, team_id).get_query(),
         prop_filters=prop_filters,
-        person_prop_filters=person_prop_filters,
         aggregate_operation=aggregate_operation,
         GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         **entity_format_params,
@@ -73,7 +65,7 @@ def get_breakdown_person_prop_values(
         filter=filter,
         team_id=team_id,
         query=elements_query,
-        params={**prop_filter_params, **person_prop_params, **entity_params, **extra_params, "key": filter.breakdown},
+        params={**prop_filter_params, **entity_params, **extra_params, "key": filter.breakdown},
         limit=limit,
     )
 

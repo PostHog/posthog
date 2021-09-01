@@ -6,7 +6,7 @@ SELECT groupArray(value) FROM (
     INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON e.distinct_id = pdi.distinct_id
     INNER JOIN
         (
-            {person_query} {person_prop_filters}
+            {person_query}
         ) ep ON person_id = ep.id
     WHERE
         e.team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
