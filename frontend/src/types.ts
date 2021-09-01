@@ -495,6 +495,7 @@ export interface DashboardItemType {
     created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number
+    dive_dashboard?: number
     result: any | null
     updated_at: string
     tags: string[]
