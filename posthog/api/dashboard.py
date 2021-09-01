@@ -93,9 +93,12 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         return instance
 
-    def add_dive_source_item(self, items, dive_source_id):
-        item = DashboardItem.objects.get(pk=int(dive_source_id))
-        return [item] + list(items)
+    def add_dive_source_item(self, items: QuerySet, dive_source_id: int):
+        item_as_list = [i for i in items if i.id == dive_source_id]
+        if not item_as_list:
+            item_as_list = [DashboardItem.objects.get(pk=int(dive_source_id))]
+        items = [i for i in items if i.id != dive_source_id]
+        return item_as_list + items
 
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
@@ -109,7 +112,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         dive_source_id = self.context["request"].GET.get("dive_source_id")
         if dive_source_id:
-            items = self.add_dive_source_item(items, dive_source_id)
+            items = self.add_dive_source_item(items, int(dive_source_id))
 
         return DashboardItemSerializer(items, many=True, context=self.context).data
 
