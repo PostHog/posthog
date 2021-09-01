@@ -194,6 +194,7 @@ export const urls = {
     featureFlags: () => '/feature_flags',
     featureFlag: (id: string | number) => `/feature_flags/${id}`,
     groups: (typeKey?: GroupType['type_key']) => (typeKey ? `/groups/${typeKey}` : '/groups'),
+    group: (typeKey: GroupType['type_key'], instanceKey: GroupType['type_key']) => `/groups/${typeKey}/${instanceKey}`,
     annotations: () => '/annotations',
     plugins: () => '/project/plugins',
     projectCreateFirst: () => '/project/create',
