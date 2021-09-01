@@ -8,7 +8,7 @@ import { Group } from '~/types'
 import { PageHeader } from '../../lib/components/PageHeader'
 import { groupsLogic } from './groupsLogic'
 
-export function GroupTypes(): JSX.Element {
+export function Groups(): JSX.Element {
     const { currentGroupType, groups } = useValues(groupsLogic)
 
     if (!currentGroupType) {
