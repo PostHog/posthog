@@ -64,6 +64,7 @@ export const toursLogic = kea<toursLogicType>({
             false,
             {
                 setElementSelection: (_, { selecting }) => selecting,
+                enableTour: () => false,
             },
         ],
     },

@@ -8,13 +8,14 @@ import { toursLogic } from './toursLogic'
 import { toolbarButtonLogic } from '../button/toolbarButtonLogic'
 
 export function ProductTourModal(): JSX.Element {
-    const { slide, params, newTourStepCount, onElementSelection } = useValues(toursLogic)
-    const { setParams, setSlide, setElementSelection } = useActions(toursLogic)
+    const { slide, params, onElementSelection, tourEnabled } = useValues(toursLogic)
+    const { setParams, setSlide } = useActions(toursLogic)
     const { cohorts } = useValues(cohortsModel)
-    const { toursWindowVisible } = useValues(toolbarButtonLogic)
     const { hideToursInfo } = useActions(toolbarButtonLogic)
 
-    console.log('HELLOE')
+    console.log('HELLOE', slide)
+
+    console.log(tourEnabled, onElementSelection)
 
     return (
         <Modal
@@ -26,13 +27,13 @@ export function ProductTourModal(): JSX.Element {
                         </Button>
                     )}
                     {slide !== 0 && (
-                        <Button onClick={() => setSlide(slide + 1)} type="primary">
-                            {slide === 4 && newTourStepCount > 0 ? 'Save and close' : 'Next'}
+                        <Button onClick={() => (slide === 3 ? null : setSlide(slide + 1))} type="primary">
+                            {slide === 3 ? 'Save and close' : 'Next'}
                         </Button>
                     )}
                 </>
             }
-            visible={toursWindowVisible && !onElementSelection}
+            visible={tourEnabled && !onElementSelection}
             onCancel={hideToursInfo}
             destroyOnClose
             title={<div style={{ fontSize: 20 }}>{slide === 0 ? 'Product tours' : 'Create a product tour'}</div>}
@@ -140,8 +141,7 @@ export function ProductTourModal(): JSX.Element {
                     </Row>
                 </>
             )}
-            <Button onClick={() => setElementSelection(true)}>element selection</Button>
-            {slide === 3 && <>{params.steps ? <StepsTab /> : <div>Add a step</div>}</>}
+            {slide === 3 && <StepsTab />}
         </Modal>
     )
 }
