@@ -54,7 +54,7 @@ export const groupsLogic = kea<groupsLogicType>({
     selectors: {
         currentGroup: [
             (s) => [s.currentGroupId, s.groups],
-            (currentGroupId, groups) => groups.filter((g) => g.id === currentGroupId),
+            (currentGroupId, groups) => groups.filter((g) => g.id === currentGroupId)[0] ?? null,
         ],
     },
 
