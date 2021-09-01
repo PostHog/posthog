@@ -9,6 +9,7 @@ import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { posthog } from '~/toolbar/posthog'
+import { ProductTourModal } from '~/toolbar/tours/ProductTourModal'
 
 export function DraggableButton(): JSX.Element {
     const {
@@ -20,15 +21,9 @@ export function DraggableButton(): JSX.Element {
         toursWindowVisible,
         toursPosition,
     } = useValues(toolbarButtonLogic)
-    const {
-        saveDragPosition,
-        saveHeatmapPosition,
-        saveActionsPosition,
-        hideActionsInfo,
-        hideHeatmapInfo,
-        hideToursInfo,
-        saveToursPosition,
-    } = useActions(toolbarButtonLogic)
+    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, hideActionsInfo, hideHeatmapInfo } = useActions(
+        toolbarButtonLogic
+    )
 
     console.log('Toolbar', toursWindowVisible, toursPosition)
 
@@ -76,17 +71,7 @@ export function DraggableButton(): JSX.Element {
                 <ActionsTab />
             </ButtonWindow>
 
-            <ButtonWindow
-                name="tours"
-                label="Product Tours"
-                icon={<Flag engaged />}
-                visible={toursWindowVisible}
-                close={hideToursInfo}
-                position={toursPosition}
-                savePosition={saveToursPosition}
-            >
-                <ActionsTab />
-            </ButtonWindow>
+            <ProductTourModal />
         </>
     )
 }

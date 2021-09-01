@@ -169,10 +169,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             (tourEnabled, extensionPercentage) =>
                 tourEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
-        toursWindowVisible: [
-            (s) => [s.toursInfoVisible, toursLogic.selectors.tourEnabled],
-            (toursInfoVisible, tourEnabled) => toursInfoVisible && tourEnabled,
-        ],
     },
     listeners: ({ actions, values }) => ({
         hideActionsInfo: () => {

@@ -12,9 +12,19 @@ export const toursLogic = kea<toursLogicType>({
         disableTour: true,
         setShowToursTooltip: (showTourTooltip: boolean) => ({ showTourTooltip }),
         setTourFilter: (filter: Record<string, any>) => ({ filter }),
+        createTour: (params: TourType) => ({ params }),
+        setParams: (params: Partial<TourType>) => ({ params }),
+        setSlide: (slide: number) => ({ slide }),
+        setElementSelection: (selecting: boolean) => ({ selecting }),
     },
 
     reducers: {
+        params: [
+            {} as Partial<TourType>,
+            {
+                setParams: (state, { params }) => ({ ...state, ...params }),
+            },
+        ],
         tourEnabled: [
             false,
             {
@@ -44,6 +54,19 @@ export const toursLogic = kea<toursLogicType>({
                 setTourFilter: (_, { filter }) => filter,
             },
         ],
+        slide: [
+            0,
+            {
+                setSlide: (_, { slide }) => slide,
+            },
+        ],
+        onElementSelection: [
+            false,
+            {
+                setElementSelection: (_, { selecting }) => selecting,
+                enableTour: () => false,
+            },
+        ],
     },
 
     loaders: ({ values }) => ({
@@ -57,43 +80,45 @@ export const toursLogic = kea<toursLogicType>({
                         ...values.tourFilter,
                     }
 
-                    const url = `${toolbarLogic.values.apiURL}api/tours/${encodeParams(params, '?')}`
+                    const url = `${toolbarLogic.values.apiURL}api/projects/@current/tours/${encodeParams(params, '?')}`
                     console.log('Fetching url', url)
-                    // const response = await fetch(url)
-                    // const results = await response.json()
-                    const response = {
-                        status: 200,
-                    }
-                    const results = [
-                        {
-                            uuid: '1',
-                            created_at: '',
-                            name: 'Test Product Tour',
-                            cohort: 1,
-                            start_url: 'https://www.posthog.com/*',
-                            team_id: 1,
-                            delay_ms: 200,
-                            is_active: true,
-                            steps: [
-                                {
-                                    html_el: 'div.navigation-inner > div.nth-child(3) > a',
-                                    tooltip_title: 'Add a funnel step',
-                                    tooltip_text: 'Click add funnel step to create a funnel.',
-                                },
-                                {
-                                    html_el: 'div.navigation-inner > div.nth-child(3) > a',
-                                    tooltip_title: 'Add breakdown',
-                                    tooltip_text:
-                                        'Use breakdown to see the aggregation for each value of that property.',
-                                },
-                            ],
-                        },
-                    ]
+                    const response = await fetch(url)
+                    const { results } = await response.json()
+                    // const response = {
+                    //     status: 200,
+                    // }
+                    // const results = [
+                    //     {
+                    //         uuid: '1',
+                    //         created_at: '',
+                    //         name: 'Test Product Tour',
+                    //         cohort: 1,
+                    //         start_url: 'https://www.posthog.com/*',
+                    //         team_id: 1,
+                    //         delay_ms: 200,
+                    //         is_active: true,
+                    //         steps: [
+                    //             {
+                    //                 html_el: 'div.navigation-inner > div.nth-child(3) > a',
+                    //                 tooltip_title: 'Add a funnel step',
+                    //                 tooltip_text: 'Click add funnel step to create a funnel.',
+                    //             },
+                    //             {
+                    //                 html_el: 'div.navigation-inner > div.nth-child(3) > a',
+                    //                 tooltip_title: 'Add breakdown',
+                    //                 tooltip_text:
+                    //                     'Use breakdown to see the aggregation for each value of that property.',
+                    //             },
+                    //         ],
+                    //     },
+                    // ]
 
                     if (response.status === 403) {
                         toolbarLogic.actions.authenticate()
                         return []
                     }
+
+                    console.log('REULTS', response, results)
 
                     breakpoint()
 
@@ -109,6 +134,7 @@ export const toursLogic = kea<toursLogicType>({
 
     selectors: {
         toursCount: [(selectors) => [selectors.tours], (tours: TourType[]) => tours.length],
+        newTourStepCount: [(selectors) => [selectors.params], (params) => params.steps?.length ?? 0],
     },
 
     events: ({ actions, values }) => ({
@@ -135,7 +161,7 @@ export const toursLogic = kea<toursLogicType>({
             actions.setShowToursTooltip(false)
             posthog.capture('toolbar mode triggered', { mode: 'tour', enabled: false })
         },
-        getEventsSuccess: () => {
+        getToursSuccess: () => {
             actions.setShowToursTooltip(true)
         },
         setShowToursTooltip: async ({ showTourTooltip }, breakpoint) => {
@@ -146,6 +172,18 @@ export const toursLogic = kea<toursLogicType>({
         },
         setTourFilter: () => {
             actions.getTours({})
+        },
+        createTour: async ({ params }, breakpoint) => {
+            await breakpoint(300)
+
+            const url = `${toolbarLogic.values.apiURL}api/tours/${encodeParams(params, '?')}`
+
+            const response = await fetch(url, {
+                method: 'POST',
+                body: JSON.stringify(params),
+            })
+            const results = await response.json()
+            console.log('Created tour', results)
         },
     }),
 })

@@ -10,6 +10,7 @@ import { HeatmapLabel } from '~/toolbar/elements/HeatmapLabel'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 import { compactNumber } from 'lib/utils'
+import { toursLogic } from '~/toolbar/tours/toursLogic'
 
 export function Elements(): JSX.Element {
     const {
@@ -21,8 +22,9 @@ export function Elements(): JSX.Element {
         inspectEnabled,
         highlightElementMeta,
     } = useValues(elementsLogic)
-    const { setHoverElement, selectElement } = useActions(elementsLogic)
+    const { setHoverElement, selectElement, disableInspect } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapLogic)
+    const { enableTour } = useActions(toursLogic)
 
     return (
         <>
@@ -71,7 +73,11 @@ export function Elements(): JSX.Element {
                             transition: 'opacity 0.2s, box-shadow 0.2s',
                             ...getBoxColors('blue', hoverElement === element || selectedElement === element),
                         }}
-                        onClick={() => selectElement(element)}
+                        onClick={() => {
+                            selectElement(element)
+                            enableTour()
+                            disableInspect()
+                        }}
                         onMouseOver={() => setHoverElement(element)}
                         onMouseOut={() => setHoverElement(null)}
                     />

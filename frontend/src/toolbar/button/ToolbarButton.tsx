@@ -37,10 +37,17 @@ export function ToolbarButton(): JSX.Element {
         actionsExtensionPercentage,
         actionsInfoVisible,
         toursExtensionPercentage,
+        toursInfoVisible,
     } = useValues(toolbarButtonLogic)
-    const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } = useActions(
-        toolbarButtonLogic
-    )
+    const {
+        setExtensionPercentage,
+        showHeatmapInfo,
+        hideHeatmapInfo,
+        showActionsInfo,
+        hideActionsInfo,
+        showToursInfo,
+        hideToursInfo,
+    } = useActions(toolbarButtonLogic)
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
     const { actionCount, allActionsLoading } = useValues(actionsLogic)
@@ -355,11 +362,11 @@ export function ToolbarButton(): JSX.Element {
                                     </Tooltip>
                                 }
                                 zIndex={4}
-                                onClick={tourEnabled ? disableTour : enableTour}
+                                onClick={toursInfoVisible ? hideToursInfo : showToursInfo}
                                 style={{
                                     cursor: 'pointer',
-                                    background: tourEnabled ? 'hsl(100, 65%, 31%)' : 'hsla(101, 44%, 93%, 1)',
-                                    color: tourEnabled ? 'hsl(100, 22%, 93%)' : 'hsla(100, 34%, 35%, 1)',
+                                    background: toursInfoVisible ? 'hsl(100, 65%, 31%)' : 'hsla(101, 44%, 93%, 1)',
+                                    color: toursInfoVisible ? 'hsl(100, 22%, 93%)' : 'hsla(100, 34%, 35%, 1)',
                                     width: 'auto',
                                     minWidth: 26,
                                     fontSize: '20px',
