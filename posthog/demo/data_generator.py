@@ -8,6 +8,9 @@ from posthog.models import Action, Event, GroupTypeMapping, Person, PersonDistin
 from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.utils import UUIDT
 
+ORGANIZATION_NAMES = ["factBase", "bigCorp", "isReal"]
+ENVIRONMENT_NAMES = ["production", "staging"]
+
 
 class DataGenerator:
     def __init__(self, team: Team, n_days=14, n_people=100):
@@ -37,7 +40,9 @@ class DataGenerator:
     def create_people(self):
         self.people = [self.make_person(i) for i in range(self.n_people)]
         self.distinct_ids = [str(UUIDT()) for _ in self.people]
-        self.groups = [{"$group_0": str(i % 3), "$group_1": str(i % 2)} for i in range(self.n_people)]
+        self.groups = [
+            {"$group_0": ORGANIZATION_NAMES[i % 3], "$group_1": ENVIRONMENT_NAMES[i % 2]} for i in range(self.n_people)
+        ]
         Person.objects.bulk_create(self.people)
 
         try:
