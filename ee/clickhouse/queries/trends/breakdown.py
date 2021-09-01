@@ -62,7 +62,7 @@ class ClickhouseTrendsBreakdown:
                     properties AS group_0_properties
                 FROM groups
                 WHERE team_id = %(team_id)s AND type_id = 0
-            ) as gid ON gid.id = JSONExtractString(properties, 'group_0')
+            ) as gid ON gid.id = JSONExtractString(properties, '$group_0')
             """
         else:
             join_condition = ""
