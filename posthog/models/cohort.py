@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from dateutil.relativedelta import relativedelta
@@ -10,6 +11,7 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.ee import is_clickhouse_enabled
+from posthog.models.utils import sane_repr
 
 from .action import Action
 from .event import Event
@@ -17,7 +19,7 @@ from .filters import Filter
 from .person import Person
 
 DELETE_QUERY = """
-DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id};
+DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
 """
 
 UPDATE_QUERY = """
@@ -29,19 +31,40 @@ ON CONFLICT DO NOTHING
 
 class Group(object):
     def __init__(
-        self, properties: Optional[Dict[str, Any]] = None, action_id: Optional[int] = None, days: Optional[int] = None,
+        self,
+        properties: Optional[Dict[str, Any]] = None,
+        action_id: Optional[int] = None,
+        event_id: Optional[str] = None,
+        days: Optional[int] = None,
+        count: Optional[int] = None,
+        count_operator: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        label: Optional[str] = None,
     ):
-        if not properties and not action_id:
-            raise ValueError("Cohort group needs properties or action_id")
+        if not properties and not action_id and not event_id:
+            raise ValueError("Cohort group needs properties or action_id or event_id")
         self.properties = properties
         self.action_id = action_id
+        self.event_id = event_id
+        self.label = label
         self.days = days
+        self.count = count
+        self.count_operator = count_operator
+        self.start_date = start_date
+        self.end_date = end_date
+
+    def to_dict(self) -> Dict[str, Any]:
+        dup = self.__dict__.copy()
+        dup["start_date"] = self.start_date.isoformat() if self.start_date else self.start_date
+        dup["end_date"] = self.end_date.isoformat() if self.end_date else self.end_date
+        return dup
 
 
 class CohortManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         if kwargs.get("groups"):
-            kwargs["groups"] = [Group(**group).__dict__ for group in kwargs["groups"]]
+            kwargs["groups"] = [Group(**group).to_dict() for group in kwargs["groups"]]
         cohort = super().create(*args, **kwargs)
         return cohort
 
@@ -86,15 +109,20 @@ class Cohort(models.Model):
             if not use_clickhouse:
                 self.is_calculating = True
                 self.save()
+                persons_query = self._postgres_persons_query()
+            else:
+                persons_query = self._clickhouse_persons_query()
 
-            persons_query = self._clickhouse_persons_query() if use_clickhouse else self._postgres_persons_query()
             try:
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
             except EmptyResultSet:
                 query = DELETE_QUERY.format(cohort_id=self.pk)
                 params = {}
             else:
-                query = "{}{}".format(DELETE_QUERY, UPDATE_QUERY).format(
+                query = f"""
+                    {DELETE_QUERY};
+                    {UPDATE_QUERY};
+                """.format(
                     cohort_id=self.pk,
                     values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
                 )
@@ -102,24 +130,32 @@ class Cohort(models.Model):
             cursor = connection.cursor()
             with transaction.atomic():
                 cursor.execute(query, params)
-
-                self.is_calculating = False
-                self.last_calculation = timezone.now()
-                self.errors_calculating = 0
-                self.save()
+                if not use_clickhouse:
+                    self.last_calculation = timezone.now()
+                    self.errors_calculating = 0
         except Exception as err:
-            if settings.DEBUG:
-                raise err
-            self.is_calculating = False
-            self.errors_calculating = F("errors_calculating") + 1
-            self.save()
-            capture_exception(err)
+            if not use_clickhouse:
+                self.errors_calculating = F("errors_calculating") + 1
+            raise err
+        finally:
+            if not use_clickhouse:
+                self.is_calculating = False
+                self.save()
 
     def calculate_people_ch(self):
         if is_clickhouse_enabled():
             from ee.clickhouse.models.cohort import recalculate_cohortpeople
 
-            recalculate_cohortpeople(self)
+            try:
+                recalculate_cohortpeople(self)
+                self.last_calculation = timezone.now()
+                self.errors_calculating = 0
+            except Exception as e:
+                self.errors_calculating = F("errors_calculating") + 1
+                raise e
+            finally:
+                self.is_calculating = False
+                self.save()
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
@@ -214,7 +250,7 @@ class Cohort(models.Model):
                             if group.get("days")
                             else {}
                         ),
-                        **(extra_filter if extra_filter else {})
+                        **(extra_filter if extra_filter else {}),
                     )
                     .order_by("distinct_id")
                     .distinct("distinct_id")
@@ -226,6 +262,8 @@ class Cohort(models.Model):
                 filter = Filter(data=group)
                 filters |= Q(properties_to_Q(filter.properties, team_id=self.team_id, is_person_query=True))
         return filters
+
+    __repr__ = sane_repr("id", "name", "last_calculation")
 
 
 class CohortPeople(models.Model):

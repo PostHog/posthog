@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Card, Dropdown, Switch, Tooltip } from 'antd'
+import { Button, Card, Dropdown, Switch } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -20,7 +20,7 @@ import {
     InfoCircleOutlined,
 } from '@ant-design/icons'
 import { guardPremiumFeature } from 'scenes/UpgradeModal'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneLogic, urls } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
@@ -33,37 +33,9 @@ import { CreateInviteModalWithButton } from 'scenes/organization/Settings/Create
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Environments } from 'lib/constants'
-import md5 from 'md5'
-
-export interface ProfilePictureProps {
-    name?: string
-    email?: string
-    small?: boolean
-}
-
-export function ProfilePicture({ name, email, small }: ProfilePictureProps): JSX.Element {
-    const [didImageError, setDidImageError] = useState(false)
-    const pictureClass = small ? 'profile-picture small' : 'profile-picture'
-    if (email && !didImageError) {
-        const emailHash = md5(email.trim().toLowerCase())
-        const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
-        return (
-            <img
-                className={pictureClass}
-                src={gravatarUrl}
-                onError={() => setDidImageError(true)}
-                title={`This is ${email}'s Gravatar.`}
-                alt=""
-            />
-        )
-    } else if (name) {
-        return <div className={pictureClass}>{name[0]?.toUpperCase()}</div>
-    } else if (email) {
-        return <div className={pictureClass}>{email[0]?.toUpperCase()}</div>
-    }
-    return <div className={pictureClass}>?</div>
-}
+import { Environments, FEATURE_FLAGS } from 'lib/constants'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -112,7 +84,7 @@ export function TopNavigation(): JSX.Element {
             </div>
             <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
                 {preflight?.cloud && billing?.should_display_current_bill && (
-                    <Link to="/organization/billing" data-attr="top-menu-billing-usage">
+                    <Link to={urls.organizationBilling()} data-attr="top-menu-billing-usage">
                         <Card
                             bodyStyle={{ padding: 4, fontWeight: 'bold' }}
                             style={{ marginBottom: 16, cursor: 'pointer' }}
@@ -152,34 +124,34 @@ export function TopNavigation(): JSX.Element {
                 </div>
                 <div style={{ marginTop: 10 }}>
                     <LinkButton
-                        to="/organization/settings"
+                        to={urls.organizationSettings()}
                         data-attr="top-menu-item-org-settings"
                         style={{ width: '100%' }}
                         icon={<SettingOutlined />}
                     >
-                        Organization Settings
+                        Organization settings
                     </LinkButton>
                 </div>
                 {preflight?.cloud ? (
                     <div className="mt-05">
-                        <Link to="/organization/billing" data-attr="top-menu-item-billing">
+                        <Link to={urls.organizationBilling()} data-attr="top-menu-item-billing">
                             Billing
                         </Link>
                     </div>
                 ) : (
                     <div className="mt-05">
-                        <Link to="/instance/licenses" data-attr="top-menu-item-licenses">
+                        <Link to={urls.instanceLicenses()} data-attr="top-menu-item-licenses">
                             Licenses
                         </Link>
                     </div>
                 )}
                 <div className="mt-05">
-                    <Link to="/me/settings" data-attr="top-menu-item-me">
+                    <Link to={urls.mySettings()} data-attr="top-menu-item-me">
                         My account
                     </Link>
                 </div>
             </div>
-            <div className="divider mt-05" />
+            {((user?.organizations.length ?? 0) > 1 || preflight?.can_create_org) && <div className="divider mt-05" />}
             <div className="organizations">
                 {user?.organizations.map((organization) => {
                     if (organization.id == user.organization?.id) {
@@ -191,28 +163,30 @@ export function TopNavigation(): JSX.Element {
                         </a>
                     )
                 })}
-                <a
-                    style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
-                    onClick={() =>
-                        guardPremiumFeature(
-                            user,
-                            preflight,
-                            showUpgradeModal,
-                            'organizations_projects',
-                            'multiple organizations',
-                            'Organizations group people building products together. An organization can then have multiple projects.',
-                            () => {
-                                setOrganizationModalShown(true)
-                            },
-                            {
-                                cloud: false,
-                                selfHosted: true,
-                            }
-                        )
-                    }
-                >
-                    <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
-                </a>
+                {preflight?.can_create_org && (
+                    <a
+                        style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
+                        onClick={() =>
+                            guardPremiumFeature(
+                                user,
+                                preflight,
+                                showUpgradeModal,
+                                'organizations_projects',
+                                'multiple organizations',
+                                'Organizations group people building products together. An organization can then have multiple projects.',
+                                () => {
+                                    setOrganizationModalShown(true)
+                                },
+                                {
+                                    cloud: false,
+                                    selfHosted: true,
+                                }
+                            )
+                        }
+                    >
+                        <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
+                    </a>
+                )}
             </div>
             <div className="divider mb-05" />
             <div className="text-center">
@@ -237,7 +211,7 @@ export function TopNavigation(): JSX.Element {
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         if (team.id === user?.team?.id) {
-                                            push('/project/settings')
+                                            push(urls.projectSettings())
                                         } else {
                                             updateCurrentTeam(team.id, '/project/settings')
                                         }
@@ -292,13 +266,14 @@ export function TopNavigation(): JSX.Element {
                             />
                         )}
                         {(!preflight?.cloud || user?.is_staff) && (
-                            <Badge
-                                data-attr="system-status-badge"
-                                type={systemStatus ? 'success' : 'danger'}
-                                onClick={() => push('/instance/status')}
-                                tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
-                                className="mr"
-                            />
+                            <Link to={urls.systemStatus()}>
+                                <Badge
+                                    data-attr="system-status-badge"
+                                    type={systemStatus ? 'success' : 'danger'}
+                                    tooltip={systemStatus ? 'All systems operational' : 'Potential system issue'}
+                                    className="mr"
+                                />
+                            </Link>
                         )}
                         {!preflight?.cloud && (
                             <Badge
@@ -321,7 +296,7 @@ export function TopNavigation(): JSX.Element {
                 </div>
                 {user && (
                     <div>
-                        {featureFlags['test-environment-3149'] && (
+                        {featureFlags[FEATURE_FLAGS.TEST_ENVIRONMENT] && (
                             <div className="global-environment-switch">
                                 <label
                                     htmlFor="global-environment-switch"

@@ -353,6 +353,10 @@
         display: flex;
         flex-direction: column;
 
+        a {
+            display: block;
+        }
+
         .organizations {
             padding-top: 4px;
             padding-bottom: 4px;
@@ -427,24 +431,5 @@
         height: 14px;
         width: 14px;
         margin-left: $default_spacing;
-    }
-}
-
-.profile-picture {
-    border-radius: 50%;
-    width: 32px;
-    height: 32px;
-    background-color: $purple_300;
-    color: #5f1903;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    font-size: 18px;
-
-    &.small {
-        width: 18px;
-        height: 18px;
-        font-size: 12px;
     }
 }

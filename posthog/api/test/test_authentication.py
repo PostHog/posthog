@@ -91,7 +91,7 @@ class TestAuthenticationAPI(APIBaseTest):
         User.objects.create(email="new_user@posthog.com", password="87654321")
 
         # Fill the attempt limit
-        with self.settings(AXES_FAILURE_LIMIT=3):
+        with self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=3):
             for _ in range(0, 2):
                 response = self.client.post("/api/login", {"email": "new_user@posthog.com", "password": "invalid"})
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

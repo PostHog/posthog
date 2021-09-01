@@ -9,6 +9,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
 import { IconRocket } from 'lib/components/icons'
+import { ERROR_MESSAGES } from 'lib/constants'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=login-header'
 
@@ -47,7 +48,9 @@ export function Login(): JSX.Element {
                         {!authenticateResponseLoading && authenticateResponse?.errorCode && (
                             <Alert
                                 message="Could not complete your login"
-                                description={authenticateResponse?.errorDetail}
+                                description={
+                                    authenticateResponse?.errorDetail || ERROR_MESSAGES[authenticateResponse.errorCode]
+                                }
                                 type="error"
                                 showIcon
                                 style={{ marginBottom: 16 }}

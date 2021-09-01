@@ -8,7 +8,7 @@ import { OrganizationInviteType, UserBasicType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { CreateInviteModalWithButton } from './CreateInviteModal'
 import { ColumnsType } from 'antd/lib/table'
-import { ProfilePicture } from '../../../layout/navigation/TopNavigation'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href

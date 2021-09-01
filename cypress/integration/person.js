@@ -15,9 +15,6 @@ describe('Person Visualization Check', () => {
     it('Events table loads', () => {
         cy.get('.events').should('exist')
     })
-
-    // Add when feature flag for session recording is off
-    // it('Sessions table loads', () => {})
 })
 
 describe('Person Show All Distinct Checks', () => {
@@ -28,8 +25,37 @@ describe('Person Show All Distinct Checks', () => {
 
     it('Should have no Show All Distinct Id Button', () => {
         cy.get('[data-attr=persons-search]').type('fernand{enter}')
-        cy.get('.ant-radio-button-wrapper').contains('All users').click()
+        cy.get('.ant-radio-button-wrapper').contains('All persons').click()
         cy.contains('deborah.fernandez@gmail.com').click()
         cy.get('[data-cy="show-more-distinct-id"]').should('not.exist')
+    })
+})
+
+describe('Merge person', () => {
+    beforeEach(() => {
+        cy.clickNavMenu('persons')
+        cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
+        cy.get('.ant-input-search-button').click()
+        cy.contains('deborah.fernandez@gmail.com').click()
+    })
+
+    it('Should merge person', () => {
+        cy.get('.extra-ids').should('not.exist') // No extra IDs
+        cy.contains('$create_alias').should('not.exist')
+        cy.get('span:contains(Pageview)').should('have.length', 1)
+        cy.get('span:contains(clicked)').should('have.length', 1)
+
+        // Merge people
+        cy.get('[data-attr=merge-person-button]').click()
+        cy.get('.ant-select-multiple').type('merritt')
+        cy.contains('merritt.humphrey@gmail.com').click()
+        cy.contains('OK').click()
+
+        cy.contains('There are new events', { timeout: 40000 }).click()
+        cy.reload()
+
+        cy.contains('$create_alias').should('exist')
+        cy.get('span:contains(Pageview)').should('have.length', 2)
+        cy.get('span:contains(clicked)').should('have.length', 2)
     })
 })

@@ -9,6 +9,7 @@ on:
 jobs:
     build:
         name: Build & Deploy Production Docker image
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-20.04
         steps:
             - name: Configure AWS credentials
@@ -127,6 +128,7 @@ jobs:
             - name: Checkout master
               uses: actions/checkout@v2
             - name: Notify Sentry
+              if: github.repository == 'PostHog/posthog'
               uses: getsentry/action-release@v1
               env:
                   SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}

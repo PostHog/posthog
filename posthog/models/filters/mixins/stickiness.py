@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Callable, Optional, Union
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.constants import DATE_FROM, DATE_TO, STICKINESS_DAYS
 from posthog.models.filters.mixins.common import BaseParamMixin, DateMixin, IntervalMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict
@@ -52,6 +54,9 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
 
     @cached_property
     def total_intervals(self) -> int:
+        assert self.date_from is not None
+        assert self.date_to is not None
+
         _num_intervals = 0
         _total_seconds = (self.date_to - self.date_from).total_seconds()
         if self.interval == "minute":
@@ -65,6 +70,6 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
         elif self.interval == "month":
             _num_intervals = (self.date_to.year - self.date_from.year) + (self.date_to.month - self.date_from.month)
         else:
-            raise ValueError(f"{self.interval} not supported")
+            raise ValidationError(f"{self.interval} not supported")
         _num_intervals += 2
         return _num_intervals

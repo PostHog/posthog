@@ -1,7 +1,7 @@
 import asyncio
 import hashlib
 import json
-from time import time
+from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 import sqlparse
@@ -14,9 +14,11 @@ from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
+from ee.clickhouse.errors import wrap_query_error
+from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
 from posthog.constants import RDBMS
-from posthog.internal_metrics import timing
+from posthog.internal_metrics import incr, timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
@@ -34,6 +36,8 @@ from posthog.settings import (
 from posthog.utils import get_safe_cache
 
 CACHE_TTL = 60  # seconds
+SLOW_QUERY_THRESHOLD_MS = 15000
+QUERY_TIMEOUT_THREAD = get_timer_thread("ee.clickhouse.client", SLOW_QUERY_THRESHOLD_MS)
 
 _request_information: Optional[Dict] = None
 
@@ -92,6 +96,7 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
+            settings={"mutations_sync": "1"} if TEST else {},
         )
 
         ch_pool = ChPool(
@@ -104,6 +109,7 @@ else:
             verify=CLICKHOUSE_VERIFY,
             connections_min=CLICKHOUSE_CONN_POOL_MIN,
             connections_max=CLICKHOUSE_CONN_POOL_MAX,
+            settings={"mutations_sync": "1"} if TEST else {},
         )
 
         def async_execute(query, args=None, settings=None, with_column_types=False):
@@ -123,20 +129,31 @@ else:
 
     def sync_execute(query, args=None, settings=None, with_column_types=False):
         with ch_pool.get_client() as client:
-            start_time = time()
+            start_time = perf_counter()
             tags = {}
+            if app_settings.SHELL_PLUS_PRINT_SQL:
+                print()
+                print(format_sql(query, args))
+
+            sql, tags = _annotate_tagged_query(query, args)
+            timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+
             try:
-                sql, tags = _annotate_tagged_query(query, args)
                 result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
-            except Exception as e:
+            except Exception as err:
+                err = wrap_query_error(err)
                 tags["failed"] = True
-                tags["reason"] = str(e)
-                raise e
+                tags["reason"] = type(err).__name__
+                incr("clickhouse_sync_execution_failure", tags=tags)
+
+                raise err
             finally:
-                execution_time = time() - start_time
+                execution_time = perf_counter() - start_time
+
+                QUERY_TIMEOUT_THREAD.cancel(timeout_task)
                 timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+
                 if app_settings.SHELL_PLUS_PRINT_SQL:
-                    print(format_sql(query, args))
                     print("Execution time: %.6fs" % (execution_time,))
                 if _request_information is not None and _request_information.get("save", False):
                     save_query(query, args, execution_time)
@@ -168,6 +185,12 @@ def _annotate_tagged_query(query, args):
         query = f"/* {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
 
     return query, tags
+
+
+def _notify_of_slow_query_failure(tags: Dict[str, Any]):
+    tags["failed"] = True
+    tags["reason"] = "timeout"
+    incr("clickhouse_sync_execution_failure", tags=tags)
 
 
 def format_sql(sql, params, colorize=True):

@@ -7,7 +7,6 @@ jobs:
     cypress-component:
         name: Cypress component tests
         runs-on: ubuntu-18.04
-        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
 
         steps:
             - name: Checkout
@@ -16,43 +15,24 @@ jobs:
               with:
                   node-version: 14
             - uses: actions/cache@v2
-              id: cypress-node-modules-cache
+              id: cypress-node-modules-cache-2
               with:
                   path: |
                       **/node_modules
-                  key: ${{ runner.os }}-cypress-node-modules-${{ hashFiles('**/yarn.lock') }}
+                      ~/.cache/Cypress
+                  key: ${{ runner.os }}-cypress-node-modules-2-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-cypress-node-modules
+                      ${{ runner.os }}-cypress-node-modules-2
             - name: Yarn install deps
-              if: steps.cypress-node-modules-cache.outputs.cache-hit != 'true'
+              if: steps.cypress-node-modules-cache-2.outputs.cache-hit != 'true'
               run: |
                   yarn install --frozen-lockfile
-            - uses: actions/cache@v2
-              id: cypress-cache
-              with:
-                  path: |
-                      ~/.cache/Cypress
-                      **/node_modules/cypress
-                      **/node_modules/cypress-terminal-report
-                      **/node_modules/@cypress
-                  key: ${{ runner.os }}-cypress-6.7.0-v1
-            - name: Install cypress
-              if: steps.cypress-cache.outputs.cache-hit != 'true'
-              run: |
                   yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
-            - uses: actions/cache@v1
-              name: Setup Yarn build cache
-              id: yarn-build-cache
-              with:
-                  path: frontend/dist
-                  key: ${{ runner.os }}-yarn-build-${{ hashFiles('frontend/src/') }}
-                  restore-keys: |
-                      ${{ runner.os }}-yarn-build-
             - name: Yarn build
-              if: steps.yarn-build-cache.outputs.cache-hit != 'true'
+              env:
+                  GENERATE_SOURCEMAP: 'false'
               run: |
                   yarn build
-
             - name: Cypress run
               uses: cypress-io/github-action@v2
               with:

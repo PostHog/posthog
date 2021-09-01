@@ -1,9 +1,10 @@
 import { resetContext } from 'kea'
-import localStoragePlugin from 'kea-localstorage'
+import { localStoragePlugin } from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
 import { errorToast, identifierToHuman } from 'lib/utils'
+import { waitForPlugin } from 'kea-waitfor'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -20,12 +21,18 @@ const ERROR_FILTER_WHITELIST = [
     'loadBilling', // Gracefully handled if it fails
 ]
 
-export function initKea(): void {
+interface InitKeaProps {
+    state?: Record<string, any>
+    routerHistory?: any
+    routerLocation?: any
+}
+
+export function initKea({ state, routerHistory, routerLocation }: InitKeaProps = {}): void {
     resetContext({
         plugins: [
             localStoragePlugin,
             windowValuesPlugin({ window: window }),
-            routerPlugin,
+            routerPlugin({ history: routerHistory, location: routerLocation }),
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
@@ -47,6 +54,13 @@ export function initKea(): void {
                     ;(window as any).Sentry?.captureException(error)
                 },
             }),
+            waitForPlugin,
         ],
+        defaults: state,
+        createStore: state
+            ? {
+                  preloadedState: state,
+              }
+            : true,
     })
 }

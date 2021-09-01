@@ -43,15 +43,6 @@
         }
         .dashboard-item-settings {
             white-space: nowrap;
-            .anticon {
-                margin-left: 10px;
-                background: hsl(210, 8%, 95%);
-                border-radius: 100%;
-                padding: 4px;
-                &:hover {
-                    background: hsl(210, 8%, 90%);
-                }
-            }
         }
     }
     .dashboard-item-content {
@@ -64,6 +55,11 @@
             padding-bottom: 10px;
             width: 100%;
             height: 100%;
+        }
+
+        &.FunnelViz {
+            // Funnels can exceed container's dimensions and must support scrolling
+            overflow: auto;
         }
     }
     .dashboard-item-container.table .dashboard-item-content {
@@ -81,6 +77,7 @@
         --item-darker: hsl(212, 63%, 35%);
         --item-darkest: hsl(212, 63%, 30%);
         --item-lighter: hsl(212, 63%, 60%);
+        --item-primary: hsl(202, 100%, 83%);
     }
 
     &.purple {
@@ -88,6 +85,7 @@
         --item-darker: hsl(249, 46%, 46%);
         --item-darkest: hsl(249, 46%, 41%);
         --item-lighter: hsl(249, 46%, 65%);
+        --item-primary: hsl(284, 84%, 83%);
     }
 
     &.green {
@@ -95,6 +93,7 @@
         --item-darker: hsl(145, 60%, 29%);
         --item-darkest: hsl(145, 60%, 24%);
         --item-lighter: hsl(145, 60%, 50%);
+        --item-primary: hsl(112, 87%, 81%);
     }
 
     &.black {
@@ -102,6 +101,7 @@
         --item-darker: hsl(0, 0%, 9%);
         --item-darkest: hsl(0, 0%, 4%);
         --item-lighter: hsl(0, 0%, 40%);
+        --item-primary: hsl(228, 100%, 77%);
     }
 
     &.blue,
@@ -123,19 +123,11 @@
                 background: var(--item-darkest);
             }
         }
-        .svg-funnel-js__label .label__title {
-            opacity: 0.8;
-        }
-        .svg-funnel-js:not(.svg-funnel-js--vertical) .svg-funnel-js__label:not(:first-child) {
-            border-left: 1px solid rgba(255, 255, 255, 0.4);
-        }
-        .svg-funnel-js__container path {
-            fill: var(--item-lighter);
-            stroke: var(--item-lighter);
-        }
+
         h1 {
             color: rgba(255, 255, 255, 0.9);
         }
+
         .ant-table {
             background: none;
             table {
@@ -169,6 +161,28 @@
 
     &:hover .sample-dasbhoard-overlay {
         display: flex;
+    }
+
+    .insight-empty-state {
+        display: flex;
+        height: 100%;
+        align-items: center;
+
+        .illustration-main,
+        .ant-btn {
+            display: none;
+        }
+
+        h2 {
+            font-size: 1.1rem !important;
+        }
+
+        span,
+        p,
+        a {
+            font-size: 0.9rem !important;
+            line-height: 1.2rem;
+        }
     }
 }
 
@@ -349,4 +363,9 @@
     @media (max-width: 480px) {
         border-radius: 0;
     }
+}
+
+// All dropdowns must be below top navigation
+.ant-dropdown {
+    z-index: 700;
 }

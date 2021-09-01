@@ -15,10 +15,10 @@ import { preflightLogic } from './PreflightCheck/logic'
 import { BackTo } from 'lib/components/BackTo'
 import { Papercups } from 'lib/components/Papercups'
 import { appLogicType } from './AppType'
-import { PreflightStatus } from '~/types'
 import { models } from '~/models'
+import { FEATURE_FLAGS } from 'lib/constants'
 
-export const appLogic = kea<appLogicType<PreflightStatus>>({
+export const appLogic = kea<appLogicType>({
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
@@ -30,10 +30,10 @@ export const appLogic = kea<appLogicType<PreflightStatus>>({
     selectors: {
         showApp: [
             (s) => [
-                userLogic.selectors.userLoading, // not loading the user anymore (may be logged out)
-                userLogic.selectors.user, // if we have the user, skip loading check
-                featureFlagLogic.selectors.receivedFeatureFlags, // received feature flags
-                s.featureFlagsTimedOut, // waited for 3 sec to load feature flags, that's enough
+                userLogic.selectors.userLoading,
+                userLogic.selectors.user,
+                featureFlagLogic.selectors.receivedFeatureFlags,
+                s.featureFlagsTimedOut,
                 preflightLogic.selectors.preflightLoading,
                 preflightLogic.selectors.preflight,
             ],
@@ -92,7 +92,7 @@ function AppScene(): JSX.Element | null {
     const essentialElements = (
         // Components that should always be mounted inside Layout
         <>
-            {featureFlags['papercups-enabled'] && <Papercups />}
+            {featureFlags[FEATURE_FLAGS.PAPERCUPS_ENABLED] && <Papercups />}
             <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
         </>
     )

@@ -78,7 +78,14 @@ describe('<Sessions />', () => {
 
         cy.get('[data-attr="sessions-filter-open"]').click()
         cy.focused().type('br').wait(150).type('{downarrow}').wait(150).type('{enter}').wait(150)
-        cy.get('.sessions-filter-row input').last().click().type('Chrome').wait(150).type('{enter}').wait(150)
+        cy.get('.sessions-filter-row input')
+            .last()
+            .click()
+            .wait(150)
+            .type('Chrome', { force: true })
+            .wait(150)
+            .type('{enter}', { force: true })
+            .wait(150)
 
         cy.contains('There are unapplied filters').should('be.visible')
         cy.get('[data-attr="sessions-apply-filters"]').click()
@@ -109,6 +116,7 @@ describe('<Sessions />', () => {
         it('can open a session recording', () => {
             mount()
 
+            cy.get('[data-attr="session-recordings-button"]').click()
             cy.get('[data-attr="sessions-player-button"]').click()
             cy.wait('@api_session_recording').map(helpers.getSearchParameters).should('eql', {
                 session_recording_id: '177902024d94f6-022e8a39d6abb8-3b710f51-1fa400-177902024da550',

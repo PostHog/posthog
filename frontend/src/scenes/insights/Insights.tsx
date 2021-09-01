@@ -1,12 +1,12 @@
-import React, { useState } from 'react'
-import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
+import React, { useEffect, useRef } from 'react'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
 import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Tabs, Row, Col, Card, Button, Tooltip } from 'antd'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_LINE_GRAPH_CUMULATIVE, FUNNEL_VIZ, FEATURE_FLAGS } from 'lib/constants'
+import { Card, Col, Input, Row } from 'antd'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -14,43 +14,58 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 
 import { Paths } from 'scenes/paths/Paths'
 
-import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
-import { FunnelViz } from 'scenes/funnels/FunnelViz'
+import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { insightLogic, logicFromInsight, ViewType } from './insightLogic'
+import { insightLogic } from './insightLogic'
+import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { SavedFunnels } from './SavedCard'
-import { ReloadOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
+import { DownOutlined, EditOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import { ErrorMessage, TimeOut } from './EmptyStates'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { People } from 'scenes/funnels/People'
+import {
+    ErrorMessage,
+    FunnelEmptyState,
+    FunnelInvalidExclusionFiltersEmptyState,
+    FunnelInvalidFiltersEmptyState,
+    TimeOut,
+} from './EmptyStates'
+import { People } from 'scenes/funnels/FunnelPeople'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { HotKeys } from '~/types'
+import { FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PersonModal } from 'scenes/trends/PersonModal'
+import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
+import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
+import { ObjectTags } from 'lib/components/ObjectTags'
+import { Description } from 'lib/components/Description/Description'
+import { FunnelInsight } from './FunnelInsight'
+import { InsightsNav } from './InsightsNav'
+import { userLogic } from 'scenes/userLogic'
+import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
 }
 
 dayjs.extend(relativeTime)
-const { TabPane } = Tabs
-
-function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
-    return !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
-}
 
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
-    const [{ fromItem }] = useState(router.values.hashParams)
+    const {
+        hashParams: { fromItem },
+    } = useValues(router)
+
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
     const {
@@ -61,20 +76,55 @@ export function Insights(): JSX.Element {
         showTimeoutMessage,
         showErrorMessage,
         controlsCollapsed,
+        insight,
+        insightName,
+        insightLoading,
+        insightMode,
+        lastInsightModeSource,
     } = useValues(insightLogic)
-    const { setActiveView, toggleControlsCollapsed } = useActions(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const {
+        setActiveView,
+        toggleControlsCollapsed,
+        saveNewTag,
+        deleteTag,
+        updateInsight,
+        setInsightMode,
+        setInsight,
+    } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
+    const { showingPeople } = useValues(personsModalLogic)
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
+    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
 
-    const { loadResults } = useActions(logicFromInsight(activeView, { dashboardItemId: null, filters: allFilters }))
+    const { cohortModalVisible } = useValues(personsModalLogic)
+    const { setCohortModalVisible } = useActions(personsModalLogic)
+    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
+    const { user } = useValues(userLogic)
+    const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
-    const newUI = featureFlags[FEATURE_FLAGS.QUERY_UX_V2]
-    const horizontalUI = newUI && activeView !== ViewType.FUNNELS
+    const logicFromInsight = getLogicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
+    const { loadResults } = useActions(logicFromInsight)
+    const { resultsLoading } = useValues(logicFromInsight)
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
         reportHotkeyNavigation('insights', hotkey)
     }
+
+    const nameInputRef = useRef<Input | null>(null)
+    const descriptionInputRef = useRef<HTMLInputElement | null>(null)
+
+    useEffect(() => {
+        if (insightMode === ItemMode.Edit) {
+            if (lastInsightModeSource === InsightEventSource.AddDescription) {
+                setTimeout(() => descriptionInputRef.current?.focus(), 10)
+            } else if (!isMobile()) {
+                setTimeout(() => nameInputRef.current?.focus(), 10)
+            }
+        }
+    }, [insightMode])
 
     useKeyboardHotkeys({
         t: {
@@ -83,8 +133,8 @@ export function Insights(): JSX.Element {
         f: {
             action: () => handleHotkeyNavigation(ViewType.FUNNELS, 'f'),
         },
-        s: {
-            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 's'),
+        o: {
+            action: () => handleHotkeyNavigation(ViewType.SESSIONS, 'o'),
         },
         r: {
             action: () => handleHotkeyNavigation(ViewType.RETENTION, 'r'),
@@ -92,162 +142,165 @@ export function Insights(): JSX.Element {
         p: {
             action: () => handleHotkeyNavigation(ViewType.PATHS, 'p'),
         },
-        k: {
-            action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'k'),
+        i: {
+            action: () => handleHotkeyNavigation(ViewType.STICKINESS, 'i'),
         },
         l: {
             action: () => handleHotkeyNavigation(ViewType.LIFECYCLE, 'l'),
         },
+        escape: {
+            // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
+            action: () => setInsightMode({ mode: null, source: InsightEventSource.Hotkey }),
+            disabled: insightMode !== ItemMode.Edit,
+        },
     })
 
+    // Empty states that completely replace the graph
+    const BlockingEmptyState = (() => {
+        // Insight specific empty states - note order is important here
+        if (activeView === ViewType.FUNNELS) {
+            if (!areFiltersValid) {
+                return <FunnelInvalidFiltersEmptyState />
+            }
+            if (!areExclusionFiltersValid) {
+                return <FunnelInvalidExclusionFiltersEmptyState />
+            }
+            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+                return <FunnelEmptyState />
+            }
+        }
+
+        // Insight agnostic empty states
+        if (showErrorMessage) {
+            return <ErrorMessage />
+        }
+        if (showTimeoutMessage) {
+            return <TimeOut isLoading={isLoading} />
+        }
+
+        return null
+    })()
+
+    // Empty states that can coexist with the graph (e.g. Loading)
+    const CoexistingEmptyState = (() => {
+        if (isLoading || resultsLoading) {
+            return <Loading />
+        }
+        return null
+    })()
+
     return (
-        <div className={`insights-page${horizontalUI ? ' horizontal-ui' : ''}`}>
-            <PageHeader title="Insights" />
-            <Row justify="space-between" align="middle" className="top-bar">
-                <Tabs
-                    activeKey={activeView}
-                    style={{
-                        overflow: 'visible',
+        <div className="insights-page">
+            <PersonModal
+                visible={showingPeople && !cohortModalVisible}
+                view={ViewType.FUNNELS}
+                filters={allFilters}
+                onSaveCohort={() => {
+                    refreshCohort()
+                    setCohortModalVisible(true)
+                }}
+            />
+            <SaveCohortModal
+                visible={cohortModalVisible}
+                onOk={(title: string) => {
+                    saveCohortWithFilters(title, allFilters)
+                    setCohortModalVisible(false)
+                    reportCohortCreatedFromPersonModal(allFilters)
+                }}
+                onCancel={() => setCohortModalVisible(false)}
+            />
+
+            {insightMode === ItemMode.Edit ? (
+                <Input
+                    placeholder="Insight name (e.g. Weekly KPIs)"
+                    value={insightName}
+                    size="large"
+                    style={{ maxWidth: 400, margin: '16px 0' }}
+                    onChange={(e) => {
+                        setInsight({ ...insight, name: e.target.value }) // To update the input immediately
+                        updateInsight({ name: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
                     }}
-                    className="top-bar"
-                    onChange={(key) => setActiveView(key as ViewType)}
-                    animated={false}
-                    tabBarExtraContent={{
-                        right: (
-                            <Button
-                                type={activeView === ViewType.HISTORY ? 'primary' : undefined}
-                                data-attr="insight-history-button"
-                                onClick={() => setActiveView(ViewType.HISTORY)}
-                            >
-                                History
-                            </Button>
-                        ),
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            setInsightMode({ mode: null, source: InsightEventSource.InputEnter })
+                        }
                     }}
-                >
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-trends-tab">
-                                Trends
-                                <InsightHotkey hotkey="t" />
-                            </span>
-                        }
-                        key={ViewType.TRENDS}
-                    />
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-funnels-tab">
-                                Funnels
-                                <InsightHotkey hotkey="f" />
-                            </span>
-                        }
-                        key={ViewType.FUNNELS}
-                    />
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-sessions-tab">
-                                Sessions
-                                <InsightHotkey hotkey="s" />
-                            </span>
-                        }
-                        key={ViewType.SESSIONS}
-                    />
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-retention-tab">
-                                Retention
-                                <InsightHotkey hotkey="r" />
-                            </span>
-                        }
-                        key={ViewType.RETENTION}
-                    />
-                    <TabPane
-                        tab={
-                            <span data-attr="insight-path-tab">
-                                User Paths
-                                <InsightHotkey hotkey="p" />
-                            </span>
-                        }
-                        key={ViewType.PATHS}
-                    />
-                    <TabPane
-                        tab={
-                            <Tooltip
-                                placement="bottom"
-                                title={
-                                    <>
-                                        Stickiness shows you how many days users performed an action repeteadely within
-                                        a timeframe.
-                                        <br />
-                                        <br />
-                                        <i>
-                                            Example: If a user performed an action on Monday and again on Friday, it
-                                            would be shown as "2 days".
-                                        </i>
-                                    </>
+                    ref={nameInputRef}
+                    tabIndex={0}
+                />
+            ) : (
+                <Row style={{ alignItems: 'baseline' }}>
+                    <PageHeader title={'Insights'} />
+                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
+                        user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                            <EditOutlined
+                                style={{ paddingLeft: 16 }}
+                                onClick={() =>
+                                    setInsightMode({ mode: ItemMode.Edit, source: InsightEventSource.InsightHeader })
                                 }
-                                data-attr="insight-stickiness-tab"
-                            >
-                                Stickiness
-                                <InsightHotkey hotkey="k" />
-                            </Tooltip>
-                        }
-                        key={ViewType.STICKINESS}
-                    />
-                    <TabPane
-                        tab={
-                            <Tooltip
-                                placement="bottom"
-                                title={
-                                    <>
-                                        Lifecycle will show you new, resurrected, returning and dormant users so you
-                                        understand how your user base is composed. This can help you understand where
-                                        your user growth is coming from.
-                                    </>
+                            />
+                        )}
+                </Row>
+            )}
+
+            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                <Row>
+                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                        <Col style={{ width: '100%' }}>
+                            <div className="mb" data-attr="insight-tags">
+                                <ObjectTags
+                                    tags={insight.tags || []}
+                                    onTagSave={saveNewTag}
+                                    onTagDelete={deleteTag}
+                                    saving={insightLoading}
+                                    tagsAvailable={[]}
+                                />
+                            </div>
+                            <Description
+                                item={insight}
+                                itemMode={insightMode}
+                                setItemMode={(mode: ItemMode | null, source: DashboardEventSource | null) =>
+                                    setInsightMode({ mode, source })
                                 }
-                                data-attr="insight-lifecycle-tab"
-                            >
-                                Lifecycle
-                                <InsightHotkey hotkey="l" />
-                            </Tooltip>
-                        }
-                        key={ViewType.LIFECYCLE}
-                    />
-                </Tabs>
-            </Row>
+                                triggerItemUpdate={updateInsight}
+                                descriptionInputRef={descriptionInputRef}
+                            />
+                        </Col>
+                    )}
+                </Row>
+            )}
+
+            <InsightsNav />
+
             <Row gutter={16}>
                 {activeView === ViewType.HISTORY ? (
-                    <Col xs={24} xl={24}>
+                    <Col span={24}>
                         <Card className="" style={{ overflow: 'visible' }}>
                             <InsightHistoryPanel />
                         </Card>
                     </Col>
                 ) : (
                     <>
-                        <Col xs={24} xl={horizontalUI ? 24 : 7}>
+                        <Col span={24} xl={verticalLayout ? 8 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
                             >
-                                {horizontalUI && (
-                                    <>
-                                        <div
-                                            role="button"
-                                            title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
-                                            className="collapse-control"
-                                            onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
-                                        >
-                                            {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
-                                        </div>
-                                        {controlsCollapsed && (
-                                            <div>
-                                                <h3 className="l3">Query definition</h3>
-                                                <span className="text-small text-muted">
-                                                    Click here to view and change the query events, filters and other
-                                                    settings.
-                                                </span>
-                                            </div>
-                                        )}
-                                    </>
+                                <div
+                                    role="button"
+                                    title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+                                    className="collapse-control"
+                                    onClick={() => !controlsCollapsed && toggleControlsCollapsed()}
+                                >
+                                    {controlsCollapsed ? <DownOutlined /> : <UpOutlined />}
+                                </div>
+                                {controlsCollapsed && (
+                                    <div>
+                                        <h3 className="l3">Query definition</h3>
+                                        <span className="text-small text-muted">
+                                            Click here to view and change the query events, filters and other settings.
+                                        </span>
+                                    </div>
                                 )}
                                 <div className="tabs-inner">
                                     {/* These are insight specific filters. They each have insight specific logics */}
@@ -274,9 +327,7 @@ export function Insights(): JSX.Element {
                                             [`${ViewType.SESSIONS}`]: (
                                                 <SessionTab annotationsToCreate={annotationsToCreate} />
                                             ),
-                                            [`${ViewType.FUNNELS}`]: (
-                                                <FunnelTab annotationsToCreate={annotationsToCreate} newUI={newUI} />
-                                            ),
+                                            [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                             [`${ViewType.RETENTION}`]: (
                                                 <RetentionTab annotationsToCreate={annotationsToCreate} />
                                             ),
@@ -287,16 +338,8 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            {activeView === ViewType.FUNNELS && (
-                                <Card
-                                    title={<Row align="middle">Funnels Saved in Project</Row>}
-                                    style={{ marginTop: 16 }}
-                                >
-                                    <SavedFunnels />
-                                </Card>
-                            )}
                         </Col>
-                        <Col xs={24} xl={horizontalUI ? 24 : 17}>
+                        <Col span={24} xl={verticalLayout ? 16 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
@@ -308,75 +351,74 @@ export function Insights(): JSX.Element {
                                         allFilters={allFilters}
                                         annotationsToCreate={annotationsToCreate}
                                         clearAnnotationsToCreate={clearAnnotationsToCreate}
-                                        horizontalUI={horizontalUI}
                                     />
                                 }
                                 data-attr="insights-graph"
                                 className="insights-graph-container"
                             >
                                 <div>
-                                    {lastRefresh && dayjs().subtract(3, 'minutes') > dayjs(lastRefresh) && (
-                                        <small style={{ position: 'absolute', marginTop: -21, right: 24 }}>
-                                            Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-                                            <Button
-                                                size="small"
-                                                type="link"
-                                                onClick={() => loadResults(true)}
-                                                style={{ margin: 0 }}
-                                            >
-                                                refresh
-                                                <ReloadOutlined
-                                                    style={{ cursor: 'pointer', marginTop: -3, marginLeft: 3 }}
-                                                />
-                                            </Button>
-                                        </small>
-                                    )}
-                                    {showErrorMessage ? (
-                                        <ErrorMessage />
-                                    ) : (
-                                        showTimeoutMessage && <TimeOut isLoading={isLoading} />
-                                    )}
-                                    <div
+                                    <Row
+                                        align="top"
+                                        justify="space-between"
                                         style={{
-                                            display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
+                                            marginTop: -8,
+                                            marginBottom: 16,
                                         }}
                                     >
-                                        {showErrorMessage ? (
-                                            <ErrorMessage />
-                                        ) : showTimeoutMessage ? (
-                                            <TimeOut isLoading={isLoading} />
-                                        ) : (
-                                            {
-                                                [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-                                                [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-                                                [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                                [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                [`${ViewType.PATHS}`]: <Paths />,
-                                            }[activeView]
+                                        <Col>
+                                            <FunnelCanvasLabel />
+                                        </Col>
+                                        {lastRefresh && (
+                                            <ComputationTimeWithRefresh
+                                                lastRefresh={lastRefresh}
+                                                loadResults={loadResults}
+                                            />
                                         )}
+                                    </Row>
+                                    {!BlockingEmptyState && CoexistingEmptyState}
+                                    <div style={{ display: 'block' }}>
+                                        {!!BlockingEmptyState
+                                            ? BlockingEmptyState
+                                            : {
+                                                  [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                  [`${ViewType.STICKINESS}`]: (
+                                                      <TrendInsight view={ViewType.STICKINESS} />
+                                                  ),
+                                                  [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
+                                                  [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                  [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                  [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                  [`${ViewType.PATHS}`]: <Paths />,
+                                              }[activeView]}
                                     </div>
                                 </div>
                             </Card>
-                            {!showErrorMessage &&
+                            {!preflight?.is_clickhouse_enabled &&
+                                !showErrorMessage &&
                                 !showTimeoutMessage &&
+                                areFiltersValid &&
                                 activeView === ViewType.FUNNELS &&
-                                allFilters.display === FUNNEL_VIZ && (
-                                    <Card style={{ marginTop: 16 }}>
-                                        <FunnelPeople />
-                                    </Card>
-                                )}
+                                allFilters.display === FUNNEL_VIZ && <People />}
+                            {preflight?.is_clickhouse_enabled &&
+                                activeView === ViewType.FUNNELS &&
+                                !showErrorMessage &&
+                                allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}
                             {(!allFilters.display ||
-                                allFilters.display === ACTIONS_LINE_GRAPH_LINEAR ||
-                                allFilters.display === ACTIONS_LINE_GRAPH_CUMULATIVE) &&
+                                (allFilters.display !== ACTIONS_TABLE &&
+                                    allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
                                 (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
-                                    <Card style={{ marginTop: 16 }}>
+                                    /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
+                                    Exclusions:
+                                        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+                                        2. Bar value chart. Because this view displays data in completely different dimensions.
+                                    */
+                                    <Card style={{ marginTop: 8 }}>
                                         <BindLogic
                                             logic={trendsLogic}
-                                            props={{ dashboardItemId: null, view: activeView }}
+                                            props={{ dashboardItemId: null, view: activeView, filters: allFilters }}
                                         >
-                                            <InsightsTable />
+                                            <h3 className="l3">Details table</h3>
+                                            <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
                                         </BindLogic>
                                     </Card>
                                 )}
@@ -387,37 +429,4 @@ export function Insights(): JSX.Element {
             <NPSPrompt />
         </div>
     )
-}
-
-function FunnelInsight(): JSX.Element {
-    const { stepsWithCount, isValidFunnel, stepsWithCountLoading } = useValues(funnelLogic({}))
-
-    return (
-        <div style={{ height: 300, position: 'relative' }}>
-            {stepsWithCountLoading && <Loading />}
-            {isValidFunnel ? (
-                <FunnelViz steps={stepsWithCount} />
-            ) : (
-                !stepsWithCountLoading && (
-                    <div
-                        style={{
-                            textAlign: 'center',
-                        }}
-                    >
-                        <span>
-                            Enter the details to your funnel and click 'calculate' to create a funnel visualization
-                        </span>
-                    </div>
-                )
-            )}
-        </div>
-    )
-}
-
-function FunnelPeople(): JSX.Element {
-    const { stepsWithCount } = useValues(funnelLogic())
-    if (stepsWithCount && stepsWithCount.length > 0) {
-        return <People />
-    }
-    return <></>
 }

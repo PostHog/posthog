@@ -1,19 +1,19 @@
 import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Button, Card, Col, Drawer, Row, Spin } from 'antd'
+import { Button, Card, Col, Drawer, Row, Spin, Table } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-import { PlusOutlined } from '@ant-design/icons'
-import { Table } from 'antd'
-import { PushpinFilled, PushpinOutlined, DeleteOutlined, AppstoreAddOutlined } from '@ant-design/icons'
+import { AppstoreAddOutlined, DeleteOutlined, PlusOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table'
+import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
 import { DashboardType } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { ColumnType } from 'antd/lib/table'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/sceneLogic'
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -32,7 +32,9 @@ export function Dashboards(): JSX.Element {
                 return (
                     <span
                         onClick={() =>
-                            pinned ? unpinDashboard(id, 'dashboards_list') : pinDashboard(id, 'dashboards_list')
+                            pinned
+                                ? unpinDashboard(id, DashboardEventSource.DashboardsList)
+                                : pinDashboard(id, DashboardEventSource.DashboardsList)
                         }
                         style={{ color: 'rgba(0, 0, 0, 0.85)', cursor: 'pointer' }}
                     >
@@ -40,6 +42,15 @@ export function Dashboards(): JSX.Element {
                     </span>
                 )
             },
+            sorter: {
+                multiple: 20,
+                compare: (a, b) => {
+                    const aAsInt = a.pinned ? 1 : 0
+                    const bAsInt = b.pinned ? 1 : 0
+                    return aAsInt + bAsInt !== 1 ? 0 : aAsInt < bAsInt ? -1 : 1
+                },
+            },
+            defaultSortOrder: 'descend',
         },
         {
             title: 'Dashboard',
@@ -47,11 +58,16 @@ export function Dashboards(): JSX.Element {
             key: 'name',
             render: function Render(name: string, { id }: { id: number }) {
                 return (
-                    <Link data-attr="dashboard-name" to={`/dashboard/${id}`}>
+                    <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
                         {name || 'Untitled'}
                     </Link>
                 )
             },
+            sorter: {
+                multiple: 10,
+                compare: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
+            },
+            defaultSortOrder: 'ascend',
         },
         {
             title: 'Description',

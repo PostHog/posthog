@@ -132,6 +132,7 @@ class Plugin(models.Model):
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     capabilities: models.JSONField = models.JSONField(default=dict)
+    metrics: models.JSONField = models.JSONField(default=dict, null=True)
 
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
     error: models.JSONField = models.JSONField(default=None, null=True)
@@ -158,6 +159,11 @@ class Plugin(models.Model):
                 if default is not None:
                     config[config_entry["key"]] = default
         return config
+
+    def __str__(self) -> str:
+        return self.name
+
+    __repr__ = sane_repr("id", "name", "organization_id", "is_global")
 
 
 class PluginConfig(models.Model):

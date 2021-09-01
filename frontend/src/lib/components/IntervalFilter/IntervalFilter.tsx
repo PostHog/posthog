@@ -2,36 +2,10 @@ import React from 'react'
 import { Select } from 'antd'
 import { intervalFilterLogic } from './intervalFilterLogic'
 import { useValues, useActions } from 'kea'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { disableHourFor, disableMinuteFor } from 'lib/utils'
 import { CalendarOutlined } from '@ant-design/icons'
-
-const intervals = {
-    minute: {
-        label: 'Minute',
-        newDateFrom: 'dStart',
-    },
-    hour: {
-        label: 'Hourly',
-        newDateFrom: 'dStart',
-    },
-    day: {
-        label: 'Daily',
-        newDateFrom: undefined,
-    },
-    week: {
-        label: 'Weekly',
-        newDateFrom: '-30d',
-    },
-    month: {
-        label: 'Monthly',
-        newDateFrom: '-90d',
-    },
-}
-
-const defaultInterval = intervals.day
-
-type IntervalKeyType = keyof typeof intervals
+import { defaultInterval, IntervalKeyType, intervals } from 'lib/components/IntervalFilter/intervals'
+import { ViewType } from '~/types'
 
 interface InvertalFilterProps {
     view: ViewType
@@ -39,7 +13,7 @@ interface InvertalFilterProps {
 }
 
 export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
-    const interval: IntervalKeyType = useValues(intervalFilterLogic).interval
+    const { interval } = useValues(intervalFilterLogic)
     const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic)
     const options = Object.entries(intervals).map(([key, { label }]) => ({
         key,
@@ -59,7 +33,7 @@ export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Ele
             bordered={false}
             disabled={disabled}
             defaultValue={interval || 'day'}
-            value={interval}
+            value={interval || undefined}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
                 const { newDateFrom } = intervals[key as IntervalKeyType] || defaultInterval

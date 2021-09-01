@@ -24,6 +24,10 @@ style files without adding already imported styles. */
     --text-default: #{$text_default};
     --text-light: #{$text_light};
     --muted: #{$text_muted};
+    --muted-alt: #{$text_muted_alt};
+    --border-light: #{$border_light};
+    --border: #{$border};
+    --border-dark: #{$border_dark};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{$purple_500};
@@ -34,9 +38,9 @@ style files without adding already imported styles. */
     --cyan: #17a2b8;
     --pink: #e83e8c;
     --white: #f4f6ff;
-    --maroon: #800000;
+    --maroon: #7f0000;
     --mint: #aaffc3;
-    --olive: #808000;
+    --olive: #807500;
     --navy: #000075;
     --orange: #f58231;
     --lime: #bfef45;
@@ -69,6 +73,11 @@ style files without adding already imported styles. */
 .text-extra-small {
     @extend .text-default;
     font-size: 10px;
+}
+
+.text-xxs {
+    @extend .text-default;
+    font-size: 8px;
 }
 
 .page-title-row {
@@ -119,6 +128,11 @@ style files without adding already imported styles. */
     font-weight: 700;
 }
 
+.l5 {
+    font-size: 13px;
+    font-weight: 700;
+}
+
 .text-right {
     text-align: right;
 }
@@ -133,6 +147,10 @@ style files without adding already imported styles. */
 
 .text-muted {
     color: $text_muted;
+}
+
+.text-muted-alt {
+    color: $text_muted_alt;
 }
 
 code.code {
@@ -198,6 +216,16 @@ code.code {
 
 .ml-025 {
     margin-left: $default_spacing * 0.25;
+}
+
+.mx-0 {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+
+.my-0 {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
 }
 
 .pa {
@@ -447,6 +475,11 @@ code.code {
     color: $primary !important;
     cursor: pointer;
     margin-left: 5px;
+
+    &.left {
+        margin-left: 0;
+        margin-right: 5px;
+    }
 }
 
 .btn-lg-2x {
@@ -472,6 +505,26 @@ code.code {
     font-size: 12px;
 }
 
+.graph-series-glyph {
+    border-radius: 50%;
+    border: 2px solid $text_default;
+    font-weight: bold;
+    font-size: 12px;
+    height: 22px;
+    width: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+
+    // variants
+    &.funnel-step-glyph {
+        border-color: $border;
+        background-color: white;
+        color: $primary_alt;
+    }
+}
+
 // Overlays styles
 
 #bottom-notice {
@@ -495,6 +548,7 @@ code.code {
         background: $danger;
     }
     &.tricolor {
+        cursor: pointer;
         div:nth-child(1) {
             background: $brand_blue;
         }
@@ -504,10 +558,7 @@ code.code {
         div:nth-child(3) {
             background: $brand_yellow;
         }
-    }
-    &.click-close {
-        cursor: pointer;
-        code {
+        span {
             cursor: text;
         }
     }
@@ -588,6 +639,8 @@ code.code {
 
     &.or {
         background-color: $blue_300;
+        text-align: center;
+        max-width: 50px;
     }
 
     &.width-locked {

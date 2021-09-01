@@ -1,5 +1,78 @@
 # Changelog
 
+### 1.27.0 - Monday 26 July 2021
+
+-   New Funnels Experience.
+    -   Funnels have a new bar-chart visualization and show more comprehensive metrics. You can now choose whether to display conversion rates for the full funnel or from each step to the next.
+    -   Breakdowns are now supported on funnels! This allows you to identify how user and event properties (for instance, browser or referral source) affect your conversions.
+    -   Clicking on a funnel step will reveal a list of persons who have continued or dropped off at that step. From there, you can easily view their sessions (provided you have Session Recording enabled) to find unknown problems or opportunities that would otherwise be hidden in the data.
+    -   Going beyond averages, the new **Time to Convert** view shows a distribution of time spent between steps or for the whole funnel.
+-   Revamp of legend table & insight tooltips.
+    -   The legend table for Insights has received a major styling revamp, including nicer formatting for dates and numbers and clearer identification of breakdown values.
+    -   New tooltips allow you to scan and compare multiple values at a glance.
+-   New filter experience.
+    -   It's now easier than ever to find the event, user, or cohort definitions you're looking for when adding a filter to a query. This change also causes Insights to load significantly faster.
+-   Clickhouse is now free to use!
+    -   We have ironed out all the details and have now decided to make the Clickhouse backend **fully free** now, no longer requiring a license nor having any additional restrictions. This comes from our commitment to supporting teams and companies of any size, so you can continue using PostHog for free even if your event volume increases significantly.
+    -   Clickhouse is deployed a bit differently than our traditional deployment options, you can find full deployment instructions in https://github.com/PostHog/charts-clickhouse/
+-   400+ improvements & fixes across the app
+-   **DEPRECATED**. The `/api/user` endpoint has [been deprecated](https://posthog.com/docs/api/user#user--deprecated) for a while and will be removed on the next version (1.28.0).
+
+### 1.26.0 - Tuesday 15 June 2021
+
+- Feature flags for Node.js and Go
+
+- [Node.js](https://github.com/PostHog/posthog-node/pull/29)
+- [Go](https://github.com/PostHog/posthog-go/pull/2)
+
+You requested and we delivered! 
+
+`posthog-node` and `posthog-go` now both support feature flags. [Ruby](https://github.com/PostHog/posthog-ruby/pull/6) and [PHP](https://github.com/PostHog/posthog-php/pull/12) are coming next.
+
+We're making our libraries world-class, and this cycle also saw significant improvements to `posthog-python`, `posthog-js`, and `posthog-flutter`. We now have a dedicated team responsible for our libraries, so expect development to speed up!
+
+Thank you to everyone in the community for supporting us with feature requests and PRs. 
+
+- [Funnel trends](https://github.com/PostHog/posthog/pull/4419)
+
+![Funnel Trends](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/funnel-trends.png)
+
+Following a few refactors, funnel trends are now available in beta for Cloud and self-hosted [Scale](https://posthog.com/pricing) users. 
+
+Funnel trends let you see how conversion in a funnel changes over time, as well as specify the time taken between steps for a conversion to be counted.
+
+- [CSV download for users in a datapoint](https://github.com/PostHog/posthog/pull/4175)
+
+![CSV Download](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/csvexport.png)
+
+If you didn't already know, almost all datapoints in PostHog's 'Insights' section are clickable and reveal the users that make up that datapoint.
+
+Well, now those users can be exported in CSV format, so you can use them in other tools or even create a static PostHog cohort from them.
+
+Thanks a lot for building this [c3ho](https://github.com/c3ho)!
+
+- [Request retries for posthog-js](https://github.com/PostHog/posthog-js/issues/199)
+
+Continuing on the libraries theme, a much-requested feature is now live for `posthog-js`: retries!
+
+Requests that fail because of for example, the client's network connection, will now be retried up to 10 times within an hour, making sure you miss as few events as possible. So if your user's internet goes down and comes back up, you'll still receive the events that happened when they were offline.
+
+Also, Neil fixed a bug that sent requests to a wrong endpoint (with no impact on tracking). You can read about how Neil solved this issue on his [blog](https://neilkakkar.com/debugging-open-source.html).
+
+- New plugins for Redshift, PostgreSQL, Salesforce, and PagerDuty
+
+We've just released 4 new integrations with major platforms to enhance your PostHog experience. 
+
+Export data to Redshift, Postgres, and Salesforce, and leverage the PagerDuty plugin to get alerts when metrics in PostHog cross thresholds you specify.
+
+- New querying experience
+
+![New querying experience](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/new-querying.png)
+
+We've redesigned and significantly improved the performance of the query builder in PostHog 'Trends'! 
+
+Let us know what you think about it on [Slack](https://posthog.com/slack).
+
 ### 1.25.0 - Thursday 13 May 2021
 
 - 100x more, for free

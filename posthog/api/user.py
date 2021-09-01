@@ -25,6 +25,7 @@ from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.tasks import user_identify
+from posthog.utils import get_instance_realm
 from posthog.version import VERSION
 
 
@@ -180,7 +181,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
 @authenticate_secondarily
 def user(request):
     """
-    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/v2/user/
+    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/users/@me/
     and will be removed soon.
     """
     organization: Optional[Organization] = request.user.organization
@@ -238,7 +239,7 @@ def user(request):
 
     return JsonResponse(
         {
-            "deprecation": "Endpoint has been deprecated. Please use `/api/v2/user/`.",
+            "deprecation": "Endpoint has been deprecated. Please use `/api/users/@me/`.",
             "id": user.pk,
             "distinct_id": user.distinct_id,
             "name": user.first_name,
@@ -289,6 +290,7 @@ def user(request):
             "is_staff": user.is_staff,
             "is_impersonated": is_impersonated_session(request),
             "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
+            "realm": get_instance_realm(),
         }
     )
 
@@ -328,42 +330,6 @@ def redirect_to_site(request):
         return redirect("{}#__posthog={}".format(app_url, state))
     else:
         return redirect("{}#state={}".format(app_url, state))
-
-
-@require_http_methods(["PATCH"])
-@authenticate_secondarily
-def change_password(request):
-    """
-    DEPRECATED: This endpoint has been deprecated in favor of /api/v2/user/ 
-    and will be removed in PostHog V2.
-    """
-    try:
-        body = json.loads(request.body)
-    except (TypeError, json.decoder.JSONDecodeError):
-        return JsonResponse({"error": "Cannot parse request body"}, status=400)
-
-    old_password = body.get("currentPassword")
-    new_password = body.get("newPassword")
-
-    user = cast(User, request.user)
-
-    if user.has_usable_password():
-        if not old_password or not new_password:
-            return JsonResponse({"error": "Missing payload"}, status=400)
-
-        if not user.check_password(old_password):
-            return JsonResponse({"error": "Incorrect old password"}, status=400)
-
-    try:
-        validate_password(new_password, user)
-    except ValidationError as err:
-        return JsonResponse({"error": err.messages[0]}, status=400)
-
-    user.set_password(new_password)
-    user.save()
-    update_session_auth_hash(request, user)
-
-    return JsonResponse({})
 
 
 @require_http_methods(["POST"])

@@ -16,7 +16,7 @@ interface InviteRowState {
 
 const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType, InviteRowState>>({
+export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
     actions: {
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         deleteInviteAtIndex: (index: number) => ({ index }),
@@ -63,7 +63,6 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType, I
                         OrganizationInviteType,
                         'target_email' | 'first_name'
                     >[] = values.invites.filter((invite) => invite.target_email)
-
                     eventUsageLogic.actions.reportBulkInviteAttempted(
                         payload.length,
                         payload.filter((invite) => !!invite.first_name).length

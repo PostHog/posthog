@@ -2,14 +2,17 @@ from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import authentication, serializers, viewsets
+from rest_framework import authentication, exceptions, request, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
@@ -68,6 +71,16 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         self._update_filters(validated_data)
 
+        variants = validated_data.get("filters", {}).get("multivariate", {}).get("variants", [])
+        variant_rollout_sum = 0
+        for variant in variants:
+            variant_rollout_sum += variant.get("rollout_percentage")
+
+        if len(variants) > 0 and variant_rollout_sum != 100:
+            raise exceptions.ValidationError(
+                "Invalid variant definitions: Variant rollout percentages must sum to 100."
+            )
+
         FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
         instance = super().create(validated_data)
 
@@ -113,3 +126,11 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("-created_at")
+
+    @action(methods=["GET"], detail=False)
+    def for_user(self, request: request.Request, **kwargs):
+        distinct_id = request.GET.get("distinct_id", None)
+        if not distinct_id:
+            raise serializers.ValidationError("Please provide a distinct_id to continue.")
+        flags = get_active_feature_flags(self.team, distinct_id)
+        return Response({"distinct_id": distinct_id, "flags_enabled": flags})

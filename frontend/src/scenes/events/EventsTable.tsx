@@ -15,10 +15,9 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { ViewType } from 'scenes/insights/insightLogic'
 import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { EventFormattedType } from '~/types'
+import { EventFormattedType, ViewType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TableConfig } from 'lib/components/ResizableTable'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -301,12 +300,14 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 saving={columnConfigSaving}
                 mainActionComponent={
                     <>
-                        <EventName
-                            value={eventFilter}
-                            onChange={(value: string) => {
-                                setEventFilter(value || '')
-                            }}
-                        />
+                        <div style={{ width: '20%' }}>
+                            <EventName
+                                value={eventFilter}
+                                onChange={(value: string) => {
+                                    setEventFilter(value || '')
+                                }}
+                            />
+                        </div>
                         {filtersEnabled ? (
                             <PropertyFilters pageKey={'EventsTable'} style={{ marginBottom: 0 }} />
                         ) : null}
@@ -322,7 +323,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     size="small"
                     key={columnConfig === 'DEFAULT' ? 'default' : columnConfig}
                     className="ph-no-capture"
-                    scroll={{ x: true }}
                     locale={{
                         emptyText: (
                             <span>

@@ -2,5 +2,4 @@
 set -e
 
 rm celerybeat.pid || echo "celerybeat.pid not found, proceeding"
-# Warning: Changing the command below affects posthog-cloud. Please check ./bin/pull_main for details
 celery -A posthog beat -S redbeat.RedBeatScheduler

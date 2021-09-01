@@ -20,6 +20,7 @@ class Command(BaseCommand):
                 CLICKHOUSE_DATABASE,
                 CLICKHOUSE_HTTP_URL,
                 CLICKHOUSE_PASSWORD,
+                CLICKHOUSE_REPLICATION,
                 CLICKHOUSE_USER,
                 CLICKHOUSE_VERIFY,
             )
@@ -36,4 +37,4 @@ class Command(BaseCommand):
                 database.create_database()
             except:
                 pass
-            database.migrate("ee.clickhouse.migrations")
+            database.migrate("ee.clickhouse.migrations", replicated=CLICKHOUSE_REPLICATION)

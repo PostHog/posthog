@@ -1,6 +1,8 @@
+import json
+
 from freezegun import freeze_time
 
-from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
+from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Event, Organization, Person
 from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.tasks.calculate_action import calculate_actions_from_last_calculation
@@ -56,6 +58,64 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     properties={"$some_property": "other_value"},
                 )
             return sign_up_action, person
+
+        def test_people_cumulative(self):
+            with freeze_time("2020-01-01 00:06:34"):
+                for i in range(20):
+                    person_factory(team_id=self.team.pk, distinct_ids=[f"blabla_{i}"])
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"blabla_{i}",
+                        properties={"$some_property": "value"},
+                    )
+
+            with freeze_time("2020-01-05 00:06:34"):
+                for i in range(20, 40):
+                    person_factory(team_id=self.team.pk, distinct_ids=[f"blabla_{i}"])
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"blabla_{i}",
+                        properties={"$some_property": "value"},
+                    )
+
+            with freeze_time("2020-01-15 00:06:34"):
+                for i in range(40, 80):
+                    person_factory(team_id=self.team.pk, distinct_ids=[f"blabla_{i}"])
+                    event_factory(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=f"blabla_{i}",
+                        properties={"$some_property": "value"},
+                    )
+
+            event_response = self.client.get(
+                "/api/action/people/",
+                data={
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-31",
+                    "interval": "day",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "sign up",
+                    "display": "ActionsLineGraphCumulative",
+                },
+            ).json()
+            self.assertEqual(event_response["results"][0]["count"], 80)
+
+            with freeze_time("2020-01-31 00:06:34"):
+                event_response = self.client.get(
+                    "/api/action/people/",
+                    data={
+                        "date_from": "-30d",
+                        "date_to": "2020-01-31",
+                        "interval": "day",
+                        ENTITY_TYPE: "events",
+                        ENTITY_ID: "sign up",
+                        "display": "ActionsLineGraphCumulative",
+                    },
+                ).json()
+                self.assertEqual(event_response["results"][0]["count"], 80)
 
         def _create_breakdown_events(self):
             freeze_without_time = ["2020-01-02"]
@@ -256,6 +316,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     ENTITY_TYPE: "actions",
                     "interval": "day",
                     ENTITY_ID: sign_up_action.id,
+                    "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
                 },
             ).json()
             event_response = self.client.get(
@@ -266,6 +327,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     ENTITY_TYPE: "events",
                     ENTITY_ID: "sign up",
                     "interval": "day",
+                    "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
                 },
             ).json()
 
@@ -412,6 +474,26 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             )
             return (person1, person2, person3, person4)
 
+        def test_people_csv(self):
+            person1, _, _, _ = self._create_multiple_people()
+            people = self.client.get(
+                "/api/action/people.csv",
+                data={
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "watched movie",
+                    "display": "ActionsLineGraphCumulative",
+                    "entity_math": "dau",
+                    "events": [{"id": "watched movie", "math": "dau"}],
+                },
+            )
+            resp = people.content.decode("utf-8").split("\r\n")
+            resp = sorted(resp)
+            self.assertEqual(len(resp), 6)  # header, 4 people, empty line
+            self.assertEqual(resp[1], "Distinct ID,Internal ID,Email,Name,Properties")
+            self.assertEqual(resp[2].split(",")[0], "person1")
+
         def test_breakdown_by_cohort_people_endpoint(self):
             person1, _, _, _ = self._create_multiple_people()
             cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
@@ -428,6 +510,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
+                    "display": TRENDS_CUMULATIVE,  # ensure date range is used as is
                     ENTITY_TYPE: "events",
                     ENTITY_ID: "watched movie",
                     "breakdown_type": "cohort",
@@ -446,6 +529,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 data={
                     "date_from": "2020-01-01",
                     "date_to": "2020-01-07",
+                    "display": TRENDS_CUMULATIVE,  # ensure date range is used as is
                     ENTITY_TYPE: "events",
                     ENTITY_ID: "watched movie",
                     "breakdown_type": "cohort",
@@ -497,6 +581,23 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             self.assertEqual(len(people["results"][0]["people"]), 2)
             ordered_people = sorted([p["id"] for p in people["results"][0]["people"]])
             self.assertEqual(ordered_people, sorted([person1.pk, person2.pk]))
+
+        def test_filtering_by_person_properties(self):
+            person1, person2, person3, person4 = self._create_multiple_people()
+
+            people = self.client.get(
+                "/api/action/people/",
+                data={
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "watched movie",
+                    "properties": json.dumps([{"key": "name", "value": "person2", "type": "person"}]),
+                },
+            ).json()
+
+            self.assertEqual(len(people["results"][0]["people"]), 1)
+            self.assertEqual(people["results"][0]["people"][0]["id"], person2.pk)
 
     return TestActionPeople
 

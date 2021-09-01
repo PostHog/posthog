@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import { licenseLogicType } from './logicType'
 import { APIErrorType, LicenseType } from '~/types'
 
-export const licenseLogic = kea<licenseLogicType<LicenseType, APIErrorType>>({
+export const licenseLogic = kea<licenseLogicType>({
     actions: {
         setError: (error: APIErrorType | null) => ({ error }),
         addLicense: (license: LicenseType) => ({ license }),

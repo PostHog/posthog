@@ -4,10 +4,10 @@ from django.db.models.query import Prefetch
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.person import ClickhousePersonSerializer, get_persons_by_uuids
+from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.util import get_trunc_func_ch
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_DISTINCT_ID_SQL
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.retention.people_in_period import (
     DEFAULT_REFERENCE_EVENT_PEOPLE_PER_PERIOD_SQL,
     DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL,
@@ -25,7 +25,7 @@ from ee.clickhouse.sql.retention.retention import (
 from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models.action import Action
 from posthog.models.entity import Entity
-from posthog.models.filters import Filter, RetentionFilter
+from posthog.models.filters import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.queries.retention import Retention
@@ -57,7 +57,7 @@ class ClickhouseRetention(Retention):
             target_query=target_query_formatted,
             filters=prop_filters,
             trunc_func=trunc_func,
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         )
 
         target_condition, _ = self._get_condition(target_entity, table="reference_event")
@@ -75,7 +75,7 @@ class ClickhouseRetention(Retention):
                 reference_event_sql=reference_event_sql,
                 target_condition=target_condition,
                 returning_condition=returning_condition,
-                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {
                 "team_id": team.pk,
@@ -102,7 +102,7 @@ class ClickhouseRetention(Retention):
             INITIAL_INTERVAL_SQL.format(
                 reference_event_sql=reference_event_sql,
                 trunc_func=trunc_func,
-                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {
                 "team_id": team.pk,
@@ -165,7 +165,7 @@ class ClickhouseRetention(Retention):
             target_query=target_query_formatted,
             filters=prop_filters,
             trunc_func=trunc_func,
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         )
         reference_date_from = filter.date_from
         reference_date_to = filter.date_from + filter.period_increment
@@ -177,7 +177,7 @@ class ClickhouseRetention(Retention):
                 reference_event_query=reference_event_query,
                 target_query=return_query_formatted,
                 filters=prop_filters,
-                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {
                 "team_id": team.pk,
@@ -224,7 +224,7 @@ class ClickhouseRetention(Retention):
             target_query=target_query_formatted,
             filters=prop_filters,
             trunc_func=trunc_func,
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         )
         default_event_query = (
             DEFAULT_REFERENCE_EVENT_UNIQUE_PEOPLE_PER_PERIOD_SQL
@@ -234,7 +234,7 @@ class ClickhouseRetention(Retention):
             target_query=target_query_formatted,
             filters=prop_filters,
             trunc_func=trunc_func,
-            latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
         )
 
         date_from = filter.date_from + filter.selected_interval * filter.period_increment
@@ -249,7 +249,7 @@ class ClickhouseRetention(Retention):
                 first_event_sql=first_event_sql,
                 first_event_default_sql=default_event_query,
                 trunc_func=trunc_func,
-                latest_distinct_id_sql=GET_LATEST_PERSON_DISTINCT_ID_SQL,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {
                 "team_id": team.pk,

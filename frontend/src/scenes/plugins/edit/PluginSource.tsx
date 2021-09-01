@@ -12,40 +12,42 @@ import SCAFFOLD_errors from '!raw-loader!@posthog/plugin-scaffold/dist/errors.d.
 // @ts-ignore
 import SCAFFOLD_types from '!raw-loader!@posthog/plugin-scaffold/dist/types.d.ts'
 
-const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/overview
-import { Plugin } from '@posthog/plugin-scaffold'
+const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
 
-type MyPluginType = Plugin<{
-  config: {
-    username: string
-  },
-  global: {},
-}>
-
-const MyPlugin: MyPluginType = {
-  setupPlugin: async (meta) => {
-    
-  },
-  onEvent: async (event, meta) => {
-    console.log(\`Event \${event.event} has been processed!\`)
-  },
+// Processes each event, optionally transforming it
+export function processEvent(event, { config }) {
+    // Some events (such as $identify) don't have properties
+    if (event.properties) {
+        event.properties['hello'] = \`Hello \${config.name}\`
+    }
+    // Return the event to be ingested, or return null to discard
+    return event
 }
 
-export default MyPlugin
-`
+// Runs when the plugin is loaded, allows for preparing it as needed
+export function setupPlugin (meta) {
+    console.log(\`The date is \${new Date().toDateString()}\`)
+}
+
+// Runs every hour on the hour
+async function runEveryHour(meta) {
+    const response = await fetch('https://palabras-aleatorias-public-api.herokuapp.com/random')
+    const data = await response.json()
+    const randomSpanishWord = data.body.Word
+    console.log(\`¡\${randomSpanishWord.toUpperCase()}!\`)
+}`
 
 const defaultConfig = [
     {
         markdown: 'Specify your config here',
     },
     {
-        key: 'username',
+        key: 'name',
         name: 'Person to greet',
         type: 'string',
         hint: 'Used to personalise the property `hello`',
-        default: '',
+        default: 'world',
         required: false,
-        order: 2,
     },
 ]
 
@@ -82,7 +84,14 @@ export function PluginSource(): JSX.Element {
         <Drawer
             forceRender={true}
             visible={editingSource}
-            onClose={() => setEditingSource(false)}
+            onClose={() => {
+                if (form.getFieldValue('source') !== editingPlugin?.source) {
+                    confirm('You have unsaved changes in your plugin. Are you sure you want to exit?') &&
+                        setEditingSource(false)
+                } else {
+                    setEditingSource(false)
+                }
+            }}
             width={'min(90vw, 64rem)'}
             title={`Coding Plugin: ${editingPlugin?.name}`}
             placement="left"
@@ -101,9 +110,20 @@ export function PluginSource(): JSX.Element {
                 {editingSource ? (
                     <>
                         <p>
-                            <a href="https://posthog.com/docs/plugins/overview" target="_blank">
-                                Read the documentation.
+                            Read our{' '}
+                            <a href="https://posthog.com/docs/plugins/build/overview" target="_blank">
+                                plugin building overview in PostHog Docs
+                            </a>{' '}
+                            for a good grasp of possibilities.
+                            <br />
+                            Once satisfied with your plugin, feel free to{' '}
+                            <a
+                                href="https://posthog.com/docs/plugins/build/tutorial#submitting-your-plugin"
+                                target="_blank"
+                            >
+                                submit it to the official Plugin Library
                             </a>
+                            .
                         </p>
                         <Form.Item label="Name" name="name" required rules={[requiredRule]}>
                             <Input />

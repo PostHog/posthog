@@ -1,10 +1,11 @@
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Literal, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.db.models.query_utils import Q
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
     DISTINCT_ID_FILTER,
@@ -25,12 +26,12 @@ from posthog.utils import relative_date_parse
 
 class RetentionTypeMixin(BaseParamMixin):
     @cached_property
-    def retention_type(self) -> str:
+    def retention_type(self) -> Literal["retention_recurring", "retention_first_time"]:
         return self._data.get(RETENTION_TYPE, RETENTION_RECURRING)
 
     @include_dict
     def retention_type_to_dict(self):
-        return {"retention_type": self.retention_type} if self.retention_type else {}
+        return {"retention_type": self.retention_type}
 
 
 RETENTION_DEFAULT_INTERVALS = 11
@@ -138,7 +139,7 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
         elif period == "Day":
             return timedelta(days=total_intervals), timedelta(days=1)
         else:
-            raise ValueError(f"Period {period} is unsupported.")
+            raise ValidationError(f"Period {period} is unsupported.")
 
 
 class EntitiesDerivedMixin(EntitiesMixin):

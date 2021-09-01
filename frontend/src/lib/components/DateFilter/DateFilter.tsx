@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Select } from 'antd'
 import dayjs from 'dayjs'
 import { dateMapping, isDate, dateFilterToText } from 'lib/utils'
@@ -55,7 +55,7 @@ export function DateFilter({
                 setDateRangeOpen(true)
             }
         } else {
-            setDate(dateMapping[v][0], dateMapping[v][1])
+            setDate(dateMapping[v].values[0], dateMapping[v].values[1])
         }
     }
 
@@ -85,12 +85,18 @@ export function DateFilter({
         setDate(dayjs(rangeDateFrom).format('YYYY-MM-DD'), dayjs(rangeDateTo).format('YYYY-MM-DD'))
     }
 
+    const parsedValue = useMemo(() => dateFilterToText(dateFrom, dateTo, defaultValue), [
+        dateFrom,
+        dateTo,
+        defaultValue,
+    ])
+
     return (
         <Select
             data-attr="date-filter"
             bordered={bordered}
             id="daterange_selector"
-            value={dateFilterToText(dateFrom, dateTo, defaultValue)}
+            value={parsedValue}
             onChange={_onChange}
             style={{
                 marginRight: 4,
@@ -124,10 +130,15 @@ export function DateFilter({
             }}
         >
             {[
-                ...Object.entries(dateMapping).map(([key]) => {
+                ...Object.entries(dateMapping).map(([key, { inactive }]) => {
                     if (key === 'Custom' && !showCustom) {
                         return null
                     }
+
+                    if (inactive && parsedValue !== key) {
+                        return null
+                    }
+
                     return (
                         <Select.Option key={key} value={key} label={makeLabel ? makeLabel(key) : undefined}>
                             {key}

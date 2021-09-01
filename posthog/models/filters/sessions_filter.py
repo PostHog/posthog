@@ -11,4 +11,4 @@ class SessionsFilter(SessionsFiltersMixin, DistinctIdMixin, PaginationMixin, Use
 
 
 class SessionEventsFilter(DistinctIdMixin, DateMixin, BaseFilter):
-    pass
+    interval = "minute"

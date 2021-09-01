@@ -1,112 +1,206 @@
-import React from 'react'
+import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import dayjs from 'dayjs'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { DownloadOutlined } from '@ant-design/icons'
-import { Modal, Button, Spin } from 'antd'
-import { PersonsTable } from 'scenes/persons/PersonsTable'
+import { parsePeopleParams } from 'scenes/trends/trendsLogic'
+import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
+import { Modal, Button, Spin, Input, Skeleton } from 'antd'
+import { FilterType, PersonType, ViewType } from '~/types'
+import { personsModalLogic } from './personsModalLogic'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { midEllipsis } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { ArrowRightOutlined, ClockCircleOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ViewType } from 'scenes/insights/insightLogic'
-import { toParams } from 'lib/utils'
+import './PersonModal.scss'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { DateDisplay } from 'lib/components/DateDisplay'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { urls } from '../sceneLogic'
 
-interface Props {
+export interface PersonModalProps {
     visible: boolean
     view: ViewType
+    filters: Partial<FilterType>
     onSaveCohort: () => void
 }
 
-export function PersonModal({ visible, view, onSaveCohort }: Props): JSX.Element {
-    const { people, filters, peopleModalURL, loadingMorePeople } = useValues(
-        trendsLogic({ dashboardItemId: null, view })
+export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
+    const {
+        people,
+        loadingMorePeople,
+        firstLoadedPeople,
+        searchTerm,
+        isInitialLoad,
+        clickhouseFeaturesEnabled,
+    } = useValues(personsModalLogic)
+    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
+        personsModalLogic
     )
-    const { setShowingPeople, loadMorePeople } = useActions(trendsLogic({ dashboardItemId: null, view }))
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
+    const title = useMemo(
+        () =>
+            isInitialLoad ? (
+                'Loading persons…'
+            ) : filters.shown_as === 'Stickiness' ? (
+                <>
+                    <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
+                </>
+            ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
+                <PropertyKeyInfo value={people?.label || ''} disablePopover />
+            ) : filters.insight === ViewType.FUNNELS ? (
+                <>
+                    Persons who {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
+                    {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
+                    {people?.breakdown_value !== undefined &&
+                        `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                </>
+            ) : (
+                <>
+                    <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}
+                    <DateDisplay interval={filters.interval || 'day'} date={people?.day.toString() || ''} />
+                </>
+            ),
+        [filters, people, isInitialLoad]
+    )
 
-    const title =
-        filters.shown_as === 'Stickiness'
-            ? `"${people?.label}" stickiness ${people?.day} day${people?.day === 1 ? '' : 's'}`
-            : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie'
-            ? `"${people?.label}"`
-            : `"${people?.label}" on ${people?.day ? dayjs(people.day).format('ll') : '...'}`
-    const closeModal = (): void => setShowingPeople(false)
+    const isDownloadCsvAvailable = view === ViewType.TRENDS
+    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
+
     return (
         <Modal
             title={title}
             visible={visible}
-            onOk={closeModal}
-            onCancel={closeModal}
-            footer={<Button onClick={closeModal}>Close</Button>}
-            width={800}
-        >
-            {people ? (
-                <>
-                    <div
-                        style={{
-                            marginBottom: 16,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                        }}
-                    >
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                            Found {people.count === 99 ? '99+' : people.count} {people.count === 1 ? 'user' : 'users'}
-                            {featureFlags['save-cohort-on-modal'] &&
-                                (view === ViewType.TRENDS || view === ViewType.STICKINESS) && (
-                                    <div>
-                                        <Button type="primary" onClick={onSaveCohort}>
-                                            Save cohort
-                                        </Button>
-                                    </div>
-                                )}
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                            <Link
-                                to={peopleModalURL.sessions}
-                                style={{ marginLeft: 8 }}
-                                data-attr="persons-modal-sessions"
+            onOk={hidePeople}
+            onCancel={hidePeople}
+            footer={
+                people &&
+                people.count > 0 &&
+                (isDownloadCsvAvailable || isSaveAsCohortAvailable) && (
+                    <>
+                        {isDownloadCsvAvailable && (
+                            <Button
+                                icon={<DownloadOutlined />}
+                                href={`/api/action/people.csv?${parsePeopleParams(
+                                    {
+                                        label: people.label,
+                                        action: people.action,
+                                        date_from: people.day,
+                                        date_to: people.day,
+                                        breakdown_value: people.breakdown_value,
+                                    },
+                                    filters
+                                )}`}
+                                style={{ marginRight: 8 }}
+                                data-attr="person-modal-download-csv"
                             >
-                                <ClockCircleOutlined /> View related sessions <ArrowRightOutlined />
-                            </Link>
-                            <Link to={peopleModalURL.recordings} type="primary" data-attr="persons-modal-recordings">
-                                View related recordings <ArrowRightOutlined />
-                            </Link>
-                        </div>
-                    </div>
-                    <div className="text-right">
-                        <Button
-                            icon={<DownloadOutlined />}
-                            href={`/api/action/people.csv?/?${toParams({
-                                ...(filters || {}),
-                                entity_id: people.action.id,
-                                entity_type: people.action.type,
-                                date_from: people.day,
-                                date_to: people.day,
-                                label: people.label,
-                            })}`}
-                            style={{ marginBottom: '1rem' }}
-                            title="Download CSV"
-                        />
-                    </div>
-                    <PersonsTable loading={!people?.people} people={people.people} />
-                    <div
-                        style={{
-                            margin: '1rem',
-                            textAlign: 'center',
-                        }}
-                    >
-                        {people?.next && (
-                            <Button type="primary" onClick={loadMorePeople}>
-                                {loadingMorePeople ? <Spin /> : 'Load more people'}
+                                Download CSV
                             </Button>
                         )}
-                    </div>
-                </>
+                        {isSaveAsCohortAvailable && (
+                            <Button
+                                onClick={onSaveCohort}
+                                icon={<UsergroupAddOutlined />}
+                                data-attr="person-modal-save-as-cohort"
+                            >
+                                Save as cohort
+                            </Button>
+                        )}
+                    </>
+                )
+            }
+            width={600}
+            className="person-modal"
+        >
+            {isInitialLoad ? (
+                <div style={{ padding: 16 }}>
+                    <Skeleton active />
+                </div>
             ) : (
-                <p>Loading users...</p>
+                people && (
+                    <>
+                        {!preflight?.is_clickhouse_enabled && (
+                            <Input.Search
+                                allowClear
+                                enterButton
+                                placeholder="Search person by email, name, or ID"
+                                onChange={(e) => {
+                                    setSearchTerm(e.target.value)
+                                    if (!e.target.value) {
+                                        setFirstLoadedPeople(firstLoadedPeople)
+                                    }
+                                }}
+                                value={searchTerm}
+                                onSearch={(term) =>
+                                    term
+                                        ? setPersonsModalFilters(term, people, filters)
+                                        : setFirstLoadedPeople(firstLoadedPeople)
+                                }
+                            />
+                        )}
+                        <div style={{ background: '#FAFAFA' }}>
+                            {people.count > 0 ? (
+                                people?.people.map((person) => (
+                                    <div key={person.id}>
+                                        <PersonRow person={person} />
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="person-row-container person-row">
+                                    We couldn't find any matching persons for this data point.
+                                </div>
+                            )}
+                        </div>
+                        {people?.next && (
+                            <div
+                                style={{
+                                    margin: '1rem',
+                                    textAlign: 'center',
+                                }}
+                            >
+                                <Button type="primary" style={{ color: 'white' }} onClick={loadMorePeople}>
+                                    {loadingMorePeople ? <Spin /> : 'Load more people'}
+                                </Button>
+                            </div>
+                        )}
+                    </>
+                )
             )}
         </Modal>
+    )
+}
+
+interface PersonRowProps {
+    person: PersonType
+}
+
+export function PersonRow({ person }: PersonRowProps): JSX.Element {
+    const [showProperties, setShowProperties] = useState(false)
+    const expandProps = {
+        record: '',
+        onExpand: () => setShowProperties(!showProperties),
+        expanded: showProperties,
+        expandable: Object.keys(person.properties).length > 0,
+        prefixCls: 'ant-table',
+    } as ExpandIconProps
+
+    return (
+        <div key={person.id} className="person-row-container">
+            <div className="person-row">
+                <ExpandIcon {...expandProps} />
+                <div className="person-ids">
+                    <Link to={urls.person(person.distinct_ids[0])} className="text-default">
+                        <strong>{person.properties.email}</strong>
+                    </Link>
+                    <CopyToClipboardInline
+                        explicitValue={person.distinct_ids[0]}
+                        iconStyle={{ color: 'var(--primary)' }}
+                        iconPosition="end"
+                        className="text-small text-muted-alt"
+                    >
+                        {midEllipsis(person.distinct_ids[0], 32)}
+                    </CopyToClipboardInline>
+                </div>
+            </div>
+            {showProperties && <PropertiesTable properties={person.properties} className="person-modal-properties" />}
+        </div>
     )
 }

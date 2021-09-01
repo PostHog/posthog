@@ -3,7 +3,7 @@ import { Input } from 'antd'
 import { useValues, useActions } from 'kea'
 import { personsLogic } from './personsLogic'
 
-export const PersonsSearch = (): JSX.Element => {
+export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { exampleEmail, listFilters } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('')
@@ -16,7 +16,7 @@ export const PersonsSearch = (): JSX.Element => {
         <Input.Search
             data-attr="persons-search"
             placeholder={`search person by email, name or ID (e.g. ${exampleEmail})`}
-            autoFocus
+            autoFocus={autoFocus}
             value={searchTerm}
             onChange={(e) => {
                 setSearchTerm(e.target.value)

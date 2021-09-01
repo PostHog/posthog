@@ -1,16 +1,15 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { organizationLogicType } from './organizationLogicType'
-import { OrganizationType, PersonalizationData } from '~/types'
+import { OrganizationType } from '~/types'
 import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
 
-interface OrganizationUpdatePayload {
-    name?: string
-    personalization?: PersonalizationData
-}
+type OrganizationUpdatePayload = Partial<
+    Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
+>
 
-export const organizationLogic = kea<organizationLogicType<OrganizationType, PersonalizationData>>({
+export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({
     actions: {
         deleteOrganization: (organization: OrganizationType) => ({ organization }),
         deleteOrganizationSuccess: true,
@@ -24,6 +23,12 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
                 deleteOrganizationSuccess: () => null,
                 deleteOrganizationFailure: () => null,
             },
+        ],
+    },
+    selectors: {
+        hasDashboardCollaboration: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) => currentOrganization?.available_features?.includes('dashboard_collaboration'),
         ],
     },
     loaders: ({ values }) => ({
@@ -63,6 +68,9 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
         },
         renameCurrentOrganizationSuccess: () => {
             toast.success('Organization has been renamed')
+        },
+        updateOrganizationSuccess: () => {
+            toast.success('Your configuration has been saved!')
         },
         deleteOrganization: async ({ organization }) => {
             try {

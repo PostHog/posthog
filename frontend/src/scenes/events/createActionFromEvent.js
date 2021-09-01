@@ -76,7 +76,7 @@ export async function createActionFromEvent(event, increment, recurse = createAc
         }
     }
     if (action.id) {
-        router.actions.push('/action/' + action.id)
+        router.actions.push(`/action/${action.id}`)
         toast(
             <span>
                 Action succesfully created.{' '}

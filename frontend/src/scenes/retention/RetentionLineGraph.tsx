@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
+import dayjs from 'dayjs'
 import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
-import { Loading } from '../../lib/utils'
 import { LineGraphEmptyState } from '../insights/EmptyStates'
 import { Modal, Button, Spin } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
@@ -24,7 +24,7 @@ export function RetentionLineGraph({
     filters: filtersParams = {},
 }: RetentionLineGraphProps): JSX.Element | null {
     const logic = retentionTableLogic({ dashboardItemId: dashboardItemId, filters: filtersParams })
-    const { filters, results: _results, resultsLoading, people: _people, peopleLoading, loadingMore } = useValues(logic)
+    const { filters, results: _results, people: _people, peopleLoading, loadingMore } = useValues(logic)
     const results = _results as RetentionTrendPayload[]
     const people = _people as RetentionTrendPeoplePayload
 
@@ -41,9 +41,7 @@ export function RetentionLineGraph({
         return null
     }
 
-    return resultsLoading ? (
-        <Loading />
-    ) : results && !resultsLoading ? (
+    return results ? (
         <>
             <LineGraph
                 data-attr="trend-line-graph"
@@ -80,10 +78,14 @@ export function RetentionLineGraph({
                         {peopleData.length === 1 ? 'user' : 'users'}
                     </p>
                 ) : (
-                    <p>Loading users...</p>
+                    <p>Loading persons…</p>
                 )}
-
-                <PersonsTable loading={peopleLoading} people={peopleData} />
+                <PersonsTable
+                    loading={peopleLoading}
+                    people={peopleData}
+                    date={filters.date_to ? dayjs(filters.date_to).format('YYYY-MM-DD') : undefined}
+                    backTo="Insights"
+                />
                 <div
                     style={{
                         margin: '1rem',

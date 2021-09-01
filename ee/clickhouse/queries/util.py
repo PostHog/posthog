@@ -1,23 +1,27 @@
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import GET_EARLIEST_TIMESTAMP_SQL
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
+from posthog.models.filters.sessions_filter import SessionEventsFilter
 from posthog.queries.base import TIME_IN_SECONDS
 from posthog.types import FilterType
 
 
-def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple[str, str, dict]:
+def parse_timestamps(
+    filter: Union[FilterType, SessionEventsFilter], team_id: int, table: str = ""
+) -> Tuple[str, str, dict]:
     date_from = None
     date_to = None
     params = {}
     if filter.date_from:
 
-        date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
+        date_from = "AND {table}timestamp >= '{}'".format(format_ch_timestamp(filter.date_from, filter), table=table,)
         params.update({"date_from": format_ch_timestamp(filter.date_from, filter)})
     else:
         try:
@@ -25,12 +29,12 @@ def parse_timestamps(filter: FilterType, team_id: int, table: str = "") -> Tuple
         except IndexError:
             date_from = ""
         else:
-            date_from = "and {table}timestamp >= '{}'".format(format_ch_timestamp(earliest_date, filter), table=table,)
+            date_from = "AND {table}timestamp >= '{}'".format(format_ch_timestamp(earliest_date, filter), table=table,)
             params.update({"date_from": format_ch_timestamp(earliest_date, filter)})
 
     _date_to = filter.date_to
 
-    date_to = "and {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter, " 23:59:59"), table=table,)
+    date_to = "AND {table}timestamp <= '{}'".format(format_ch_timestamp(_date_to, filter, " 23:59:59"), table=table,)
     params.update({"date_to": format_ch_timestamp(_date_to, filter, " 23:59:59")})
 
     return date_from or "", date_to or "", params
@@ -75,30 +79,40 @@ def get_time_diff(
     return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + addition, TIME_IN_SECONDS[interval], round_interval
 
 
-PERIOD_TRUNC_MINUTE = "toStartOfMinute"
-PERIOD_TRUNC_HOUR = "toStartOfHour"
-PERIOD_TRUNC_DAY = "toStartOfDay"
-PERIOD_TRUNC_WEEK = "toStartOfWeek"
-PERIOD_TRUNC_MONTH = "toStartOfMonth"
+PERIOD_TO_TRUNC_FUNC: Dict[str, str] = {
+    "minute": "toStartOfMinute",
+    "hour": "toStartOfHour",
+    "week": "toStartOfWeek",
+    "day": "toStartOfDay",
+    "month": "toStartOfMonth",
+}
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:
     if period is None:
-        return PERIOD_TRUNC_DAY
+        period = "day"
+    ch_function = PERIOD_TO_TRUNC_FUNC.get(period.lower())
+    if ch_function is None:
+        raise ValidationError(f"Period {period} is unsupported.")
+    return ch_function
 
-    period = period.lower()
-    if period == "minute":
-        return PERIOD_TRUNC_MINUTE
-    elif period == "hour":
-        return PERIOD_TRUNC_HOUR
-    elif period == "week":
-        return PERIOD_TRUNC_WEEK
-    elif period == "day":
-        return PERIOD_TRUNC_DAY
-    elif period == "month":
-        return PERIOD_TRUNC_MONTH
-    else:
-        raise ValueError(f"Period {period} is unsupported.")
+
+PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
+    "minute": "toIntervalMinute",
+    "hour": "toIntervalHour",
+    "week": "toIntervalWeek",
+    "day": "toIntervalDay",
+    "month": "toIntervalMonth",
+}
+
+
+def get_interval_func_ch(period: Optional[str]) -> str:
+    if period is None:
+        period = "day"
+    ch_function = PERIOD_TO_INTERVAL_FUNC.get(period.lower())
+    if ch_function is None:
+        raise ValidationError(f"Interval {period} is unsupported.")
+    return ch_function
 
 
 def date_from_clause(interval_annotation: str, round_interval: bool) -> str:

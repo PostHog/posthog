@@ -1,12 +1,11 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Tuple
 
 from django.db import connection
 from django.db.models import F, OuterRef, Q
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
 
-from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Event, Filter, Team
+from posthog.models import Event, Team
 from posthog.models.filters.path_filter import PathFilter
 from posthog.queries.base import properties_to_Q
 from posthog.utils import request_to_date_query
@@ -15,14 +14,19 @@ from .base import BaseQuery
 
 
 class Paths(BaseQuery):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__()
+
     def _event_subquery(self, event: str, key: str):
         return Event.objects.filter(pk=OuterRef(event)).values(key)[:1]
 
-    def _apply_start_point(self, start_comparator: str, query_string: str, start_point: str) -> str:
+    def _apply_start_point(
+        self, start_comparator: str, query_string: str, sql_params: Tuple[str, ...], start_point: str
+    ) -> Tuple[str, Tuple[str, ...]]:
         marked = "\
-            SELECT *, CASE WHEN {} '{}' THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
+            SELECT *, CASE WHEN {} %s THEN timestamp ELSE NULL END as mark from ({}) as sessionified\
         ".format(
-            start_comparator, start_point, query_string
+            start_comparator, query_string
         )
 
         marked_plus = "\
@@ -39,7 +43,8 @@ class Paths(BaseQuery):
         ".format(
             marked_plus
         )
-        return sessionified
+
+        return sessionified, (start_point,) + sql_params
 
     def _add_elements(self, query_string: str) -> str:
         element = 'SELECT \'<\'|| e."tag_name" || \'> \'  || e."text" as tag_name_source, e."text" as text_source FROM "posthog_element" e JOIN \
@@ -102,8 +107,11 @@ class Paths(BaseQuery):
         )
 
         if filter and filter.start_point:
-            sessionified = self._apply_start_point(
-                start_comparator=start_comparator, query_string=sessionified, start_point=filter.start_point,
+            sessionified, sessions_sql_params = self._apply_start_point(
+                start_comparator=start_comparator,
+                query_string=sessionified,
+                sql_params=sessions_sql_params,
+                start_point=filter.start_point,
             )
 
         final = "\

@@ -1,3 +1,4 @@
+/* Used for graphs line or background color (as applicable) */
 export const lightColors = [
     'navy',
     'blue',
@@ -15,6 +16,20 @@ export const lightColors = [
     'salmon',
     'indigo',
     'purple',
+]
+
+export const tagColors = [
+    'blue',
+    'cyan',
+    'orange',
+    'gold',
+    'green',
+    'lime',
+    'volcano',
+    'magenta',
+    'purple',
+    'red',
+    'geekblue',
 ]
 
 const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
@@ -67,7 +82,7 @@ export const dashboardColorHSL = {
     blue: [212, 63, 40],
     purple: [249, 46, 51],
     green: [145, 60, 34],
-    black: [0, 0, 0],
+    black: [0, 0, 18],
 }
 
 export const cssHSL = (h: number, s: number, l: number): string =>
@@ -112,5 +127,19 @@ export function getBarColorFromStatus(status: string, hover?: boolean): string {
             return getColorVar(`lifecycle-${status}${hover ? '-hover' : ''}`)
         default:
             return 'black'
+    }
+}
+
+export function getGraphColors(isLightTheme: boolean = true): Record<string, string | null> {
+    return {
+        axisLabel: isLightTheme ? '#333' : 'rgba(255,255,255,0.8)',
+        axisLine: isLightTheme ? '#ddd' : 'rgba(255,255,255,0.2)',
+        axis: isLightTheme ? '#999' : 'rgba(255,255,255,0.6)',
+        crosshair: 'rgba(0,0,0,0.2)',
+        tooltipBackground: '#1dc9b7',
+        tooltipTitle: '#fff',
+        tooltipBody: '#fff',
+        annotationColor: isLightTheme ? null : 'white',
+        annotationAccessoryColor: isLightTheme ? null : 'black',
     }
 }

@@ -1,8 +1,10 @@
 import React from 'react'
 import { router } from 'kea-router'
 
+type RoutePart = string | Record<string, any>
+
 export interface LinkProps extends React.HTMLProps<HTMLAnchorElement> {
-    to: string
+    to: string | [string, RoutePart?, RoutePart?]
     preventClick?: boolean
     tag?: string | React.FunctionComponentElement<any>
 }
@@ -17,7 +19,11 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
         if (!props.target) {
             event.preventDefault()
             if (to && to !== '#' && !preventClick) {
-                router.actions.push(to) // router is mounted automatically, so this is safe to call
+                if (Array.isArray(to)) {
+                    router.actions.push(...to)
+                } else {
+                    router.actions.push(to)
+                }
             }
         }
         props.onClick && props.onClick(event)

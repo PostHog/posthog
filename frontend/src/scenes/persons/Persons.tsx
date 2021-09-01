@@ -29,7 +29,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
             {!cohort && <PageHeader title="Persons" />}
             <Row style={{ gap: '0.75rem' }} className="mb">
                 <div style={{ flexGrow: 1, maxWidth: 600 }}>
-                    <PersonsSearch />
+                    <PersonsSearch autoFocus={!cohort} />
                     <div className="text-muted text-small">
                         You can also filter persons that have a certain property set (e.g. <code>has:email</code> or{' '}
                         <code>has:name</code>)
@@ -46,7 +46,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                         value={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'all'}
                     >
                         <Radio.Button data-attr="people-types-tab-all" value="all">
-                            All users
+                            All persons
                         </Radio.Button>
                         <Radio.Button data-attr="people-types-tab-identified" value="true">
                             Identified
@@ -65,8 +65,8 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                         closable
                         message={
                             <>
-                                Unidentified users are usually anonymous visitors to your app or website that have not
-                                been identified to you. To mark users as identified, simply call{' '}
+                                Unidentified persons are usually anonymous visitors to your app or website that have not
+                                been identified to you. To mark a person as identified, call{' '}
                                 <code>posthog.identify</code> on your frontend.{' '}
                                 <a
                                     href="https://posthog.com/docs/integrations/js-integration?utm_medium=in-product&utm_campaign=persons-unidentified#identifying-users"
@@ -115,7 +115,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                     loadPrevious={() => loadPersons(persons.previous)}
                     loadNext={() => loadPersons(persons.next)}
                     allColumns
-                    cohort={cohort}
+                    backTo={cohort ? 'Cohort' : 'Persons'}
                 />
             </div>
         </div>

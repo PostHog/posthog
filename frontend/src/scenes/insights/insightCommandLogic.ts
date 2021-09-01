@@ -23,11 +23,11 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
                                 compareFilterLogic.actions.toggleCompare()
                             },
                         },
-                        ...Object.entries(dateMapping).map(([key, value]) => ({
+                        ...Object.entries(dateMapping).map(([key, { values }]) => ({
                             icon: RiseOutlined,
                             display: `Set Time Range to ${key}`,
                             executor: () => {
-                                insightDateFilterLogic.actions.setDates(value[0], value[1])
+                                insightDateFilterLogic.actions.setDates(values[0], values[1])
                             },
                         })),
                     ],

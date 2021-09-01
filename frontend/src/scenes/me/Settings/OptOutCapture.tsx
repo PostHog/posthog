@@ -19,7 +19,7 @@ export function OptOutCapture(): JSX.Element {
             </p>
             <Switch
                 data-attr="anonymize-data-collection"
-                onChange={(checked) => updateUser({ user: { anonymize_data: checked } })}
+                onChange={(checked) => updateUser({ anonymize_data: checked })}
                 defaultChecked={user?.anonymize_data}
                 loading={userLoading}
                 disabled={userLoading}

@@ -5,10 +5,17 @@ import { toast } from 'react-toastify'
 import { DashboardItemType } from '~/types'
 import { insightHistoryLogicType } from './insightHistoryLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { insightLogic } from '../insightLogic'
 
 const updateInsightState = (
     state: DashboardItemType[],
-    { item, insight }: { item?: DashboardItemType; insight?: DashboardItemType },
+    {
+        item,
+        insight,
+    }: {
+        item?: DashboardItemType
+        insight?: DashboardItemType
+    },
     isSaved?: boolean
 ): DashboardItemType[] => {
     item = item || insight
@@ -31,7 +38,7 @@ const updateInsightState = (
 }
 
 /* insightHistoryLogic - Handles all logic for saved insights and recent history */
-export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType>>({
+export const insightHistoryLogic = kea<insightHistoryLogicType>({
     loaders: ({ actions }) => ({
         insights: {
             __default: [] as DashboardItemType[],
@@ -153,9 +160,10 @@ export const insightHistoryLogic = kea<insightHistoryLogicType<DashboardItemType
     },
     listeners: ({ actions, values }) => ({
         createInsight: async ({ filters }) => {
-            await api.create('api/insight', {
+            const insight = await api.create('api/insight', {
                 filters,
             })
+            insightLogic.actions.setInsight(insight)
         },
         updateInsight: async ({ insight }) => {
             await api.update(`api/insight/${insight.id}`, insight)

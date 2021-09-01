@@ -1,19 +1,18 @@
 import React, { useState } from 'react'
-import { PropertyOperator } from '~/types'
+import { PropertyFilterValue, PropertyOperator } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
-import { isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
+import { isMobile, isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
 
-export type OperatorValueFilterType = string | number | Array<string | number> | null
-
 interface OperatorValueSelectProps {
-    type: string
-    propkey: string
-    operator: PropertyOperator | undefined
-    value: string | number | Array<string | number> | null
+    type?: string
+    propkey?: string
+    operator?: PropertyOperator | null
+    value?: string | number | Array<string | number> | null
     columnOptions?: ColProps | [ColProps, ColProps]
-    onChange: (operator: PropertyOperator, value: OperatorValueFilterType) => void
+    placeholder?: string
+    onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
 }
 
@@ -29,6 +28,7 @@ export function OperatorValueSelect({
     operator,
     value,
     columnOptions,
+    placeholder,
     onChange,
     operatorSelectProps,
 }: OperatorValueSelectProps): JSX.Element {
@@ -59,17 +59,20 @@ export function OperatorValueSelect({
                     {...operatorSelectProps}
                 />
             </Col>
-            {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && (
+            {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
                 <Col {...(Array.isArray(columnOptions) ? columnOptions[1] : columnOptions)}>
                     <PropertyValue
                         type={type}
                         key={propkey}
                         propertyKey={propkey}
                         operator={currentOperator || PropertyOperator.Exact}
+                        placeholder={placeholder}
                         value={value}
                         onSet={(newValue: string | number | string[] | null) => {
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
+                        // open automatically only if new filter
+                        autoFocus={!isMobile() && value === null}
                     />
                 </Col>
             )}

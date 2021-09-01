@@ -1,13 +1,17 @@
 import React, { useRef, useState, useEffect } from 'react'
 import api from 'lib/api'
 import { useValues } from 'kea'
-import { Loading, stripHTTP } from 'lib/utils'
+import { stripHTTP } from 'lib/utils'
 import { Modal, Button, Spin } from 'antd'
 import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
-import { AUTOCAPTURE, PAGEVIEW, pathsLogic } from 'scenes/paths/pathsLogic'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+
+// TODO: Replace with PathType enums when moving to TypeScript
+const PAGEVIEW = '$pageview'
+const AUTOCAPTURE = '$autocapture'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -274,7 +278,6 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                 }}
                 id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
             >
-                {pathsLoading && <Loading />}
                 <div ref={canvas} className="paths" data-attr="paths-viz">
                     {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
                 </div>

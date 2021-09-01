@@ -1,4 +1,5 @@
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { FormInstance } from 'antd'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
 // Keep this in sync with: posthog/api/plugin.py
@@ -68,4 +69,16 @@ export function getPluginConfigFormData(
     }
     formData.append('config', JSON.stringify(otherConfig))
     return formData
+}
+
+export const doFieldRequirementsMatch = (
+    form: FormInstance<any>,
+    targetFieldName: string | undefined,
+    targetFieldValue: string | undefined
+): boolean => {
+    const formActualValue = form.getFieldValue(targetFieldName || '') || ''
+    const targetAnyValue = typeof targetFieldValue === 'undefined'
+    const formValueSet = !!formActualValue
+
+    return (targetAnyValue && formValueSet) || targetFieldValue === formActualValue
 }

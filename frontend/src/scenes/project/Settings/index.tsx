@@ -93,7 +93,7 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 To integrate PostHog into your website and get event autocapture with no additional work, include the
                 following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
-                <code>{'<head>'}</code>&nbsp;tag.
+                <code>{'</head>'}</code>&nbsp;tag.
                 <br />
                 For more guidance, including on identifying users,{' '}
                 <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
@@ -171,6 +171,10 @@ export function ProjectSettings(): JSX.Element {
                     Example filters to use below: <i>email ∌ yourcompany.com</i> to exclude all events from your
                     company's team members, or <i>Host ∌ localhost</i> to exclude all events from local development
                     environments.
+                </p>
+                <p>
+                    <b>The filters you apply here are added as extra filters when the toggle is switched on.</b> So, if
+                    you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
                 </p>
                 <TestAccountFiltersConfig />
                 <Divider />

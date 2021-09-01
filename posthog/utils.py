@@ -36,8 +36,10 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
+from rest_framework.request import Request
 from sentry_sdk import push_scope
 
+from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -55,10 +57,10 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 
 
 def format_label_date(date: datetime.datetime, interval: str) -> str:
-    labels_format = "%a. {day} %B"
+    labels_format = "%-d-%b-%Y"
     if interval == "hour" or interval == "minute":
-        labels_format += ", %H:%M"
-    return date.strftime(labels_format.format(day=date.day))
+        labels_format += " %H:%M"
+    return date.strftime(labels_format)
 
 
 def absolute_uri(url: Optional[str] = None) -> str:
@@ -108,25 +110,28 @@ def relative_date_parse(input: str) -> datetime.datetime:
     if not match:
         return date
     if match.group("type") == "h":
-        date = date - relativedelta(hours=int(match.group("number")))
+        date -= relativedelta(hours=int(match.group("number")))
         return date.replace(minute=0, second=0, microsecond=0)
     elif match.group("type") == "d":
         if match.group("number"):
-            date = date - relativedelta(days=int(match.group("number")))
+            date -= relativedelta(days=int(match.group("number")))
+    elif match.group("type") == "w":
+        if match.group("number"):
+            date -= relativedelta(weeks=int(match.group("number")))
     elif match.group("type") == "m":
         if match.group("number"):
-            date = date - relativedelta(months=int(match.group("number")))
+            date -= relativedelta(months=int(match.group("number")))
         if match.group("position") == "Start":
-            date = date - relativedelta(day=1)
+            date -= relativedelta(day=1)
         if match.group("position") == "End":
-            date = date - relativedelta(day=31)
+            date -= relativedelta(day=31)
     elif match.group("type") == "y":
         if match.group("number"):
-            date = date - relativedelta(years=int(match.group("number")))
+            date -= relativedelta(years=int(match.group("number")))
         if match.group("position") == "Start":
-            date = date - relativedelta(month=1, day=1)
+            date -= relativedelta(month=1, day=1)
         if match.group("position") == "End":
-            date = date - relativedelta(month=12, day=31)
+            date -= relativedelta(month=12, day=31)
     return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
@@ -183,19 +188,12 @@ def get_git_commit() -> Optional[str]:
 
 
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
-    from posthog.models import Team
+    from loginas.utils import is_impersonated_session
 
     template = get_template(template_name)
 
-    # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
-    team: Optional[Team] = None
-    try:
-        team = request.user.team  # type: ignore
-    except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.first()
-
     context["self_capture"] = False
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -207,8 +205,10 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     if settings.SELF_CAPTURE:
         context["self_capture"] = True
-        if team:
-            context["js_posthog_api_key"] = f"'{team.api_token}'"
+        api_token = get_self_capture_api_token(request)
+
+        if api_token:
+            context["js_posthog_api_key"] = f"'{api_token}'"
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
@@ -221,7 +221,12 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         from posthog.api.user import UserSerializer
         from posthog.views import preflight_check
 
-        posthog_app_context: Dict = {"current_user": None, "preflight": json.loads(preflight_check(request).getvalue())}
+        posthog_app_context: Dict = {
+            "current_user": None,
+            "preflight": json.loads(preflight_check(request).getvalue()),
+            "default_event_name": get_default_event_name(),
+            "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        }
 
         if request.user.pk:
             user = UserSerializer(request.user, context={"request": request}, many=False)
@@ -233,6 +238,31 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     html = template.render(context, request=request)
     return HttpResponse(html)
+
+
+def get_self_capture_api_token(request: HttpRequest) -> Optional[str]:
+    from posthog.models import Team
+
+    # Get the current user's team (or first team in the instance) to set self capture configs
+    team: Optional[Team] = None
+    try:
+        team = request.user.team  # type: ignore
+    except (Team.DoesNotExist, AttributeError):
+        team = Team.objects.only("api_token").first()
+
+    if team:
+        return team.api_token
+    return None
+
+
+def get_default_event_name():
+    from posthog.models import EventDefinition
+
+    if EventDefinition.objects.filter(name="$pageview").exists():
+        return "$pageview"
+    elif EventDefinition.objects.filter(name="$screen").exists():
+        return "$screen"
+    return "$pageview"
 
 
 def json_uuid_convert(o):
@@ -529,36 +559,78 @@ def get_instance_realm() -> str:
     """
     if settings.MULTI_TENANCY:
         return "cloud"
-    elif os.getenv("HELM_INSTALL_INFO", False):
+    elif is_clickhouse_enabled():
         return "hosted-clickhouse"
     else:
         return "hosted"
 
 
+def get_can_create_org() -> bool:
+    """Returns whether a new organization can be created in the current instance.
+
+    Organizations can be created only in the following cases:
+    - if on PostHog Cloud
+    - if running end-to-end tests
+    - if there's no organization yet
+    - if an appropriate license is active and MULTI_ORG_ENABLED is True
+    """
+    from posthog.models.organization import Organization
+
+    if (
+        settings.MULTI_TENANCY
+        or settings.E2E_TESTING
+        or not Organization.objects.filter(for_internal_metrics=False).exists()
+    ):
+        return True
+
+    if settings.MULTI_ORG_ENABLED:
+        try:
+            from ee.models.license import License
+        except ImportError:
+            pass
+        else:
+            license = License.objects.first_valid()
+            if license is not None and "organizations_projects" in license.available_features:
+                return True
+            else:
+                print_warning(["You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!"])
+
+    return False
+
+
 def get_available_social_auth_providers() -> Dict[str, bool]:
-    github: bool = bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET)
-    gitlab: bool = bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET)
-    google: bool = False
+    output: Dict[str, bool] = {
+        "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
+        "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
+        "google-oauth2": False,
+        "saml": False,
+    }
+
+    # Get license information
+    bypass_license: bool = settings.MULTI_TENANCY
+    license = None
+    try:
+        from ee.models.license import License
+    except ImportError:
+        pass
+    else:
+        license = License.objects.first_valid()
 
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
         settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
     ):
-        if settings.MULTI_TENANCY:
-            google = True
+        if bypass_license or (license is not None and "google_login" in license.available_features):
+            output["google-oauth2"] = True
         else:
+            print_warning(["You have Google login set up, but not the required license!"])
 
-            try:
-                from ee.models.license import License
-            except ImportError:
-                pass
-            else:
-                license = License.objects.first_valid()
-                if license is not None and "google_login" in license.available_features:
-                    google = True
-                else:
-                    print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+    if getattr(settings, "SAML_CONFIGURED", None):
+        if bypass_license or (license is not None and "saml" in license.available_features):
+            output["saml"] = True
+        else:
+            print_warning(["You have SAML set up, but not the required license!"])
 
-    return {"google-oauth2": google, "github": github, "gitlab": gitlab}
+    return output
 
 
 def flatten(l: Union[List, Tuple]) -> Generator:
@@ -683,6 +755,11 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result
+
+
+def should_refresh(request: Request) -> bool:
+    key = "refresh"
+    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true"
 
 
 def str_to_bool(value: Any) -> bool:

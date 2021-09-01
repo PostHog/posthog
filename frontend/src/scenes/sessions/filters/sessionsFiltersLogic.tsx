@@ -19,9 +19,7 @@ export interface SavedFilter {
 
 type FilterPropertyType = SessionsPropertyFilter['type']
 
-export const sessionsFiltersLogic = kea<
-    sessionsFiltersLogicType<SessionsPropertyFilter, FilterSelector, SavedFilter, FilterPropertyType>
->({
+export const sessionsFiltersLogic = kea<sessionsFiltersLogicType<FilterPropertyType, FilterSelector, SavedFilter>>({
     actions: () => ({
         openFilterSelect: (selector: FilterSelector) => ({ selector }),
         closeFilterSelect: true,
@@ -35,7 +33,13 @@ export const sessionsFiltersLogic = kea<
         }),
         upsertSessionsFilter: (id: number | string | null, name: string) => ({ id, name }),
         deleteSessionsFilter: (id: number | string | null) => ({ id }),
-        openEditFilter: (filter: SavedFilter | { id: null }) => ({ filter }),
+        openEditFilter: (
+            filter:
+                | SavedFilter
+                | {
+                      id: null
+                  }
+        ) => ({ filter }),
         closeEditFilter: true,
     }),
     reducers: {
@@ -67,7 +71,12 @@ export const sessionsFiltersLogic = kea<
             },
         ],
         editedFilter: [
-            null as SavedFilter | { id: null } | null,
+            null as
+                | SavedFilter
+                | {
+                      id: null
+                  }
+                | null,
             {
                 openEditFilter: (_, { filter }) => filter,
                 closeEditFilter: () => null,
@@ -79,7 +88,13 @@ export const sessionsFiltersLogic = kea<
         displayedFilters: [
             (s) => [s.filters],
             (filters: Array<SessionsPropertyFilter>) => {
-                const groups: Record<string, Array<{ item: SessionsPropertyFilter; selector: number }>> = {}
+                const groups: Record<
+                    string,
+                    Array<{
+                        item: SessionsPropertyFilter
+                        selector: number
+                    }>
+                > = {}
                 filters.forEach((item, selector) => {
                     groups[item.type] = groups[item.type] || []
                     groups[item.type].push({ item, selector })
