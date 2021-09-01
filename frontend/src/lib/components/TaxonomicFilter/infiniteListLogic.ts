@@ -8,7 +8,7 @@ import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
 import { InfiniteListLogicProps, ListFuse, ListStorage, LoaderOptions } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { groups } from 'lib/components/TaxonomicFilter/groups'
+import { taxonomicGroupsLogic } from 'lib/components/TaxonomicFilter/taxonomicGroupsLogic'
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
@@ -159,13 +159,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     selectors: {
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
-        group: [(s) => [s.listGroupType], (listGroupType) => groups.find((g) => g.type === listGroupType)],
+        group: [
+            (s) => [s.listGroupType],
+            (listGroupType) => taxonomicGroupsLogic.values.groups.find((g) => g.type === listGroupType),
+        ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
             () => [
                 (state, props) => {
-                    const group = groups.find((g) => g.type === props.listGroupType)
+                    const group = taxonomicGroupsLogic.values.groups.find((g) => g.type === props.listGroupType)
                     if (group?.logic && group?.value) {
                         return group.logic.selectors[group.value]?.(state) || null
                     }

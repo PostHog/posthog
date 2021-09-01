@@ -3,7 +3,7 @@ import { Tabs, Tag } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { groups } from 'lib/components/TaxonomicFilter/groups'
+import { taxonomicGroupsLogic } from 'lib/components/TaxonomicFilter/taxonomicGroupsLogic'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 
@@ -21,6 +21,7 @@ function TabTitle({
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { totalCount } = useValues(logic)
+    const { groups } = useValues(taxonomicGroupsLogic)
 
     const group = groups.find((g) => g.type === groupType)
     return (
@@ -36,6 +37,7 @@ export function InfiniteSelectResults({
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, groupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
+    const { groups } = useValues(taxonomicGroupsLogic)
 
     if (groupTypes.length === 1) {
         return (

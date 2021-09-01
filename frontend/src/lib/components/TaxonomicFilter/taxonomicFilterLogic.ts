@@ -1,12 +1,13 @@
 import { kea } from 'kea'
 import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
+    TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { groups } from 'lib/components/TaxonomicFilter/groups'
+import { taxonomicGroupsLogic } from 'lib/components/TaxonomicFilter/taxonomicGroupsLogic'
 
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     props: {} as TaxonomicFilterLogicProps,
@@ -63,8 +64,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         groupTypes: [
-            () => [(_, props) => props.groupTypes],
-            (groupTypes): TaxonomicFilterGroupType[] => groupTypes || groups.map((g) => g.type),
+            () => [(_, props) => props.groupTypes, taxonomicGroupsLogic.selectors.groups],
+            (groupTypes, groups: TaxonomicFilterGroup[]): TaxonomicFilterGroupType[] =>
+                groupTypes || groups.map((g) => g.type),
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
