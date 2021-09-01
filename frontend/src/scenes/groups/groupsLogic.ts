@@ -49,4 +49,10 @@ export const groupsLogic = kea<groupsLogicType>({
             actions.loadGroups(id)
         },
     }),
+
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadGroupTypes()
+        },
+    }),
 })
