@@ -14,7 +14,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     type_id Int64,
     created_at DateTime64,
     team_id Int64,
-    properties VARCHAR,
+    properties VARCHAR
     {extra_fields}
 ) ENGINE = {engine}
 """
