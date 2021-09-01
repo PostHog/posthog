@@ -4,6 +4,7 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogicType } from './toolbarButtonLogicType'
+import { tourLogic } from '~/toolbar/elements/tourLogic'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     actions: () => ({
@@ -11,11 +12,14 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideHeatmapInfo: true,
         showActionsInfo: true,
         hideActionsInfo: true,
+        showToursInfo: true,
+        hideToursInfo: true,
         setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
         saveActionsPosition: (x: number, y: number) => ({ x, y }),
+        saveToursPosition: (x: number, y: number) => ({ x, y }),
     }),
 
     windowValues: () => ({
@@ -31,6 +35,15 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 hideHeatmapInfo: () => false,
                 [heatmapLogic.actionTypes.disableHeatmap]: () => false,
                 [heatmapLogic.actionTypes.enableHeatmap]: () => false,
+            },
+        ],
+        toursInfoVisible: [
+            false,
+            {
+                showTourInfo: () => true,
+                hideTourInfo: () => false,
+                [tourLogic.actionTypes.disableTour]: () => false,
+                [tourLogic.actionTypes.enableTour]: () => false,
             },
         ],
         actionsInfoVisible: [
@@ -71,6 +84,15 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             },
             {
                 saveActionsPosition: (_, { x, y }) => ({ x, y }),
+            },
+        ],
+        toursPosition: [
+            { x: 140, y: 100 } as {
+                x: number
+                y: number
+            },
+            {
+                saveToursPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
     }),
@@ -141,6 +163,15 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         actionsWindowVisible: [
             (s) => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
             (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
+        ],
+        toursExtensionPercentage: [
+            (s) => [tourLogic.selectors.tourEnabled, s.extensionPercentage],
+            (tourEnabled, extensionPercentage) =>
+                tourEnabled ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
+        ],
+        toursWindowVisible: [
+            (s) => [s.toursInfoVisible, tourLogic.selectors.tourEnabled],
+            (toursInfoVisible, tourEnabled) => toursInfoVisible && tourEnabled,
         ],
     },
     listeners: ({ actions, values }) => ({

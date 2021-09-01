@@ -17,6 +17,8 @@ initKea()
     const container = document.createElement('div')
     document.body.appendChild(container)
 
+    console.log('HELLO')
+
     ReactDOM.render(
         <Provider store={getContext().store}>
             <ToolbarApp

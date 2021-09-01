@@ -7,6 +7,24 @@ export type ElementsEventType = {
     hash: string
 }
 
+export type TourType = {
+    id: string
+    created_at: string
+    name: string
+    cohort_id: number
+    start_url: string
+    team_id: number
+    delay_ms: number
+    is_active: boolean
+    steps: TourStepType[]
+}
+
+export type TourStepType = {
+    html_el: string
+    tooltip_title: string
+    tooltip_text: string
+}
+
 export interface CountedHTMLElement {
     count: number
     element: HTMLElement
