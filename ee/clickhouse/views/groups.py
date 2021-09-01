@@ -1,6 +1,7 @@
 import json
 
 from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 
 from ee.clickhouse.client import sync_execute
@@ -54,3 +55,19 @@ class ClickhouseGroupTypesView(StructuredViewSetMixin, ListModelMixin, RetrieveM
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all()
     pagination_class = None
+
+    @action(methods=["GET"], detail=False)
+    def properties(self, request: request.Request, **kw):
+        rows = sync_execute(
+            f"""
+            SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
+            FROM groups
+            ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) as keysAndValues
+            WHERE team_id = %(team_id)s AND type_id = %(type_id)s
+            GROUP BY tupleElement(keysAndValues, 1)
+            ORDER BY count DESC, key ASC
+        """,
+            {"team_id": self.team.pk, "type_id": request.GET["type_id"]},
+        )
+
+        return response.Response([{"name": name, "count": count} for name, count in rows])
