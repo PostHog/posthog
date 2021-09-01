@@ -17,7 +17,7 @@ export const groupsLogic = kea<groupsLogicType>({
         groupTypes: [
             [] as GroupType[],
             {
-                async loadGroupTypes() {
+                loadGroupTypes: async () => {
                     if (!teamLogic.values.currentTeam) {
                         return []
                     }
@@ -29,7 +29,7 @@ export const groupsLogic = kea<groupsLogicType>({
         groups: [
             [] as Group[],
             {
-                async loadGroups(typeKey: string) {
+                loadGroups: async (typeKey: string) => {
                     if (!teamLogic.values.currentTeam) {
                         return []
                     }
@@ -46,7 +46,15 @@ export const groupsLogic = kea<groupsLogicType>({
             actions.loadGroupTypes()
         },
         '/groups/:id': ({ id }) => {
-            actions.loadGroups(id)
+            if (id) {
+                actions.loadGroups(id)
+            }
+        },
+    }),
+
+    events: ({ actions }) => ({
+        afterMount: () => {
+            actions.loadGroupTypes()
         },
     }),
 })
