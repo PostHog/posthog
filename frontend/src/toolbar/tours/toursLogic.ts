@@ -74,10 +74,10 @@ export const toursLogic = kea<toursLogicType>({
                         ...values.tourFilter,
                     }
 
-                    const url = `${toolbarLogic.values.apiURL}api/tours/${encodeParams(params, '?')}`
+                    const url = `${toolbarLogic.values.apiURL}api/projects/@current/tours/${encodeParams(params, '?')}`
                     console.log('Fetching url', url)
                     const response = await fetch(url)
-                    const results = await response.json()
+                    const { results } = await response.json()
                     // const response = {
                     //     status: 200,
                     // }
@@ -111,6 +111,8 @@ export const toursLogic = kea<toursLogicType>({
                         toolbarLogic.actions.authenticate()
                         return []
                     }
+
+                    console.log('REULTS', response, results)
 
                     breakpoint()
 
