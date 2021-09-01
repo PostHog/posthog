@@ -11,7 +11,7 @@ export type TourType = {
     uuid: string
     created_at: string
     name: string
-    cohort: number
+    cohort: number | string
     start_url: string
     team_id: number
     delay_ms: number

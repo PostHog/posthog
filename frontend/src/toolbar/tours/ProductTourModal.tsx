@@ -1,14 +1,15 @@
 import { PlusOutlined } from '@ant-design/icons'
-import { Button, Input, Modal, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
+import { Button, Input, Modal, Row, Select } from 'antd'
 import React from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
+import { StepsTab } from '~/toolbar/tours/StepsTab'
 import { toursLogic } from './toursLogic'
 
 export function ProductTourModal(): JSX.Element {
-    const { slide, tourName, onElementSelection } = useValues(toursLogic)
-    const { setSlide, setTourName, setTourCohort, setElementSelection } = useActions(toursLogic)
+    const { setSlide, setParams, setElementSelection } = useActions(toursLogic)
     const { cohorts } = useValues(cohortsModel)
+    const { slide, params, newTourStepCount, onElementSelection } = useValues(toursLogic)
 
     return (
         <Modal
@@ -21,7 +22,7 @@ export function ProductTourModal(): JSX.Element {
                     )}
                     {slide !== 0 && (
                         <Button onClick={() => setSlide(slide + 1)} type="primary">
-                            Next
+                            {slide === 4 && newTourStepCount > 0 ? 'Save and close' : 'Next'}
                         </Button>
                     )}
                 </>
@@ -102,8 +103,8 @@ export function ProductTourModal(): JSX.Element {
                     <Row>
                         <span style={{ paddingBottom: 4 }}>Tour name</span>
                         <Input
-                            value={tourName}
-                            onChange={(e) => setTourName(e.target.value)}
+                            value={params.name}
+                            onChange={(e) => setParams({ name: e.target.value })}
                             placeholder="An internal name to reference this tour. Eg: Onboarding flow"
                         />
                     </Row>
@@ -117,7 +118,7 @@ export function ProductTourModal(): JSX.Element {
                 <>
                     <Row style={{ fontWeight: 500, paddingBottom: 8 }}>Audience</Row>
                     <Select
-                        onChange={setTourCohort}
+                        onChange={(cohort: number | string) => setParams({ cohort })}
                         style={{ width: '100%', marginBottom: 12 }}
                         placeholder="Select a cohort"
                     >
@@ -133,6 +134,7 @@ export function ProductTourModal(): JSX.Element {
                 </>
             )}
             <Button onClick={() => setElementSelection(true)}>element selection</Button>
+            {slide === 3 && <>{params.steps ? <StepsTab /> : <div>Add a step</div>}</>}
         </Modal>
     )
 }

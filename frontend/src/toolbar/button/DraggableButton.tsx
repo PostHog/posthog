@@ -9,6 +9,7 @@ import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { posthog } from '~/toolbar/posthog'
+import { ProductTourModal } from '~/toolbar/tours/ProductTourModal'
 
 export function DraggableButton(): JSX.Element {
     const {
@@ -85,7 +86,7 @@ export function DraggableButton(): JSX.Element {
                 position={toursPosition}
                 savePosition={saveToursPosition}
             >
-                <ActionsTab />
+                <ProductTourModal />
             </ButtonWindow>
         </>
     )
