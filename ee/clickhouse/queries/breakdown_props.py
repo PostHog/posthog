@@ -33,11 +33,12 @@ def _get_top_elements(filter: Filter, team_id: int, query: str, limit, params: D
 def get_breakdown_person_prop_values(
     filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25, extra_params={}
 ):
+    _event_table_name = "e"
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
         filter.properties,
         team_id,
-        table_name="e",
+        table_name=_event_table_name,
         filter_test_accounts=filter.filter_test_accounts,
         person_properties_column="person_props",
         allow_denormalized_props=True,
@@ -52,7 +53,7 @@ def get_breakdown_person_prop_values(
     )
 
     entity_params, entity_format_params = get_entity_filtering_params(
-        entity, team_id, with_prop_filters=True, person_properties_column="person_props"
+        entity, team_id, table_name=_event_table_name, with_prop_filters=True, person_properties_column="person_props"
     )
 
     value_expression, _ = get_property_string_expr("person", cast(str, filter.breakdown), "%(key)s", "person_props")
