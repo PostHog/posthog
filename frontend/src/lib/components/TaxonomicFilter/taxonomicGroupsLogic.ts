@@ -13,6 +13,7 @@ import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { groupsLogic } from 'scenes/groups/groupsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 type SimpleOption = {
     name: string
@@ -83,7 +84,7 @@ export const taxonomicGroupsLogic = kea<taxonomicGroupsLogicType>({
                     const logic = groupPropertiesModel({ typeId: groupType.type_id })
                     logic.mount()
                     return {
-                        name: `${groupType.type_key} properties`,
+                        name: capitalizeFirstLetter(groupType.type_key),
                         type: groupType.type_key,
                         logic: logic,
                         // value: `$group_${groupType.type_id}`,
