@@ -22,7 +22,7 @@ export const groupsLogic = kea<groupsLogicType>({
                         return []
                     }
                     const response = await api.get(`api/projects/${teamLogic.values.currentTeam.id}/group_types`)
-                    return response['results']
+                    return response
                 },
             },
         ],
@@ -36,7 +36,7 @@ export const groupsLogic = kea<groupsLogicType>({
                     const response = await api.get(
                         `api/projects/${teamLogic.values.currentTeam.id}/group_types/${typeKey}/groups`
                     )
-                    return response['results']
+                    return response
                 },
             },
         ],

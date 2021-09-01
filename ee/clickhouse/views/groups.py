@@ -53,3 +53,4 @@ class GroupTypeSerializer(serializers.ModelSerializer):
 class ClickhouseGroupTypesView(StructuredViewSetMixin, ListModelMixin, RetrieveModelMixin, viewsets.GenericViewSet):
     serializer_class = GroupTypeSerializer
     queryset = GroupTypeMapping.objects.all()
+    pagination_class = None
