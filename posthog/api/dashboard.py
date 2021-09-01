@@ -79,13 +79,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         return dashboard
 
-    def update(
-        self,
-        instance: Dashboard,
-        validated_data: Dict,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Dashboard:
+    def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any,) -> Dashboard:
         validated_data.pop("use_template", None)  # Remove attribute if present
         if validated_data.get("is_shared") and not instance.share_token:
             instance.share_token = secrets.token_urlsafe(22)
@@ -139,10 +133,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         queryset = queryset.prefetch_related(
-            Prefetch(
-                "items",
-                queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),
-            )
+            Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
         )
         if self.request.GET.get("share_token"):
             return queryset.filter(share_token=self.request.GET["share_token"])
@@ -307,7 +298,5 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 def shared_dashboard(request: HttpRequest, share_token: str):
     dashboard = get_object_or_404(Dashboard, is_shared=True, share_token=share_token)
     return render_template(
-        "shared_dashboard.html",
-        request=request,
-        context={"dashboard": dashboard, "team_name": dashboard.team.name},
+        "shared_dashboard.html", request=request, context={"dashboard": dashboard, "team_name": dashboard.team.name},
     )
