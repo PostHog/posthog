@@ -12,6 +12,7 @@ export interface PropertyFilterInternalProps {
     onComplete: () => void
     disablePopover: boolean
     groupTypes?: TaxonomicFilterGroupType[]
+    groupAnalytics?: boolean
 }
 
 export interface PropertyFilterProps extends PropertyFilterInternalProps {

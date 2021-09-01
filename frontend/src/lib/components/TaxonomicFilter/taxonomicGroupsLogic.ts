@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
+import { ActionType, CohortType, EventDefinition, GroupType, PersonProperty, PropertyDefinition } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import {
     TaxonomicFilterGroup,
@@ -9,6 +9,10 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { actionsModel } from '~/models/actionsModel'
 import { taxonomicGroupsLogicType } from './taxonomicGroupsLogicType'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { groupsLogic } from 'scenes/groups/groupsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 
 type SimpleOption = {
     name: string
@@ -17,8 +21,8 @@ type SimpleOption = {
 export const taxonomicGroupsLogic = kea<taxonomicGroupsLogicType>({
     selectors: {
         groups: [
-            () => [],
-            (): TaxonomicFilterGroup[] => [
+            (s) => [s.groupTypes],
+            (groupTypes: GroupType[]): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
                     type: TaxonomicFilterGroupType.Events,
@@ -74,7 +78,27 @@ export const taxonomicGroupsLogic = kea<taxonomicGroupsLogicType>({
                     getName: (cohort: CohortType): string => cohort.name || `Cohort ${cohort.id}`,
                     getValue: (cohort: CohortType): TaxonomicFilterValue => cohort.id,
                 },
+                // @ts-ignore
+                ...groupTypes.map((groupType) => {
+                    const logic = groupPropertiesModel({ typeId: groupType.type_id })
+                    logic.mount()
+                    return {
+                        name: `${groupType.type_key} properties`,
+                        type: groupType.type_key,
+                        logic: logic,
+                        // value: `$group_${groupType.type_id}`,
+                        value: 'groupProperties',
+                        groupAnalytics: true,
+                        getName: (personProperty: PersonProperty): string => personProperty.name,
+                        getValue: (personProperty: PersonProperty): TaxonomicFilterValue => personProperty.name,
+                    }
+                }),
             ],
+        ],
+        groupTypes: [
+            () => [featureFlagLogic.selectors.featureFlags, groupsLogic.selectors.groupTypes],
+            (featureFlags: FeatureFlagsSet, groupTypes: GroupType[]): GroupType[] =>
+                featureFlags[FEATURE_FLAGS.GROUPS] ? groupTypes : [],
         ],
     },
 })

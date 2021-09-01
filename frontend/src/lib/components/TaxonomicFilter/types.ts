@@ -8,6 +8,7 @@ export interface TaxonomicFilterProps {
     onChange?: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
     groupTypes?: TaxonomicFilterGroupType[]
+    groupAnalytics?: boolean
     taxonomicFilterLogicKey?: string
 }
 
@@ -26,6 +27,7 @@ export interface TaxonomicFilterGroup {
     value?: string
     getName: (object: any) => string
     getValue: (object: any) => TaxonomicFilterValue
+    groupAnalytics?: boolean
 }
 
 export enum TaxonomicFilterGroupType {
