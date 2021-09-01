@@ -4,7 +4,7 @@ import { encodeParams } from 'kea-router'
 import { FeatureFlagType } from '~/types'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
 
-export const featureFlagsLogic = kea<featureFlagsLogicType<FeatureFlagType>>({
+export const featureFlagsLogic = kea<featureFlagsLogicType>({
     actions: {
         setEnabledFeatureFlags: (featureFlags: string[]) => ({ featureFlags }),
     },
