@@ -96,7 +96,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     def add_dive_source_item(self, items: QuerySet, dive_source_id: int):
         item_as_list = [i for i in items if i.id == dive_source_id]
         if not item_as_list:
-            item_as_list = [DashboardItem.objects.get(pk=int(dive_source_id))]
+            item_as_list = [DashboardItem.objects.get(pk=dive_source_id)]
         items = [i for i in items if i.id != dive_source_id]
         return item_as_list + items
 
