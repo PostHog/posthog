@@ -11,7 +11,7 @@ GROUPS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
     id Int64,
-    type VARCHAR,
+    type_id Int64,
     created_at DateTime64,
     team_id Int64,
     properties VARCHAR,
@@ -52,4 +52,5 @@ _offset
 FROM {CLICKHOUSE_DATABASE}.kafka_{GROUPS_TABLE}
 """
 
-# To join with events join using JSONExtractInt(events.properties, "$group_{index}")
+# { ..., "group_0": 1325 }
+# To join with events join using JSONExtractInt(events.properties, "$group_{type_id}")
