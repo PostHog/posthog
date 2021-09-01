@@ -9,7 +9,7 @@ import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 type FeatureFlagsSet = {
-    [flag: string]: boolean
+    [flag: string]: boolean | string
 }
 const eventsNotified: Record<string, boolean> = {}
 function notifyFlagIfNeeded(flag: string, flagState: boolean): void {
@@ -65,7 +65,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
 
 export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
     actions: {
-        setFeatureFlags: (featureFlags: string[]) => ({ featureFlags }),
+        setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => ({ flags, variants }),
     },
 
     reducers: {
@@ -73,13 +73,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
             getPersistedFeatureFlags(),
             { persist: true },
             {
-                setFeatureFlags: (_, { featureFlags }) => {
-                    const flags: FeatureFlagsSet = {}
-                    for (const flag of featureFlags) {
-                        flags[flag] = true
-                    }
-                    return spyOnFeatureFlags(flags)
-                },
+                setFeatureFlags: (_, { variants }) => spyOnFeatureFlags(variants),
             },
         ],
         receivedFeatureFlags: [
