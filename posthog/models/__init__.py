@@ -21,6 +21,7 @@ from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
 from .sessions_filter import SessionsFilter
 from .team import Team
+from .tour import Tour
 from .user import User, UserManager
 
 __all__ = [
@@ -54,6 +55,7 @@ __all__ = [
     "SessionRecordingEvent",
     "SessionsFilter",
     "Team",
+    "Tour",
     "User",
     "UserManager",
 ]
