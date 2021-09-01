@@ -10,6 +10,7 @@ import {
     ProjectFilled,
     PushpinFilled,
     SettingOutlined,
+    ThunderboltFilled,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -320,13 +321,23 @@ export function MainNavigation(): JSX.Element {
                         hotkey="p"
                         tooltip="Understand your users individually"
                     />
+                    {
+                        /* HACK TODO: featureFlags[FEATURE_FLAGS.GROUPS] && */ <MenuItem
+                            title="Groups"
+                            icon={<ThunderboltFilled />}
+                            identifier="groups"
+                            to={urls.groups()}
+                            hotkey="r"
+                            tooltip="Understand users on the level of groups they belong to"
+                        />
+                    }
                     <MenuItem
                         title="Cohorts"
                         icon={<IconCohorts />}
                         identifier="cohorts"
                         to={urls.cohorts()}
                         hotkey="c"
-                        tooltip="Group users for easy filtering"
+                        tooltip="Define, manage, and inspect categories of users"
                     />
                     <div className="divider" />
                     <MenuItem
