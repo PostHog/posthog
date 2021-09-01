@@ -5,7 +5,7 @@ from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kaf
 
 GROUPS_TABLE = "groups"
 
-DROP_PERSON_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 GROUPS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
@@ -21,7 +21,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
 
 GROUPS_TABLE_SQL = (
     GROUPS_TABLE_BASE_SQL
-    + """Order By (team_id, type, id)
+    + """Order By (team_id, type_id, id)
 {storage_policy}
 """
 ).format(
@@ -43,7 +43,7 @@ CREATE MATERIALIZED VIEW {GROUPS_TABLE}_mv ON CLUSTER {CLICKHOUSE_CLUSTER}
 TO {CLICKHOUSE_DATABASE}.{GROUPS_TABLE}
 AS SELECT
 id,
-type,
+type_id,
 created_at,
 team_id,
 properties,
