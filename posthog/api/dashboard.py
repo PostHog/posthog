@@ -167,6 +167,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "order",
             "deleted",
             "dashboard",
+            "dive_dashboard",
             "layouts",
             "color",
             "last_refresh",
@@ -183,18 +184,15 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
+        created_by = validated_data.pop("created_by", request.user)
 
-        if not validated_data.get("dashboard", None):
-            dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
-            return dashboard_item
-        elif validated_data["dashboard"].team == team:
-            created_by = validated_data.pop("created_by", request.user)
-            dashboard_item = DashboardItem.objects.create(
-                team=team, last_refresh=now(), created_by=created_by, **validated_data
-            )
-            return dashboard_item
-        else:
+        if validated_data.get("dashboard", None) and validated_data["dashboard"].team != team:
             raise serializers.ValidationError("Dashboard not found")
+
+        if validated_data.get("dive_dashboard", None) and validated_data["dive_dashboard"].team != team:
+            raise serializers.ValidationError("Dashboard not found")
+
+        return DashboardItem.objects.create(team=team, last_refresh=now(), created_by=created_by, **validated_data)
 
     def update(self, instance: Model, validated_data: Dict, **kwargs) -> DashboardItem:
         # Remove is_sample if it's set as user has altered the sample configuration
