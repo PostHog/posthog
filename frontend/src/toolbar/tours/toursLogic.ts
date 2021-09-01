@@ -155,7 +155,7 @@ export const toursLogic = kea<toursLogicType>({
             actions.setShowToursTooltip(false)
             posthog.capture('toolbar mode triggered', { mode: 'tour', enabled: false })
         },
-        getEventsSuccess: () => {
+        getToursSuccess: () => {
             actions.setShowToursTooltip(true)
         },
         setShowToursTooltip: async ({ showTourTooltip }, breakpoint) => {

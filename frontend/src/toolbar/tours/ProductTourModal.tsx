@@ -1,15 +1,20 @@
-import {PlusOutlined} from '@ant-design/icons'
-import {useActions, useValues} from 'kea'
+import { PlusOutlined } from '@ant-design/icons'
+import { useActions, useValues } from 'kea'
 import { Button, Input, Modal, Row, Select } from 'antd'
 import React from 'react'
-import {cohortsModel} from '~/models/cohortsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 import { StepsTab } from '~/toolbar/tours/StepsTab'
-import {toursLogic} from './toursLogic'
+import { toursLogic } from './toursLogic'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 
 export function ProductTourModal(): JSX.Element {
-    const {slide, params, newTourStepCount} = useValues(toursLogic)
-    const {setParams, setSlide} = useActions(toursLogic)
-    const {cohorts} = useValues(cohortsModel)
+    const { slide, params, newTourStepCount } = useValues(toursLogic)
+    const { setParams, setSlide } = useActions(toursLogic)
+    const { cohorts } = useValues(cohortsModel)
+    const { toursWindowVisible } = useValues(toolbarButtonLogic)
+    const { hideToursInfo } = useActions(toolbarButtonLogic)
+
+    console.log('HELLOE')
 
     return (
         <Modal
@@ -27,13 +32,15 @@ export function ProductTourModal(): JSX.Element {
                     )}
                 </>
             }
-            visible={true}
-            title={<div style={{fontSize: 20}}>{slide === 0 ? 'Product tours' : 'Create a product tour'}</div>}
+            visible={toursWindowVisible}
+            onCancel={hideToursInfo}
+            destroyOnClose
+            title={<div style={{ fontSize: 20 }}>{slide === 0 ? 'Product tours' : 'Create a product tour'}</div>}
         >
             {slide === 0 && (
                 <>
                     {/* <PageHeader title="Product tours" /> */}
-                    <Row style={{marginBottom: 16}}>
+                    <Row style={{ marginBottom: 16 }}>
                         Improve discoverability by guiding users through a tour of features.
                     </Row>
                     <div
@@ -45,8 +52,8 @@ export function ProductTourModal(): JSX.Element {
                             textAlign: 'center',
                         }}
                     >
-                        <Row style={{paddingBottom: 12, justifyContent: 'center'}}>No product tours found</Row>
-                        <Button type="primary" icon={<PlusOutlined/>} onClick={() => setSlide(slide + 1)}>
+                        <Row style={{ paddingBottom: 12, justifyContent: 'center' }}>No product tours found</Row>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setSlide(slide + 1)}>
                             Create a product tour
                         </Button>
                     </div>
@@ -54,7 +61,7 @@ export function ProductTourModal(): JSX.Element {
             )}
             {slide !== 0 && (
                 <>
-                    <Row style={{justifyContent: 'space-evenly', paddingBottom: 16}}>
+                    <Row style={{ justifyContent: 'space-evenly', paddingBottom: 16 }}>
                         <div
                             style={{
                                 textAlign: 'center',
@@ -101,25 +108,25 @@ export function ProductTourModal(): JSX.Element {
             {slide === 1 && (
                 <div>
                     <Row>
-                        <span style={{paddingBottom: 4}}>Tour name</span>
+                        <span style={{ paddingBottom: 4 }}>Tour name</span>
                         <Input
                             value={params.name}
-                            onChange={(e) => setParams({name: e.target.value})}
+                            onChange={(e) => setParams({ name: e.target.value })}
                             placeholder="An internal name to reference this tour. Eg: Onboarding flow"
                         />
                     </Row>
                     <Row>
-                        <span style={{paddingTop: 12, paddingBottom: 4}}>Start point</span>
-                        <Input defaultValue={window.location.href}/>
+                        <span style={{ paddingTop: 12, paddingBottom: 4 }}>Start point</span>
+                        <Input defaultValue={window.location.href} />
                     </Row>
                 </div>
             )}
             {slide === 2 && (
                 <>
-                    <Row style={{fontWeight: 500, paddingBottom: 8}}>Audience</Row>
+                    <Row style={{ fontWeight: 500, paddingBottom: 8 }}>Audience</Row>
                     <Select
-                        onChange={(cohort: number | string) => setParams({cohort})}
-                        style={{width: '100%', marginBottom: 12}}
+                        onChange={(cohort: number | string) => setParams({ cohort })}
+                        style={{ width: '100%', marginBottom: 12 }}
                         placeholder="Select a cohort"
                     >
                         {cohorts.map((cohort) => (
@@ -129,11 +136,11 @@ export function ProductTourModal(): JSX.Element {
                         ))}
                     </Select>
                     <Row>
-                        <Button icon={<PlusOutlined/>}>New cohort</Button>
+                        <Button icon={<PlusOutlined />}>New cohort</Button>
                     </Row>
                 </>
             )}
-            {slide === 3 && <>{params.steps ? <StepsTab/> : <div>Add a step</div>}</>}
+            {slide === 3 && <>{params.steps ? <StepsTab /> : <div>Add a step</div>}</>}
         </Modal>
     )
 }
