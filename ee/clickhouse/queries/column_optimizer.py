@@ -104,6 +104,9 @@ class ColumnOptimizer:
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
             result |= extract_tables_and_properties(entity.properties)
 
+            if entity.math == "unique_group":
+                result.add(("group_0", "event"))
+
             # Math properties are also implicitly used.
             #
             # See ee/clickhouse/queries/trends/util.py#process_math

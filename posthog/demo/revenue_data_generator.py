@@ -1,5 +1,6 @@
 import random
 import secrets
+from typing import Dict
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -17,17 +18,20 @@ class RevenueDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="first_visit")
         PropertyDefinition.objects.get_or_create(team=self.team, name="purchase_value", is_numerical=True)
 
-    def populate_person_events(self, person: Person, distinct_id: str, index: int):
+    def populate_person_events(self, person: Person, distinct_id: str, index: int, group_event_properties: Dict):
         if random.randint(0, 10) <= 4:
             self.add_event(
-                event="entered_free_trial", distinct_id=distinct_id, timestamp=now() - relativedelta(days=345),
+                event="entered_free_trial",
+                distinct_id=distinct_id,
+                properties=group_event_properties,
+                timestamp=now() - relativedelta(days=345),
             )
 
         self.add_event(
             event="$pageview",
             distinct_id=distinct_id,
+            properties={"first_visit": True, **group_event_properties},
             timestamp=now() - relativedelta(days=350),
-            properties={"first_visit": True},
         )
 
         if random.randint(0, 100) < 72:
@@ -37,13 +41,14 @@ class RevenueDataGenerator(DataGenerator):
                 self.add_event(
                     event="$pageview",
                     distinct_id=distinct_id,
+                    properties=group_event_properties,
                     timestamp=now() - relativedelta(days=(j * 29 + base_days) if j == 0 else (j * 29 + base_days) - 1),
                 )
                 if random.randint(0, 10) <= 8:
                     self.add_event(
                         event="purchase",
                         distinct_id=distinct_id,
-                        properties={"plan": plan, "purchase_value": value},
+                        properties={"plan": plan, "purchase_value": value, **group_event_properties},
                         timestamp=now() - relativedelta(days=j * 29 + base_days),
                     )
 

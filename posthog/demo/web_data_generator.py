@@ -1,8 +1,8 @@
 import json
-import os
 import random
 import secrets
 from datetime import timedelta
+from typing import Dict
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -70,7 +70,7 @@ class WebDataGenerator(DataGenerator):
             },
         )
 
-    def populate_person_events(self, person: Person, distinct_id: str, index: int):
+    def populate_person_events(self, person: Person, distinct_id: str, index: int, group_event_properties: Dict):
         start_day = random.randint(1, 7) if index > 0 else 0
         browser = random.choice(["Chrome", "Safari", "Firefox"])
 
@@ -78,7 +78,12 @@ class WebDataGenerator(DataGenerator):
             event="$pageview",
             distinct_id=distinct_id,
             timestamp=now() - relativedelta(days=start_day),
-            properties={"$current_url": "http://hogflix.com", "$browser": browser, "$lib": "web"},
+            properties={
+                "$current_url": "http://hogflix.com",
+                "$browser": browser,
+                "$lib": "web",
+                **group_event_properties,
+            },
         )
 
         self.add_event(
@@ -89,6 +94,7 @@ class WebDataGenerator(DataGenerator):
                 "$browser": browser,
                 "$lib": "web",
                 "$event_type": "click",
+                **group_event_properties,
             },
             timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=14),
             # elements=[
@@ -115,6 +121,7 @@ class WebDataGenerator(DataGenerator):
                     "$browser": browser,
                     "$lib": "web",
                     "$event_type": "click",
+                    **group_event_properties,
                 },
                 timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=29),
                 # elements=[
@@ -140,6 +147,7 @@ class WebDataGenerator(DataGenerator):
                         "$browser": browser,
                         "$lib": "web",
                         "$event_type": "click",
+                        **group_event_properties,
                     },
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=59),
                     # elements=[
@@ -153,13 +161,18 @@ class WebDataGenerator(DataGenerator):
                 self.add_event(
                     event="purchase",
                     distinct_id=distinct_id,
-                    properties={"price": 10},
+                    properties={"price": 10, **group_event_properties},
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=60),
                 )
                 self.add_event(
                     event="$pageview",
                     distinct_id=distinct_id,
-                    properties={"$current_url": "http://hogflix.com/3", "$browser": browser, "$lib": "web",},
+                    properties={
+                        "$current_url": "http://hogflix.com/3",
+                        "$browser": browser,
+                        "$lib": "web",
+                        **group_event_properties,
+                    },
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=60),
                 )
 

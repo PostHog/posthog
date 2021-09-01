@@ -52,6 +52,18 @@ class ClickhouseTrendsBreakdown:
 
         if entity.math == "dau" or filter.breakdown_type == "person":
             join_condition = EVENT_JOIN_PERSON_SQL
+        if entity.math == "unique_group":
+            # :TODO: Group data dynamic
+            # :TODO: Handle group data updates same way as person updates
+            join_condition = """
+            INNER JOIN (
+                SELECT
+                    id,
+                    properties AS group_0_properties
+                FROM groups
+                WHERE team_id = %(team_id)s AND type_id = 0
+            ) as gid ON gid.id = JSONExtractString(properties, '$group_0')
+            """
         else:
             join_condition = ""
 

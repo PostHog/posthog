@@ -343,6 +343,7 @@ export function formatProperty(property: Record<string, any>): string {
 export function formatLabel(label: string, action: ActionFilter): string {
     if (action.math === 'dau') {
         label += ` (Unique users) `
+        // :TODO: Groups
     } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
         label += ` (${action.math} of ${action.math_property}) `
     }

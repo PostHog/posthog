@@ -1,5 +1,6 @@
 import random
 import secrets
+from typing import Dict
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -58,9 +59,14 @@ class AppDataGenerator(DataGenerator):
             },
         )
 
-    def populate_person_events(self, person: Person, distinct_id: str, _index: int):
+    def populate_person_events(self, person: Person, distinct_id: str, _index: int, group_event_properties: Dict):
         start_day = random.randint(1, self.n_days)
-        self.add_event(event="$pageview", distinct_id=distinct_id, timestamp=now() - relativedelta(days=start_day))
+        self.add_event(
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=now() - relativedelta(days=start_day),
+            properties=group_event_properties,
+        )
         self.add_event(event="installed_app", distinct_id=distinct_id, timestamp=now() - relativedelta(days=start_day))
 
         if random.randint(0, 10) <= 9:
@@ -68,24 +74,30 @@ class AppDataGenerator(DataGenerator):
                 event="watched_movie",
                 distinct_id=distinct_id,
                 timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=100),
-                properties={"is_first_movie": random.choice([True, False])},
+                properties={"is_first_movie": random.choice([True, False]), **group_event_properties},
             )
             self.add_event(
                 event="$pageview",
                 distinct_id=distinct_id,
                 timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=15),
-                properties={"$current_url": "https://hogflix/" + random.choice(SCREEN_OPTIONS)},
+                properties={
+                    "$current_url": "https://hogflix/" + random.choice(SCREEN_OPTIONS),
+                    **group_event_properties,
+                },
             )
             if random.randint(0, 10) <= 8:
                 self.add_event(
                     event="$pageview",
                     distinct_id=distinct_id,
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=30),
-                    properties={"$current_url": "https://hogflix/" + random.choice(SCREEN_OPTIONS)},
+                    properties={
+                        "$current_url": "https://hogflix/" + random.choice(SCREEN_OPTIONS),
+                        **group_event_properties,
+                    },
                 )
                 self.add_event(
                     event="rated_app",
                     distinct_id=distinct_id,
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=45),
-                    properties={"app_rating": random.randint(1, 5)},
+                    properties={"app_rating": random.randint(1, 5), **group_event_properties},
                 )
