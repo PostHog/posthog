@@ -26,6 +26,7 @@ from . import (
     property_definition,
     sessions_filter,
     team,
+    tour,
     user,
 )
 
@@ -79,6 +80,9 @@ projects_router.register(
 )
 projects_router.register(
     r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"],
+)
+projects_router.register(
+    r"tours", tour.TourViewSet, "project_tours", ["team_id"],
 )
 
 
