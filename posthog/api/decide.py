@@ -130,7 +130,12 @@ def get_decide(request: HttpRequest):
                     person = Person.objects.get(team=team, persondistinctid__distinct_id=data["distinct_id"])
                 except Person.DoesNotExist:
                     person = None
-                if person and isinstance(person.properties["$override_feature_flags"], dict):
+                if (
+                    person
+                    and person.properties
+                    and "$override_feature_flags" in person.properties
+                    and isinstance(person.properties["$override_feature_flags"], dict)
+                ):
                     response["originalFeatureFlags"] = response["featureFlags"]
                     response["overrideFeatureFlags"] = person.properties["$override_feature_flags"]
                     for k, v in response["overrideFeatureFlags"].items():
