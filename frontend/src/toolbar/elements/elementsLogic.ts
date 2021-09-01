@@ -195,6 +195,7 @@ export const elementsLogic = kea<elementsLogicType<ActionElementMap, ElementMap>
                             }
                         })
                 })
+                console.log('ACTIONS FOR ELEMENT MAP', actionsForElementMap)
                 return actionsForElementMap
             },
         ],

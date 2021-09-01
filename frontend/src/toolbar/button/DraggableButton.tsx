@@ -11,12 +11,26 @@ import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { posthog } from '~/toolbar/posthog'
 
 export function DraggableButton(): JSX.Element {
-    const { dragPosition, heatmapPosition, heatmapWindowVisible, actionsWindowVisible, actionsPosition } = useValues(
-        toolbarButtonLogic
-    )
-    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, hideActionsInfo, hideHeatmapInfo } = useActions(
-        toolbarButtonLogic
-    )
+    const {
+        dragPosition,
+        heatmapPosition,
+        heatmapWindowVisible,
+        actionsWindowVisible,
+        actionsPosition,
+        toursWindowVisible,
+        toursPosition,
+    } = useValues(toolbarButtonLogic)
+    const {
+        saveDragPosition,
+        saveHeatmapPosition,
+        saveActionsPosition,
+        hideActionsInfo,
+        hideHeatmapInfo,
+        hideTourInfo,
+        saveToursPosition,
+    } = useActions(toolbarButtonLogic)
+
+    console.log('Toolbar', toursWindowVisible, toursPosition)
 
     return (
         <>
@@ -58,6 +72,18 @@ export function DraggableButton(): JSX.Element {
                 close={hideActionsInfo}
                 position={actionsPosition}
                 savePosition={saveActionsPosition}
+            >
+                <ActionsTab />
+            </ButtonWindow>
+
+            <ButtonWindow
+                name="tours"
+                label="Product Tours"
+                icon={<Flag engaged />}
+                visible={toursWindowVisible}
+                close={hideTourInfo}
+                position={toursPosition}
+                savePosition={saveToursPosition}
             >
                 <ActionsTab />
             </ButtonWindow>
