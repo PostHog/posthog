@@ -12,6 +12,9 @@ export const toursLogic = kea<toursLogicType>({
         disableTour: true,
         setShowToursTooltip: (showTourTooltip: boolean) => ({ showTourTooltip }),
         setTourFilter: (filter: Record<string, any>) => ({ filter }),
+        setSlide: (slide: number) => ({ slide }),
+        setTourName: (name: string) => ({ name }),
+        setTourCohort: (cohort: number) => ({ cohort }),
     },
 
     reducers: {
@@ -42,6 +45,24 @@ export const toursLogic = kea<toursLogicType>({
             {} as Record<string, any>,
             {
                 setTourFilter: (_, { filter }) => filter,
+            },
+        ],
+        slide: [
+            0,
+            {
+                setSlide: (_, { slide }) => slide,
+            },
+        ],
+        tourName: [
+            '',
+            {
+                setTourName: (_, { name }) => name,
+            },
+        ],
+        tourCohort: [
+            null as number | null,
+            {
+                setTourCohort: (_, { cohort }) => cohort,
             },
         ],
     },

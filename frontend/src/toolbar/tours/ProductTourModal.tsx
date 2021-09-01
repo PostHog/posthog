@@ -1,23 +1,35 @@
 import { PlusOutlined } from '@ant-design/icons'
-import { Button, Col, Input, Modal, Row, Select } from 'antd'
-import { useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
-import React, { useState } from 'react'
+import { Button, Input, Modal, Row, Select } from 'antd'
+import { useActions, useValues } from 'kea'
+import React from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
+import { toursLogic } from './toursLogic'
 
 export function ProductTourModal(): JSX.Element {
-    const [step, setStep] = useState(0)
-    // const { tour } = useValues(productTourModalLogic)
-    const tour = { steps: [1, 2, 3] }
-    const { cohorts, cohortsLoading } = useValues(cohortsModel)
+    const { slide, tourName } = useValues(toursLogic)
+    const { setSlide, setTourName, setTourCohort } = useActions(toursLogic)
+    const { cohorts } = useValues(cohortsModel)
 
     return (
         <Modal
-            footer={<div></div>}
+            footer={
+                <>
+                    {slide > 0 && (
+                        <Button onClick={() => setSlide(slide - 1)} type="primary">
+                            Back
+                        </Button>
+                    )}
+                    {slide !== 0 && (
+                        <Button onClick={() => setSlide(slide + 1)} type="primary">
+                            Next
+                        </Button>
+                    )}
+                </>
+            }
             visible={true}
-            title={<div style={{ fontSize: 20 }}>{step === 0 ? 'Product tours' : 'Create a product tour'}</div>}
+            title={<div style={{ fontSize: 20 }}>{slide === 0 ? 'Product tours' : 'Create a product tour'}</div>}
         >
-            {step === 0 && (
+            {slide === 0 && (
                 <>
                     {/* <PageHeader title="Product tours" /> */}
                     <Row style={{ marginBottom: 16 }}>
@@ -33,13 +45,13 @@ export function ProductTourModal(): JSX.Element {
                         }}
                     >
                         <Row style={{ paddingBottom: 12, justifyContent: 'center' }}>No product tours found</Row>
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setStep(1)}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setSlide(slide + 1)}>
                             Create a product tour
                         </Button>
                     </div>
                 </>
             )}
-            {step !== 0 && (
+            {slide !== 0 && (
                 <>
                     <Row style={{ justifyContent: 'space-evenly', paddingBottom: 16 }}>
                         <div
@@ -51,7 +63,7 @@ export function ProductTourModal(): JSX.Element {
                                 marginRight: 3,
                                 borderRadius: '10px 0px 0px 10px',
                                 backgroundColor: 'var(--border)',
-                                color: `${step === 1 ? 'black' : '#999999'}`,
+                                color: `${slide === 1 ? 'black' : '#999999'}`,
                             }}
                         >
                             1. Info
@@ -64,7 +76,7 @@ export function ProductTourModal(): JSX.Element {
                                 fontWeight: 600,
                                 marginRight: 3,
                                 backgroundColor: 'var(--border)',
-                                color: `${step === 2 ? 'black' : '#999999'}`,
+                                color: `${slide === 2 ? 'black' : '#999999'}`,
                             }}
                         >
                             2. Audience
@@ -77,7 +89,7 @@ export function ProductTourModal(): JSX.Element {
                                 fontWeight: 600,
                                 borderRadius: '0px 10px 10px 0px',
                                 backgroundColor: 'var(--border',
-                                color: `${step === 3 ? 'black' : '#999999'}`,
+                                color: `${slide === 3 ? 'black' : '#999999'}`,
                             }}
                         >
                             3. Steps
@@ -85,34 +97,40 @@ export function ProductTourModal(): JSX.Element {
                     </Row>
                 </>
             )}
-            {step === 1 && (
+            {slide === 1 && (
                 <div>
                     <Row>
                         <span style={{ paddingBottom: 4 }}>Tour name</span>
-                        <Input placeholder="An internal name to reference this tour. Eg: Onboarding flow" />
+                        <Input
+                            value={tourName}
+                            onChange={(e) => setTourName(e.target.value)}
+                            placeholder="An internal name to reference this tour. Eg: Onboarding flow"
+                        />
                     </Row>
                     <Row>
                         <span style={{ paddingTop: 12, paddingBottom: 4 }}>Start point</span>
-                        <Input defaultValue="pie" />
+                        <Input defaultValue={window.location.href} />
                     </Row>
                 </div>
             )}
-            {step === 2 && (
+            {slide === 2 && (
                 <>
-                    Audience
-                    <Select>
+                    <Row style={{ fontWeight: 500, paddingBottom: 8 }}>Audience</Row>
+                    <Select
+                        onChange={setTourCohort}
+                        style={{ width: '100%', marginBottom: 12 }}
+                        placeholder="Select a cohort"
+                    >
                         {cohorts.map((cohort) => (
-                            <Select.Option value={cohort.id}>{cohort.name}</Select.Option>
+                            <Select.Option key={cohort.id} value={cohort.id}>
+                                {cohort.name}
+                            </Select.Option>
                         ))}
                     </Select>
-                    <Button icon={<PlusOutlined />}>New cohort</Button>
+                    <Row>
+                        <Button icon={<PlusOutlined />}>New cohort</Button>
+                    </Row>
                 </>
-            )}
-            {step === 3 && <>{tour.steps ? <div></div> : <div></div>}</>}
-            {step !== 0 && (
-                <Button style={{ float: 'right' }} onClick={() => setStep(step + 1)} type="primary">
-                    Next
-                </Button>
             )}
         </Modal>
     )
