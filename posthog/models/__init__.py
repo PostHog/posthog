@@ -11,6 +11,7 @@ from .event import Event
 from .event_definition import EventDefinition
 from .feature_flag import FeatureFlag
 from .filters import Filter, RetentionFilter
+from .group_type import GroupMapping, GroupTypeMapping
 from .messaging import MessagingRecord
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .person import Person, PersonDistinctId
@@ -38,6 +39,8 @@ __all__ = [
     "EventDefinition",
     "FeatureFlag",
     "Filter",
+    "GroupMapping",
+    "GroupTypeMapping",
     "RetentionFilter",
     "MessagingRecord",
     "Organization",
