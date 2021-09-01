@@ -26,6 +26,7 @@ class DashboardItem(models.Model):
     dashboard: models.ForeignKey = models.ForeignKey(
         "Dashboard", related_name="items", on_delete=models.CASCADE, null=True, blank=True
     )
+    dive_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
