@@ -1,6 +1,5 @@
 from typing import Any, List
 
-from django.apps import apps
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
