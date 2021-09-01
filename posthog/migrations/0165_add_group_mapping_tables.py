@@ -24,4 +24,14 @@ class Migration(migrations.Migration):
             model_name="grouptypemapping",
             constraint=models.UniqueConstraint(fields=("team", "type_id"), name="unique group type ids for team"),
         ),
+        migrations.AddConstraint(
+            model_name="grouptypemapping",
+            constraint=models.UniqueConstraint(fields=("team", "type_key"), name="unique_group types for team"),
+        ),
+        migrations.AddConstraint(
+            model_name="grouptypemapping",
+            constraint=models.CheckConstraint(
+                check=models.Q(("type_id__lte", 5)), name="type_id is less than or equal 5"
+            ),
+        ),
     ]
