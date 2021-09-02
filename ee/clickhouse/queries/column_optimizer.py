@@ -104,7 +104,7 @@ class ColumnOptimizer:
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
             result |= extract_tables_and_properties(entity.properties)
 
-            if entity.math.startswith("unique_group"):
+            if entity.math and entity.math.startswith("unique_group"):
                 _, type_id = entity.math.split("::")
                 result.add((f"group_{type_id}", "event"))
 
