@@ -409,7 +409,7 @@ export function DashboardItem({
                                                     <Menu.SubMenu
                                                         data-attr={'dashboard-item-' + index + '-dropdown-color'}
                                                         key="colors"
-                                                        title="Set Color"
+                                                        title="Set color"
                                                     >
                                                         {Object.entries(dashboardColorNames).map(
                                                             ([itemClassName, itemColor], colorIndex) => (
@@ -447,9 +447,7 @@ export function DashboardItem({
                                                     <Menu.SubMenu
                                                         data-attr={'dashboard-item-' + index + '-dive-dashboard'}
                                                         key="dive"
-                                                        title={`${
-                                                            !item.dive_dashboard ? 'Set' : 'Update'
-                                                        } Dive Dashboard`}
+                                                        title={`Set dive dashboard`}
                                                     >
                                                         {otherDashboards.map((dashboard, diveIndex) => (
                                                             <Menu.Item
