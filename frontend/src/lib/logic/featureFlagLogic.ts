@@ -12,7 +12,7 @@ type FeatureFlagsSet = {
     [flag: string]: boolean | string
 }
 const eventsNotified: Record<string, boolean> = {}
-function notifyFlagIfNeeded(flag: string, flagState: boolean): void {
+function notifyFlagIfNeeded(flag: string, flagState: string | boolean): void {
     if (!eventsNotified[flag]) {
         posthog.capture('$feature_flag_called', {
             $feature_flag: flag,
@@ -39,7 +39,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
                         return () => combinedFlags
                     }
                     const flagString = flag.toString()
-                    const flagState = !!combinedFlags[flagString]
+                    const flagState = combinedFlags[flagString]
                     notifyFlagIfNeeded(flagString, flagState)
                     return flagState
                 },
