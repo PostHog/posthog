@@ -461,19 +461,8 @@ export function DashboardItem({
                                                                 }
                                                                 key={dashboard.id}
                                                                 onClick={() => setDiveDashboard(item.id, dashboard.id)}
+                                                                disabled={dashboard.id === item.dive_dashboard}
                                                             >
-                                                                <span
-                                                                    style={{
-                                                                        background: dashboardColors[className],
-                                                                        border: '1px solid #eee',
-                                                                        display: 'inline-block',
-                                                                        width: 13,
-                                                                        height: 13,
-                                                                        verticalAlign: 'middle',
-                                                                        marginRight: 5,
-                                                                        marginBottom: 1,
-                                                                    }}
-                                                                />
                                                                 {dashboard.name}
                                                             </Menu.Item>
                                                         ))}
