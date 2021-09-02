@@ -13,7 +13,7 @@ from posthog.models.group_type import GroupTypeMapping
 class GroupSerializer(serializers.Serializer):
     id = serializers.CharField()
     team_id = serializers.IntegerField()
-    type_id = serializers.IntegerField(max_value=5)
+    type_id = serializers.IntegerField(min_value=0, max_value=4)
     type_key = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField()
     properties = serializers.JSONField()
