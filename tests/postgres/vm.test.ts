@@ -1365,3 +1365,24 @@ describe('exportEvents', () => {
         expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=default event&events=1')
     })
 })
+
+test('imports', async () => {
+    const indexJs = `
+        import jwt from 'jsonwebtoken'
+        async function processEvent (event, meta) {
+            event.properties = {
+                imports: {
+                    jsonwebtoken: 'sign' in jwt,
+                },
+            }
+            return event
+        }
+    `
+    await resetTestDatabase(indexJs)
+    const vm = await createPluginConfigVM(hub, pluginConfig39, indexJs)
+    const event = await vm.methods.processEvent!({ ...defaultEvent })
+
+    expect(event?.properties?.imports).toEqual({
+        jsonwebtoken: true,
+    })
+})
