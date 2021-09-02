@@ -8,11 +8,13 @@ import { useValues } from 'kea'
 import './../persons/Persons.scss'
 import dayjs from 'dayjs'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { ThunderboltFilled } from '@ant-design/icons'
 
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 dayjs.extend(relativeTime)
 
@@ -76,10 +78,12 @@ export function Group(): JSX.Element {
                         {currentGroup && (
                             <>
                                 <div className="item-group">
-                                    <h3>{currentGroupId}</h3>
-                                    <h5>
-                                        <code>{currentGroupType}</code>
-                                    </h5>
+                                    <label>
+                                        <ThunderboltFilled style={{ color: '#ffc035' }} />
+                                        &nbsp;
+                                        {capitalizeFirstLetter(currentGroupType || '')} name
+                                    </label>
+                                    <div>{currentGroupId}</div>
                                 </div>
 
                                 {currentGroup.created_at && (
