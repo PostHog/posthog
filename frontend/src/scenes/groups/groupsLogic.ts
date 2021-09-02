@@ -67,7 +67,10 @@ export const groupsLogic = kea<groupsLogicType>({
                 actions.loadGroups(type)
             }
         },
-        '/groups/:type/:id': ({ id }) => {
+        '/groups/:type/:id': ({ type, id }) => {
+            if (type) {
+                actions.loadGroups(type)
+            }
             if (id) {
                 actions.setCurrentGroupId(id)
             }
