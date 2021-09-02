@@ -8,6 +8,7 @@ from posthog.models import Person
 class ClickhouseFunnelStrictPersons(ClickhouseFunnelStrict):
     def get_query(self):
         return FUNNEL_PERSONS_BY_STEP_SQL.format(
+            actor_column=self._filter.actor_column,
             offset=self._filter.offset,
             steps_per_person_query=self.get_step_counts_query(),
             persons_steps=self._get_funnel_person_step_condition(),

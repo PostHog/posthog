@@ -21,7 +21,7 @@ const uniquenessBasisOptions: UniquenessBasisOption[] = [
         value: UniquenessBasis.Person,
     },
     {
-        label: 'Groups',
+        label: 'Groups of type',
         value: UniquenessBasis.Group,
     },
 ]

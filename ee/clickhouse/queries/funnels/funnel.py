@@ -40,10 +40,9 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
 
     def _get_people_columns(self, max_steps: int):
         cols: List[str] = []
-        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
 
         for i in range(max_steps):
-            cols.append(f"groupArrayIf(100)(DISTINCT {actor_to_aggregate_by}, steps = {i + 1}) step_people_{i + 1}")
+            cols.append(f"groupArrayIf(100)(DISTINCT {self._filter.actor_column}, steps = {i + 1}) step_people_{i + 1}")
 
         formatted = ", ".join(cols)
         return f", {formatted}" if formatted else ""
@@ -52,14 +51,13 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         steps_per_person_query = self.get_step_counts_without_aggregation_query()
         max_steps = len(self._filter.entities)
         breakdown_clause = self._get_breakdown_prop()
-        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
 
         return f"""
-            SELECT {actor_to_aggregate_by}, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause}, argMax(timestamp, steps) as timestamp FROM (
-                SELECT {actor_to_aggregate_by}, steps, max(steps) over (PARTITION BY {actor_to_aggregate_by} {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause}, timestamp FROM (
+            SELECT {self._filter.actor_column}, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause}, argMax(timestamp, steps) as timestamp FROM (
+                SELECT {self._filter.actor_column}, steps, max(steps) over (PARTITION BY {self._filter.actor_column} {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause}, timestamp FROM (
                         {steps_per_person_query}
                 )
-            ) GROUP BY {actor_to_aggregate_by}, steps {breakdown_clause}
+            ) GROUP BY {self._filter.actor_column}, steps {breakdown_clause}
             HAVING steps = max_steps
             SETTINGS allow_experimental_window_functions = 1
         """
@@ -170,11 +168,10 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         return ", ".join(cols)
 
     def build_step_subquery(self, level_index: int, max_steps: int):
-        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
         if level_index >= max_steps:
             return f"""
             SELECT
-            {actor_to_aggregate_by},
+            {self._filter.actor_column},
             timestamp,
             {self._get_partition_cols(1, max_steps)}
             {self._get_breakdown_prop(group_remaining=True)}
@@ -183,13 +180,13 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         else:
             return f"""
             SELECT
-            {actor_to_aggregate_by},
+            {self._filter.actor_column},
             timestamp,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
             FROM (
                 SELECT
-                {actor_to_aggregate_by},
+                {self._filter.actor_column},
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
                 {self._get_breakdown_prop()}

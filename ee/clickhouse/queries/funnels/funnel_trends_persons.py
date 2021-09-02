@@ -30,6 +30,7 @@ class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends):
         _, reached_to_step_count_condition, did_not_reach_to_step_count_condition = self.get_steps_reached_conditions()
 
         return FUNNEL_PERSONS_BY_STEP_SQL.format(
+            actor_column=self._filter.actor_column,
             offset=self._filter.offset,
             steps_per_person_query=step_counts_query,
             persons_steps=did_not_reach_to_step_count_condition if drop_off else reached_to_step_count_condition,
