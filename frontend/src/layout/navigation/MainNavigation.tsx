@@ -321,8 +321,8 @@ export function MainNavigation(): JSX.Element {
                         hotkey="p"
                         tooltip="Understand your users individually"
                     />
-                    {
-                        /* HACK TODO: featureFlags[FEATURE_FLAGS.GROUPS] && */ <MenuItem
+                    {featureFlags[FEATURE_FLAGS.GROUPS] && (
+                        <MenuItem
                             title="Groups"
                             icon={<ThunderboltFilled />}
                             identifier="groups"
@@ -330,7 +330,7 @@ export function MainNavigation(): JSX.Element {
                             hotkey="r"
                             tooltip="Understand users on the level of groups they belong to"
                         />
-                    }
+                    )}
                     <MenuItem
                         title="Cohorts"
                         icon={<IconCohorts />}

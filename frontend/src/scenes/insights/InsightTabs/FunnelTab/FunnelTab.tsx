@@ -26,7 +26,7 @@ import { FunnelExclusionsFilter } from 'scenes/insights/InsightTabs/FunnelTab/Fu
 import { SavedFunnels } from 'scenes/insights/SavedCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { UniquenessBasisPicker } from './FunnelAggregationModePicker'
+import { UniquenessBasisPicker } from './UniquenessBasisPicker'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
@@ -69,7 +69,7 @@ export function FunnelTab(): JSX.Element {
                                 loadResults()
                             }}
                         >
-                            {clickhouseFeaturesEnabled && (
+                            {clickhouseFeaturesEnabled && featureFlags[FEATURE_FLAGS.GROUPS] && (
                                 <div style={{ marginBottom: '1rem' }}>
                                     <h4 className="secondary">Aggregated by</h4>
                                     <UniquenessBasisPicker />
