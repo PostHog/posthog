@@ -310,6 +310,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<GroupFilterProps, S
         return {
             '/sessions': urlToAction,
             '/person/*': urlToAction,
+            '/groups/*': urlToAction,
         }
     },
 })

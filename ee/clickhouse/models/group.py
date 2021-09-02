@@ -30,6 +30,12 @@ def create_group(
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
     }
     p = ClickhouseProducer()
-    # :TODO: Groups insert statement
-    p.produce(topic=KAFKA_GROUPS, sql="", data=data)
+    p.produce(
+        topic=KAFKA_GROUPS,
+        sql="""
+        INSERT INTO groups (id, type_id, created_at, team_id, properties)
+        VALUES (%(id)s, %(type_id)s, %(created_at)s, %(team_id)s, %(properties)s)
+    """,
+        data=data,
+    )
     return id

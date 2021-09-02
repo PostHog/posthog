@@ -1,13 +1,10 @@
-import datetime as dt
-import json
-from typing import Optional
 from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
+from ee.clickhouse.models.group import create_group
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
@@ -19,7 +16,6 @@ from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.models.group_type import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.models.team import Team
 from posthog.queries.test.test_funnel import funnel_test_factory
 from posthog.test.base import test_with_materialized_columns
 
@@ -46,23 +42,6 @@ def _create_person(**kwargs):
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
     create_event(**kwargs)
-
-
-def _create_group(id: str, team_id: int, type_key: str, type_id: int, properties: Optional[dict] = None):
-    GroupTypeMapping.objects.create(team_id=team_id, type_key=type_key, type_id=type_id)
-    sync_execute(
-        """
-        INSERT INTO groups (id, type_id, created_at, team_id, properties)
-        VALUES (%(id)s, %(type_id)s, %(created_at)s, %(team_id)s, %(properties)s)
-    """,
-        {
-            "id": id,
-            "type_id": type_id,
-            "created_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "team_id": team_id,
-            "properties": json.dumps(properties or {}),
-        },
-    )
 
 
 class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_action, _create_person)):  # type: ignore
@@ -1338,7 +1317,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         funnel = ClickhouseFunnel(filter, self.team)
 
         # event
-        _create_group("Acme", self.team.pk, "company", 0)
+        GroupTypeMapping.objects.create(team=self.team, type_key="company", type_id=0)
+        create_group(self.team.pk, 0, "company")
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
         _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
         _create_event(
@@ -1387,7 +1367,8 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         funnel = ClickhouseFunnel(filter, self.team)
 
         # event
-        _create_group("Acme", self.team.pk, "company", 0)
+        GroupTypeMapping.objects.create(team=self.team, type_key="company", type_id=0)
+        create_group(self.team.pk, 0, "company")
         _create_person(distinct_ids=["user_1"], team_id=self.team.pk, properties={"level": 5})
         _create_person(distinct_ids=["user_2"], team_id=self.team.pk, properties={"level": 2})
         _create_event(
