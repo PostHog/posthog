@@ -84,6 +84,9 @@ projects_router.register(
 projects_router.register(
     r"tours", tour.TourViewSet, "project_tours", ["team_id"],
 )
+projects_router.register(
+    r"tour_users", tour.TourPersonViewset, "project_tour_users", ["team_id"],
+)
 
 
 # General endpoints (shared across EE & FOSS)
