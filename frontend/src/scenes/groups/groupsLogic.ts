@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 import api from '../../lib/api'
 import { Group, GroupType } from '../../types'
-import { teamLogic } from '../teamLogic'
 import { groupsLogicType } from './groupsLogicType'
 
 interface RelatedGroup {
@@ -35,10 +34,7 @@ export const groupsLogic = kea<groupsLogicType<RelatedGroup>>({
             [] as GroupType[],
             {
                 loadGroupTypes: async () => {
-                    if (!teamLogic.values.currentTeam) {
-                        return []
-                    }
-                    const response = await api.get(`api/projects/${teamLogic.values.currentTeam.id}/group_types`)
+                    const response = await api.get(`api/projects/@current/group_types`)
                     if (response.length > 0 && !values.currentGroupType) {
                         actions.setCurrentGroupType(response[0].type_key)
                     }
@@ -51,12 +47,7 @@ export const groupsLogic = kea<groupsLogicType<RelatedGroup>>({
             [] as Group[],
             {
                 loadGroups: async (typeKey: string) => {
-                    if (!teamLogic.values.currentTeam) {
-                        return []
-                    }
-                    const response = await api.get(
-                        `api/projects/${teamLogic.values.currentTeam.id}/group_types/${typeKey}/groups`
-                    )
+                    const response = await api.get(`api/projects/@current/group_types/${typeKey}/groups`)
 
                     // only needed because of demo data gen, should never happen
                     const uniqueGroups: Record<string, Group> = {}
@@ -73,14 +64,9 @@ export const groupsLogic = kea<groupsLogicType<RelatedGroup>>({
             null as RelatedGroup[] | null,
             {
                 loadRelatedGroups: async ({ typeId, id } = {}) => {
-                    if (!teamLogic.values.currentTeam) {
-                        return null
-                    }
                     typeId = typeId || values.currentGroup.type_id
                     id = id || values.currentGroup.id
-                    return await api.get(
-                        `api/projects/${teamLogic.values.currentTeam.id}/group_types/related?type_id=${typeId}&id=${id}`
-                    )
+                    return await api.get(`api/projects/@current/group_types/related?type_id=${typeId}&id=${id}`)
                 },
                 setCurrentGroupId: () => null,
                 setCurrentGroupType: () => null,
