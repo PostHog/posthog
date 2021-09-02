@@ -18,6 +18,7 @@ export const toursLogic = kea<toursLogicType>({
         setElementSelection: (selecting: boolean) => ({ selecting }),
         setPreviewTour: (previewing: boolean) => ({ previewing }),
         addStep: (step: TourStepType) => ({ step }),
+        editStep: (step: TourStepType) => ({ step }),
         setStepElement: (element: HTMLElement) => ({ element }),
     },
 
@@ -27,6 +28,10 @@ export const toursLogic = kea<toursLogicType>({
             {
                 setParams: (state, { params }) => ({ ...state, ...params }),
                 addStep: (state, { step }) => ({ ...state, steps: [...(state.steps ?? []), step] }),
+                editStep: (state, { step }) => ({
+                    ...state,
+                    steps: (state.steps ?? []).map((s) => (s.id === step.id ? { ...s, ...step } : s)),
+                }),
             },
         ],
         tourEnabled: [

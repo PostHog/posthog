@@ -8,7 +8,7 @@ export type ElementsEventType = {
 }
 
 export type TourType = {
-    uuid: string
+    id: string
     created_at: string
     name: string
     cohort: number | string
@@ -22,10 +22,11 @@ export type TourType = {
 export type TourStepEnum = 'Tooltip' | 'Modal' | 'Beacon'
 
 export type TourStepType = {
+    id?: number | string
     type?: TourStepEnum
-    html_el: string
-    tooltip_title: string
-    tooltip_text: string
+    html_el?: string
+    tooltip_title?: string
+    tooltip_text?: string
 }
 
 export interface CountedHTMLElement {

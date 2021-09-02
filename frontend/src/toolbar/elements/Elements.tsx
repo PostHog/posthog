@@ -12,6 +12,11 @@ import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 import { compactNumber } from 'lib/utils'
 import { toursLogic } from '~/toolbar/tours/toursLogic'
 
+function getDataAttributesFromEl(element: HTMLElement): string | null {
+    const dataAttr = element.getAttribute('data-attr')
+    return dataAttr ? `[data-attr='${dataAttr}']` : null
+}
+
 export function Elements(): JSX.Element {
     const {
         heatmapElements,
@@ -25,7 +30,7 @@ export function Elements(): JSX.Element {
     const { setHoverElement, selectElement, disableInspect } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapLogic)
     const { tourEnabled } = useValues(toursLogic)
-    const { enableTour, setStepElement } = useActions(toursLogic)
+    const { enableTour, addStep } = useActions(toursLogic)
 
     return (
         <>
@@ -77,7 +82,8 @@ export function Elements(): JSX.Element {
                         onClick={() => {
                             if (tourEnabled) {
                                 enableTour()
-                                setStepElement(element)
+                                const dataAttr = getDataAttributesFromEl(element) ?? undefined
+                                addStep({ html_el: dataAttr, id: `step-${dataAttr}` })
                                 disableInspect()
                             } else {
                                 selectElement(element)
