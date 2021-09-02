@@ -162,6 +162,10 @@ class UniqueAggregationModeMixin(BaseParamMixin):
                 raise ValidationError("unique_group_type_id must be an integer!")
         return value
 
+    @cached_property
+    def actor_column(self) -> Literal["person_id", "group_id"]:
+        return "group_id" if self.unique_group_type_id is not None else "person_id"
+
     @include_dict
     def unique_group_type_id_to_dict(self):
         return {UNIQUE_GROUP_TYPE_ID: self.unique_group_type_id} if self.unique_group_type_id is not None else {}

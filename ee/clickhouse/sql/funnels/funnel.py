@@ -1,10 +1,10 @@
 FUNNEL_PERSONS_BY_STEP_SQL = """
-SELECT person_id {timestamp}
+SELECT {actor_column} {timestamp}
 FROM (
     {steps_per_person_query}
 )
 WHERE {persons_steps}
-ORDER BY person_id
+ORDER BY {actor_column}
 LIMIT %(limit)s
 OFFSET {offset}
 SETTINGS allow_experimental_window_functions = 1
