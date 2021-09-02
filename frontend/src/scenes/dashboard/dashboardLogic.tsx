@@ -33,7 +33,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
         updateItemColor: (id: number, color: string) => ({ id, color }),
-        setDiveDashboard: (id: number, dive_dashboard?: number) => ({ id, dive_dashboard }),
+        setDiveDashboard: (id: number, dive_dashboard: number | null) => ({ id, dive_dashboard }),
         refreshAllDashboardItems: true,
         refreshAllDashboardItemsManual: true,
         resetInterval: true,

@@ -43,7 +43,7 @@ interface Props {
     item: DashboardItemType
     dashboardId?: number
     updateItemColor?: (id: number, itemClassName: string) => void
-    setDiveDashboard?: (id: number, dashboardId?: number) => void
+    setDiveDashboard?: (id: number, dashboardId: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     dashboardMode: DashboardMode | null
