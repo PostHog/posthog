@@ -1,7 +1,13 @@
 import { kea } from 'kea'
 import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
-import { AnyPropertyFilter, FeatureFlagType, MultivariateFlagOptions, MultivariateFlagVariant } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagType,
+    FilterType,
+    MultivariateFlagOptions,
+    MultivariateFlagVariant,
+} from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
@@ -29,6 +35,30 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
             key: '',
             name: '',
             rollout_percentage: 100,
+        },
+    ],
+}
+export const EMPTY_TRIGGER_CONDITION: Partial<FilterType> = {
+    events: [
+        {
+            id: '$pageview',
+            type: 'events',
+            math: 'dau',
+            order: 0,
+            name: '$pageview',
+            properties: [],
+        },
+    ],
+}
+export const EMPTY_SUCCESS_CONDITION: Partial<FilterType> = {
+    new_entity: [
+        {
+            id: null,
+            type: 'new_entity',
+            math: 'dau',
+            order: 0,
+            name: null,
+            properties: [],
         },
     ],
 }

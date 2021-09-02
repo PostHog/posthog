@@ -36,6 +36,9 @@ class FeatureFlag(models.Model):
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
 
+    trigger_condition: models.JSONField = models.JSONField(default=dict)
+    success_condition: models.JSONField = models.JSONField(default=dict)
+
     def distinct_id_matches(self, distinct_id: str) -> bool:
         return FeatureFlagMatcher(distinct_id, self).is_match()
 

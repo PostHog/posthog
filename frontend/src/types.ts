@@ -896,6 +896,8 @@ export interface FeatureFlagType {
     created_at: string
     is_simple_flag: boolean
     rollout_percentage: number | null
+    trigger_condition: Partial<FilterType>
+    success_condition: Partial<FilterType>
 }
 
 export interface PrevalidatedInvite {

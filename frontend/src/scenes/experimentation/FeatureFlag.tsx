@@ -5,7 +5,7 @@ import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, SaveOutlined, PlusOutlined, ApiFilled, MergeCellsOutlined } from '@ant-design/icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
-import { featureFlagLogic } from './featureFlagLogic'
+import { EMPTY_SUCCESS_CONDITION, EMPTY_TRIGGER_CONDITION, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as featureFlagClientLogic } from 'lib/logic/featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
@@ -14,6 +14,8 @@ import { IconExternalLink, IconJavascript, IconPython } from 'lib/components/ico
 import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
+import { FilterType } from '~/types'
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 
@@ -91,6 +93,32 @@ function focusVariantKeyField(index: number): void {
     )
 }
 
+function ConditionFilterRow({
+    type,
+    value,
+    onChange,
+}: {
+    type: string
+    value?: Partial<FilterType>
+    onChange?: (value: Partial<FilterType>) => void
+}): JSX.Element {
+    let filterValue = value || {}
+    if (!value || Object.keys(value).length === 0) {
+        filterValue = type === 'trigger' ? EMPTY_TRIGGER_CONDITION : EMPTY_SUCCESS_CONDITION
+    }
+    return (
+        <ActionFilter
+            horizontalUI
+            singleFilter
+            filters={filterValue}
+            buttonCopy={`Add ${type} condition`}
+            setFilters={onChange || (() => {})}
+            typeKey={`flag-${type}-condition`}
+            customRowPrefix={<></>}
+        />
+    )
+}
+
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
     const {
@@ -127,7 +155,13 @@ export function FeatureFlag(): JSX.Element {
                 <Form
                     layout="vertical"
                     form={form}
-                    initialValues={{ name: featureFlag.name, key: featureFlag.key, active: featureFlag.active }}
+                    initialValues={{
+                        name: featureFlag.name,
+                        key: featureFlag.key,
+                        active: featureFlag.active,
+                        success_condition: featureFlag.success_condition,
+                        trigger_condition: featureFlag.trigger_condition,
+                    }}
                     onValuesChange={(newValues) => {
                         if (featureFlagId !== 'new' && newValues.key) {
                             setHasKeyChanged(newValues.key !== featureFlag.key)
@@ -301,6 +335,26 @@ export function FeatureFlag(): JSX.Element {
                             </Collapse>
                         </Col>
                     </Row>
+
+                    {enabledFeatureFlags[FEATURE_FLAGS.MAGIC_FEATURE_FLAGS] && (
+                        <div className="mb-2">
+                            <h3 className="l3">Experimentation settings</h3>
+                            <div className="text-muted mb">
+                                Define the conditions of success for this event. PostHog will automatically add a filter
+                                for this feature flag.
+                            </div>
+
+                            <h4>Base event or action</h4>
+                            <Form.Item name="trigger_condition">
+                                <ConditionFilterRow type="trigger" />
+                            </Form.Item>
+
+                            <h4>Success event or action</h4>
+                            <Form.Item name="success_condition">
+                                <ConditionFilterRow type="success" />
+                            </Form.Item>
+                        </div>
+                    )}
 
                     {enabledFeatureFlags[FEATURE_FLAGS.MULTIVARIATE_SUPPORT] && (
                         <div className="mb-2">

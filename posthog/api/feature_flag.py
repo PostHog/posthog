@@ -35,10 +35,12 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "created_at",
             "is_simple_flag",
             "rollout_percentage",
+            "trigger_condition",
+            "success_condition",
         ]
 
     # Simple flags are ones that only have rollout_percentage
-    #  That means server side libraries are able to gate these flags without calling to the server
+    # That means server side libraries are able to gate these flags without calling to the server
     def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
         return len(feature_flag.groups) == 1 and all(
             len(group.get("properties", [])) == 0 for group in feature_flag.groups
