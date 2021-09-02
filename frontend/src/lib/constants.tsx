@@ -82,6 +82,7 @@ export const FEATURE_FLAGS = {
     MULTIVARIATE_SUPPORT: '5440-multivariate-support',
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
     GROUPS: 'groups',
+    DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

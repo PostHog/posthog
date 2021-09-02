@@ -12,6 +12,7 @@ import { urls } from 'scenes/sceneLogic'
 export const dashboardsModel = kea<dashboardsModelType>({
     actions: () => ({
         delayedDeleteDashboard: (id: number) => ({ id }),
+        setDiveSourceId: (id: number | null) => ({ id }),
         setLastDashboardId: (id: number) => ({ id }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
@@ -139,6 +140,13 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 setLastDashboardId: (_, { id }) => id,
             },
         ],
+        diveSourceId: [
+            null as null | number,
+            { persist: true },
+            {
+                setDiveSourceId: (_, { id }) => id,
+            },
+        ],
     },
 
     selectors: ({ selectors }) => ({
@@ -211,9 +219,14 @@ export const dashboardsModel = kea<dashboardsModelType>({
     }),
 
     urlToAction: ({ actions }) => ({
-        '/dashboard/:id': ({ id }) => {
+        '/dashboard/:id': ({ id }, { dive_source_id: diveSourceId }) => {
             if (id) {
                 actions.setLastDashboardId(parseInt(id))
+            }
+            if (diveSourceId !== undefined && diveSourceId !== null) {
+                actions.setDiveSourceId(diveSourceId)
+            } else {
+                actions.setDiveSourceId(null)
             }
         },
     }),
