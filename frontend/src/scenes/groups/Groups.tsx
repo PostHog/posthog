@@ -11,10 +11,6 @@ import { GroupsTable } from './GroupsTable'
 export function Groups(): JSX.Element {
     const { currentGroupType } = useValues(groupsLogic)
 
-    if (!currentGroupType) {
-        return <></>
-    }
-
     const columns: ResizableColumnType<Partial<Group>>[] = [
         {
             title: 'Group',
@@ -22,9 +18,13 @@ export function Groups(): JSX.Element {
             span: 8,
             render: function Render(group: Group) {
                 return (
-                    <Link key={group.id} to={urls.group(currentGroupType, group.id)}>
-                        {group.id}
-                    </Link>
+                    <>
+                        {currentGroupType ? (
+                            <Link key={group.id} to={urls.group(currentGroupType, group.id)}>
+                                {group.id}
+                            </Link>
+                        ) : null}
+                    </>
                 )
             },
         },
@@ -38,9 +38,5 @@ export function Groups(): JSX.Element {
         },
     ]
 
-    return (
-        <div style={{ marginBottom: 128 }}>
-            <GroupsTable columns={columns} />
-        </div>
-    )
+    return <div style={{ marginBottom: 128 }}>{currentGroupType ? <GroupsTable columns={columns} /> : null}</div>
 }
