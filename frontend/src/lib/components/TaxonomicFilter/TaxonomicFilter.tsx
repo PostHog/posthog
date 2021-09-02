@@ -35,7 +35,7 @@ export function TaxonomicFilter({
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey,
-        groupType,
+        groupType: groupType && groupTypes?.includes(groupType) ? groupType : groupTypes[0],
         value,
         onChange,
         groupTypes,
