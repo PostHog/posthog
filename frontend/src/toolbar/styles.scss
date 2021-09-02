@@ -66,3 +66,87 @@
         pointer-events: auto;
     }
 }
+
+.shepherd-tour-card {
+    background-color: white;
+    max-width: 400px;
+    padding: 12px;
+    width: 200px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    box-shadow: rgb(0 0 0 / 12%) 0px 3px 6px -4px, rgb(0 0 0 / 8%) 0px 6px 16px, rgb(0 0 0 / 5%) 0px 9px 28px 8px;
+
+    .shepherd-header,
+    .shepherd-footer {
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .shepherd-header {
+        align-items: center;
+
+        h3 {
+            margin: 0;
+        }
+    }
+
+    .shepherd-arrow,
+    .shepherd-arrow:before {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        z-index: -1;
+    }
+
+    .shepherd-arrow {
+        transform: translate3d(-16px, 60px, 0px) !important;
+    }
+
+    .shepherd-arrow:before {
+        content: '';
+        transform: rotate(45deg);
+        background: #fff;
+    }
+
+    .shepherd-element.shepherd-centered > .shepherd-arrow {
+        opacity: 0;
+    }
+
+    .shepherd-element.shepherd-has-title[data-popper-placement^='bottom'] > .shepherd-arrow:before {
+        background-color: #e6e6e6;
+    }
+
+    .shepherd-button,
+    .shepherd-cancel-icon {
+        line-height: 1.5715;
+        position: relative;
+        display: inline-block;
+        font-weight: 400;
+        white-space: nowrap;
+        text-align: center;
+        background-image: none;
+        border: 1px solid transparent;
+        box-shadow: 0 2px 0 rgb(0 0 0 / 2%);
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+        user-select: none;
+        touch-action: manipulation;
+        height: 32px;
+        padding: 2px 15px;
+        font-size: 14px;
+        border-radius: 4px;
+        color: #2d2d2d;
+        background: #fff;
+        border-color: #d9d9d9;
+    }
+
+    .shepherd-cancel-icon {
+        border: none;
+        line-height: unset;
+        font-size: 1.1rem;
+    }
+
+    .shepherd-text {
+        margin: 16px 0;
+    }
+}

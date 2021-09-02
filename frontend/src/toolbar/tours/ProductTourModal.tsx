@@ -8,14 +8,13 @@ import { toursLogic } from './toursLogic'
 import { toolbarButtonLogic } from '../button/toolbarButtonLogic'
 
 export function ProductTourModal(): JSX.Element {
-    const { slide, params, onElementSelection, tourEnabled, stepElement } = useValues(toursLogic)
+    const { slide, params, onElementSelection, tourEnabled, stepElement, onPreviewTour } = useValues(toursLogic)
     const { setParams, setSlide, setPreviewTour } = useActions(toursLogic)
     const { cohorts } = useValues(cohortsModel)
     const { hideToursInfo } = useActions(toolbarButtonLogic)
+    const { toursInfoVisible } = useValues(toolbarButtonLogic)
 
-    console.log('HELLOE', slide, stepElement)
-
-    console.log(tourEnabled, onElementSelection)
+    console.log('HELLOE', slide, stepElement, toursInfoVisible)
 
     return (
         <Modal
@@ -43,7 +42,7 @@ export function ProductTourModal(): JSX.Element {
                     )}
                 </>
             }
-            visible={tourEnabled && !onElementSelection}
+            visible={(tourEnabled || toursInfoVisible) && !onElementSelection && !onPreviewTour}
             onCancel={hideToursInfo}
             destroyOnClose
             title={<div style={{ fontSize: 20 }}>{slide === 0 ? 'Product tours' : 'Create a product tour'}</div>}

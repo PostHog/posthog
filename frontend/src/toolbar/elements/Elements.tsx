@@ -84,7 +84,13 @@ export function Elements(): JSX.Element {
                                 enableTour()
                                 console.log('element', element, getDataAttributesFromEl(element))
                                 const dataAttr = getDataAttributesFromEl(element) ?? undefined
-                                addStep({ html_el: dataAttr, id: `step-${dataAttr}` })
+                                addStep({
+                                    html_el: dataAttr,
+                                    id: `step-${dataAttr}`,
+                                    type: 'Tooltip',
+                                    is_new_step: true,
+                                    is_completed: false,
+                                })
                                 disableInspect()
                             } else {
                                 selectElement(element)

@@ -24,10 +24,15 @@ export const toursLogic = kea<toursLogicType>({
 
     reducers: {
         params: [
-            {} as Partial<TourType>,
+            {
+                steps: [{ is_new_step: true }],
+            } as Partial<TourType>,
             {
                 setParams: (state, { params }) => ({ ...state, ...params }),
-                addStep: (state, { step }) => ({ ...state, steps: [...(state.steps ?? []), step] }),
+                addStep: (state, { step }) => {
+                    const steps = (state.steps ?? []).filter((s) => !s.is_new_step) // remove new steps
+                    return { ...state, steps: [...steps, step] }
+                },
                 editStep: (state, { step }) => ({
                     ...state,
                     steps: (state.steps ?? []).map((s) => (s.id === step.id ? { ...s, ...step } : s)),
@@ -205,6 +210,11 @@ export const toursLogic = kea<toursLogicType>({
             })
             const results = await response.json()
             console.log('Created tour', results)
+        },
+        editStep: () => {
+            if (values.params?.steps?.filter((s) => s.is_new_step).length === 0) {
+                actions.addStep({ is_new_step: true })
+            }
         },
     }),
 })

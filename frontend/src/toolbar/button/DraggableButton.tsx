@@ -18,14 +18,13 @@ export function DraggableButton(): JSX.Element {
         heatmapWindowVisible,
         actionsWindowVisible,
         actionsPosition,
-        toursWindowVisible,
         toursPosition,
     } = useValues(toolbarButtonLogic)
     const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, hideActionsInfo, hideHeatmapInfo } = useActions(
         toolbarButtonLogic
     )
 
-    console.log('Toolbar', toursWindowVisible, toursPosition)
+    console.log('Toolbar', toursPosition)
 
     return (
         <>
