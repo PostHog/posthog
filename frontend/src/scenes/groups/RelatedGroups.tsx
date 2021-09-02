@@ -5,13 +5,20 @@ import { groupsLogic } from 'scenes/groups/groupsLogic'
 import { Link } from 'lib/components/Link'
 import { Table } from 'antd'
 
-export function RelatedGroups(): JSX.Element {
+interface Props {
+    loadRelatedProps?: {
+        typeId: string
+        id: string
+    }
+}
+
+export function RelatedGroups({ loadRelatedProps }: Props): JSX.Element {
     const { relatedGroups, relatedGroupsLoading } = useValues(groupsLogic)
     const { loadRelatedGroups } = useActions(groupsLogic)
 
     useEffect(() => {
         if (relatedGroups === null && !relatedGroupsLoading) {
-            loadRelatedGroups()
+            loadRelatedGroups(loadRelatedProps)
         }
     }, [relatedGroups, relatedGroupsLoading])
 
