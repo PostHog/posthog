@@ -1,7 +1,11 @@
+import datetime as dt
+import json
+from typing import Optional
 from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
+from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
@@ -13,7 +17,9 @@ from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
+from posthog.models.group_type import GroupTypeMapping
 from posthog.models.person import Person
+from posthog.models.team import Team
 from posthog.queries.test.test_funnel import funnel_test_factory
 from posthog.test.base import test_with_materialized_columns
 
@@ -40,6 +46,23 @@ def _create_person(**kwargs):
 def _create_event(**kwargs):
     kwargs.update({"event_uuid": uuid4()})
     create_event(**kwargs)
+
+
+def _create_group(id: str, team_id: int, type_key: str, type_id: int, properties: Optional[dict] = None):
+    GroupTypeMapping.objects.create(team_id=team_id, type_key=type_key, type_id=type_id)
+    sync_execute(
+        """
+        INSERT INTO groups (id, type_id, created_at, team_id, properties)
+        VALUES (%(id)s, %(type_id)s, %(created_at)s, %(team_id)s, %(properties)s)
+    """,
+        {
+            "id": id,
+            "type_id": type_id,
+            "created_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "team_id": team_id,
+            "properties": json.dumps(properties or {}),
+        },
+    )
 
 
 class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_action, _create_person)):  # type: ignore
@@ -1297,3 +1320,93 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person4.uuid],
         )
+
+    def test_basic_funnel_group_based(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "unique_group_type_id": 0,
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        _create_group("Acme", self.team.pk, "company", 0)
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="user_1",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={"$group_0": "Acme"},
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="user_2",
+            timestamp="2020-01-10T14:00:00Z",
+            properties={"$group_0": "Acme"},
+        )
+
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 1)
+        self.assertEqual(len(result[0]["people"]), 1)
+
+        self.assertEqual(result[1]["name"], "paid")
+        self.assertEqual(result[1]["count"], 1)
+        self.assertEqual(len(result[1]["people"]), 1)
+        print("xxxx!", result)
+
+    def test_basic_funnel_group_based_with_person_property_filter(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "unique_group_type_id": 0,
+            "properties": [{"key": "level", "value": 5, "type": "person"}],
+        }
+
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        # event
+        _create_group("Acme", self.team.pk, "company", 0)
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk, properties={"level": 5})
+        _create_person(distinct_ids=["user_2"], team_id=self.team.pk, properties={"level": 2})
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="user_1",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={"$group_0": "Acme"},
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="user_2",
+            timestamp="2020-01-10T14:00:00Z",
+            properties={"$group_0": "Acme"},
+        )
+
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 1)
+        self.assertEqual(len(result[0]["people"]), 1)
+
+        self.assertEqual(result[1]["name"], "paid")
+        self.assertEqual(result[1]["count"], 0)
+        self.assertEqual(len(result[1]["people"]), 0)

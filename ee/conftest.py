@@ -17,6 +17,7 @@ def reset_clickhouse_tables():
     # Mostly so that test runs locally work correctly
     from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL, DROP_COHORTPEOPLE_TABLE_SQL
     from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
+    from ee.clickhouse.sql.groups import DROP_GROUPS_TABLE_SQL, GROUPS_TABLE_SQL
     from ee.clickhouse.sql.person import (
         DROP_PERSON_DISTINCT_ID_TABLE_SQL,
         DROP_PERSON_STATIC_COHORT_TABLE_SQL,
@@ -40,6 +41,7 @@ def reset_clickhouse_tables():
         (DROP_SESSION_RECORDING_EVENTS_TABLE_SQL, SESSION_RECORDING_EVENTS_TABLE_SQL),
         (DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL, PLUGIN_LOG_ENTRIES_TABLE_SQL),
         (DROP_COHORTPEOPLE_TABLE_SQL, CREATE_COHORTPEOPLE_TABLE_SQL),
+        (DROP_GROUPS_TABLE_SQL, GROUPS_TABLE_SQL),
     ]
     for item in TABLES_TO_CREATE_DROP:
         try:

@@ -21,6 +21,7 @@ from posthog.constants import (
     INSIGHT,
     INSIGHT_FUNNELS,
     TRENDS_LINEAR,
+    UNIQUE_GROUP_TYPE_ID,
     FunnelOrderType,
     FunnelVizType,
 )
@@ -148,6 +149,22 @@ class FunnelLayoutMixin(BaseParamMixin):
     @include_dict
     def layout_to_dict(self):
         return {FUNNEL_LAYOUT: self.layout} if self.layout else {}
+
+
+class UniqueAggregationModeMixin(BaseParamMixin):
+    @cached_property
+    def unique_group_type_id(self) -> Optional[int]:
+        value = self._data.get(UNIQUE_GROUP_TYPE_ID)
+        if value is not None:
+            try:
+                value = int(value)
+            except ValueError:
+                raise ValidationError("unique_group_type_id must be an integer!")
+        return value
+
+    @include_dict
+    def unique_group_type_id_to_dict(self):
+        return {UNIQUE_GROUP_TYPE_ID: self.unique_group_type_id} if self.unique_group_type_id is not None else {}
 
 
 class FunnelTypeMixin(BaseParamMixin):

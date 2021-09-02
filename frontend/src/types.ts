@@ -693,6 +693,8 @@ export interface FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
+    /** Group type ID on which unique aggregation should be based, instead of person-based uniqueness. */
+    unique_group_type_id?: number
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
 }
 

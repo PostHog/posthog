@@ -141,7 +141,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return f", {formatted}" if formatted else ""
 
     def _get_partition_cols(self, level_index: int, max_steps: int):
-        cols: List[str] = []
+        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
+        cols: List[str] = ["group_id"] if self._filter.unique_group_type_id is not None else []
         for i in range(0, max_steps):
             cols.append(f"step_{i}")
             if i < level_index:
@@ -157,13 +158,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 ):
                     duplicate_event = 1
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by {actor_to_aggregate_by} {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) latest_{i}"
                 )
                 for exclusion_id, exclusion in enumerate(self._filter.exclusions):
                     # exclusion starting at step i follows semantics of step i+1 in the query (since we're looking for exclusions after step i)
                     if cast(int, exclusion.funnel_from_step) + 1 == i:
                         cols.append(
-                            f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
+                            f"min(exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}) over (PARTITION by {actor_to_aggregate_by} {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) exclusion_{exclusion_id}_latest_{exclusion.funnel_from_step}"
                         )
         return ", ".join(cols)
 
@@ -231,6 +232,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         steps = ", ".join(all_step_cols)
 
         select_prop = self._get_breakdown_select_prop()
+        if self._filter.unique_group_type_id is not None:
+            select_prop += ", group_id"
         breakdown_conditions = ""
         extra_conditions = ""
         extra_join = ""

@@ -36,6 +36,7 @@ from posthog.models.filters.mixins.funnel import (
     FunnelWindowDaysMixin,
     FunnelWindowMixin,
     HistogramMixin,
+    UniqueAggregationModeMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
 
@@ -60,6 +61,7 @@ class Filter(
     LimitMixin,
     DateMixin,
     FormulaMixin,
+    UniqueAggregationModeMixin,
     FunnelWindowDaysMixin,
     FunnelWindowMixin,
     FunnelFromToStepsMixin,

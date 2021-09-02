@@ -8,6 +8,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 class FunnelEventQuery(ClickhouseEventQuery):
     def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
         column_optimizer = ColumnOptimizer(self._filter, self._team_id)
+        group_type_id = getattr(self._filter, "unique_group_type_id")
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.event as event",
             f"{self.EVENT_TABLE_ALIAS}.team_id as team_id",
@@ -23,11 +24,17 @@ class FunnelEventQuery(ClickhouseEventQuery):
                 if column_optimizer.should_query_elements_chain_column
                 else ""
             ),
+            f"JSONExtractString({self.EVENT_TABLE_ALIAS}.properties, %(group_id_key)s) as group_id"
+            if group_type_id is not None
+            else "",
             f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
             f"{self.PERSON_TABLE_ALIAS}.person_props as person_props"
             if self._should_join_persons and self._column_optimizer.should_query_person_properties_column
             else "",
         ]
+
+        if group_type_id is not None:
+            self.params["group_id_key"] = f"$group_{group_type_id}"
 
         _fields.extend(
             f"{self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
