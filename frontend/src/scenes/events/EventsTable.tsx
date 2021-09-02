@@ -25,6 +25,7 @@ import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/sceneLogic'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -74,6 +75,11 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             },
         }
     }
+
+    const mapGroupParamsToLink = (groupType: string, groupKey: string): JSX.Element => {
+        return <Link to={urls.group(groupType, groupKey)}>{groupKey}</Link>
+    }
+
     const defaultColumns: ResizableColumnType<EventFormattedType>[] = useMemo(
         () =>
             [
@@ -105,6 +111,27 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                             </Link>
                         ) : (
                             <PersonHeader person={event.person} />
+                        )
+                    },
+                },
+                {
+                    title: 'Groups',
+                    key: 'groups',
+                    ellipsis: true,
+                    span: 4,
+                    render: function renderGroups({ event }: EventFormattedType) {
+                        if (!event || !event.properties || !event.properties.$groups) {
+                            return { props: { colSpan: 0 } }
+                        }
+                        return (
+                            <>
+                                {Object.entries(event.properties.$groups).map(([groupType, groupKey], index) => (
+                                    <>
+                                        {mapGroupParamsToLink(groupType, groupKey as string)}
+                                        {index !== Object.keys(event.properties.$groups).length ? '' : ', '}
+                                    </>
+                                ))}
+                            </>
                         )
                     },
                 },
