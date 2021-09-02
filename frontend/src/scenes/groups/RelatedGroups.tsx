@@ -29,11 +29,19 @@ export function RelatedGroups(): JSX.Element {
         {
             title: 'Link',
             render: function RenderCount(_: any, group: any) {
-                return (
-                    <Link to={`/groups/${group.type_key}/${group.key}`} target="_blank">
-                        {group.key}
-                    </Link>
-                )
+                if (group.type_id == -1) {
+                    return (
+                        <Link to={`/person/${group.key}`} target="_blank">
+                            {group.key}
+                        </Link>
+                    )
+                } else {
+                    return (
+                        <Link to={`/groups/${group.type_key}/${group.key}`} target="_blank">
+                            {group.key}
+                        </Link>
+                    )
+                }
             },
         },
     ]

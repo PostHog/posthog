@@ -120,24 +120,17 @@ class ClickhouseGroupTypesView(StructuredViewSetMixin, ListModelMixin, RetrieveM
                 {"key": id, "type_id": group_mapping.type_id, "type_key": group_mapping.type_key} for (id,) in rows
             )
 
-        # rows = sync_execute(f"""
-        #     SELECT DISTINCT p.id
-        #     FROM events e
-        #     JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id
-        #     JOIN (
-        #         SELECT id
-        #         FROM person
-        #         WHERE team_id = %(team_id)s
-        #         GROUP BY id
-        #         HAVING max(is_deleted) = 0
-        #     ) p on pdi.person_id = p.id
-        #     WHERE team_id = %(team_id)s
-        #       AND JSONExtractString(properties, '$group_{type_id}') = %(id)s
-        # """, { "team_id": self.team_id, "id": group_id })
+        rows = sync_execute(
+            f"""
+            SELECT DISTINCT pdi.person_id
+            FROM events e
+            JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id
+            WHERE team_id = %(team_id)s
+              AND JSONExtractString(properties, '$group_{type_id}') = %(id)s
+        """,
+            {"team_id": self.team_id, "id": group_id},
+        )
 
-        # results.extend(
-        #     { "key": id, "type_id": -1, "type_key": "person" }
-        #     for (id,) in rows
-        # )
+        results.extend({"key": id, "type_id": -1, "type_key": "person"} for (id,) in rows)
 
         return response.Response(results)
