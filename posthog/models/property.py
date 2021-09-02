@@ -6,9 +6,11 @@ from django.db.models import Exists, OuterRef, Q
 from posthog.utils import is_valid_regex
 
 ValueT = Union[str, int, List[str]]
-PropertyType = Literal["event", "person", "cohort", "element"]
+PropertyType = Literal[
+    "event", "person", "cohort", "element", "group::0", "group::1", "group::2", "group::3", "group::4"
+]
 PropertyName = str
-TableWithProperties = Literal["events", "person"]
+TableWithProperties = Literal["events", "person", "groups"]
 OperatorType = Literal[
     "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
 ]

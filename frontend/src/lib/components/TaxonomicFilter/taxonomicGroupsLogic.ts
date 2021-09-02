@@ -87,7 +87,6 @@ export const taxonomicGroupsLogic = kea<taxonomicGroupsLogicType>({
                         name: capitalizeFirstLetter(groupType.type_key),
                         type: `group::${groupType.type_id}`,
                         logic: logic,
-                        // value: `$group_${groupType.type_id}`,
                         value: 'groupProperties',
                         groupAnalytics: true,
                         getName: (personProperty: PersonProperty): string => personProperty.name,
