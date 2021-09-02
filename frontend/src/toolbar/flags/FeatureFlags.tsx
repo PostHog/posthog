@@ -23,20 +23,20 @@ export function FeatureFlags(): JSX.Element {
                         <List.Item>
                             <List.Item.Meta
                                 title={
-                                    <Space>
-                                        <Switch
-                                            checked={!!combinedFlags[featureFlag.key]}
-                                            onChange={(checked) =>
-                                                setOverriddenFlag(
-                                                    featureFlag.key,
-                                                    hasVariants && checked
-                                                        ? (featureFlag.filters?.multivariate?.variants[0]
-                                                              ?.key as string)
-                                                        : checked
-                                                )
-                                            }
-                                        />
-                                        <div>
+                                    <>
+                                        <Space>
+                                            <Switch
+                                                checked={!!combinedFlags[featureFlag.key]}
+                                                onChange={(checked) =>
+                                                    setOverriddenFlag(
+                                                        featureFlag.key,
+                                                        hasVariants && checked
+                                                            ? (featureFlag.filters?.multivariate?.variants[0]
+                                                                  ?.key as string)
+                                                            : checked
+                                                    )
+                                                }
+                                            />
                                             <code>
                                                 <a
                                                     href={`${apiURL}${apiURL.endsWith('/') ? '' : '/'}feature_flags/${
@@ -46,30 +46,29 @@ export function FeatureFlags(): JSX.Element {
                                                     {featureFlag.key}
                                                 </a>
                                             </code>
-                                            {!!combinedFlags[featureFlag.key] && hasVariants ? (
-                                                <div>
-                                                    <Select
-                                                        style={{ width: '100%' }}
-                                                        value={
-                                                            typeof combinedFlags[featureFlag.key] === 'string'
-                                                                ? (combinedFlags[featureFlag.key] as string)
-                                                                : undefined
-                                                        }
-                                                        onChange={(value) => setOverriddenFlag(featureFlag.key, value)}
-                                                        getPopupContainer={getShadowRootPopupContainer}
-                                                    >
-                                                        {featureFlag.filters?.multivariate?.variants.map((variant) => (
-                                                            <Select.Option key={variant.key} value={variant.key}>
-                                                                {variant.key} - {variant.name} (
-                                                                {variant.rollout_percentage}
-                                                                %)
-                                                            </Select.Option>
-                                                        ))}
-                                                    </Select>
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                    </Space>
+                                        </Space>
+                                        {!!combinedFlags[featureFlag.key] && hasVariants ? (
+                                            <div style={{ marginTop: 10, padding: '0 8px 0 52px' }}>
+                                                <Select
+                                                    style={{ width: '100%' }}
+                                                    value={
+                                                        typeof combinedFlags[featureFlag.key] === 'string'
+                                                            ? (combinedFlags[featureFlag.key] as string)
+                                                            : undefined
+                                                    }
+                                                    onChange={(value) => setOverriddenFlag(featureFlag.key, value)}
+                                                    getPopupContainer={getShadowRootPopupContainer}
+                                                >
+                                                    {featureFlag.filters?.multivariate?.variants.map((variant) => (
+                                                        <Select.Option key={variant.key} value={variant.key}>
+                                                            {variant.key} - {variant.name} ({variant.rollout_percentage}
+                                                            %)
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
+                                            </div>
+                                        ) : null}
+                                    </>
                                 }
                             />
                         </List.Item>
