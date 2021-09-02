@@ -33,6 +33,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
         updateItemColor: (id: number, color: string) => ({ id, color }),
+        setDiveDashboard: (id: number, dive_dashboard: number) => ({ id, dive_dashboard }),
         refreshAllDashboardItems: true,
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
@@ -151,6 +152,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return {
                         ...state,
                         items: state?.items.map((i) => (i.id === id ? { ...i, color } : i)),
+                    } as DashboardType
+                },
+                setDiveDashboard: (state, { id, dive_dashboard }) => {
+                    return {
+                        ...state,
+                        items: state?.items.map((i) => (i.id === id ? { ...i, dive_dashboard } : i)),
                     } as DashboardType
                 },
                 [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }): DashboardType => {
@@ -423,6 +430,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
         },
         updateItemColor: ({ id, color }) => {
             api.update(`api/insight/${id}`, { color })
+        },
+        setDiveDashboard: ({ id, dive_dashboard }) => {
+            api.update(`api/insight/${id}`, { dive_dashboard })
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval

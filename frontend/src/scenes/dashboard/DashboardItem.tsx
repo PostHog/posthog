@@ -43,6 +43,7 @@ interface Props {
     item: DashboardItemType
     dashboardId?: number
     updateItemColor?: (id: number, itemClassName: string) => void
+    setDiveDashboard?: (id: number, dashboardId: number) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     dashboardMode: DashboardMode | null
@@ -156,6 +157,7 @@ export function DashboardItem({
     item,
     dashboardId,
     updateItemColor,
+    setDiveDashboard,
     loadDashboardItems,
     isDraggingRef,
     dashboardMode,
@@ -428,6 +430,40 @@ export function DashboardItem({
                                                                 </Menu.Item>
                                                             )
                                                         )}
+                                                    </Menu.SubMenu>
+                                                )}
+                                                {featureFlags[FEATURE_FLAGS.DIVE_DASHBOARDS] && setDiveDashboard && (
+                                                    <Menu.SubMenu
+                                                        data-attr={'dashboard-item-' + index + '-dive-dashboard'}
+                                                        key="dive"
+                                                        title="Set Dive Dashboard"
+                                                    >
+                                                        {otherDashboards.map((dashboard, diveIndex) => (
+                                                            <Menu.Item
+                                                                data-attr={
+                                                                    'dashboard-item-' +
+                                                                    index +
+                                                                    '-dive-dashboard-' +
+                                                                    diveIndex
+                                                                }
+                                                                key={dashboard.id}
+                                                                onClick={() => setDiveDashboard(item.id, dashboard.id)}
+                                                            >
+                                                                <span
+                                                                    style={{
+                                                                        background: dashboardColors[className],
+                                                                        border: '1px solid #eee',
+                                                                        display: 'inline-block',
+                                                                        width: 13,
+                                                                        height: 13,
+                                                                        verticalAlign: 'middle',
+                                                                        marginRight: 5,
+                                                                        marginBottom: 1,
+                                                                    }}
+                                                                />
+                                                                {dashboard.name}
+                                                            </Menu.Item>
+                                                        ))}
                                                     </Menu.SubMenu>
                                                 )}
                                                 {duplicateDashboardItem && otherDashboards.length > 0 && (
