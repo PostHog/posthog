@@ -21,9 +21,9 @@ class DataGenerator:
         self.snapshots: List[Dict] = []
         self.distinct_ids: List[str] = []
 
-    def create(self, dashboards=True):
+    def create(self, dashboards=True, groups=True):
         self.create_missing_events_and_properties()
-        self.create_people()
+        self.create_people(groups=groups)
 
         for index, (person, distinct_id, group_properties) in enumerate(
             zip(self.people, self.distinct_ids, self.groups)
@@ -37,7 +37,7 @@ class DataGenerator:
         self.team.save()
         _recalculate(team=self.team)
 
-    def create_people(self):
+    def create_people(self, groups):
         self.people = [self.make_person(i) for i in range(self.n_people)]
         self.distinct_ids = [str(UUIDT()) for _ in self.people]
         self.groups = [
@@ -68,8 +68,9 @@ class DataGenerator:
             for index, name in enumerate(["factBase", "bigCorp", "isReal"]):
                 create_group(self.team.id, 0, name, {"name": name, "revenue": f"{index * 1000}$"})
 
-            for index, name in enumerate(["production", "staging"]):
-                create_group(self.team.id, 1, name, {"name": name, "users": randrange(50, 5000)})
+            if groups:
+                for index, name in enumerate(["production", "staging"]):
+                    create_group(self.team.id, 1, name, {"name": name, "users": randrange(50, 5000)})
 
     def make_person(self, index):
         return Person(team=self.team, properties={"is_demo": True})
