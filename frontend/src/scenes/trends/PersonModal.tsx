@@ -219,15 +219,26 @@ interface GroupRowProps {
 }
 
 export function GroupRow({ group }: GroupRowProps): JSX.Element {
+    const [showProperties, setShowProperties] = useState(false)
+    const expandProps = {
+        record: '',
+        onExpand: () => setShowProperties(!showProperties),
+        expanded: showProperties,
+        expandable: Object.keys(group.properties).length > 0,
+        prefixCls: 'ant-table',
+    } as ExpandIconProps
+
     return (
         <div key={group.id} className="person-row-container">
             <div className="person-row">
+                <ExpandIcon {...expandProps} />
                 <div className="person-ids">
                     <Link to={urls.group(group.type_key, group.id)} className="text-default">
                         <strong>{group.id}</strong>
                     </Link>
                 </div>
             </div>
+            {showProperties && <PropertiesTable properties={group.properties} className="person-modal-properties" />}
         </div>
     )
 }

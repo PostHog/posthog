@@ -70,7 +70,7 @@ class FunnelEventQuery(ClickhouseEventQuery):
             {self._get_person_query()}
             WHERE team_id = %(team_id)s
             {entity_query}
-            {"AND group_id != '" if group_type_id else ""}
+            {"AND group_id != ''" if group_type_id is not None else ""}
             {date_query}
             {prop_query}
         """

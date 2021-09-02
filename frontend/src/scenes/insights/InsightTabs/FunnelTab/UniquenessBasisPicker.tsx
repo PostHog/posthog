@@ -1,72 +1,46 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { ANTD_TOOLTIP_PLACEMENTS, capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { groupsLogic } from '../../../groups/groupsLogic'
-
-enum UniquenessBasis {
-    Person = 'person',
-    Group = 'group',
-}
 
 interface UniquenessBasisOption {
     label: string
-    value: UniquenessBasis
+    value: number
 }
-
-const uniquenessBasisOptions: UniquenessBasisOption[] = [
-    {
-        label: 'Persons',
-        value: UniquenessBasis.Person,
-    },
-    {
-        label: 'Groups of type',
-        value: UniquenessBasis.Group,
-    },
-]
 
 export function UniquenessBasisPicker(): JSX.Element {
     const { filters } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
     const { groupTypes } = useValues(groupsLogic)
-    const [uniquenessBasis, setUniquenessBasis] = useState<UniquenessBasis>(
-        filters.unique_group_type_id ? UniquenessBasis.Group : UniquenessBasis.Person
-    )
+
+    const uniquenessBasisOptions: UniquenessBasisOption[] = [
+        {
+            label: 'Persons',
+            value: -1,
+        },
+        ...groupTypes.map(({ type_key, type_id }) => ({
+            label: capitalizeFirstLetter(pluralize(2, type_key, undefined, false)),
+            value: type_id,
+        })),
+    ]
 
     return (
         <div style={{ display: 'flex' }}>
             <Select
                 id="funnel-uniqueness-basis-picker"
                 data-attr="funnel-uniqueness-basis-picker"
-                value={uniquenessBasis}
+                value={filters.unique_group_type_id ?? -1}
                 onSelect={(newValue) => {
-                    setUniquenessBasis(newValue)
-                    if (newValue !== UniquenessBasis.Group) {
-                        setFilters({ unique_group_type_id: undefined })
-                    }
+                    setFilters({ unique_group_type_id: newValue >= 0 ? newValue : undefined })
                 }}
                 listHeight={440}
                 dropdownMatchSelectWidth={false}
-                dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
+                dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomLeft}
                 optionLabelProp="label"
                 options={uniquenessBasisOptions}
             />
-            {uniquenessBasis === UniquenessBasis.Group && (
-                <Select
-                    id="funnel-uniqueness-basis-group-type-picker"
-                    data-attr="funnel-uniqueness-basis-group-type-picker"
-                    value={filters.unique_group_type_id}
-                    placeholder="Select group type"
-                    onSelect={(groupTypeId) => setFilters({ unique_group_type_id: groupTypeId })}
-                    listHeight={440}
-                    dropdownMatchSelectWidth={false}
-                    dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
-                    optionLabelProp="label"
-                    options={groupTypes.map(({ type_key, type_id }) => ({ label: type_key, value: type_id }))}
-                    style={{ marginLeft: '0.5rem' }}
-                />
-            )}
         </div>
     )
 }
