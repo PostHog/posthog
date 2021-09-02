@@ -9,7 +9,7 @@ import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/viz/ActionsTable'
 import { ActionsPie } from 'scenes/trends/viz/ActionsPie'
 import { Paths } from 'scenes/paths/Paths'
-import { EllipsisOutlined, SaveOutlined, EyeOutlined, MacCommandOutlined } from '@ant-design/icons'
+import { EllipsisOutlined, SaveOutlined, EyeOutlined } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
@@ -37,6 +37,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkButton } from 'lib/components/LinkButton'
+import { DiveIcon } from 'lib/components/icons'
 
 dayjs.extend(relativeTime)
 
@@ -362,7 +363,11 @@ export function DashboardItem({
                                                 >
                                                     <LinkButton
                                                         to={dashboardDiveLink(item.dive_dashboard, item.id)}
-                                                        icon={<MacCommandOutlined />}
+                                                        icon={
+                                                            <span role="img" aria-label="dive" className="anticon">
+                                                                <DiveIcon />
+                                                            </span>
+                                                        }
                                                         data-attr="dive-btn-dive"
                                                         className="dive-btn dive-btn-dive"
                                                     >
