@@ -40,7 +40,7 @@ const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 interface SessionsTableProps {
     personIds?: string[]
     isPersonPage?: boolean
-    groupFilter: GroupFilterProps
+    groupFilter?: GroupFilterProps
 }
 
 function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }): JSX.Element {

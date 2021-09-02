@@ -1,3 +1,4 @@
+import json
 from collections import namedtuple
 from typing import Dict, List, Optional, Tuple
 
@@ -178,11 +179,11 @@ def _process_url(url: Optional[str]) -> Optional[str]:
 
 
 def format_group_filter(filter: SessionsFilter):
-    print(filter.filters_to_dict())
-    return ("", {})
-    if "groups" not in filter:
+    if "groups" not in filter._data:
         return ("", {})
+
+    groups = json.loads(filter._data["groups"])
     return (
         "AND JSONExtractString(properties, %(group_type)s) = %(group_key)s",
-        {"group_type": filter.groups["group_type"], "group_key": filter.groups["group_key"]},
+        {"group_type": groups["group_type"], "group_key": groups["group_key"]},
     )

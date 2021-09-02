@@ -49,7 +49,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<GroupFilterProps, S
                     distinct_id: props.personIds ? props.personIds[0] : '',
                     filters: values.filters,
                     properties: values.properties,
-                    groups: props.groupFilter,
+                    ...(props.groupFilter ? { groups: props.groupFilter } : {}),
                 })
                 await breakpoint(10)
                 const response = await api.get(`api/event/sessions/?${params}`)
