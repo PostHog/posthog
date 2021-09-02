@@ -378,7 +378,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
-            actions.loadDashboardItems({ refresh: props.internal, dive_source_id: dashboardsModel.values.diveSourceId })
+            actions.loadDashboardItems({
+                refresh: props.internal,
+                dive_source_id: dashboardsModel.values.diveSourceId ?? undefined,
+            })
             if (props.shareToken) {
                 actions.setDashboardMode(
                     props.internal ? DashboardMode.Internal : DashboardMode.Public,
