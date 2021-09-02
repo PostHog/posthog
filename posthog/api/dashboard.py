@@ -111,7 +111,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         self.context.update({"dashboard": dashboard})
 
         dive_source_id = self.context["request"].GET.get("dive_source_id")
-        if dive_source_id:
+        if dive_source_id is not None:
             items = self.add_dive_source_item(items, int(dive_source_id))
 
         return DashboardItemSerializer(items, many=True, context=self.context).data
