@@ -138,12 +138,16 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
 
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:  # for mypy
+            raise serializers.ValidationError("Must be authenticated to get feature flags.")
         flags = get_active_feature_flags_v2(self.team, request.user.distinct_id)
         return Response({"distinct_id": request.user.distinct_id, "flags": flags})
 
     @action(methods=["GET", "POST"], detail=False)
     def override(self, request: request.Request, **kwargs):
         user = request.user
+        if not user.is_authenticated:  # for mypy
+            raise serializers.ValidationError("Must be authenticated to override feature flags.")
         if request.data.get("feature_flag_override"):
             serializer = UserSerializer(user, context={"request": request})
             user.feature_flag_override = serializer.validate_feature_flag_override(
