@@ -4,6 +4,7 @@ import React from 'react'
 import { PageHeader } from '../../lib/components/PageHeader'
 import { groupsLogic } from './groupsLogic'
 import { Groups } from './Groups'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 const { TabPane } = Tabs
 
@@ -24,12 +25,11 @@ export function GroupTypes(): JSX.Element {
                     <Tabs
                         activeKey={currentGroupType || ''}
                         onChange={(tab) => {
-                            console.log(tab)
                             setCurrentGroupType(tab)
                         }}
                     >
                         {groupTypes.map(({ type_key }) => (
-                            <TabPane tab={type_key} key={type_key} />
+                            <TabPane tab={capitalizeFirstLetter(type_key)} key={type_key} />
                         ))}
                     </Tabs>
                     {currentGroupType ? <Groups /> : null}
