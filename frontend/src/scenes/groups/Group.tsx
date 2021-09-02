@@ -20,6 +20,7 @@ const { TabPane } = Tabs
 export function Group(): JSX.Element {
     const { currentGroupId, currentGroup, currentGroupType } = useValues(groupsLogic)
     const [mainActiveTab, setMainActiveTab] = useState(PersonsTabType.EVENTS)
+    const [activeCardTab, setActiveCardTab] = useState('properties')
 
     if (!currentGroupId) {
         return <></>
@@ -90,21 +91,27 @@ export function Group(): JSX.Element {
                         )}
                     </Card>
                     <Card className="card-elevated person-properties" style={{ marginTop: 16 }}>
-                        <Tabs defaultActiveKey="properties">
+                        <Tabs
+                            defaultActiveKey={activeCardTab}
+                            onChange={(tab) => {
+                                setActiveCardTab(tab)
+                            }}
+                        >
                             <TabPane
                                 tab={<span data-attr="persons-properties-tab">Properties</span>}
                                 key="properties"
                             />
                         </Tabs>
-                        {currentGroup && (
-                            <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
-                                <PropertiesTable
-                                    properties={currentGroup.properties}
-                                    sortProperties={true}
-                                    className="persons-page-props-table"
-                                />
-                            </div>
-                        )}
+                        {currentGroup &&
+                            (activeCardTab == 'properties' ? (
+                                <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                                    <PropertiesTable
+                                        properties={currentGroup.properties}
+                                        sortProperties={true}
+                                        className="persons-page-props-table"
+                                    />
+                                </div>
+                            ) : null)}
                     </Card>
                 </Col>
             </Row>
