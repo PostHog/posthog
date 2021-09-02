@@ -116,8 +116,8 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     serializer_class = FeatureFlagSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
     authentication_classes = [
-        TemporaryTokenAuthentication,
         PersonalAPIKeyAuthentication,
+        TemporaryTokenAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]

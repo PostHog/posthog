@@ -162,7 +162,14 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"],
+                "updated_attrs": [
+                    "anonymize_data",
+                    "email",
+                    "email_opt_in",
+                    "events_column_config",
+                    "feature_flag_override",
+                    "first_name",
+                ],
             },
         )
 
