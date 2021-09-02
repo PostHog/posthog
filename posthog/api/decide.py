@@ -12,7 +12,11 @@ from statshog.defaults.django import statsd
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Person, Team, User
-from posthog.models.feature_flag import get_active_feature_flags, get_active_feature_flags_v2
+from posthog.models.feature_flag import (
+    get_active_feature_flags,
+    get_active_feature_flags_v2,
+    get_overridden_feature_flags,
+)
 from posthog.utils import cors_response, load_data_from_request
 
 from .capture import _get_project_id
@@ -125,26 +129,7 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
-            feature_flags = get_active_feature_flags_v2(team, data["distinct_id"])
-            feature_flag_override = {}
-
-            try:
-                feature_flag_override = (
-                    request.user.feature_flag_override
-                    if request.user.is_authenticated
-                    else User.objects.get(distinct_id=data["distinct_id"]).feature_flag_override
-                )
-            except User.DoesNotExist:
-                pass
-
-            if feature_flag_override:
-                for k, v in feature_flag_override.items():
-                    if v is False:
-                        if k in feature_flags:
-                            del feature_flags[k]
-                    else:
-                        feature_flags[k] = v
-
+            feature_flags = get_overridden_feature_flags(team, data["distinct_id"], request.user)
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
