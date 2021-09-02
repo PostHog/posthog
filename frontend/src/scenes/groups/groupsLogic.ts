@@ -80,6 +80,8 @@ export const groupsLogic = kea<groupsLogicType<RelatedGroup>>({
                         `api/projects/${teamLogic.values.currentTeam.id}/group_types/related?type_id=${values.currentGroup.type_id}&id=${values.currentGroup.id}`
                     )
                 },
+                setCurrentGroupId: () => null,
+                setCurrentGroupType: () => null,
             },
         ],
     }),
