@@ -5,6 +5,7 @@ import { DraggableButton } from '~/toolbar/button/DraggableButton'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { Fade } from 'lib/components/Fade/Fade'
 import { ElementSelection } from '~/toolbar/tours/ElementSelection'
+import { PreviewTour } from '~/toolbar/tours/PreviewTour'
 
 export function ToolbarContainer(): JSX.Element {
     const { buttonVisible } = useValues(toolbarLogic)
@@ -14,6 +15,7 @@ export function ToolbarContainer(): JSX.Element {
             <Elements />
             <DraggableButton />
             <ElementSelection />
+            <PreviewTour />
         </Fade>
     )
 }

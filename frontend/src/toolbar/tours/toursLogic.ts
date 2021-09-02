@@ -16,6 +16,7 @@ export const toursLogic = kea<toursLogicType>({
         setParams: (params: Partial<TourType>) => ({ params }),
         setSlide: (slide: number) => ({ slide }),
         setElementSelection: (selecting: boolean) => ({ selecting }),
+        setPreviewTour: (previewing: boolean) => ({ previewing }),
         addStep: (step: TourStepType) => ({ step }),
         setStepElement: (element: HTMLElement) => ({ element }),
     },
@@ -68,6 +69,12 @@ export const toursLogic = kea<toursLogicType>({
             {
                 setElementSelection: (_, { selecting }) => selecting,
                 enableTour: () => false,
+            },
+        ],
+        onPreviewTour: [
+            false,
+            {
+                setPreviewTour: (_, { previewing }) => previewing,
             },
         ],
         stepElement: [

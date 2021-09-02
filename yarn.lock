@@ -14386,6 +14386,15 @@ shellwords@^0.1.1:
   resolved "https://registry.yarnpkg.com/shellwords/-/shellwords-0.1.1.tgz#d6b9181c1a48d397324c84871efbcfc73fc0654b"
   integrity sha512-vFwSUfQvqybiICwZY5+DAWIPLKsWO31Q91JSKl3UYv+K5c2QRPzn0qzec6QPu1Qc9eHYItiP3NdJqNVqetYAww==
 
+shepherd.js@^8.3.1:
+  version "8.3.1"
+  resolved "https://registry.yarnpkg.com/shepherd.js/-/shepherd.js-8.3.1.tgz#131eeefc5eb2bc44c9e23d0da139db46b2b55339"
+  integrity sha512-IhxZNhnK2m/pNTXudNfYrcwvcZNWkeYngQbQee8nC3xJ2GjeIatGqivhdZAMZ+LeogZvKMakB931d/V534uhrw==
+  dependencies:
+    "@popperjs/core" "^2.9.2"
+    deepmerge "^4.2.2"
+    smoothscroll-polyfill "^0.4.4"
+
 side-channel@^1.0.2:
   version "1.0.3"
   resolved "https://registry.yarnpkg.com/side-channel/-/side-channel-1.0.3.tgz#cdc46b057550bbab63706210838df5d4c19519c3"
@@ -14456,6 +14465,11 @@ slice-ansi@^4.0.0:
     ansi-styles "^4.0.0"
     astral-regex "^2.0.0"
     is-fullwidth-code-point "^3.0.0"
+
+smoothscroll-polyfill@^0.4.4:
+  version "0.4.4"
+  resolved "https://registry.yarnpkg.com/smoothscroll-polyfill/-/smoothscroll-polyfill-0.4.4.tgz#3a259131dc6930e6ca80003e1cb03b603b69abf8"
+  integrity sha512-TK5ZA9U5RqCwMpfoMq/l1mrH0JAR7y7KRvOBx0n2869aLxch+gT9GhN3yUfjiw+d/DiF1mKo14+hd62JyMmoBg==
 
 snapdragon-node@^2.0.1:
   version "2.1.1"

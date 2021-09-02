@@ -9,7 +9,7 @@ import { toolbarButtonLogic } from '../button/toolbarButtonLogic'
 
 export function ProductTourModal(): JSX.Element {
     const { slide, params, onElementSelection, tourEnabled, stepElement } = useValues(toursLogic)
-    const { setParams, setSlide } = useActions(toursLogic)
+    const { setParams, setSlide, setPreviewTour } = useActions(toursLogic)
     const { cohorts } = useValues(cohortsModel)
     const { hideToursInfo } = useActions(toolbarButtonLogic)
 
@@ -27,8 +27,18 @@ export function ProductTourModal(): JSX.Element {
                         </Button>
                     )}
                     {slide !== 0 && (
-                        <Button onClick={() => (slide === 3 ? null : setSlide(slide + 1))} type="primary">
-                            {slide === 3 ? 'Save and close' : 'Next'}
+                        <Button
+                            onClick={() => {
+                                if (slide === 3) {
+                                    hideToursInfo()
+                                    setPreviewTour(true)
+                                } else {
+                                    setSlide(slide + 1)
+                                }
+                            }}
+                            type="primary"
+                        >
+                            {slide === 3 ? 'Save and preview tour' : 'Next'}
                         </Button>
                     )}
                 </>

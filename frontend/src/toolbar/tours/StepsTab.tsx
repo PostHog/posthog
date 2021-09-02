@@ -44,8 +44,8 @@ export function StepsTab(): JSX.Element {
                             <Row align="middle" gutter={16} justify="center" wrap={false}>
                                 <Col
                                     style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
-                                    onClick={async () => {
-                                        await setStepParams({ type: 'Tooltip' })
+                                    onClick={() => {
+                                        setStepParams({ type: 'Tooltip' })
                                         setElementSelection(true)
                                         enableInspect()
                                     }}
