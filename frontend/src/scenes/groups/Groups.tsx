@@ -13,7 +13,7 @@ export function Groups(): JSX.Element {
 
     const columns: ResizableColumnType<Partial<Group>>[] = [
         {
-            title: 'Group',
+            title: `${capitalizeFirstLetter(currentGroupType || '')} ID`,
             key: 'id',
             span: 8,
             render: function Render(group: Group) {
