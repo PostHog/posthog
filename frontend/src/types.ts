@@ -1084,6 +1084,7 @@ export interface GroupType {
 export interface Group {
     id: string
     type_id: number
+    type_key: string
     created_at: string
     properties: Record<any, any>
 }

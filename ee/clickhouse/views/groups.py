@@ -11,9 +11,14 @@ from posthog.models.group_type import GroupTypeMapping
 
 class GroupSerializer(serializers.Serializer):
     id = serializers.CharField()
+    team_id = serializers.IntegerField()
     type_id = serializers.IntegerField(max_value=5)
+    type_key = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField()
     properties = serializers.JSONField()
+
+    def get_type_key(self, obj):
+        return GroupTypeMapping.objects.get(team_id=obj["team_id"], type_id=obj["type_id"]).type_key
 
 
 class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ViewSet):
@@ -21,12 +26,13 @@ class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = sync_execute(
-            "SELECT id, type_id, created_at, properties FROM groups WHERE team_id = %(team_id)s AND type_id = %(type_id)s AND id = %(id)s",
+            "SELECT id, team_id, type_id, created_at, properties FROM groups WHERE team_id = %(team_id)s AND type_id = %(type_id)s AND id = %(id)s",
             {"team_id": self.team_id, "id": self.kwargs["id"], "type_id": self.kwargs["type_id"]},
         )
         if not instance:
             raise exceptions.NotFound(detail="Group not found.")
         serializer = self.serializer_class(instance[0])
+        serializer.is_valid()
         return response.Response(serializer.data)
 
     def list(self, request, *args, **kwargs):
@@ -34,16 +40,24 @@ class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ViewSet):
             team_id=self.team_id, type_key=self.kwargs["parent_lookup_type_key"]
         )
         instances = (
-            {"id": row[0], "type_id": row[1], "created_at": row[2], "team_id": row[3], "properties": json.loads(row[4])}
+            {
+                "id": row[0],
+                "team_id": row[1],
+                "type_id": row[2],
+                "created_at": row[3],
+                "team_id": row[4],
+                "properties": json.loads(row[5]),
+            }
             for row in sync_execute(
                 """
-                SELECT id, type_id, created_at, team_id, properties FROM groups
+                SELECT id, team_id, type_id, created_at, team_id, properties FROM groups
                 WHERE team_id = %(team_id)s AND type_id = %(type_id)s
             """,
                 {"team_id": self.team_id, "type_id": group_type_mapping.type_id},
             )
         )
-        serializer = self.serializer_class(instances, many=True)
+        serializer = self.serializer_class(data=instances, many=True)
+        serializer.is_valid()
         return response.Response(serializer.data)
 
 
