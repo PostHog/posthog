@@ -55,6 +55,6 @@ def create_demo_team(organization: Organization, *args) -> Team:
 
 
 def create_demo_data(team: Team, dashboards=True):
-    WebDataGenerator(team, n_people=40).create(dashboards=dashboards)
-    AppDataGenerator(team, n_people=100).create(dashboards=dashboards)
-    RevenueDataGenerator(team, n_people=20).create(dashboards=dashboards)
+    WebDataGenerator(team, n_people=40).create(dashboards=dashboards, groups=True)
+    AppDataGenerator(team, n_people=100).create(dashboards=dashboards, groups=False)
+    RevenueDataGenerator(team, n_people=20).create(dashboards=dashboards, groups=False)

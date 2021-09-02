@@ -1,18 +1,25 @@
 import { kea } from 'kea'
 import api from '../../lib/api'
 import { Group, GroupType } from '../../types'
-import { teamLogic } from '../teamLogic'
 import { groupsLogicType } from './groupsLogicType'
 
-export const groupsLogic = kea<groupsLogicType>({
+interface RelatedGroup {
+    key: string
+    type_id: string
+    type_key: string
+}
+
+export const groupsLogic = kea<groupsLogicType<RelatedGroup>>({
     actions: {
         setCurrentGroupId: (id: string) => ({ id }),
+        setCurrentGroupType: (groupTypeName: string) => ({ groupTypeName }),
     },
     reducers: {
         currentGroupType: [
             null as string | null,
             {
                 loadGroups: (_, groupType) => groupType,
+                setCurrentGroupType: (_, { groupTypeName }) => groupTypeName,
             },
         ],
         currentGroupId: [
@@ -22,15 +29,16 @@ export const groupsLogic = kea<groupsLogicType>({
             },
         ],
     },
-    loaders: {
+    loaders: ({ values, actions }) => ({
         groupTypes: [
             [] as GroupType[],
             {
                 loadGroupTypes: async () => {
-                    if (!teamLogic.values.currentTeam) {
-                        return []
+                    const response = await api.get(`api/projects/@current/group_types`)
+                    if (response.length > 0 && !values.currentGroupType) {
+                        actions.setCurrentGroupType(response[0].type_key)
                     }
-                    const response = await api.get(`api/projects/${teamLogic.values.currentTeam.id}/group_types`)
+
                     return response
                 },
             },
@@ -39,17 +47,30 @@ export const groupsLogic = kea<groupsLogicType>({
             [] as Group[],
             {
                 loadGroups: async (typeKey: string) => {
-                    if (!teamLogic.values.currentTeam) {
-                        return []
+                    const response = await api.get(`api/projects/@current/group_types/${typeKey}/groups`)
+
+                    // only needed because of demo data gen, should never happen
+                    const uniqueGroups: Record<string, Group> = {}
+
+                    for (const group of response) {
+                        uniqueGroups[group.id] = group
                     }
-                    const response = await api.get(
-                        `api/projects/${teamLogic.values.currentTeam.id}/group_types/${typeKey}/groups`
-                    )
-                    return response
+
+                    return Object.values(uniqueGroups)
                 },
             },
         ],
-    },
+        relatedGroups: [
+            null as RelatedGroup[] | null,
+            {
+                loadRelatedGroups: async () => {
+                    return await api.get(
+                        `api/projects/@current/group_types/related?type_id=${values.currentGroup.type_id}&id=${values.currentGroup.id}`
+                    )
+                },
+            },
+        ],
+    }),
 
     selectors: {
         currentGroup: [
@@ -57,6 +78,12 @@ export const groupsLogic = kea<groupsLogicType>({
             (currentGroupId, groups) => groups.filter((g) => g.id === currentGroupId)[0] ?? null,
         ],
     },
+
+    listeners: ({ actions }) => ({
+        setCurrentGroupType: ({ groupTypeName }) => {
+            actions.loadGroups(groupTypeName)
+        },
+    }),
 
     urlToAction: ({ actions }) => ({
         '/groups': () => {

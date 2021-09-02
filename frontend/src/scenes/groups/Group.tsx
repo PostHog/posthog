@@ -12,6 +12,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 
 dayjs.extend(relativeTime)
 
@@ -20,6 +21,7 @@ const { TabPane } = Tabs
 export function Group(): JSX.Element {
     const { currentGroupId, currentGroup, currentGroupType } = useValues(groupsLogic)
     const [mainActiveTab, setMainActiveTab] = useState(PersonsTabType.EVENTS)
+    const [activeCardTab, setActiveCardTab] = useState('properties')
 
     if (!currentGroupId) {
         return <></>
@@ -90,21 +92,27 @@ export function Group(): JSX.Element {
                         )}
                     </Card>
                     <Card className="card-elevated person-properties" style={{ marginTop: 16 }}>
-                        <Tabs defaultActiveKey="properties">
-                            <TabPane
-                                tab={<span data-attr="persons-properties-tab">Properties</span>}
-                                key="properties"
-                            />
+                        <Tabs
+                            defaultActiveKey={activeCardTab}
+                            onChange={(tab) => {
+                                setActiveCardTab(tab)
+                            }}
+                        >
+                            <TabPane tab={<span data-attr="groups-properties-tab">Properties</span>} key="properties" />
+                            <TabPane tab={<span data-attr="groups-related-tab">Related groups</span>} key="related" />
                         </Tabs>
-                        {currentGroup && (
-                            <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
-                                <PropertiesTable
-                                    properties={currentGroup.properties}
-                                    sortProperties={true}
-                                    className="persons-page-props-table"
-                                />
-                            </div>
-                        )}
+                        {currentGroup &&
+                            (activeCardTab == 'properties' ? (
+                                <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                                    <PropertiesTable
+                                        properties={currentGroup.properties}
+                                        sortProperties={true}
+                                        className="persons-page-props-table"
+                                    />
+                                </div>
+                            ) : (
+                                <RelatedGroups />
+                            ))}
                     </Card>
                 </Col>
             </Row>

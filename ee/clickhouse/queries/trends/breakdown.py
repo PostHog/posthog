@@ -52,7 +52,7 @@ class ClickhouseTrendsBreakdown:
 
         if entity.math == "dau" or filter.breakdown_type == "person":
             join_condition = EVENT_JOIN_PERSON_SQL
-        elif entity.math.startswith("unique_group"):
+        elif entity.math and entity.math.startswith("unique_group"):
             _, type_id = entity.math.split("::")
             # :TODO: Group data dynamic
             # :TODO: Handle group data updates same way as person updates
