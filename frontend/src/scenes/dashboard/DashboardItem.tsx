@@ -36,6 +36,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LinkButton } from 'lib/components/LinkButton'
 
 dayjs.extend(relativeTime)
 
@@ -345,13 +346,23 @@ export function DashboardItem({
                                 <>
                                     {featureFlags[FEATURE_FLAGS.DIVE_DASHBOARDS] && (
                                         <>
-                                            <Link to={link}>
-                                                <EyeOutlined /> View
-                                            </Link>
+                                            <LinkButton
+                                                to={link}
+                                                icon={<EyeOutlined />}
+                                                data-attr="dive-btn-view"
+                                                className="dive-btn dive-btn-view"
+                                            >
+                                                View
+                                            </LinkButton>
                                             {typeof item.dive_dashboard === 'number' && (
-                                                <Link to={dashboardDiveLink(item.dive_dashboard, item.id)}>
-                                                    <MacCommandOutlined /> Dive
-                                                </Link>
+                                                <LinkButton
+                                                    to={dashboardDiveLink(item.dive_dashboard, item.id)}
+                                                    icon={<MacCommandOutlined />}
+                                                    data-attr="dive-btn-dive"
+                                                    className="dive-btn dive-btn-dive"
+                                                >
+                                                    Dive
+                                                </LinkButton>
                                             )}
                                         </>
                                     )}
