@@ -108,16 +108,22 @@ class ClickhouseGroupTypesView(StructuredViewSetMixin, ListModelMixin, RetrieveM
     @action(methods=["GET"], detail=False)
     def related(self, request, *args, **kwargs):
         type_id = request.GET["type_id"]
-        group_id = request.GET["id"]
+        identifier = request.GET["id"]
 
         results = []
+        if type_id == "-1":
+            filter_by_id_clause = f"pdi.person_id = %(id)s"
+        else:
+            filter_by_id_clause = f"JSONExtractString(properties, '$group_{type_id}') = %(id)s"
+
         for group_mapping in GroupTypeMapping.objects.filter(team_id=self.team_id):
             if str(group_mapping.type_id) == str(type_id):
                 continue
             rows = sync_execute(
                 f"""
                 SELECT DISTINCT gid.id
-                FROM events
+                FROM events e
+                JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id
                 INNER JOIN (
                     SELECT id
                     FROM groups
@@ -125,33 +131,28 @@ class ClickhouseGroupTypesView(StructuredViewSetMixin, ListModelMixin, RetrieveM
                       AND type_id = %(join_type_id)s
                 ) gid ON gid.id = JSONExtractString(properties, '$group_{group_mapping.type_id}')
                 WHERE team_id = %(team_id)s
-                  AND JSONExtractString(properties, '$group_{type_id}') = %(id)s
+                  AND {filter_by_id_clause}
             """,
-                {"team_id": self.team_id, "id": group_id, "join_type_id": str(group_mapping.type_id)},
+                {"team_id": self.team_id, "id": identifier, "join_type_id": str(group_mapping.type_id)},
             )
 
             results.extend(
                 {"key": id, "type_id": group_mapping.type_id, "type_key": group_mapping.type_key} for (id,) in rows
             )
 
-        # rows = sync_execute(f"""
-        #     SELECT DISTINCT p.id
-        #     FROM events e
-        #     JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id
-        #     JOIN (
-        #         SELECT id
-        #         FROM person
-        #         WHERE team_id = %(team_id)s
-        #         GROUP BY id
-        #         HAVING max(is_deleted) = 0
-        #     ) p on pdi.person_id = p.id
-        #     WHERE team_id = %(team_id)s
-        #       AND JSONExtractString(properties, '$group_{type_id}') = %(id)s
-        # """, { "team_id": self.team_id, "id": group_id })
+        if type_id != "-1":
+            rows = sync_execute(
+                f"""
+                SELECT any(pdi.distinct_id)
+                FROM events e
+                JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id
+                WHERE team_id = %(team_id)s
+                  AND {filter_by_id_clause}
+                GROUP BY pdi.person_id
+            """,
+                {"team_id": self.team_id, "id": identifier},
+            )
 
-        # results.extend(
-        #     { "key": id, "type_id": -1, "type_key": "person" }
-        #     for (id,) in rows
-        # )
+            results.extend({"key": id, "type_id": -1, "type_key": "person"} for (id,) in rows)
 
         return response.Response(results)

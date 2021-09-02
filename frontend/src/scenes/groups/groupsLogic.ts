@@ -63,11 +63,13 @@ export const groupsLogic = kea<groupsLogicType<RelatedGroup>>({
         relatedGroups: [
             null as RelatedGroup[] | null,
             {
-                loadRelatedGroups: async () => {
-                    return await api.get(
-                        `api/projects/@current/group_types/related?type_id=${values.currentGroup.type_id}&id=${values.currentGroup.id}`
-                    )
+                loadRelatedGroups: async ({ typeId, id } = {}) => {
+                    typeId = typeId || values.currentGroup.type_id
+                    id = id || values.currentGroup.id
+                    return await api.get(`api/projects/@current/group_types/related?type_id=${typeId}&id=${id}`)
                 },
+                setCurrentGroupId: () => null,
+                setCurrentGroupType: () => null,
             },
         ],
     }),

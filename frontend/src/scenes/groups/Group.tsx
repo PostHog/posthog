@@ -99,7 +99,10 @@ export function Group(): JSX.Element {
                             }}
                         >
                             <TabPane tab={<span data-attr="groups-properties-tab">Properties</span>} key="properties" />
-                            <TabPane tab={<span data-attr="groups-related-tab">Related groups</span>} key="related" />
+                            <TabPane
+                                tab={<span data-attr="groups-related-tab">Related groups &amp; persons</span>}
+                                key="related"
+                            />
                         </Tabs>
                         {currentGroup &&
                             (activeCardTab == 'properties' ? (

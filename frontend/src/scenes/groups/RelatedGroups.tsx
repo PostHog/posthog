@@ -5,13 +5,20 @@ import { groupsLogic } from 'scenes/groups/groupsLogic'
 import { Link } from 'lib/components/Link'
 import { Table } from 'antd'
 
-export function RelatedGroups(): JSX.Element {
+interface Props {
+    loadRelatedProps?: {
+        typeId: string
+        id: string
+    }
+}
+
+export function RelatedGroups({ loadRelatedProps }: Props): JSX.Element {
     const { relatedGroups, relatedGroupsLoading } = useValues(groupsLogic)
     const { loadRelatedGroups } = useActions(groupsLogic)
 
     useEffect(() => {
         if (relatedGroups === null && !relatedGroupsLoading) {
-            loadRelatedGroups()
+            loadRelatedGroups(loadRelatedProps)
         }
     }, [relatedGroups, relatedGroupsLoading])
 
@@ -29,11 +36,19 @@ export function RelatedGroups(): JSX.Element {
         {
             title: 'Link',
             render: function RenderCount(_: any, group: any) {
-                return (
-                    <Link to={`/groups/${group.type_key}/${group.key}`} target="_blank">
-                        {group.key}
-                    </Link>
-                )
+                if (group.type_id == -1) {
+                    return (
+                        <Link to={`/person/${group.key}`} target="_blank">
+                            {group.key}
+                        </Link>
+                    )
+                } else {
+                    return (
+                        <Link to={`/groups/${group.type_key}/${group.key}`} target="_blank">
+                            {group.key}
+                        </Link>
+                    )
+                }
             },
         },
     ]

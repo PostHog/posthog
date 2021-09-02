@@ -19,6 +19,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
@@ -158,6 +159,11 @@ export function Person(): JSX.Element {
                                 key="cohorts"
                                 disabled={personLoading}
                             />
+                            <TabPane
+                                tab={<span data-attr="persons-groups-tab">Related groups</span>}
+                                key="related"
+                                disabled={personLoading}
+                            />
                         </Tabs>
                         {person &&
                             (activeCardTab == 'properties' ? (
@@ -172,8 +178,10 @@ export function Person(): JSX.Element {
                                         className="persons-page-props-table"
                                     />
                                 </div>
-                            ) : (
+                            ) : activeCardTab == 'cohorts' ? (
                                 <PersonCohorts />
+                            ) : (
+                                <RelatedGroups loadRelatedProps={{ typeId: '-1', id: person.uuid || '' }} />
                             ))}
                         {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
                     </Card>
