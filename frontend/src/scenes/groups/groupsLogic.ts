@@ -3,7 +3,13 @@ import api from '../../lib/api'
 import { Group, GroupType } from '../../types'
 import { groupsLogicType } from './groupsLogicType'
 
-export const groupsLogic = kea<groupsLogicType>({
+interface RelatedGroup {
+    key: string
+    type_id: string
+    type_key: string
+}
+
+export const groupsLogic = kea<groupsLogicType<RelatedGroup>>({
     actions: {
         setCurrentGroupId: (id: string) => ({ id }),
         setCurrentGroupType: (groupTypeName: string) => ({ groupTypeName }),
@@ -51,6 +57,19 @@ export const groupsLogic = kea<groupsLogicType>({
                     }
 
                     return Object.values(uniqueGroups)
+                },
+            },
+        ],
+        relatedGroups: [
+            null as RelatedGroup[] | null,
+            {
+                loadRelatedGroups: async () => {
+                    if (!teamLogic.values.currentTeam) {
+                        return null
+                    }
+                    return await api.get(
+                        `api/projects/${teamLogic.values.currentTeam.id}/group_types/related?type_id=${values.currentGroup.type_id}&id=${values.currentGroup.id}`
+                    )
                 },
             },
         ],

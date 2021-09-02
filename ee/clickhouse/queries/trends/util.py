@@ -29,7 +29,7 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
-    elif entity.math.startswith("unique_group"):
+    elif entity.math and entity.math.startswith("unique_group"):
         _, type_id = entity.math.split("::")
         aggregate_operation = f"count(DISTINCT JSONExtractString(properties, '$group_{type_id}'))"
     elif entity.math in MATH_FUNCTIONS:
