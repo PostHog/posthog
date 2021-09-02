@@ -77,6 +77,17 @@ export const groupsLogic = kea<groupsLogicType<RelatedGroup>>({
             (s) => [s.currentGroupId, s.groups],
             (currentGroupId, groups) => groups.filter((g) => g.id === currentGroupId)[0] ?? null,
         ],
+        groupTypeIdToKey: [
+            (s) => [s.groupTypes],
+            (groupTypes) => {
+                const groupTypeIdToKeyMap: Record<number, string> = {}
+                for (const groupType of groupTypes) {
+                    groupTypeIdToKeyMap[groupType.type_id] = groupType.type_key
+                }
+
+                return groupTypeIdToKeyMap
+            },
+        ],
     },
 
     listeners: ({ actions }) => ({

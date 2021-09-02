@@ -26,6 +26,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/sceneLogic'
+import { groupsLogic } from 'scenes/groups/groupsLogic'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -58,6 +59,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { groupTypeIdToKey } = useValues(groupsLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
     const newEventsRender = (item: Record<string, any>, colSpan: number): Record<string, any> => {
@@ -77,6 +79,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
     }
 
     const mapGroupParamsToLink = (groupType: string, groupKey: string): JSX.Element => {
+        groupType = groupTypeIdToKey[Number(groupType.split('$group_')[1])]
         return <Link to={urls.group(groupType, groupKey)}>{groupKey}</Link>
     }
 
@@ -120,16 +123,20 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     ellipsis: true,
                     span: 4,
                     render: function renderGroups({ event }: EventFormattedType) {
-                        if (!event || !event.properties || !event.properties.$groups) {
-                            return { props: { colSpan: 0 } }
+                        if (!event || !event.properties) {
+                            return <></>
                         }
+
+                        const props = Object.entries(event.properties)
+                        const relevantGroupProps = props.filter(([propName]) => propName.startsWith('$group_'))
+
                         return (
                             <>
-                                {Object.entries(event.properties.$groups).map(([groupType, groupKey], index) => (
-                                    <>
-                                        {mapGroupParamsToLink(groupType, groupKey as string)}
-                                        {index !== Object.keys(event.properties.$groups).length - 1 ? ', ' : ''}
-                                    </>
+                                {relevantGroupProps.map(([propName, groupKey], index) => (
+                                    <span key={`${propName}_${groupKey}`}>
+                                        {mapGroupParamsToLink(propName, groupKey as string)}
+                                        {index !== relevantGroupProps.length - 1 ? ', ' : ''}
+                                    </span>
                                 ))}
                             </>
                         )
