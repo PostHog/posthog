@@ -167,6 +167,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "order",
             "deleted",
             "dashboard",
+            "dive_dashboard",
             "layouts",
             "color",
             "last_refresh",
@@ -184,7 +185,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
-        if not validated_data.get("dashboard", None):
+        if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
             dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
             return dashboard_item
         elif validated_data["dashboard"].team == team:

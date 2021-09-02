@@ -5,11 +5,20 @@ import { teamLogic } from '../teamLogic'
 import { groupsLogicType } from './groupsLogicType'
 
 export const groupsLogic = kea<groupsLogicType>({
+    actions: {
+        setCurrentGroupId: (id: string) => ({ id }),
+    },
     reducers: {
         currentGroupType: [
             null as string | null,
             {
                 loadGroups: (_, groupType) => groupType,
+            },
+        ],
+        currentGroupId: [
+            null as string | null,
+            {
+                setCurrentGroupId: (_, { id }) => id,
             },
         ],
     },
@@ -41,13 +50,29 @@ export const groupsLogic = kea<groupsLogicType>({
             },
         ],
     },
+
+    selectors: {
+        currentGroup: [
+            (s) => [s.currentGroupId, s.groups],
+            (currentGroupId, groups) => groups.filter((g) => g.id === currentGroupId)[0] ?? null,
+        ],
+    },
+
     urlToAction: ({ actions }) => ({
         '/groups': () => {
             actions.loadGroupTypes()
         },
-        '/groups/:id': ({ id }) => {
+        '/groups/:type': ({ type }) => {
+            if (type) {
+                actions.loadGroups(type)
+            }
+        },
+        '/groups/:type/:id': ({ type, id }) => {
+            if (type) {
+                actions.loadGroups(type)
+            }
             if (id) {
-                actions.loadGroups(id)
+                actions.setCurrentGroupId(id)
             }
         },
     }),

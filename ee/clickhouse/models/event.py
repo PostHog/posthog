@@ -200,4 +200,13 @@ def determine_event_conditions(
         elif k == "event":
             result += "AND event = %(event)s"
             params.update({"event": v})
+        elif k == "group":
+            result += "AND JSONExtractString(properties, %(group_type)s) = %(group_key)s"  # JSONExtractString(properties, '$group_0')
+            group_params = json.loads(v)
+            params.update(
+                {
+                    "group_type": group_params["group_type"],
+                    "group_key": group_params["group_key"],
+                }
+            )
     return result, params
