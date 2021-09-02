@@ -1,7 +1,7 @@
 import { groupsLogic } from './groupsLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import React, { useState } from 'react'
-import { Row, Tabs, Col, Card, Button, Popconfirm } from 'antd'
+import { Row, Tabs, Col, Card } from 'antd'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
 import { useValues } from 'kea'
@@ -86,23 +86,6 @@ export function Group(): JSX.Element {
                                         <div>{<TZLabel time={currentGroup.created_at} />}</div>
                                     </div>
                                 )}
-                                <div className="text-center mt">
-                                    <Popconfirm
-                                        title="Are you sure to delete this person and all associated data?"
-                                        onConfirm={() => {}}
-                                        okText="Yes"
-                                        cancelText="No"
-                                    >
-                                        <Button
-                                            className="text-danger"
-                                            disabled={true}
-                                            data-attr="delete-person"
-                                            type="link"
-                                        >
-                                            Delete this group
-                                        </Button>
-                                    </Popconfirm>
-                                </div>
                             </>
                         )}
                     </Card>
