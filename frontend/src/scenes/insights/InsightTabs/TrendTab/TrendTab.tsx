@@ -117,7 +117,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                                 <Skeleton active paragraph={{ rows: 2 }} />
                             ) : (
                                 <>
-                                    <PropertyFilters pageKey="trends-filters" />
+                                    <PropertyFilters pageKey="trends-filters" groupAnalytics />
                                     <TestAccountFilter filters={filters} onChange={setFilters} />
                                     {formulaAvailable && (
                                         <>

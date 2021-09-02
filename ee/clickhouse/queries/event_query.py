@@ -171,6 +171,23 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 if query:
                     final.append(f" AND {query}")
                     params.update(filter_params)
+            elif prop.type.startswith("group"):
+                _, type_id = prop.type.split("::")
+                filter_query, filter_params = prop_filter_json_extract(prop, idx, prepend)
+
+                final.append(
+                    f"""
+                    AND JSONExtractString(properties, '$group_{type_id}') IN (
+                        SELECT id
+                        FROM groups
+                        WHERE team_id = %(team_id)s
+                        AND type_id = '{type_id}'
+                        {filter_query}
+                    )
+                """
+                )
+
+                params.update(filter_params)
             else:
                 filter_query, filter_params = prop_filter_json_extract(
                     prop, idx, prepend, prop_var="properties", allow_denormalized_props=True

@@ -28,6 +28,7 @@ interface FilterRowProps {
     popoverPlacement?: TooltipPlacement | null
     groupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
+    groupAnalytics?: boolean
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -41,6 +42,7 @@ export const FilterRow = React.memo(function FilterRow({
     popoverPlacement,
     groupTypes,
     showNestedArrow = false,
+    groupAnalytics,
 }: FilterRowProps) {
     const { remove } = useActions(propertyFilterLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -62,6 +64,7 @@ export const FilterRow = React.memo(function FilterRow({
         onComplete: () => setOpen(false),
         selectProps: {},
         groupTypes,
+        groupAnalytics,
     }
 
     const filterVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER]

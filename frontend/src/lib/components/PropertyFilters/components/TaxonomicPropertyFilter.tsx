@@ -25,6 +25,7 @@ export function TaxonomicPropertyFilter({
     onComplete,
     disablePopover, // inside a dropdown if this is false
     groupTypes,
+    groupAnalytics,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const { setFilter } = useActions(propertyFilterLogic)
@@ -59,6 +60,7 @@ export function TaxonomicPropertyFilter({
                     TaxonomicFilterGroupType.Elements,
                 ]
             }
+            groupAnalytics={groupAnalytics}
         />
     )
 

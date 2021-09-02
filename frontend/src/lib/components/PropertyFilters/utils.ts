@@ -56,5 +56,8 @@ export function taxonomicFilterTypeToPropertyFilterType(filterType?: TaxonomicFi
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return 'cohort'
     }
+    if (filterType?.startsWith('group::')) {
+        return filterType
+    }
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0]
 }
