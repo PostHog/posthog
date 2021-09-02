@@ -3,7 +3,7 @@ import { useValues, useActions, BindLogic } from 'kea'
 import { decodeParams } from 'kea-router'
 import { Button, Spin, Space, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
-import { ExpandState, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
+import { ExpandState, GroupFilterProps, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { humanFriendlyDetailedTime, stripHTTP, pluralize, humanFriendlyDuration } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
 import dayjs from 'dayjs'
@@ -40,6 +40,7 @@ const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 interface SessionsTableProps {
     personIds?: string[]
     isPersonPage?: boolean
+    groupFilter: GroupFilterProps
 }
 
 function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }): JSX.Element {
@@ -62,8 +63,8 @@ function getSessionRecordingsDurationSum(session: SessionType): number {
 
 export const MATCHING_EVENT_ICON_SIZE = 26
 
-export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
-    const logic = sessionsTableLogic({ personIds })
+export function SessionsView({ personIds, isPersonPage = false, groupFilter }: SessionsTableProps): JSX.Element {
+    const logic = sessionsTableLogic({ personIds, groupFilter })
     const {
         sessions,
         sessionsLoading,

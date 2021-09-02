@@ -67,6 +67,7 @@ SESSION_SQL = """
                         {date_from}
                         {date_to}
                         AND distinct_id IN %(distinct_ids)s
+                        {group_filter}
                     GROUP BY
                         uuid,
                         event,

@@ -1,6 +1,6 @@
 import { groupsLogic } from './groupsLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import React from 'react'
+import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Button, Popconfirm } from 'antd'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
@@ -19,43 +19,53 @@ const { TabPane } = Tabs
 
 export function Group(): JSX.Element {
     const { currentGroupId, currentGroup, currentGroupType } = useValues(groupsLogic)
+    const [mainActiveTab, setMainActiveTab] = useState(PersonsTabType.EVENTS)
+
+    if (!currentGroupId) {
+        return <></>
+    }
 
     return (
         <div style={{ paddingTop: 32 }}>
             <Row gutter={16}>
                 <Col span={16}>
-                    <Tabs defaultActiveKey={PersonsTabType.EVENTS} activeKey={PersonsTabType.EVENTS}>
+                    <Tabs
+                        defaultActiveKey={PersonsTabType.EVENTS}
+                        activeKey={mainActiveTab}
+                        onChange={(tab) => setMainActiveTab(tab as PersonsTabType)}
+                    >
                         <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key="events" />
                         <TabPane tab={<span data-attr="person-sessions-tab">Sessions</span>} key="sessions" />
                     </Tabs>
                     {currentGroup && (
                         <div>
-                            {
-                                /* activeTab === 'events' */ true ? (
-                                    <EventsTable
-                                        pageKey={'017ba52f-9638-0027-f71a-0411e70eaaa8'} // force refresh if distinct_ids change
-                                        fixedFilters={{
-                                            group: JSON.stringify({
-                                                group_type: `$group_${currentGroup.type_id}`,
-                                                group_key: currentGroupId,
-                                            }),
-                                        }}
+                            {mainActiveTab === PersonsTabType.EVENTS ? (
+                                <EventsTable
+                                    pageKey={'017ba52f-9638-0027-f71a-0411e70eaaa8'} // force refresh if distinct_ids change
+                                    fixedFilters={{
+                                        group: JSON.stringify({
+                                            group_type: `$group_${currentGroup.type_id}`,
+                                            group_key: currentGroupId,
+                                        }),
+                                    }}
+                                />
+                            ) : (
+                                <>
+                                    <PageHeader
+                                        title="Sessions"
+                                        caption="Explore how events are being processed within sessions."
+                                        style={{ marginTop: 0 }}
                                     />
-                                ) : (
-                                    <>
-                                        <PageHeader
-                                            title="Sessions"
-                                            caption="Explore how events are being processed within sessions."
-                                            style={{ marginTop: 0 }}
-                                        />
-                                        <SessionsView
-                                            key={'017ba52f-9638-0027-f71a-0411e70eaaa8'} // force refresh if distinct_ids change
-                                            personIds={['017ba52f-9638-0027-f71a-0411e70eaaa8']}
-                                            isPersonPage
-                                        />
-                                    </>
-                                )
-                            }
+                                    <SessionsView
+                                        key={currentGroupId} // force refresh if distinct_ids change
+                                        groupFilter={{
+                                            group_type: `$group_${currentGroup.type_id}`,
+                                            group_key: currentGroupId,
+                                        }}
+                                        isPersonPage
+                                    />
+                                </>
+                            )}
                         </div>
                     )}
                 </Col>

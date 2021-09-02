@@ -33,6 +33,8 @@ class ClickhouseSessionsList(SessionsList):
         date_from, date_to, _ = parse_timestamps(self.filter, self.team.pk)
         distinct_ids = self.fetch_distinct_ids(action_filters, date_from, date_to, limit, distinct_id_offset)
 
+        (group_filter_sql, group_filter_params) = format_group_filter(self.filter)
+
         query = SESSION_SQL.format(
             date_from=date_from,
             date_to=date_to,
@@ -40,11 +42,13 @@ class ClickhouseSessionsList(SessionsList):
             matches_action_clauses=action_filters.matches_action_clauses,
             filters_having=action_filters.filters_having,
             sessions_limit="LIMIT %(offset)s, %(limit)s",
+            group_filter=group_filter_sql,
         )
         query_result = sync_execute(
             query,
             {
                 **action_filters.params,
+                **group_filter_params,
                 "team_id": self.team.pk,
                 "limit": limit,
                 "offset": offset,
@@ -171,3 +175,14 @@ def _process_url(url: Optional[str]) -> Optional[str]:
     if url == "":
         url = None
     return url
+
+
+def format_group_filter(filter: SessionsFilter):
+    print(filter.filters_to_dict())
+    return ("", {})
+    if "groups" not in filter:
+        return ("", {})
+    return (
+        "AND JSONExtractString(properties, %(group_type)s) = %(group_key)s",
+        {"group_type": filter.groups["group_type"], "group_key": filter.groups["group_key"]},
+    )

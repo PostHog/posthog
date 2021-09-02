@@ -22,10 +22,16 @@ interface Params {
     filters?: Array<SessionsPropertyFilter>
 }
 
-export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>>({
+export interface GroupFilterProps {
+    group_type: string
+    group_key: string
+}
+
+export const sessionsTableLogic = kea<sessionsTableLogicType<GroupFilterProps, SessionRecordingId>>({
     key: (props) => props.personIds || 'global',
     props: {} as {
         personIds?: string[]
+        groupFilter?: GroupFilterProps
     },
     connect: {
         values: [sessionsFiltersLogic, ['filters']],
@@ -43,6 +49,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
                     distinct_id: props.personIds ? props.personIds[0] : '',
                     filters: values.filters,
                     properties: values.properties,
+                    groups: props.groupFilter,
                 })
                 await breakpoint(10)
                 const response = await api.get(`api/event/sessions/?${params}`)
