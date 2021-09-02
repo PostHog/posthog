@@ -19,7 +19,10 @@ export type TourType = {
     steps: TourStepType[]
 }
 
+export type TourStepEnum = 'Tooltip' | 'Modal' | 'Beacon'
+
 export type TourStepType = {
+    type?: TourStepEnum
     html_el: string
     tooltip_title: string
     tooltip_text: string

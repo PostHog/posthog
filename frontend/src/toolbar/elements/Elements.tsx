@@ -24,7 +24,8 @@ export function Elements(): JSX.Element {
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement, disableInspect } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapLogic)
-    const { enableTour } = useActions(toursLogic)
+    const { tourEnabled } = useValues(toursLogic)
+    const { enableTour, setStepElement } = useActions(toursLogic)
 
     return (
         <>
@@ -74,9 +75,13 @@ export function Elements(): JSX.Element {
                             ...getBoxColors('blue', hoverElement === element || selectedElement === element),
                         }}
                         onClick={() => {
-                            selectElement(element)
-                            enableTour()
-                            disableInspect()
+                            if (tourEnabled) {
+                                enableTour()
+                                setStepElement(element)
+                                disableInspect()
+                            } else {
+                                selectElement(element)
+                            }
                         }}
                         onMouseOver={() => setHoverElement(element)}
                         onMouseOut={() => setHoverElement(null)}

@@ -68,8 +68,6 @@ export function ToolbarButton(): JSX.Element {
         e
     })
 
-    console.log('TOUR ENABLED', tourEnabled)
-
     useEffect(() => {
         globalMouseMove.current = function (e: MouseEvent): void {
             const buttonDiv = getShadowRoot()?.getElementById('button-toolbar')

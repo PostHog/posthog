@@ -8,12 +8,12 @@ import { toursLogic } from './toursLogic'
 import { toolbarButtonLogic } from '../button/toolbarButtonLogic'
 
 export function ProductTourModal(): JSX.Element {
-    const { slide, params, onElementSelection, tourEnabled } = useValues(toursLogic)
+    const { slide, params, onElementSelection, tourEnabled, stepElement } = useValues(toursLogic)
     const { setParams, setSlide } = useActions(toursLogic)
     const { cohorts } = useValues(cohortsModel)
     const { hideToursInfo } = useActions(toolbarButtonLogic)
 
-    console.log('HELLOE', slide)
+    console.log('HELLOE', slide, stepElement)
 
     console.log(tourEnabled, onElementSelection)
 

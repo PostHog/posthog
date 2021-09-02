@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { TourType } from '~/toolbar/types'
+import { TourStepType, TourType } from '~/toolbar/types'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
@@ -16,6 +16,8 @@ export const toursLogic = kea<toursLogicType>({
         setParams: (params: Partial<TourType>) => ({ params }),
         setSlide: (slide: number) => ({ slide }),
         setElementSelection: (selecting: boolean) => ({ selecting }),
+        addStep: (step: TourStepType) => ({ step }),
+        setStepElement: (element: HTMLElement) => ({ element }),
     },
 
     reducers: {
@@ -23,6 +25,7 @@ export const toursLogic = kea<toursLogicType>({
             {} as Partial<TourType>,
             {
                 setParams: (state, { params }) => ({ ...state, ...params }),
+                addStep: (state, { step }) => ({ ...state, steps: [...(state.steps ?? []), step] }),
             },
         ],
         tourEnabled: [
@@ -65,6 +68,12 @@ export const toursLogic = kea<toursLogicType>({
             {
                 setElementSelection: (_, { selecting }) => selecting,
                 enableTour: () => false,
+            },
+        ],
+        stepElement: [
+            null as HTMLElement | null,
+            {
+                setStepElement: (_, { element }) => element,
             },
         ],
     },
