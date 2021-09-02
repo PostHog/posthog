@@ -20,6 +20,13 @@ type SimpleOption = {
 }
 
 export const taxonomicGroupsLogic = kea<taxonomicGroupsLogicType>({
+    connect: [
+        groupPropertiesModel({ typeId: 0 }),
+        groupPropertiesModel({ typeId: 1 }),
+        groupPropertiesModel({ typeId: 2 }),
+        groupPropertiesModel({ typeId: 3 }),
+        groupPropertiesModel({ typeId: 4 }),
+    ],
     selectors: {
         groups: [
             (s) => [s.groupTypes],
@@ -82,9 +89,6 @@ export const taxonomicGroupsLogic = kea<taxonomicGroupsLogicType>({
                 // @ts-ignore
                 ...groupTypes.map((groupType) => {
                     const logic = groupPropertiesModel({ typeId: groupType.type_id })
-                    try {
-                        logic.mount()
-                    } catch {}
                     return {
                         name: capitalizeFirstLetter(groupType.type_key),
                         type: `group::${groupType.type_id}`,
