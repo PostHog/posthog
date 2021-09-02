@@ -159,7 +159,7 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             (s) => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
             (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
         ],
-        statsExtensionPercentage: [
+        featureFlagsExtensionPercentage: [
             (s) => [s.statsVisible, s.extensionPercentage],
             (statsVisible, extensionPercentage) =>
                 statsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,

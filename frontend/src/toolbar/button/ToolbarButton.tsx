@@ -16,7 +16,7 @@ import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
-import { QuestionOutlined } from '@ant-design/icons'
+import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -36,7 +36,7 @@ export function ToolbarButton(): JSX.Element {
         heatmapExtensionPercentage,
         actionsExtensionPercentage,
         actionsInfoVisible,
-        statsExtensionPercentage,
+        featureFlagsExtensionPercentage,
         statsVisible,
     } = useValues(toolbarButtonLogic)
     const {
@@ -64,6 +64,8 @@ export function ToolbarButton(): JSX.Element {
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
     })
+
+    const showFeatureFlags = featureFlags[FEATURE_FLAGS.TOOLBAR_FEATURE_FLAGS]
 
     useEffect(() => {
         globalMouseMove.current = function (e: MouseEvent): void {
@@ -268,11 +270,15 @@ export function ToolbarButton(): JSX.Element {
                             opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,
                         }}
                         content={
-                            <Flag
-                                style={{ height: 29 }}
-                                engaged={buttonActionsVisible}
-                                animated={buttonActionsVisible && allActionsLoading}
-                            />
+                            showFeatureFlags ? (
+                                <AimOutlined style={{ fontSize: '27px', color: 'hsl(100deg 41% 25%)' }} />
+                            ) : (
+                                <Flag
+                                    style={{ height: 29 }}
+                                    engaged={buttonActionsVisible}
+                                    animated={buttonActionsVisible && allActionsLoading}
+                                />
+                            )
                         }
                         zIndex={1}
                         onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
@@ -319,24 +325,27 @@ export function ToolbarButton(): JSX.Element {
                             />
                         ) : null}
                     </Circle>
-                    {featureFlags[FEATURE_FLAGS.TOOLBAR_FEATURE_FLAGS] ? (
+                    {showFeatureFlags ? (
                         <Circle
                             width={buttonWidth}
                             x={side === 'left' ? 80 : -80}
                             y={toolbarListVerticalPadding + n++ * 60}
-                            extensionPercentage={statsExtensionPercentage}
+                            extensionPercentage={featureFlagsExtensionPercentage}
                             rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
                             label="Feature Flags"
                             labelPosition={side === 'left' ? 'right' : 'left'}
                             labelStyle={{
-                                opacity: statsExtensionPercentage > 0.8 ? (statsExtensionPercentage - 0.8) / 0.2 : 0,
+                                opacity:
+                                    featureFlagsExtensionPercentage > 0.8
+                                        ? (featureFlagsExtensionPercentage - 0.8) / 0.2
+                                        : 0,
                             }}
                             content={<Flag style={{ height: 29 }} engaged={statsVisible} />}
                             zIndex={1}
                             onClick={statsVisible ? hideStats : showStats}
                             style={{
                                 cursor: 'pointer',
-                                transform: `scale(${0.2 + 0.8 * statsExtensionPercentage})`,
+                                transform: `scale(${0.2 + 0.8 * featureFlagsExtensionPercentage})`,
                                 background: statsVisible ? '#F1AA04' : '#FEF5E2',
                                 borderRadius,
                             }}
