@@ -16,7 +16,7 @@
                 "DEPLOYMENT": "Heroku Review App",
                 "AUTO_LOGIN": true
             },
-            "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
+            "buildpacks": [{ "url": "heroku-community/apt" }, { "url": "heroku/nodejs" }, { "url": "heroku/python" }],
             "formation": {
                 "web": {
                     "quantity": 1
@@ -31,16 +31,9 @@
                     "quantity": 0
                 }
             }
-        },
-        "test": {
-            "addons": ["heroku-postgresql:in-dyno"],
-            "scripts": {
-                "test": "python manage.py test --keepdb -v 2"
-            },
-            "buildpacks": [{ "url": "heroku/python" }]
         }
     },
-    "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
+    "buildpacks": [{ "url": "heroku-community/apt" }, { "url": "heroku/nodejs" }, { "url": "heroku/python" }],
     "addons": [
         "heroku-postgresql",
         {

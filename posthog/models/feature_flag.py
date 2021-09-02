@@ -163,7 +163,7 @@ class FeatureFlagMatcher:
         return self.get_hash(salt="variant")
 
 
-# Return a list of all standard flags with truthy values
+# Return a list of all standard + multivariate flags with truthy values
 def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
     flags_enabled = []
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
@@ -172,15 +172,15 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
     for feature_flag in feature_flags:
         try:
             # distinct_id will always be a string, but data can have non-string values ("Any")
-            if feature_flag.distinct_id_matches(distinct_id) and not len(feature_flag.variants):
+            if feature_flag.distinct_id_matches(distinct_id):
                 flags_enabled.append(feature_flag.key)
         except Exception as err:
             capture_exception(err)
     return flags_enabled
 
 
-# Return a Dict with all flags (including multivariate flags)
-def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Any]:
+# Return a Dict with all active flags and their values
+def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Union[bool, str, None]]:
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage",

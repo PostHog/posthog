@@ -1058,15 +1058,15 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
   integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
 
-"@posthog/plugin-scaffold@0.12.8":
-  version "0.12.8"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.8.tgz#540ae95bf672fcd0b28cdb0f047dec3b4c935140"
-  integrity sha512-T0ldNkc2maWlfa8XIthnfVzur2pg4+JDXhKm2ohuWmWB7wyP5/Sg7uIWohZ4bI+nW794uU5Uc9iMvpKHjQiX/Q==
+"@posthog/plugin-scaffold@0.12.9":
+  version "0.12.9"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.9.tgz#7d1e6f07ccc5d72c657ecbf004846a4a4b241bbc"
+  integrity sha512-W969xOjlMrWx3kUbRP6hKD85y+UExiYhTRrgISSy0ZorH/vhErJ69a6RPGzDdlIh1Blc6JMvwLffZg1ZPdssbA==
 
-"@posthog/plugin-server@1.4.2":
-  version "1.4.2"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.4.2.tgz#9164c7dfed370866ef40346463adba82c054c6e0"
-  integrity sha512-CU/bzSfPfVCdDsztSkD+OhG8brcKMUETz29bh2epOrVTmk3csGDWoz7KVAGl1+OYbeSyzLy2vnwHyo27+5wt/A==
+"@posthog/plugin-server@1.5.0":
+  version "1.5.0"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.5.0.tgz#408cb88c6ae1c4dc502b2bac950600cd9abaa612"
+  integrity sha512-6fK9LXeBFJACHsoGCEA9W9U+TLcc4GrzjCZX70fe1iPyvYLKpW2YljCPb8jHVbSBseDObtFwcZEltGXRpGkzQg==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -1079,13 +1079,14 @@
     "@posthog/clickhouse" "^1.7.0"
     "@posthog/piscina" "^3.2.0-posthog"
     "@posthog/plugin-contrib" "^0.0.5"
-    "@posthog/plugin-scaffold" "0.12.8"
+    "@posthog/plugin-scaffold" "0.12.9"
     "@sentry/node" "^6.7.0"
     "@sentry/tracing" "^6.7.0"
     "@types/lru-cache" "^5.1.0"
     adm-zip "0.5.3"
     aws-sdk "^2.927.0"
     escape-string-regexp "^4.0.0"
+    faker "^5.5.3"
     fast-deep-equal "^3.1.3"
     generic-pool "^3.7.1"
     graphile-worker "^0.11.1"
@@ -2140,6 +2141,11 @@ extsprintf@^1.2.0:
   version "1.4.0"
   resolved "https://registry.yarnpkg.com/extsprintf/-/extsprintf-1.4.0.tgz#e2689f8f356fad62cca65a3a91c5df5f9551692f"
   integrity sha1-4mifjzVvrWLMplo6kcXfX5VRaS8=
+
+faker@^5.5.3:
+  version "5.5.3"
+  resolved "https://registry.yarnpkg.com/faker/-/faker-5.5.3.tgz#c57974ee484431b25205c2c8dc09fda861e51e0e"
+  integrity sha512-wLTv2a28wjUyWkbnX7u/ABZBkUkIF2fCd73V6P2oFqEGEktDfzWx4UxrSqtPRw0xPRAcjeAOIiJWqZm3pP4u3g==
 
 fast-deep-equal@^3.1.1, fast-deep-equal@^3.1.3:
   version "3.1.3"

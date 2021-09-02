@@ -52,6 +52,9 @@ class LoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def create(self, validated_data: Dict[str, str]) -> Any:
+        if getattr(settings, "SAML_ENFORCED", False):
+            raise serializers.ValidationError("This instance only allows SAML login.", code="saml_enforced")
+
         request = self.context["request"]
         user = cast(
             Optional[User], authenticate(request, email=validated_data["email"], password=validated_data["password"])
