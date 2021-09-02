@@ -43,7 +43,7 @@ interface Props {
     item: DashboardItemType
     dashboardId?: number
     updateItemColor?: (id: number, itemClassName: string) => void
-    setDiveDashboard?: (id: number, dashboardId: number) => void
+    setDiveDashboard?: (id: number, dashboardId: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     dashboardMode: DashboardMode | null
@@ -436,7 +436,9 @@ export function DashboardItem({
                                                     <Menu.SubMenu
                                                         data-attr={'dashboard-item-' + index + '-dive-dashboard'}
                                                         key="dive"
-                                                        title="Set Dive Dashboard"
+                                                        title={`${
+                                                            !item.dive_dashboard ? 'Set' : 'Update'
+                                                        } Dive Dashboard`}
                                                     >
                                                         {otherDashboards.map((dashboard, diveIndex) => (
                                                             <Menu.Item
@@ -464,6 +466,16 @@ export function DashboardItem({
                                                                 {dashboard.name}
                                                             </Menu.Item>
                                                         ))}
+                                                        <Menu.Item
+                                                            data-attr={
+                                                                'dashboard-item-' + index + '-dive-dashboard-remove'
+                                                            }
+                                                            key="remove"
+                                                            onClick={() => setDiveDashboard(item.id, null)}
+                                                            className="text-danger"
+                                                        >
+                                                            Remove
+                                                        </Menu.Item>
                                                     </Menu.SubMenu>
                                                 )}
                                                 {duplicateDashboardItem && otherDashboards.length > 0 && (
