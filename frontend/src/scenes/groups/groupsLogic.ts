@@ -7,12 +7,14 @@ import { groupsLogicType } from './groupsLogicType'
 export const groupsLogic = kea<groupsLogicType>({
     actions: {
         setCurrentGroupId: (id: string) => ({ id }),
+        setCurrentGroupType: (groupTypeName: string) => ({ groupTypeName }),
     },
     reducers: {
         currentGroupType: [
             null as string | null,
             {
                 loadGroups: (_, groupType) => groupType,
+                setCurrentGroupType: (_, { groupTypeName }) => groupTypeName,
             },
         ],
         currentGroupId: [
@@ -22,7 +24,7 @@ export const groupsLogic = kea<groupsLogicType>({
             },
         ],
     },
-    loaders: {
+    loaders: ({ values, actions }) => ({
         groupTypes: [
             [] as GroupType[],
             {
@@ -31,6 +33,10 @@ export const groupsLogic = kea<groupsLogicType>({
                         return []
                     }
                     const response = await api.get(`api/projects/${teamLogic.values.currentTeam.id}/group_types`)
+                    if (response.length > 0 && !values.currentGroupType) {
+                        actions.setCurrentGroupType(response[0].type_key)
+                    }
+
                     return response
                 },
             },
@@ -45,11 +51,19 @@ export const groupsLogic = kea<groupsLogicType>({
                     const response = await api.get(
                         `api/projects/${teamLogic.values.currentTeam.id}/group_types/${typeKey}/groups`
                     )
-                    return response
+
+                    // only needed because of demo data gen, should never happen
+                    const uniqueGroups: Record<string, Group> = {}
+
+                    for (const group of response) {
+                        uniqueGroups[group.id] = group
+                    }
+
+                    return Object.values(uniqueGroups)
                 },
             },
         ],
-    },
+    }),
 
     selectors: {
         currentGroup: [
@@ -57,6 +71,12 @@ export const groupsLogic = kea<groupsLogicType>({
             (currentGroupId, groups) => groups.filter((g) => g.id === currentGroupId)[0] ?? null,
         ],
     },
+
+    listeners: ({ actions }) => ({
+        setCurrentGroupType: ({ groupTypeName }) => {
+            actions.loadGroups(groupTypeName)
+        },
+    }),
 
     urlToAction: ({ actions }) => ({
         '/groups': () => {

@@ -1,15 +1,15 @@
 import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
+import { ResizableColumnType } from 'lib/components/ResizableTable'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
 import { urls } from 'scenes/sceneLogic'
 import { Group } from '~/types'
-import { PageHeader } from '../../lib/components/PageHeader'
 import { groupsLogic } from './groupsLogic'
+import { GroupsTable } from './GroupsTable'
 
 export function Groups(): JSX.Element {
-    const { currentGroupType, groups } = useValues(groupsLogic)
+    const { currentGroupType } = useValues(groupsLogic)
 
     if (!currentGroupType) {
         return <></>
@@ -40,21 +40,7 @@ export function Groups(): JSX.Element {
 
     return (
         <div style={{ marginBottom: 128 }}>
-            <PageHeader
-                title={
-                    <>
-                        Groups – <code>{currentGroupType}</code>
-                    </>
-                }
-            />
-            <ResizableTable
-                size="small"
-                columns={columns}
-                rowKey="id"
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                dataSource={groups}
-                className="persons-table"
-            />
+            <GroupsTable columns={columns} />
         </div>
     )
 }
