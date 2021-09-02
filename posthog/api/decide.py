@@ -50,6 +50,8 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
         if settings.JS_URL:
             editor_params["jsURL"] = settings.JS_URL
 
+        editor_params["featureFlags"] = get_overridden_feature_flags(team, request.user.distinct_id, request.user)
+
         response["editorParams"] = editor_params
         return response, not request.user.temporary_token
     else:

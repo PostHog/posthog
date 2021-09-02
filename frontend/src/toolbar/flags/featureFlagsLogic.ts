@@ -3,6 +3,7 @@ import { FeatureFlagType } from '~/types'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { PostHog } from 'posthog-js'
 import { toolbarFetch } from '~/toolbar/utils'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     actions: {
@@ -106,6 +107,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             actions.getOverriddenFlags()
             ;(window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
                 actions.setFeatureFlags(variants)
+                toolbarLogic.actions.updateFeatureFlags(variants)
             })
         },
     }),
