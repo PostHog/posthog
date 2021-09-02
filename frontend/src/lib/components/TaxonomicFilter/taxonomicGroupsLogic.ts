@@ -85,7 +85,7 @@ export const taxonomicGroupsLogic = kea<taxonomicGroupsLogicType>({
                     logic.mount()
                     return {
                         name: capitalizeFirstLetter(groupType.type_key),
-                        type: groupType.type_key,
+                        type: `group::${groupType.type_id}`,
                         logic: logic,
                         // value: `$group_${groupType.type_id}`,
                         value: 'groupProperties',

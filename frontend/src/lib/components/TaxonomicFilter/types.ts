@@ -38,6 +38,11 @@ export enum TaxonomicFilterGroupType {
     Events = 'events',
     EventProperties = 'event_properties',
     PersonProperties = 'person_properties',
+    Group0 = 'group::0',
+    Group1 = 'group::1',
+    Group2 = 'group::2',
+    Group3 = 'group::3',
+    Group4 = 'group::4',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
