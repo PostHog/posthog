@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.group_type import GroupTypeMapping
 
@@ -89,3 +90,54 @@ class ClickhouseGroupTypesView(StructuredViewSetMixin, ListModelMixin, RetrieveM
         )
 
         return response.Response([{"name": name} for name in rows])
+
+    @action(methods=["GET"], detail=False)
+    def related(self, request, *args, **kwargs):
+        type_id = request.GET["type_id"]
+        group_id = request.GET["id"]
+
+        results = []
+        for group_mapping in GroupTypeMapping.objects.filter(team_id=self.team_id):
+            if str(group_mapping.type_id) == str(type_id):
+                continue
+            rows = sync_execute(
+                f"""
+                SELECT DISTINCT gid.id
+                FROM events
+                INNER JOIN (
+                    SELECT id
+                    FROM groups
+                    WHERE team_id = %(team_id)s
+                      AND type_id = %(join_type_id)s
+                ) gid ON gid.id = JSONExtractString(properties, '$group_{group_mapping.type_id}')
+                WHERE team_id = %(team_id)s
+                  AND JSONExtractString(properties, '$group_{type_id}') = %(id)s
+            """,
+                {"team_id": self.team_id, "id": group_id, "join_type_id": str(group_mapping.type_id)},
+            )
+
+            results.extend(
+                {"key": id, "type_id": group_mapping.type_id, "type_key": group_mapping.type_key} for (id,) in rows
+            )
+
+        # rows = sync_execute(f"""
+        #     SELECT DISTINCT p.id
+        #     FROM events e
+        #     JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id
+        #     JOIN (
+        #         SELECT id
+        #         FROM person
+        #         WHERE team_id = %(team_id)s
+        #         GROUP BY id
+        #         HAVING max(is_deleted) = 0
+        #     ) p on pdi.person_id = p.id
+        #     WHERE team_id = %(team_id)s
+        #       AND JSONExtractString(properties, '$group_{type_id}') = %(id)s
+        # """, { "team_id": self.team_id, "id": group_id })
+
+        # results.extend(
+        #     { "key": id, "type_id": -1, "type_key": "person" }
+        #     for (id,) in rows
+        # )
+
+        return response.Response(results)
