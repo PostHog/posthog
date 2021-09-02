@@ -82,6 +82,7 @@ export function Elements(): JSX.Element {
                         onClick={() => {
                             if (tourEnabled) {
                                 enableTour()
+                                console.log('element', element, getDataAttributesFromEl(element))
                                 const dataAttr = getDataAttributesFromEl(element) ?? undefined
                                 addStep({ html_el: dataAttr, id: `step-${dataAttr}` })
                                 disableInspect()

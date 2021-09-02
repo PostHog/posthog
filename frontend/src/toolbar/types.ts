@@ -27,6 +27,7 @@ export type TourStepType = {
     html_el?: string
     tooltip_title?: string
     tooltip_text?: string
+    is_completed?: boolean
 }
 
 export interface CountedHTMLElement {
