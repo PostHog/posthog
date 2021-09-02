@@ -2,7 +2,7 @@ import json
 import os
 import secrets
 import urllib.parse
-from typing import Any, Optional, cast
+from typing import Any, Dict, Optional, Union, cast
 
 import requests
 from django.conf import settings
@@ -62,6 +62,7 @@ class UserSerializer(serializers.ModelSerializer):
             "password",
             "current_password",  # used when changing current password
             "events_column_config",
+            "feature_flag_override",
         ]
         extra_kwargs = {
             "date_joined": {"read_only": True},
@@ -96,6 +97,20 @@ class UserSerializer(serializers.ModelSerializer):
             pass
 
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
+
+    def validate_feature_flag_override(self, value: Dict[str, Union[str, bool]]) -> Dict[str, Union[str, bool]]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                f"Field 'feature_flag_override' must be an object.", code="invalid_feature_flag_object"
+            )
+
+        for k, v in value.items():
+            if not isinstance(v, str) and not isinstance(v, bool):
+                raise serializers.ValidationError(
+                    f"Overridden feature flag '{k}' must be a string or a boolean.", code="invalid_feature_flag"
+                )
+
+        return value
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]

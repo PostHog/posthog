@@ -373,3 +373,44 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.json()["type"], "validation_error")
         self.assertEqual(response.json()["code"], "invalid_input")
         self.assertEqual(response.json()["detail"], "Please provide a distinct_id to continue.")
+
+    def test_override(self):
+        response = self.client.get("/api/feature_flag/override")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"feature_flag_override": {}})
+
+        response = self.client.post(
+            "/api/feature_flag/override", {"feature_flag_override": {"hey": "hello", "haha": "hoho"}}
+        )
+        self.assertEqual(response.json()["feature_flag_override"], {"hey": "hello", "haha": "hoho"})
+
+        response = self.client.get("/api/feature_flag/override")
+        self.assertEqual(response.json()["feature_flag_override"], {"hey": "hello", "haha": "hoho"})
+
+    def test_override_object_error(self):
+        response = self.client.post("/api/feature_flag/override", {"feature_flag_override": "haha"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_feature_flag_object",
+                "detail": f"Field 'feature_flag_override' must be an object.",
+                "attr": None,
+            },
+        )
+
+    def test_override_object_key_error(self):
+        response = self.client.post(
+            "/api/feature_flag/override", {"feature_flag_override": {"hey": "hello", "haha": ["an array"]}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_feature_flag",
+                "detail": f"Overridden feature flag 'haha' must be a string or a boolean.",
+                "attr": None,
+            },
+        )
