@@ -14,7 +14,7 @@ import {
 } from '~/types'
 import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { EVENT_MATH_TYPE, FEATURE_FLAGS, MATHS, PROPERTY_MATH_TYPE } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { CloseSquareOutlined, DeleteOutlined, DownOutlined, FilterOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
@@ -28,9 +28,7 @@ import './index.scss'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-
-const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
-const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
+import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 const determineFilterLabel = (visible: boolean, filter: Partial<ActionFilter>): string => {
     if (visible) {
@@ -125,6 +123,7 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { mathsOptions } = useValues(mathsLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -137,7 +136,7 @@ export function ActionFilterRow({
     const onMathSelect = (_: unknown, selectedMath: string): void => {
         updateFilterMath({
             math: selectedMath,
-            math_property: MATHS[selectedMath]?.onProperty ? mathProperty : undefined,
+            math_property: mathsOptions[selectedMath]?.onProperty ? mathProperty : undefined,
             type: filter.type,
             index,
         })
@@ -342,7 +341,7 @@ export function ActionFilterRow({
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                     />
                                 </Col>
-                                {MATHS[math || '']?.onProperty && (
+                                {mathsOptions[math || '']?.onProperty && (
                                     <>
                                         {horizontalUI && <Col>on property</Col>}
                                         <Col
@@ -427,8 +426,9 @@ function MathSelector({
     }`
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { eventMathEntries, propertyMathEntries } = useValues(mathsLogic)
 
-    let math_entries = EVENT_MATH_ENTRIES
+    let math_entries = eventMathEntries
 
     if (!featureFlags[FEATURE_FLAGS.TRAILING_WAU_MAU] || !preflight?.is_clickhouse_enabled) {
         math_entries = math_entries.filter((item) => item[0] !== 'weekly_active' && item[0] !== 'monthly_active')
@@ -478,7 +478,7 @@ function MathSelector({
                 })}
             </Select.OptGroup>
             <Select.OptGroup key="property aggregates" label="Property aggregation">
-                {PROPERTY_MATH_ENTRIES.map(([key, { name, description, onProperty }]) => {
+                {propertyMathEntries.map(([key, { name, description, onProperty }]) => {
                     const disabled = onProperty && !areEventPropertiesNumericalAvailable
                     return (
                         <Select.Option key={key} value={key} data-attr={`math-${key}-${index}`} disabled={disabled}>
@@ -517,6 +517,8 @@ interface MathPropertySelectorProps {
 }
 
 function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
+    const { mathsOptions } = useValues(mathsLogic)
+
     function isPropertyApplicable(value: PropertyFilter['value']): boolean {
         const includedProperties = ['$time']
         const excludedProperties = ['distinct_id', 'token']
@@ -550,7 +552,7 @@ function MathPropertySelector(props: MathPropertySelectorProps): JSX.Element {
                     <Tooltip
                         title={
                             <>
-                                Calculate {MATHS[props.math ?? ''].name.toLowerCase()} from property{' '}
+                                Calculate {mathsOptions[props.math ?? ''].name.toLowerCase()} from property{' '}
                                 <code>{label}</code>. Note that only {props.name} occurences where <code>{label}</code>{' '}
                                 is set with a numeric value will be taken into account.
                             </>

@@ -53,14 +53,13 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         union_query = self.get_step_counts_without_aggregation_query()
         breakdown_clause = self._get_breakdown_prop()
-        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
 
         return f"""
-            SELECT {actor_to_aggregate_by}, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause}, argMax(timestamp, steps) as timestamp FROM (
-                SELECT {actor_to_aggregate_by}, steps, max(steps) over (PARTITION BY {actor_to_aggregate_by} {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause}, timestamp FROM (
+            SELECT {self._filter.actor_column}, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause}, argMax(timestamp, steps) as timestamp FROM (
+                SELECT {self._filter.actor_column}, steps, max(steps) over (PARTITION BY {self._filter.actor_column} {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause}, timestamp FROM (
                         {union_query}
                 )
-            ) GROUP BY {actor_to_aggregate_by}, steps {breakdown_clause}
+            ) GROUP BY {self._filter.actor_column}, steps {breakdown_clause}
             HAVING steps = max_steps
         """
 
@@ -73,12 +72,11 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         sorting_condition = self.get_sorting_condition(max_steps)
         breakdown_clause = self._get_breakdown_prop(group_remaining=True)
         exclusion_clause = self._get_exclusion_condition()
-        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
 
         for i in range(max_steps):
             inner_query = f"""
                 SELECT
-                {actor_to_aggregate_by},
+                {self._filter.actor_column},
                 timestamp,
                 {partition_select}
                 {breakdown_clause}

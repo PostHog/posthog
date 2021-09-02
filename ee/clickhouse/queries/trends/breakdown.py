@@ -52,7 +52,8 @@ class ClickhouseTrendsBreakdown:
 
         if entity.math == "dau" or filter.breakdown_type == "person":
             join_condition = EVENT_JOIN_PERSON_SQL
-        if entity.math == "unique_group":
+        elif entity.math.startswith("unique_group"):
+            _, type_id = entity.math.split("::")
             # :TODO: Group data dynamic
             # :TODO: Handle group data updates same way as person updates
             join_condition = """
@@ -61,8 +62,8 @@ class ClickhouseTrendsBreakdown:
                     id,
                     properties AS group_0_properties
                 FROM groups
-                WHERE team_id = %(team_id)s AND type_id = 0
-            ) as gid ON gid.id = JSONExtractString(properties, '$group_0')
+                WHERE team_id = %(team_id)s AND type_id = '{type_id}'
+            ) as gid ON gid.id = JSONExtractString(properties, '$group_{type_id}')
             """
         else:
             join_condition = ""

@@ -1350,6 +1350,10 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertEqual(result[2]["count"], 0)
         self.assertEqual(len(result[2]["people"]), 0)
 
+        self.assertCountEqual(
+            self._get_people_at_step(filter, 1), ["Acme"],
+        )
+
     def test_basic_funnel_group_based_with_person_property_filter(self):
         filters = {
             "events": [
