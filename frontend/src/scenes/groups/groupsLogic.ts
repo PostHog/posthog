@@ -4,7 +4,13 @@ import { Group, GroupType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import { groupsLogicType } from './groupsLogicType'
 
-export const groupsLogic = kea<groupsLogicType>({
+interface RelatedGroup {
+    key: string
+    type_id: string
+    type_key: string
+}
+
+export const groupsLogic = kea<groupsLogicType<RelatedGroup>>({
     actions: {
         setCurrentGroupId: (id: string) => ({ id }),
     },
@@ -22,7 +28,7 @@ export const groupsLogic = kea<groupsLogicType>({
             },
         ],
     },
-    loaders: {
+    loaders: ({ values }) => ({
         groupTypes: [
             [] as GroupType[],
             {
@@ -49,7 +55,20 @@ export const groupsLogic = kea<groupsLogicType>({
                 },
             },
         ],
-    },
+        relatedGroups: [
+            null as RelatedGroup[] | null,
+            {
+                loadRelatedGroups: async () => {
+                    if (!teamLogic.values.currentTeam) {
+                        return null
+                    }
+                    return await api.get(
+                        `api/projects/${teamLogic.values.currentTeam.id}/group_types/related?type_id=${values.currentGroup.type_id}&id=${values.currentGroup.id}`
+                    )
+                },
+            },
+        ],
+    }),
 
     selectors: {
         currentGroup: [

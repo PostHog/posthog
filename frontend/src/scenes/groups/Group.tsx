@@ -12,6 +12,7 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 
 dayjs.extend(relativeTime)
 
@@ -97,10 +98,8 @@ export function Group(): JSX.Element {
                                 setActiveCardTab(tab)
                             }}
                         >
-                            <TabPane
-                                tab={<span data-attr="persons-properties-tab">Properties</span>}
-                                key="properties"
-                            />
+                            <TabPane tab={<span data-attr="groups-properties-tab">Properties</span>} key="properties" />
+                            <TabPane tab={<span data-attr="groups-related-tab">Related groups</span>} key="related" />
                         </Tabs>
                         {currentGroup &&
                             (activeCardTab == 'properties' ? (
@@ -111,7 +110,9 @@ export function Group(): JSX.Element {
                                         className="persons-page-props-table"
                                     />
                                 </div>
-                            ) : null)}
+                            ) : (
+                                <RelatedGroups />
+                            ))}
                     </Card>
                 </Col>
             </Row>
