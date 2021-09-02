@@ -23,9 +23,11 @@ MATH_FUNCTIONS = {
 
 
 def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
-    aggregate_operation = "count(*)"
+    aggregate_operation = "COUNT(*)"
     join_condition = ""
     params = {}
+    if not entity.math:
+        return aggregate_operation, join_condition, params
     if entity.math == "dau":
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"

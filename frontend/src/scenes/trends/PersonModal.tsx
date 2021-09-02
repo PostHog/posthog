@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Spin, Input, Skeleton } from 'antd'
-import { FilterType, PersonType, ViewType } from '~/types'
+import { FilterType, Group, GroupType, PersonType, ViewType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
@@ -48,7 +48,8 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                 <PropertyKeyInfo value={people?.label || ''} disablePopover />
             ) : filters.insight === ViewType.FUNNELS ? (
                 <>
-                    Persons who {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
+                    {filters.unique_group_type_id === undefined ? 'Persons' : 'Groups'} who{' '}
+                    {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
                     {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
                     {people?.breakdown_value !== undefined &&
                         `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
@@ -63,7 +64,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
     )
 
     const isDownloadCsvAvailable = view === ViewType.TRENDS
-    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
+    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled && filters.unique_group_type_id === undefined
 
     return (
         <Modal
@@ -138,11 +139,19 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         )}
                         <div style={{ background: '#FAFAFA' }}>
                             {people.count > 0 ? (
-                                people?.people.map((person) => (
-                                    <div key={person.id}>
-                                        <PersonRow person={person} />
-                                    </div>
-                                ))
+                                filters.unique_group_type_id === undefined ? (
+                                    people?.people.map((person) => (
+                                        <div key={person.id}>
+                                            <PersonRow person={person} />
+                                        </div>
+                                    ))
+                                ) : (
+                                    people?.people.map((group) => (
+                                        <div key={group.id}>
+                                            <GroupRow group={(group as unknown) as GroupType} />
+                                        </div>
+                                    ))
+                                )
                             ) : (
                                 <div className="person-row-container person-row">
                                     We couldn't find any matching persons for this data point.
@@ -201,6 +210,24 @@ export function PersonRow({ person }: PersonRowProps): JSX.Element {
                 </div>
             </div>
             {showProperties && <PropertiesTable properties={person.properties} className="person-modal-properties" />}
+        </div>
+    )
+}
+
+interface GroupRowProps {
+    group: Group
+}
+
+export function GroupRow({ group }: GroupRowProps): JSX.Element {
+    return (
+        <div key={group.id} className="person-row-container">
+            <div className="person-row">
+                <div className="person-ids">
+                    <Link to={urls.group(group.type_key, group.id)} className="text-default">
+                        <strong>{group.id}</strong>
+                    </Link>
+                </div>
+            </div>
         </div>
     )
 }

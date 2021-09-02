@@ -41,7 +41,9 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
             )
             from ee.clickhouse.views.groups import GroupSerializer
 
-            return GroupSerializer(groups, many=True).data, len(results) > cast(int, self._filter.limit) - 1
+            serializer = GroupSerializer(data=groups, many=True)
+            serializer.is_valid()
+            return serializer.data, len(results) > cast(int, self._filter.limit) - 1
         else:
             people = Person.objects.filter(team_id=self._team.pk, uuid__in=[val[0] for val in results])
 
