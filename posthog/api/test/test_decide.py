@@ -263,20 +263,17 @@ class TestDecide(BaseTest):
             # fourth-variant: 20 (100 * 80% * 25% = 20 users)
 
     def test_feature_flags_v2_override(self):
+        self.user.feature_flag_override = {
+            "beta-feature": False,
+            "multivariate-flag": "third-variant",
+            "random-key": True,
+        }
+        self.user.save()
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
         Person.objects.create(
-            team=self.team,
-            distinct_ids=["example_id"],
-            properties={
-                "email": "tim@posthog.com",
-                "$override_feature_flags": {
-                    "beta-feature": False,
-                    "multivariate-flag": "third-variant",
-                    "random-key": True,
-                },
-            },
+            team=self.team, distinct_ids=[self.user.distinct_id], properties={"email": self.user.email},
         )
         FeatureFlag.objects.create(
             team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
@@ -306,13 +303,14 @@ class TestDecide(BaseTest):
         )
 
         with self.assertNumQueries(3):
-            response = self._post_decide(api_version=1)  # v1 functionality should not break
+            response = self._post_decide(api_version=1, distinct_id=str(self.user.distinct_id))
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertNotIn("beta-feature", response.json()["featureFlags"])
             self.assertIn("default-flag", response.json()["featureFlags"])
+            self.assertIn("random-key", response.json()["featureFlags"])
 
         with self.assertNumQueries(3):
-            response = self._post_decide(api_version=2)
+            response = self._post_decide(api_version=2, distinct_id=str(self.user.distinct_id))
             self.assertNotIn("beta-feature", response.json()["featureFlags"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
             self.assertTrue(response.json()["featureFlags"]["random-key"])
