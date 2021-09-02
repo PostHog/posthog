@@ -244,6 +244,7 @@ export const FEATURE_FLAGS = {
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
     TOOLBAR_FEATURE_FLAGS: '4675-toolbar-feature-flags',
+    DEMO_BANNER_COLOR: 'demo-banner-color',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
