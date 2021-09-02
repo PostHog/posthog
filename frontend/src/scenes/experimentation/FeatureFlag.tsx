@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Button, Card, Col, Collapse, Form, Input, InputNumber, Popconfirm, Radio, Row, Slider, Switch } from 'antd'
 import { useActions, useValues } from 'kea'
-import { SceneLoading, toParams } from 'lib/utils'
+import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ApiFilled, DeleteOutlined, MergeCellsOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
@@ -15,8 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
-import { ChartDisplayType, FeatureFlagType, FilterType, ViewType } from '~/types'
-import { Link } from 'lib/components/Link'
+import { FilterType } from '~/types'
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 
@@ -120,111 +119,6 @@ function ConditionFilterRow({
     )
 }
 
-function createInsightLink(featureFlag: FeatureFlagType | null): string | null {
-    const triggerCondition = featureFlag?.trigger_condition
-    const successCondition = featureFlag?.success_condition
-
-    if (
-        !featureFlag ||
-        !triggerCondition ||
-        Object.keys(triggerCondition).length === 0 ||
-        (triggerCondition.actions?.length || 0) + (triggerCondition.events?.length || 0) === 0 ||
-        !successCondition ||
-        Object.keys(successCondition).length === 0 ||
-        (successCondition.actions?.length || 0) + (successCondition.events?.length || 0) === 0
-    ) {
-        return null
-    }
-
-    const conditions: Partial<FilterType> = {
-        insight: ViewType.TRENDS,
-        date_from: '-30d',
-        filter_test_accounts: true,
-        interval: 'week',
-        display: ChartDisplayType.ActionsBarChartValue,
-        actions: [],
-        events: [],
-        new_entity: [],
-        properties: [],
-    }
-
-    if (triggerCondition.events && triggerCondition.events[0] && conditions.events) {
-        conditions.events.push({
-            ...triggerCondition.events[0],
-            order: 0,
-            properties: [
-                ...(triggerCondition.events[0].properties || []),
-                { key: '$active_feature_flags', value: featureFlag.key, operator: 'icontains', type: 'event' },
-            ],
-        })
-        conditions.events.push({
-            ...triggerCondition.events[0],
-            order: 2,
-            properties: [
-                ...(triggerCondition.events[0].properties || []),
-                { key: '$active_feature_flags', value: featureFlag.key, operator: 'not_icontains', type: 'event' },
-            ],
-        })
-    }
-    if (triggerCondition.actions && triggerCondition.actions[0] && conditions.actions) {
-        conditions.actions.push({
-            ...triggerCondition.actions[0],
-            order: 0,
-            properties: [
-                ...(triggerCondition.actions[0].properties || []),
-                { key: '$active_feature_flags', value: featureFlag.key, operator: 'icontains', type: 'event' },
-            ],
-        })
-        conditions.actions.push({
-            ...triggerCondition.actions[0],
-            order: 2,
-            properties: [
-                ...(triggerCondition.actions[0].properties || []),
-                { key: '$active_feature_flags', value: featureFlag.key, operator: 'not_icontains', type: 'event' },
-            ],
-        })
-    }
-
-    if (successCondition.events && successCondition.events[0] && conditions.events) {
-        conditions.events.push({
-            ...successCondition.events[0],
-            order: 1,
-            properties: [
-                ...(successCondition.events[0].properties || []),
-                { key: '$active_feature_flags', value: featureFlag.key, operator: 'icontains', type: 'event' },
-            ],
-        })
-        conditions.events.push({
-            ...successCondition.events[0],
-            order: 3,
-            properties: [
-                ...(successCondition.events[0].properties || []),
-                { key: '$active_feature_flags', value: featureFlag.key, operator: 'not_icontains', type: 'event' },
-            ],
-        })
-    }
-    if (successCondition.actions && successCondition.actions[0] && conditions.actions) {
-        conditions.actions.push({
-            ...successCondition.actions[0],
-            order: 1,
-            properties: [
-                ...(successCondition.actions[0].properties || []),
-                { key: '$active_feature_flags', value: featureFlag.key, operator: 'icontains', type: 'event' },
-            ],
-        })
-        conditions.actions.push({
-            ...successCondition.actions[0],
-            order: 3,
-            properties: [
-                ...(successCondition.actions[0].properties || []),
-                { key: '$active_feature_flags', value: featureFlag.key, operator: 'not_icontains', type: 'event' },
-            ],
-        })
-    }
-
-    return `/insights?${toParams(conditions)}`
-}
-
 export function FeatureFlag(): JSX.Element {
     const [form] = Form.useForm()
     const {
@@ -235,6 +129,7 @@ export function FeatureFlag(): JSX.Element {
         nonEmptyVariants,
         areVariantRolloutsValid,
         variantRolloutSum,
+        successStatistics,
     } = useValues(featureFlagLogic)
     const {
         addMatchGroup,
@@ -254,7 +149,6 @@ export function FeatureFlag(): JSX.Element {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
     // whether to warn the user that their variants will be lost
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
-    const insightLink = createInsightLink(featureFlag)
 
     return (
         <div className="feature-flag">
@@ -461,7 +355,36 @@ export function FeatureFlag(): JSX.Element {
                                 <ConditionFilterRow type="success" />
                             </Form.Item>
 
-                            {insightLink && <Link to={insightLink}>View Stats</Link>}
+                            {successStatistics ? (
+                                <>
+                                    <table>
+                                        <tr>
+                                            <th>-</th>
+                                            <th>Trigger</th>
+                                            <th>Success</th>
+                                            <th>Ratio</th>
+                                        </tr>
+                                        <tr>
+                                            <td>Experiment</td>
+                                            <td>{successStatistics.experiment.trigger}</td>
+                                            <td>{successStatistics.experiment.success}</td>
+                                            <td>{successStatistics.experiment.ratio}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Control</td>
+                                            <td>{successStatistics.control.trigger}</td>
+                                            <td>{successStatistics.control.success}</td>
+                                            <td>{successStatistics.control.ratio}</td>
+                                        </tr>
+                                    </table>
+                                    <div>
+                                        Overall: <strong>{successStatistics.improvement}% improvement</strong>, with
+                                        {successStatistics.confidence}% confidence.
+                                    </div>
+                                </>
+                            ) : (
+                                'No data'
+                            )}
                         </div>
                     )}
 

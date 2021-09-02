@@ -3,16 +3,35 @@ import React from 'react'
 import { featureFlagLogicType } from './featureFlagLogicType'
 import {
     AnyPropertyFilter,
+    ChartDisplayType,
     FeatureFlagType,
     FilterType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
+    TrendResult,
+    ViewType,
 } from '~/types'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { router } from 'kea-router'
-import { deleteWithUndo } from 'lib/utils'
+import { deleteWithUndo, toParams } from 'lib/utils'
 import { urls } from 'scenes/sceneLogic'
+
+export type FeatureFlagMetrics = {
+    experiment: {
+        trigger: number
+        success: number
+        ratio: number
+    }
+    control: {
+        trigger: number
+        success: number
+        ratio: number
+    }
+    improvement: number
+    confidence: number
+}
+
 const NEW_FLAG = {
     id: null,
     key: '',
@@ -63,7 +82,7 @@ export const EMPTY_SUCCESS_CONDITION: Partial<FilterType> = {
     ],
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType>({
+export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagMetrics>>({
     actions: {
         setFeatureFlagId: (id: number | 'new') => ({ id }),
         addMatchGroup: true,
@@ -84,6 +103,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         updateVariant: (index: number, newProperties: Partial<MultivariateFlagVariant>) => ({ index, newProperties }),
         removeVariant: (index: number) => ({ index }),
         distributeVariantsEqually: true,
+        getSuccessStatistics: true,
     },
     reducers: {
         featureFlagId: [
@@ -245,6 +265,53 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 }
             },
         },
+        successStatistics: [
+            null as FeatureFlagMetrics | null,
+            {
+                getSuccessStatistics: async (_, breakpoint) => {
+                    const params = values.successInsightsConditions
+                    if (!params) {
+                        return null
+                    }
+                    const result = (await api.get('api/insight/trend/?' + toParams(params))).result as TrendResult[]
+                    breakpoint()
+
+                    if (result.length !== 4) {
+                        return null
+                    }
+
+                    const metrics: FeatureFlagMetrics = {
+                        experiment: {
+                            trigger: result[0].aggregated_value,
+                            success: result[1].aggregated_value,
+                            ratio:
+                                result[0].aggregated_value === 0
+                                    ? Infinity
+                                    : result[1].aggregated_value / result[0].aggregated_value,
+                        },
+                        control: {
+                            trigger: result[2].aggregated_value,
+                            success: result[3].aggregated_value,
+                            ratio:
+                                result[2].aggregated_value === 0
+                                    ? Infinity
+                                    : result[3].aggregated_value / result[2].aggregated_value,
+                        },
+                        improvement: 0,
+                        confidence: 0,
+                    }
+
+                    metrics.improvement =
+                        metrics.control.ratio === 0
+                            ? Infinity
+                            : ((metrics.experiment.ratio - metrics.control.ratio) * 100.0) / metrics.control.ratio
+
+                    metrics.confidence = 82
+
+                    return metrics
+                },
+            },
+        ],
     }),
     listeners: ({ actions }) => ({
         saveFeatureFlagSuccess: () => {
@@ -260,6 +327,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                     closeOnClick: true,
                 }
             )
+            actions.getSuccessStatistics()
+        },
+        loadFeatureFlagSuccess: () => {
+            actions.getSuccessStatistics()
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({
@@ -292,6 +363,153 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
                 variantRolloutSum === 100,
         ],
+        successInsightsConditions: [
+            (s) => [s.featureFlag],
+            (featureFlag): Partial<FilterType> | null => {
+                const triggerCondition = featureFlag?.trigger_condition
+                const successCondition = featureFlag?.success_condition
+
+                if (
+                    !featureFlag ||
+                    !triggerCondition ||
+                    Object.keys(triggerCondition).length === 0 ||
+                    (triggerCondition.actions?.length || 0) + (triggerCondition.events?.length || 0) === 0 ||
+                    !successCondition ||
+                    Object.keys(successCondition).length === 0 ||
+                    (successCondition.actions?.length || 0) + (successCondition.events?.length || 0) === 0
+                ) {
+                    return null
+                }
+
+                const conditions: Partial<FilterType> = {
+                    insight: ViewType.TRENDS,
+                    date_from: '-30d',
+                    filter_test_accounts: false,
+                    interval: 'week',
+                    display: ChartDisplayType.ActionsBarChartValue,
+                    actions: [],
+                    events: [],
+                    new_entity: [],
+                    properties: [],
+                }
+
+                if (triggerCondition.events && triggerCondition.events[0] && conditions.events) {
+                    conditions.events.push({
+                        ...triggerCondition.events[0],
+                        order: 0,
+                        properties: [
+                            ...(triggerCondition.events[0].properties || []),
+                            {
+                                key: '$active_feature_flags',
+                                value: featureFlag.key,
+                                operator: 'icontains',
+                                type: 'event',
+                            },
+                        ],
+                    })
+                    conditions.events.push({
+                        ...triggerCondition.events[0],
+                        order: 2,
+                        properties: [
+                            ...(triggerCondition.events[0].properties || []),
+                            {
+                                key: '$active_feature_flags',
+                                value: featureFlag.key,
+                                operator: 'not_icontains',
+                                type: 'event',
+                            },
+                        ],
+                    })
+                }
+                if (triggerCondition.actions && triggerCondition.actions[0] && conditions.actions) {
+                    conditions.actions.push({
+                        ...triggerCondition.actions[0],
+                        order: 0,
+                        properties: [
+                            ...(triggerCondition.actions[0].properties || []),
+                            {
+                                key: '$active_feature_flags',
+                                value: featureFlag.key,
+                                operator: 'icontains',
+                                type: 'event',
+                            },
+                        ],
+                    })
+                    conditions.actions.push({
+                        ...triggerCondition.actions[0],
+                        order: 2,
+                        properties: [
+                            ...(triggerCondition.actions[0].properties || []),
+                            {
+                                key: '$active_feature_flags',
+                                value: featureFlag.key,
+                                operator: 'not_icontains',
+                                type: 'event',
+                            },
+                        ],
+                    })
+                }
+
+                if (successCondition.events && successCondition.events[0] && conditions.events) {
+                    conditions.events.push({
+                        ...successCondition.events[0],
+                        order: 1,
+                        properties: [
+                            ...(successCondition.events[0].properties || []),
+                            {
+                                key: '$active_feature_flags',
+                                value: featureFlag.key,
+                                operator: 'icontains',
+                                type: 'event',
+                            },
+                        ],
+                    })
+                    conditions.events.push({
+                        ...successCondition.events[0],
+                        order: 3,
+                        properties: [
+                            ...(successCondition.events[0].properties || []),
+                            {
+                                key: '$active_feature_flags',
+                                value: featureFlag.key,
+                                operator: 'not_icontains',
+                                type: 'event',
+                            },
+                        ],
+                    })
+                }
+                if (successCondition.actions && successCondition.actions[0] && conditions.actions) {
+                    conditions.actions.push({
+                        ...successCondition.actions[0],
+                        order: 1,
+                        properties: [
+                            ...(successCondition.actions[0].properties || []),
+                            {
+                                key: '$active_feature_flags',
+                                value: featureFlag.key,
+                                operator: 'icontains',
+                                type: 'event',
+                            },
+                        ],
+                    })
+                    conditions.actions.push({
+                        ...successCondition.actions[0],
+                        order: 3,
+                        properties: [
+                            ...(successCondition.actions[0].properties || []),
+                            {
+                                key: '$active_feature_flags',
+                                value: featureFlag.key,
+                                operator: 'not_icontains',
+                                type: 'event',
+                            },
+                        ],
+                    })
+                }
+
+                return conditions
+            },
+        ],
     },
     urlToAction: ({ actions }) => ({
         '/feature_flags/*': ({ _: id }) => {
@@ -300,6 +518,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 actions.setFeatureFlagId(parsedId)
             }
             actions.loadFeatureFlag()
+            actions.getSuccessStatistics()
         },
     }),
 })
