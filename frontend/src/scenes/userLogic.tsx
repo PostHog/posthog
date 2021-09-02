@@ -83,6 +83,15 @@ export const userLogic = kea<userLogicType>({
                     posthog.register({
                         is_demo_project: user.team?.is_demo,
                     })
+
+                    if (user.organization) {
+                        // @ts-ignore
+                        posthog.__group('organization', user.organization.name, user.organization)
+                    }
+                    if (user.team) {
+                        // @ts-ignore
+                        posthog.__group('project', user.team.name, user.team)
+                    }
                 }
             }
         },
