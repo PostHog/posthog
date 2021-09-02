@@ -1,6 +1,6 @@
 import { groupsLogic } from './groupsLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import React, { useState } from 'react'
+import React from 'react'
 import { Row, Tabs, Col, Card, Button, Popconfirm } from 'antd'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
@@ -18,8 +18,6 @@ dayjs.extend(relativeTime)
 const { TabPane } = Tabs
 
 export function Group(): JSX.Element {
-    const [activeCardTab, setActiveCardTab] = useState('properties')
-
     const { currentGroupId, currentGroup, currentGroupType } = useValues(groupsLogic)
 
     return (
@@ -99,12 +97,7 @@ export function Group(): JSX.Element {
                         )}
                     </Card>
                     <Card className="card-elevated person-properties" style={{ marginTop: 16 }}>
-                        <Tabs
-                            defaultActiveKey={activeCardTab}
-                            onChange={(tab) => {
-                                setActiveCardTab(tab)
-                            }}
-                        >
+                        <Tabs defaultActiveKey="properties">
                             <TabPane
                                 tab={<span data-attr="persons-properties-tab">Properties</span>}
                                 key="properties"
