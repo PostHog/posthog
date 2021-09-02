@@ -97,8 +97,8 @@ class DashboardSerializer(serializers.ModelSerializer):
         item_as_list = list(i for i in items if i.id == dive_source_id)
         if not item_as_list:
             item_as_list = [DashboardItem.objects.get(pk=dive_source_id)]
-        items = list(i for i in items if i.id != dive_source_id)
-        return item_as_list + items
+        others = list(i for i in items if i.id != dive_source_id)
+        return item_as_list + others
 
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
