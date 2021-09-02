@@ -32,10 +32,9 @@ export function GroupTypes(): JSX.Element {
                             <TabPane tab={type_key} key={type_key} />
                         ))}
                     </Tabs>
+                    {currentGroupType ? <Groups /> : null}
                 </>
             )}
-
-            {currentGroupType ? <Groups /> : null}
         </div>
     )
 }
