@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { List, Select, Space, Switch } from 'antd'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { getShadowRootPopupContainer } from '~/toolbar/utils'
 
 export function FeatureFlags(): JSX.Element {
     const { apiURL } = useValues(toolbarLogic)
@@ -55,6 +56,7 @@ export function FeatureFlags(): JSX.Element {
                                                                 : undefined
                                                         }
                                                         onChange={(value) => setOverriddenFlag(featureFlag.key, value)}
+                                                        getPopupContainer={getShadowRootPopupContainer}
                                                     >
                                                         {featureFlag.filters?.multivariate?.variants.map((variant) => (
                                                             <Select.Option key={variant.key} value={variant.key}>
