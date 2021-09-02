@@ -30,7 +30,9 @@ class ClickhouseGroupsView(StructuredViewSetMixin, viewsets.ViewSet):
         return response.Response(serializer.data)
 
     def list(self, request, *args, **kwargs):
-        group_type_mapping = GroupTypeMapping.objects.get(type_key=self.kwargs["parent_lookup_type_key"])
+        group_type_mapping = GroupTypeMapping.objects.get(
+            team_id=self.team_id, type_key=self.kwargs["parent_lookup_type_key"]
+        )
         instances = (
             {"id": row[0], "type_id": row[1], "created_at": row[2], "team_id": row[3], "properties": json.loads(row[4])}
             for row in sync_execute(
