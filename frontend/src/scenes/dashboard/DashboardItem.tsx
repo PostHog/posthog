@@ -207,6 +207,7 @@ export function DashboardItem({
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
     const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
+    const getDashboard = (id: number): DashboardType | undefined => dashboards.find((d) => d.id === id)
 
     const longPressProps = useLongPress(setEditMode, {
         ms: 500,
@@ -230,6 +231,7 @@ export function DashboardItem({
         funnelLogic(logicProps) as Logic & BuiltLogic
     )
     const previousLoading = usePrevious(resultsLoading)
+    const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
     useEffect(() => {
@@ -355,14 +357,18 @@ export function DashboardItem({
                                                 View
                                             </LinkButton>
                                             {typeof item.dive_dashboard === 'number' && (
-                                                <LinkButton
-                                                    to={dashboardDiveLink(item.dive_dashboard, item.id)}
-                                                    icon={<MacCommandOutlined />}
-                                                    data-attr="dive-btn-dive"
-                                                    className="dive-btn dive-btn-dive"
+                                                <Tooltip
+                                                    title={`Dive to ${diveDashboard?.name || 'connected dashboard'}`}
                                                 >
-                                                    Dive
-                                                </LinkButton>
+                                                    <LinkButton
+                                                        to={dashboardDiveLink(item.dive_dashboard, item.id)}
+                                                        icon={<MacCommandOutlined />}
+                                                        data-attr="dive-btn-dive"
+                                                        className="dive-btn dive-btn-dive"
+                                                    >
+                                                        Dive
+                                                    </LinkButton>
+                                                </Tooltip>
                                             )}
                                         </>
                                     )}
