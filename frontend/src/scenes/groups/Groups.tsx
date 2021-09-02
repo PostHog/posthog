@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ResizableColumnType } from 'lib/components/ResizableTable'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
 import { urls } from 'scenes/sceneLogic'
 import { Group } from '~/types'
@@ -21,7 +21,7 @@ export function Groups(): JSX.Element {
                     <>
                         {currentGroupType ? (
                             <Link key={group.id} to={urls.group(currentGroupType, group.id)}>
-                                {group.id}
+                                {capitalizeFirstLetter(group.id)}
                             </Link>
                         ) : null}
                     </>
