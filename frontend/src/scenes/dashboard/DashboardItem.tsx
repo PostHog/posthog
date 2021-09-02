@@ -59,6 +59,7 @@ interface Props {
     moveDashboardItem?: (it: DashboardItemType, dashboardId: number) => void
     saveDashboardItem?: (it: DashboardItemType) => void
     duplicateDashboardItem?: (it: DashboardItemType, dashboardId?: number) => void
+    isHighlighted?: boolean
 }
 
 export type DisplayedType = ChartDisplayType | 'RetentionContainer'
@@ -173,6 +174,7 @@ export function DashboardItem({
     moveDashboardItem,
     saveDashboardItem,
     duplicateDashboardItem,
+    isHighlighted = false,
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
@@ -283,6 +285,7 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
+            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined }}
         >
             {item.is_sample && (
                 <div className="sample-dasbhoard-overlay">
