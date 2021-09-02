@@ -36,7 +36,12 @@ export function Group(): JSX.Element {
                                 /* activeTab === 'events' */ true ? (
                                     <EventsTable
                                         pageKey={'017ba52f-9638-0027-f71a-0411e70eaaa8'} // force refresh if distinct_ids change
-                                        fixedFilters={{ person_id: 5645 }}
+                                        fixedFilters={{
+                                            group: JSON.stringify({
+                                                group_type: `$group_${currentGroup.type_id}`,
+                                                group_key: currentGroupId,
+                                            }),
+                                        }}
                                     />
                                 ) : (
                                     <>

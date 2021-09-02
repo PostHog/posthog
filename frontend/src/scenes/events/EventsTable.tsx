@@ -28,10 +28,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
-
 interface FixedFilters {
     person_id?: string | number
     distinct_ids?: string[]
+    group?: string
 }
 
 interface EventsTable {
