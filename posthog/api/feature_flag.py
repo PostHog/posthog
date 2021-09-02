@@ -137,7 +137,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         return Response({"distinct_id": distinct_id, "flags_enabled": flags})
 
     @action(methods=["GET"], detail=False)
-    def for_me(self, request: request.Request, **kwargs):
+    def my_flags(self, request: request.Request, **kwargs):
         flags = get_active_feature_flags_v2(self.team, request.user.distinct_id)
         return Response({"distinct_id": request.user.distinct_id, "flags": flags})
 

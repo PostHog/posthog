@@ -33,7 +33,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             {} as Record<string, string | boolean>,
             {
                 getUserFlags: async (_, breakpoint) => {
-                    const response = await toolbarFetch('api/feature_flag/for_me')
+                    const response = await toolbarFetch('api/feature_flag/my_flags')
                     breakpoint()
                     if (response.status === 403) {
                         return {}
