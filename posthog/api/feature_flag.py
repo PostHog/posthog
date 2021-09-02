@@ -13,7 +13,7 @@ from posthog.api.user import UserSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.feature_flag import get_active_feature_flags, get_active_feature_flags_v2
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
@@ -135,6 +135,11 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             raise serializers.ValidationError("Please provide a distinct_id to continue.")
         flags = get_active_feature_flags(self.team, distinct_id)
         return Response({"distinct_id": distinct_id, "flags_enabled": flags})
+
+    @action(methods=["GET"], detail=False)
+    def for_me(self, request: request.Request, **kwargs):
+        flags = get_active_feature_flags_v2(self.team, request.user.distinct_id)
+        return Response({"distinct_id": request.user.distinct_id, "flags": flags})
 
     @action(methods=["GET", "POST"], detail=False)
     def override(self, request: request.Request, **kwargs):

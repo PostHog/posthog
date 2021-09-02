@@ -1,49 +1,81 @@
 import { kea } from 'kea'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { encodeParams } from 'kea-router'
 import { FeatureFlagType } from '~/types'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
+import { PostHog } from 'posthog-js'
+import { toolbarFetch } from '~/toolbar/utils'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     actions: {
-        setEnabledFeatureFlags: (featureFlags: string[]) => ({ featureFlags }),
+        getUserFlags: true,
+        getOverriddenFlags: true,
+        setFeatureFlags: (flags: Record<string, string | boolean>) => ({ flags }),
+        setOverriddenFlag: (flag: string, variant: string | boolean) => ({ flag, variant }),
     },
 
     reducers: {
-        enabledFeatureFlags: [
-            [] as string[],
+        overriddenFlags: [
+            {} as Record<string, string | boolean>,
             {
-                setEnabledFeatureFlags: (_, { featureFlags }) => featureFlags,
+                // this overrides the loader, so we would have instant feedback in the UI
+                setOverriddenFlag: (state, { flag, variant }) => ({ ...state, [flag]: variant }),
             },
         ],
-        receivedFeatureFlags: [
-            false,
+        enabledFeatureFlags: [
+            {} as Record<string, string | boolean>,
             {
-                setEnabledFeatureFlags: () => true,
+                setFeatureFlags: (_, { flags }) => flags,
             },
         ],
     },
 
-    loaders: {
+    loaders: ({ values }) => ({
+        userFlags: [
+            {} as Record<string, string | boolean>,
+            {
+                getUserFlags: async (_, breakpoint) => {
+                    const response = await toolbarFetch('api/feature_flag/for_me')
+                    breakpoint()
+                    if (response.status === 403) {
+                        return {}
+                    }
+                    const results = await response.json()
+                    return results.flags
+                },
+            },
+        ],
+        overriddenFlags: {
+            getOverriddenFlags: async (_, breakpoint) => {
+                const response = await toolbarFetch('api/feature_flag/override')
+                breakpoint()
+                if (response.status === 403) {
+                    return {}
+                }
+                const results = await response.json()
+                return results.feature_flag_override
+            },
+            setOverriddenFlag: async ({ flag, variant }, breakpoint) => {
+                const newFlags = { ...values.overriddenFlags, [flag]: variant }
+                const response = await toolbarFetch('api/feature_flag/override', { feature_flag_override: newFlags })
+                breakpoint()
+                if (response.status === 403) {
+                    return {}
+                }
+                const results = await response.json()
+                ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
+                return results.feature_flag_override
+            },
+        },
         allFeatureFlags: [
             [] as FeatureFlagType[],
             {
                 // eslint-disable-next-line
                 getFlags: async (_ = null, breakpoint: () => void) => {
-                    const params = {
-                        temporary_token: toolbarLogic.values.temporaryToken,
-                    }
-                    const url = `${toolbarLogic.values.apiURL}api/feature_flag/${encodeParams(params, '?')}`
-                    const response = await fetch(url)
-                    const results = await response.json()
-
+                    const response = await toolbarFetch('api/feature_flag/')
+                    breakpoint()
                     if (response.status === 403) {
-                        toolbarLogic.actions.authenticate()
                         return []
                     }
-
-                    breakpoint()
-
+                    const results = await response.json()
                     if (!Array.isArray(results?.results)) {
                         throw new Error('Error loading feature flags!')
                     }
@@ -52,9 +84,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 },
             },
         ],
-    },
+    }),
 
     selectors: {
+        combinedFlags: [
+            (s) => [s.userFlags, s.overriddenFlags],
+            (userFlags, overriddenFlags) => ({ ...userFlags, ...overriddenFlags }),
+        ],
         sortedFeatureFlags: [
             (s) => [s.allFeatureFlags],
             (allFeatureFlags): FeatureFlagType[] =>
@@ -66,7 +102,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     events: ({ actions }) => ({
         afterMount: () => {
             actions.getFlags()
-            ;(window['posthog'] as any).onFeatureFlags(actions.setEnabledFeatureFlags)
+            actions.getUserFlags()
+            actions.getOverriddenFlags()
+            ;(window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
+                actions.setFeatureFlags(variants)
+            })
         },
     }),
 })

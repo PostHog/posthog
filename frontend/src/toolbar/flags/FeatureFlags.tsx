@@ -1,12 +1,13 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 import { List, Space, Switch } from 'antd'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 
 export function FeatureFlags(): JSX.Element {
     const { apiURL } = useValues(toolbarLogic)
-    const { featureFlagCount, sortedFeatureFlags, enabledFeatureFlags } = useValues(featureFlagsLogic)
+    const { featureFlagCount, sortedFeatureFlags, combinedFlags } = useValues(featureFlagsLogic)
+    const { setOverriddenFlag } = useActions(featureFlagsLogic)
 
     return (
         <div className="toolbar-block">
@@ -21,17 +22,8 @@ export function FeatureFlags(): JSX.Element {
                             title={
                                 <Space>
                                     <Switch
-                                        checked={enabledFeatureFlags.includes(featureFlag.key)}
-                                        onChange={(checked) => {
-                                            const newFlags = checked
-                                                ? [...enabledFeatureFlags, featureFlag.key]
-                                                : enabledFeatureFlags.filter((flag) => flag !== featureFlag.key)
-
-                                            ;(window['posthog'] as any).persistence.register({
-                                                $override_feature_flags: newFlags,
-                                            })
-                                            ;(window['posthog'] as any).persistence.receivedFeatureFlags(newFlags)
-                                        }}
+                                        checked={!!combinedFlags[featureFlag.key]}
+                                        onChange={(checked) => setOverriddenFlag(featureFlag.key, checked)}
                                     />
                                     <code>
                                         <a
