@@ -89,6 +89,12 @@ export function PropertyValue({
         }
         const key = propertyKey.split('__')[0]
         setOptions({ [propertyKey]: { ...options[propertyKey], status: 'loading' }, ...options })
+
+        if (!endpoint && type.startsWith('group')) {
+            const typeId = type.split('::')[1]
+            endpoint = `api/projects/@current/group_types/property_values?type_id=${typeId}&key=${key}`
+        }
+
         if (outerOptions) {
             setOptions({
                 [propertyKey]: {
