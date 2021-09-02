@@ -128,7 +128,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                                 {Object.entries(event.properties.$groups).map(([groupType, groupKey], index) => (
                                     <>
                                         {mapGroupParamsToLink(groupType, groupKey as string)}
-                                        {index !== Object.keys(event.properties.$groups).length ? '' : ', '}
+                                        {index !== Object.keys(event.properties.$groups).length - 1 ? ', ' : ''}
                                     </>
                                 ))}
                             </>
