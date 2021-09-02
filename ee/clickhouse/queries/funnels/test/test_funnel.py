@@ -1326,6 +1326,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
             "events": [
                 {"id": "user signed up", "type": "events", "order": 0},
                 {"id": "paid", "type": "events", "order": 1},
+                {"id": "user raged", "type": "events", "order": 2},
             ],
             "insight": INSIGHT_FUNNELS,
             "date_from": "2020-01-01",
@@ -1364,7 +1365,10 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         self.assertEqual(result[1]["name"], "paid")
         self.assertEqual(result[1]["count"], 1)
         self.assertEqual(len(result[1]["people"]), 1)
-        print("xxxx!", result)
+
+        self.assertEqual(result[2]["name"], "user raged")
+        self.assertEqual(result[2]["count"], 0)
+        self.assertEqual(len(result[2]["people"]), 0)
 
     def test_basic_funnel_group_based_with_person_property_filter(self):
         filters = {

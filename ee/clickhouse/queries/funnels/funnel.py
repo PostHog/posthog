@@ -170,10 +170,11 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         return ", ".join(cols)
 
     def build_step_subquery(self, level_index: int, max_steps: int):
+        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
         if level_index >= max_steps:
             return f"""
             SELECT
-            person_id,
+            {actor_to_aggregate_by},
             timestamp,
             {self._get_partition_cols(1, max_steps)}
             {self._get_breakdown_prop(group_remaining=True)}
@@ -182,13 +183,13 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         else:
             return f"""
             SELECT
-            person_id,
+            {actor_to_aggregate_by},
             timestamp,
             {self._get_partition_cols(level_index, max_steps)}
             {self._get_breakdown_prop()}
             FROM (
                 SELECT
-                person_id,
+                {actor_to_aggregate_by},
                 timestamp,
                 {self.get_comparison_cols(level_index, max_steps)}
                 {self._get_breakdown_prop()}

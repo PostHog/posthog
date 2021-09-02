@@ -20,13 +20,14 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         steps_per_person_query = self.get_step_counts_without_aggregation_query()
         max_steps = len(self._filter.entities)
         breakdown_clause = self._get_breakdown_prop()
+        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause}, argMax(timestamp, steps) as timestamp FROM (
-                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause}, timestamp FROM (
+            SELECT {actor_to_aggregate_by}, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause}, argMax(timestamp, steps) as timestamp FROM (
+                SELECT {actor_to_aggregate_by}, steps, max(steps) over (PARTITION BY {actor_to_aggregate_by} {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause}, timestamp FROM (
                         {steps_per_person_query}
                 )
-            ) GROUP BY person_id, steps {breakdown_clause}
+            ) GROUP BY {actor_to_aggregate_by}, steps {breakdown_clause}
             HAVING steps = max_steps
         """
 
@@ -36,10 +37,11 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self._get_sorting_condition(max_steps, max_steps)
         breakdown_clause = self._get_breakdown_prop(group_remaining=True)
+        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
 
         inner_query = f"""
             SELECT 
-            person_id,
+            {actor_to_aggregate_by},
             timestamp,
             {partition_select}
             {breakdown_clause}
@@ -55,12 +57,13 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
 
     def _get_partition_cols(self, level_index: int, max_steps: int):
         cols: List[str] = []
+        actor_to_aggregate_by = "group_id" if self._filter.unique_group_type_id is not None else "person_id"
         for i in range(0, max_steps):
             cols.append(f"step_{i}")
             if i < level_index:
                 cols.append(f"latest_{i}")
             else:
                 cols.append(
-                    f"min(latest_{i}) over (PARTITION by person_id {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
+                    f"min(latest_{i}) over (PARTITION by {actor_to_aggregate_by} {self._get_breakdown_prop()} ORDER BY timestamp DESC ROWS BETWEEN {i} PRECEDING AND {i} PRECEDING) latest_{i}"
                 )
         return ", ".join(cols)
