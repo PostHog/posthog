@@ -21,7 +21,7 @@ def check_backfill_done(table: TableWithProperties, property: PropertyName) -> N
             f"""
             SELECT count(*)
             FROM system.mutations
-            WHERE table = '{table}'
+            WHERE table = '{updated_table}'
               AND command LIKE '%UPDATE%'
               AND command LIKE '%{column_name} = {column_name}%'
         """
