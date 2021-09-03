@@ -134,14 +134,14 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("default-flag", response.json()["featureFlags"])
         self.assertIn("beta-feature", response.json()["featureFlags"])
         self.assertIn("filer-by-property-2", response.json()["featureFlags"])
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
@@ -178,13 +178,13 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=1)  # v1 functionality should not break
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertIn("beta-feature", response.json()["featureFlags"])
             self.assertIn("default-flag", response.json()["featureFlags"])
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -192,7 +192,7 @@ class TestDecide(BaseTest):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="other_id")
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -237,7 +237,7 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, distinct_id="hosted_id")
             self.assertIsNone(
                 (response.json()["featureFlags"]).get("multivariate-flag", None)
@@ -246,7 +246,7 @@ class TestDecide(BaseTest):
                 (response.json()["featureFlags"]).get("default-flag")
             )  # User still receives the default flag
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertIsNotNone(
                 response.json()["featureFlags"]["multivariate-flag"]
