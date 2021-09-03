@@ -37,6 +37,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
             show: show || false,
             useTemplate: useTemplate || '',
         }),
+        copyDashboard: (id: number) => ({ id }),
     }),
     loaders: ({ values }) => ({
         rawDashboards: [
@@ -68,6 +69,33 @@ export const dashboardsModel = kea<dashboardsModelType>({
                     router.actions.push(urls.dashboard(result.id))
                 }
                 return result
+            },
+            copyDashboard: async ({ id }) => {
+                const originalDashboard = (await api.get(`api/dashboard/${id}`)) as DashboardType
+
+                const copiedItems = originalDashboard.items
+                    .filter((item) => !item.deleted)
+                    .map((item) => {
+                        const {
+                            result: _result, // eslint-disable-line
+                            short_id: _short_id, // eslint-disable-line
+                            created_at: _created_at, // eslint-disable-line
+                            created_by: _created_by, // eslint-disable-line
+                            ...rest
+                        } = item
+                        return rest
+                    })
+
+                const copiedDashboard = (await api.create('api/dashboard', {
+                    name: `Copy - ${originalDashboard.name}`,
+                    description: originalDashboard.description,
+                    filters: originalDashboard.filters,
+                    items: copiedItems,
+                })) as DashboardType
+
+                router.actions.push(urls.dashboard(copiedDashboard.id))
+
+                return copiedDashboard
             },
             updateDashboard: async ({ id, ...payload }, breakpoint) => {
                 if (!Object.entries(payload).length) {
@@ -117,6 +145,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
             // This means we must get rid of the `| null` manually until it's fixed:
             // https://github.com/keajs/kea-typegen/issues/10
             addDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
+            copyDashboardSuccess: (state, { dashboard }) => ({
+                ...state,
+                [dashboard.id]: dashboard,
+            }),
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             updateDashboardSuccess: (state, { dashboard }) =>
                 dashboard ? { ...state, [dashboard.id]: dashboard } : state,
@@ -173,6 +205,10 @@ export const dashboardsModel = kea<dashboardsModelType>({
     listeners: ({ actions, values }) => ({
         addDashboardSuccess: ({ dashboard }) => {
             toast(`Dashboard "${dashboard.name}" created!`)
+        },
+
+        copyDashboardSuccess: ({ dashboard }) => {
+            toast(`Dashboard copied to "${dashboard.name}"!`)
         },
 
         restoreDashboardSuccess: ({ dashboard }) => {

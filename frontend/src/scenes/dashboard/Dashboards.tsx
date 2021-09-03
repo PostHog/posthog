@@ -4,7 +4,14 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { Button, Card, Col, Drawer, Row, Spin, Table } from 'antd'
 import { dashboardsLogic } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
-import { AppstoreAddOutlined, DeleteOutlined, PlusOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
+import {
+    AppstoreAddOutlined,
+    CopyOutlined,
+    DeleteOutlined,
+    PlusOutlined,
+    PushpinFilled,
+    PushpinOutlined,
+} from '@ant-design/icons'
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
@@ -17,7 +24,7 @@ import { urls } from 'scenes/sceneLogic'
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
+    const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard, copyDashboard } = useActions(dashboardsModel)
     const { setNewDashboardDrawer } = useActions(dashboardsLogic)
     const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic)
     const { user } = useValues(userLogic)
@@ -101,12 +108,17 @@ export function Dashboards(): JSX.Element {
             width: 120,
             render: function RenderActions({ id }: DashboardType) {
                 return (
-                    <span
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => deleteDashboard({ id, redirect: false })}
-                        className="text-danger"
-                    >
-                        <DeleteOutlined />
+                    <span>
+                        <span style={{ cursor: 'pointer', marginRight: 16 }} onClick={() => copyDashboard(id)}>
+                            <CopyOutlined />
+                        </span>
+                        <span
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => deleteDashboard({ id, redirect: false })}
+                            className="text-danger"
+                        >
+                            <DeleteOutlined />
+                        </span>
                     </span>
                 )
             },

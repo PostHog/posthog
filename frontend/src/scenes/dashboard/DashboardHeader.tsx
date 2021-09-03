@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { ShareModal } from './ShareModal'
 import {
+    CopyOutlined,
     PushpinFilled,
     PushpinOutlined,
     EllipsisOutlined,
@@ -36,7 +37,7 @@ export function DashboardHeader(): JSX.Element {
     )
     const { dashboardTags } = useValues(dashboardsLogic)
     const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
-    const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
+    const { copyDashboard, pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const { user } = useValues(userLogic)
     const [newName, setNewName] = useState(dashboard?.name || null) // Used to update the input immediately, debouncing API calls
 
@@ -97,6 +98,9 @@ export function DashboardHeader(): JSX.Element {
                         )}
 
                         <Menu.Divider />
+                        <Menu.Item icon={<CopyOutlined />} onClick={() => copyDashboard(dashboard.id)}>
+                            Copy dashboard
+                        </Menu.Item>
                         <Menu.Item
                             icon={<DeleteOutlined />}
                             onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
