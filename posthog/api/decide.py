@@ -38,7 +38,7 @@ def decide_editor_params(request: HttpRequest) -> Tuple[Dict[str, Any], bool]:
     team = request.user.team
     if team and on_permitted_domain(team, request):
         response: Dict[str, Any] = {"isAuthenticated": True}
-        editor_params = {}
+        editor_params: Dict[str, Any] = {}
 
         if request.user.toolbar_mode != "disabled":
             editor_params["toolbarVersion"] = "toolbar"

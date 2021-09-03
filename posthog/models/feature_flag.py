@@ -1,6 +1,7 @@
 import hashlib
 from typing import Any, Dict, List, Optional, Union
 
+from django.contrib.auth.models import AnonymousUser
 from django.db import models
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
@@ -193,15 +194,15 @@ def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Union
 
 # Return feature flags with per-user overrides
 def get_overridden_feature_flags(
-    team: Team, distinct_id: str, user: Optional[User]
+    team: Team, distinct_id: str, user: Optional[Union[User, AnonymousUser]]
 ) -> Dict[str, Union[bool, str, None]]:
     feature_flags = get_active_feature_flags_v2(team, distinct_id)
-    feature_flag_override = {}
+    feature_flag_override: Dict[str, Union[bool, str, None]] = {}
 
     try:
         feature_flag_override = (
             user.feature_flag_override
-            if user and user.is_authenticated
+            if isinstance(user, User) and user.is_authenticated
             else User.objects.get(distinct_id=distinct_id).feature_flag_override
         )
     except User.DoesNotExist:
