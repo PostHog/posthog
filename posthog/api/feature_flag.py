@@ -13,7 +13,7 @@ from posthog.api.user import UserSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
-from posthog.models.feature_flag import get_active_feature_flags_v2
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
@@ -132,7 +132,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy, since 'AnonymousUser' has no 'feature_flag_override'
             raise serializers.ValidationError("Must be authenticated to get feature flags.")
-        flags = get_active_feature_flags_v2(self.team, request.user.distinct_id)
+        flags = get_active_feature_flags(self.team, request.user.distinct_id)
         return Response({"distinct_id": request.user.distinct_id, "flags": flags})
 
     @action(methods=["GET", "POST"], detail=False)

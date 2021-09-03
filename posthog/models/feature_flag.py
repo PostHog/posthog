@@ -165,13 +165,8 @@ class FeatureFlagMatcher:
         return self.get_hash(salt="variant")
 
 
-# Return a list of all standard + multivariate flags with truthy values
-def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
-    return list(get_active_feature_flags_v2(team, distinct_id).keys())
-
-
 # Return a Dict with all active flags and their values
-def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Union[bool, str, None]]:
+def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bool, str, None]]:
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage",
@@ -196,7 +191,7 @@ def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Union
 def get_overridden_feature_flags(
     team: Team, distinct_id: str, user: Optional[Union[User, AnonymousUser]]
 ) -> Dict[str, Union[bool, str, None]]:
-    feature_flags = get_active_feature_flags_v2(team, distinct_id)
+    feature_flags = get_active_feature_flags(team, distinct_id)
     feature_flag_override: Dict[str, Union[bool, str, None]] = {}
 
     try:

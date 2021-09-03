@@ -12,7 +12,7 @@ from statshog.defaults.django import statsd
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_active_feature_flags_v2, get_overridden_feature_flags
+from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.utils import cors_response, load_data_from_request
 
 from .capture import _get_project_id
