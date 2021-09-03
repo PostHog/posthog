@@ -128,6 +128,7 @@ class TestUserAPI(APIBaseTest):
                 "anonymize_data": True,
                 "email_opt_in": False,
                 "events_column_config": {"active": ["column_1", "column_2"]},
+                "feature_flag_override": {"flag1": True, "flag2": "string", "flag3": False},
                 "uuid": 1,  # should be ignored
                 "id": 1,  # should be ignored
                 "is_staff": True,  # should be ignored
@@ -145,6 +146,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["anonymize_data"], True)
         self.assertEqual(response_data["email_opt_in"], False)
         self.assertEqual(response_data["events_column_config"], {"active": ["column_1", "column_2"]})
+        self.assertEqual(response_data["feature_flag_override"], {"flag1": True, "flag2": "string", "flag3": False})
         self.assertEqual(response_data["is_staff"], False)
         self.assertEqual(response_data["organization"]["id"], str(self.organization.id))
         self.assertEqual(response_data["team"]["id"], self.team.id)
@@ -160,7 +162,14 @@ class TestUserAPI(APIBaseTest):
             user.distinct_id,
             "user updated",
             properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"],
+                "updated_attrs": [
+                    "anonymize_data",
+                    "email",
+                    "email_opt_in",
+                    "events_column_config",
+                    "feature_flag_override",
+                    "first_name",
+                ],
             },
         )
 
@@ -294,6 +303,38 @@ class TestUserAPI(APIBaseTest):
         )
 
         self._assert_current_org_and_team_unchanged()
+
+    def test_cannot_set_invalid_feature_flag_override(self):
+        response = self.client.patch("/api/users/@me/", {"feature_flag_override": "lol"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_feature_flag_object",
+                "detail": f"Field 'feature_flag_override' must be an object.",
+                "attr": "feature_flag_override",
+            },
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.feature_flag_override, {})
+
+    def test_cannot_set_invalid_feature_flag_override_flags(self):
+        response = self.client.patch(
+            "/api/users/@me/", {"feature_flag_override": {"hey": "hello", "haha": ["an array"]}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_feature_flag",
+                "detail": f"Overridden feature flag 'haha' must be a string or a boolean.",
+                "attr": "feature_flag_override",
+            },
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.feature_flag_override, {})
 
     @patch("posthoganalytics.capture")
     def test_user_can_update_password(self, mock_capture):

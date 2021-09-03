@@ -2,16 +2,18 @@ from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.user import UserSerializer
+from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import FeatureFlag
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.feature_flag import get_active_feature_flags_v2
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
@@ -113,6 +115,12 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    authentication_classes = [
+        PersonalAPIKeyAuthentication,
+        TemporaryTokenAuthentication,
+        authentication.SessionAuthentication,
+        authentication.BasicAuthentication,
+    ]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -121,9 +129,21 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
-    def for_user(self, request: request.Request, **kwargs):
-        distinct_id = request.GET.get("distinct_id", None)
-        if not distinct_id:
-            raise serializers.ValidationError("Please provide a distinct_id to continue.")
-        flags = get_active_feature_flags(self.team, distinct_id)
-        return Response({"distinct_id": distinct_id, "flags_enabled": flags})
+    def my_flags(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:  # for mypy, handled by authentication_classes normally
+            raise serializers.ValidationError("Must be authenticated to get feature flags.")
+        flags = get_active_feature_flags_v2(self.team, request.user.distinct_id)
+        return Response({"distinct_id": request.user.distinct_id, "flags": flags})
+
+    @action(methods=["GET", "POST"], detail=False)
+    def override(self, request: request.Request, **kwargs):
+        user = request.user
+        if not user.is_authenticated:  # for mypy, handled by authentication_classes normally
+            raise serializers.ValidationError("Must be authenticated to override feature flags.")
+        if request.data.get("feature_flag_override"):
+            serializer = UserSerializer(user, context={"request": request})
+            user.feature_flag_override = serializer.validate_feature_flag_override(
+                request.data.get("feature_flag_override")
+            )
+            user.save()
+        return Response({"feature_flag_override": user.feature_flag_override})

@@ -10,6 +10,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
 
 from .filters import Filter
@@ -165,18 +166,7 @@ class FeatureFlagMatcher:
 
 # Return a list of all standard + multivariate flags with truthy values
 def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
-    flags_enabled = []
-    feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
-        "id", "team_id", "filters", "key", "rollout_percentage",
-    )
-    for feature_flag in feature_flags:
-        try:
-            # distinct_id will always be a string, but data can have non-string values ("Any")
-            if feature_flag.distinct_id_matches(distinct_id):
-                flags_enabled.append(feature_flag.key)
-        except Exception as err:
-            capture_exception(err)
-    return flags_enabled
+    return list(get_active_feature_flags_v2(team, distinct_id).keys())
 
 
 # Return a Dict with all active flags and their values
@@ -199,3 +189,30 @@ def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Union
         except Exception as err:
             capture_exception(err)
     return flags_enabled
+
+
+# Return feature flags with per-user overrides
+def get_overridden_feature_flags(
+    team: Team, distinct_id: str, user: Optional[User]
+) -> Dict[str, Union[bool, str, None]]:
+    feature_flags = get_active_feature_flags_v2(team, distinct_id)
+    feature_flag_override = {}
+
+    try:
+        feature_flag_override = (
+            user.feature_flag_override
+            if user and user.is_authenticated
+            else User.objects.get(distinct_id=distinct_id).feature_flag_override
+        )
+    except User.DoesNotExist:
+        pass
+
+    if feature_flag_override:
+        for k, v in feature_flag_override.items():
+            if v is False:
+                if k in feature_flags:
+                    del feature_flags[k]
+            else:
+                feature_flags[k] = v
+
+    return feature_flags

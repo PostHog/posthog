@@ -262,6 +262,80 @@ class TestDecide(BaseTest):
             # third-variant:  20 (100 * 80% * 25% = 20 users)
             # fourth-variant: 20 (100 * 80% * 25% = 20 users)
 
+    def test_feature_flags_v2_override(self):
+        self.user.distinct_id = "static-distinct-id"
+        self.user.feature_flag_override = {
+            "bool-key-only-in-override": True,
+            "bool-key-overridden-to-false": False,
+            "multivariate-flag-overridden": "third-variant",
+            "multivariate-only-in-override": "random-string",
+        }
+        self.user.save()
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(
+            team=self.team, distinct_ids=[self.user.distinct_id], properties={"email": self.user.email},
+        )
+        FeatureFlag.objects.create(
+            team=self.team, name="Beta feature", key="bool-key-overridden-to-false", created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            name="This is a feature flag with default params, no filters.",
+            key="flag-rollout-50",
+            rollout_percentage=50,
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ],
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag-overridden",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=1, distinct_id=str(self.user.distinct_id))
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json()["featureFlags"],
+                [
+                    "flag-rollout-50",
+                    "multivariate-flag-overridden",
+                    "bool-key-only-in-override",
+                    "multivariate-only-in-override",
+                ],
+            )
+
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=2, distinct_id=str(self.user.distinct_id))
+            self.assertEqual(
+                response.json()["featureFlags"],
+                {
+                    "flag-rollout-50": True,
+                    "bool-key-only-in-override": True,
+                    "multivariate-flag-overridden": "third-variant",
+                    "multivariate-only-in-override": "random-string",
+                },
+            )
+
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=2, distinct_id="user-with-no-overriden-flags")
+            self.assertEqual(
+                response.json()["featureFlags"],
+                {"bool-key-overridden-to-false": True, "multivariate-flag-overridden": "first-variant"},
+            )
+
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user)
         key.save()

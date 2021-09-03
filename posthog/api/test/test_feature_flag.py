@@ -348,28 +348,79 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(instance.key, "alpha-feature")
 
     @patch("posthoganalytics.capture")
-    def test_for_user(self, mock_capture):
+    def test_my_flags(self, mock_capture):
         self.client.post(
             "/api/feature_flag/",
-            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 20}]}},
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ],
+                    },
+                },
+            },
             format="json",
         )
 
         # alpha-feature is set for "distinct_id"
-        response = self.client.get("/api/feature_flag/for_user?distinct_id=distinct_id")
+        self.user.distinct_id = "distinct_id"
+        self.user.save()
+        response = self.client.get("/api/feature_flag/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["distinct_id"], "distinct_id")
-        self.assertEqual(sorted(response.json()["flags_enabled"]), ["alpha-feature", "red_button"])
+        self.assertEqual(response.json()["flags"], {"alpha-feature": "third-variant", "red_button": True})
 
         # alpha-feature is not set for "distinct_id_0"
-        response = self.client.get("/api/feature_flag/for_user?distinct_id=distinct_id_0")
+        self.user.distinct_id = "distinct_id_0"
+        self.user.save()
+        response = self.client.get("/api/feature_flag/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["distinct_id"], "distinct_id_0")
-        self.assertEqual(sorted(response.json()["flags_enabled"]), ["red_button"])
+        self.assertEqual(response.json()["flags"], {"red_button": True})
 
-        # error if no distinct_id
-        response = self.client.get("/api/feature_flag/for_user?distinct_id=")
+    def test_override(self):
+        response = self.client.get("/api/feature_flag/override")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"feature_flag_override": {}})
+
+        response = self.client.post(
+            "/api/feature_flag/override", {"feature_flag_override": {"hey": "hello", "haha": "hoho"}}
+        )
+        self.assertEqual(response.json()["feature_flag_override"], {"hey": "hello", "haha": "hoho"})
+
+        response = self.client.get("/api/feature_flag/override")
+        self.assertEqual(response.json()["feature_flag_override"], {"hey": "hello", "haha": "hoho"})
+
+    def test_override_object_error(self):
+        response = self.client.post("/api/feature_flag/override", {"feature_flag_override": "haha"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["type"], "validation_error")
-        self.assertEqual(response.json()["code"], "invalid_input")
-        self.assertEqual(response.json()["detail"], "Please provide a distinct_id to continue.")
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_feature_flag_object",
+                "detail": f"Field 'feature_flag_override' must be an object.",
+                "attr": None,
+            },
+        )
+
+    def test_override_object_key_error(self):
+        response = self.client.post(
+            "/api/feature_flag/override", {"feature_flag_override": {"hey": "hello", "haha": ["an array"]}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_feature_flag",
+                "detail": f"Overridden feature flag 'haha' must be a string or a boolean.",
+                "attr": None,
+            },
+        )
