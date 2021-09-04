@@ -93,7 +93,7 @@ class ColumnOptimizer:
 
         # Some breakdown types read properties
         #
-        # See ee/clickhouse/queries/trends/breakdown.py#_format_breakdown_query or
+        # See ee/clickhouse/queries/trends/breakdown.py#get_query or
         # ee/clickhouse/queries/breakdown_props.py#get_breakdown_event_prop_values
         if self.filter.breakdown_type in ["event", "person"]:
             # :TRICKY: We only support string breakdown for event/person properties

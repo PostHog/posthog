@@ -31,43 +31,47 @@ from posthog.models.filters import Filter
 
 
 class ClickhouseTrendsBreakdown:
-    def _format_breakdown_query(self, entity: Entity, filter: Filter, team_id: int) -> Tuple[str, Dict, Callable]:
-        # process params
-        params: Dict[str, Any] = {"team_id": team_id}
-        interval_annotation = get_trunc_func_ch(filter.interval)
-        num_intervals, seconds_in_interval, round_interval = get_time_diff(
-            filter.interval, filter.date_from, filter.date_to, team_id
-        )
-        _, parsed_date_to, date_params = parse_timestamps(filter=filter, team_id=team_id)
+    def __init__(self, entity: Entity, filter: Filter, team_id: int):
+        self.entity = entity
+        self.filter = filter
+        self.team_id = team_id
+        self.params: Dict[str, Any] = {"team_id": team_id}
 
-        props_to_filter = [*filter.properties, *entity.properties]
+    def get_query(self) -> Tuple[str, Dict, Callable]:
+        interval_annotation = get_trunc_func_ch(self.filter.interval)
+        num_intervals, seconds_in_interval, round_interval = get_time_diff(
+            self.filter.interval, self.filter.date_from, self.filter.date_to, self.team_id
+        )
+        _, parsed_date_to, date_params = parse_timestamps(filter=self.filter, team_id=self.team_id)
+
+        props_to_filter = [*self.filter.properties, *self.entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(
             props_to_filter,
-            team_id,
+            self.team_id,
             table_name="e",
-            filter_test_accounts=filter.filter_test_accounts,
-            person_properties_column="person_props" if filter.breakdown_type == "person" else None,
+            filter_test_accounts=self.filter.filter_test_accounts,
+            person_properties_column="person_props" if self.filter.breakdown_type == "person" else None,
         )
-        aggregate_operation, _, math_params = process_math(entity)
+        aggregate_operation, _, math_params = process_math(self.entity)
 
-        if entity.math == "dau" or filter.breakdown_type == "person":
+        if self.entity.math == "dau" or self.filter.breakdown_type == "person":
             join_condition = EVENT_JOIN_PERSON_SQL
         else:
             join_condition = ""
 
         action_query = ""
         action_params: Dict = {}
-        if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = entity.get_action()
+        if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
+            action = self.entity.get_action()
             action_query, action_params = format_action_filter(action, table_name="e")
 
-        params = {
-            **params,
+        self.params = {
+            **self.params,
             **math_params,
             **prop_filter_params,
             **action_params,
-            "event": entity.id,
-            "key": filter.breakdown,
+            "event": self.entity.id,
+            "key": self.filter.breakdown,
             **date_params,
         }
 
@@ -81,17 +85,25 @@ class ClickhouseTrendsBreakdown:
 
         _params, _breakdown_filter_params = {}, {}
 
-        if filter.breakdown_type == "cohort":
+        if self.filter.breakdown_type == "cohort":
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_cohort_params(
-                team_id, filter, entity
+                self.team_id, self.filter, self.entity
             )
-        elif filter.breakdown_type == "person":
+        elif self.filter.breakdown_type == "person":
             (_params, breakdown_filter, _breakdown_filter_params, breakdown_value,) = self._breakdown_person_params(
-                "count(*)" if entity.math == "dau" else aggregate_operation, math_params, entity, filter, team_id
+                "count(*)" if self.entity.math == "dau" else aggregate_operation,
+                math_params,
+                self.entity,
+                self.filter,
+                self.team_id,
             )
         else:
             (_params, breakdown_filter, _breakdown_filter_params, breakdown_value,) = self._breakdown_prop_params(
-                "count(*)" if entity.math == "dau" else aggregate_operation, math_params, entity, filter, team_id
+                "count(*)" if self.entity.math == "dau" else aggregate_operation,
+                math_params,
+                self.entity,
+                self.filter,
+                self.team_id,
             )
 
         if len(_params["values"]) == 0:
@@ -105,10 +117,10 @@ class ClickhouseTrendsBreakdown:
                 lambda _: [],
             )
 
-        params = {**params, **_params}
+        self.params = {**self.params, **_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
-        if filter.display in TRENDS_DISPLAY_BY_VALUE:
+        if self.filter.display in TRENDS_DISPLAY_BY_VALUE:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                 breakdown_filter=breakdown_filter,
@@ -116,16 +128,20 @@ class ClickhouseTrendsBreakdown:
                 aggregate_operation=aggregate_operation,
                 breakdown_value=breakdown_value,
             )
-            time_range = enumerate_time_range(filter, seconds_in_interval)
+            time_range = enumerate_time_range(self.filter, seconds_in_interval)
 
-            return content_sql, params, self._parse_single_aggregate_result(filter, entity, {"days": time_range})
+            return (
+                content_sql,
+                self.params,
+                self._parse_single_aggregate_result(self.filter, self.entity, {"days": time_range}),
+            )
 
         else:
 
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
-            if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                active_user_params = get_active_user_params(filter, entity, team_id)
+            if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                active_user_params = get_active_user_params(self.filter, self.entity, self.team_id)
                 conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
                     **breakdown_filter_params, **active_user_params
                 )
@@ -152,15 +168,15 @@ class ClickhouseTrendsBreakdown:
             breakdown_query = BREAKDOWN_QUERY_SQL.format(
                 interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql,
             )
-            params.update(
+            self.params.update(
                 {
-                    "date_to": filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
+                    "date_to": self.filter.date_to.strftime("%Y-%m-%d %H:%M:%S"),
                     "seconds_in_interval": seconds_in_interval,
                     "num_intervals": num_intervals,
                 }
             )
 
-            return breakdown_query, params, self._parse_trend_result(filter, entity)
+            return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
 
     def _breakdown_cohort_params(self, team_id: int, filter: Filter, entity: Entity):
         cohort_queries, cohort_ids, cohort_params = format_breakdown_cohort_join_query(team_id, filter, entity=entity)
