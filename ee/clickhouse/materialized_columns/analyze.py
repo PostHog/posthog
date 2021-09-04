@@ -12,7 +12,12 @@ from ee.clickhouse.materialized_columns.columns import (
 )
 from ee.clickhouse.materialized_columns.util import instance_memoize
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
-from ee.settings import MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS, MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME
+from ee.settings import (
+    MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
+    MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
+    MATERIALIZE_COLUMNS_MAX_AT_ONCE,
+    MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
+)
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
@@ -113,7 +118,10 @@ def analyze(queries: List[Query]) -> List[Suggestion]:
     ]
 
 
-def materialize_properties_task(time_to_analyze_hours: int = 7 * 24, maximum: int = 10) -> None:
+def materialize_properties_task(
+    time_to_analyze_hours: int = MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
+    maximum: int = MATERIALIZE_COLUMNS_MAX_AT_ONCE,
+) -> None:
     """
     Creates materialized columns for event and person properties based off of slow queries
     """
