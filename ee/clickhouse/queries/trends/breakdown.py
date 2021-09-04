@@ -214,7 +214,7 @@ class ClickhouseTrendsBreakdown:
         breakdown_value, _ = get_property_string_expr("events", filter.breakdown, "%(key)s", "properties")
 
         return (
-            {"values": values_arr, "key": filter.breakdown},
+            {"values": values_arr},
             BREAKDOWN_PROP_JOIN_SQL,
             {"breakdown_value_expr": breakdown_value},
             breakdown_value,
