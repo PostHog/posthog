@@ -22,7 +22,6 @@ from ee.clickhouse.sql.trends.breakdown import (
     BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
     BREAKDOWN_INNER_SQL,
-    BREAKDOWN_PERSON_PROP_JOIN_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
 )
@@ -54,7 +53,7 @@ class ClickhouseTrendsBreakdown:
             self.team_id,
             table_name="e",
             filter_test_accounts=self.filter.filter_test_accounts,
-            person_properties_column="person_props" if self.filter.breakdown_type == "person" else None,
+            person_properties_column="person_props",
         )
         aggregate_operation, _, math_params = process_math(self.entity)
 
@@ -153,7 +152,7 @@ class ClickhouseTrendsBreakdown:
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
                     **active_user_params,
-                    **breakdown_filter_params
+                    **breakdown_filter_params,
                 )
             else:
                 inner_sql = BREAKDOWN_INNER_SQL.format(
@@ -198,11 +197,8 @@ class ClickhouseTrendsBreakdown:
 
         return (
             {"values": values_arr},
-            BREAKDOWN_PERSON_PROP_JOIN_SQL,
-            {
-                "person_query": ClickhousePersonQuery(filter, team_id).get_query(),
-                "breakdown_value_expr": breakdown_value,
-            },
+            BREAKDOWN_PROP_JOIN_SQL,
+            {"breakdown_value_expr": breakdown_value,},
             breakdown_value,
         )
 
@@ -288,6 +284,15 @@ class ClickhouseTrendsBreakdown:
     @property
     def _person_join_condition(self) -> str:
         if self._should_join_person_table:
+            return f"""
+            {EVENT_JOIN_PERSON_SQL}
+            INNER JOIN (
+                {ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer).get_query()}
+            ) person
+            ON person.id = pdi.person_id
+            """
+        elif self.entity.math == "dau":
+            # Only join distinct_ids
             return EVENT_JOIN_PERSON_SQL
         else:
             return ""
