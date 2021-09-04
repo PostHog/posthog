@@ -82,11 +82,26 @@ def get_breakdown_event_prop_values(
         table_name="e",
         prepend="e_brkdwn",
         filter_test_accounts=filter.filter_test_accounts,
+        person_properties_column="person_props",
+        allow_denormalized_props=True,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, with_prop_filters=True)
+    entity_params, entity_format_params = get_entity_filtering_params(
+        entity, team_id, with_prop_filters=True, person_properties_column="person_props"
+    )
 
     value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
+
+    person_join_clauses = ""
+    person_query = ClickhousePersonQuery(filter, team_id)
+    if person_query.is_used:
+        person_join_clauses = f"""
+            INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON e.distinct_id = pdi.distinct_id
+            INNER JOIN
+                (
+                    {person_query.get_query()}
+                ) person ON pdi.person_id = person.id
+        """
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
         value_expression=value_expression,
@@ -94,6 +109,7 @@ def get_breakdown_event_prop_values(
         parsed_date_to=parsed_date_to,
         prop_filters=prop_filters,
         aggregate_operation=aggregate_operation,
+        person_join_clauses=person_join_clauses,
         **entity_format_params,
     )
     top_elements_array = _get_top_elements(
