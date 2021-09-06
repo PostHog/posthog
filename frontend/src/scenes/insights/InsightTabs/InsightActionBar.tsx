@@ -50,6 +50,23 @@ export function InsightActionBar({
                     </Tooltip>
                 </Popconfirm>
             )}
+            <SaveToDashboard
+                displayComponent={
+                    <Button icon={<SaveOutlined />} className="btn-save">
+                        {showButtonLabels && 'Save'}
+                    </Button>
+                }
+                tooltipOptions={{
+                    placement: 'bottom',
+                    title: 'Save to dashboard',
+                }}
+                item={{
+                    entity: {
+                        filters,
+                        annotations,
+                    },
+                }}
+            />
         </div>
     )
 }
