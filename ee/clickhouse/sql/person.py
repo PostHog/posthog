@@ -89,7 +89,6 @@ FROM (
 GROUP BY distinct_id
 """
 
-
 # Using any() to make GROUP BY cheaper
 # See https://clickhouse.tech/docs/en/sql-reference/aggregate-functions/reference/any/
 GET_LATEST_PERSON_WITH_DISTINCT_IDS_SQL = """
@@ -101,21 +100,20 @@ SELECT
     any(person.is_identified) AS is_identified,
     any(person.is_deleted) AS is_deleted,
     groupArray(distinct_id) AS distinct_ids
-FROM person JOIN (
-    SELECT id, max(_timestamp) as _timestamp, max(is_deleted) as is_deleted
-    FROM person
-    WHERE team_id = %(team_id)s
-    GROUP BY id
-) AS person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
+FROM (
+    {GET_LATEST_PERSON_SQL}
+) AS person
 INNER JOIN (
     {GET_TEAM_PERSON_DISTINCT_IDS}
-) AS pdi ON person.id = pdi.person_id
-  GROUP BY person.id
-HAVING team_id = %(team_id)s
-  AND person_max.is_deleted = 0
-  {query}
+) AS pdi
+ON person.id = pdi.person_id
+GROUP BY person.id
+HAVING
+    {query}
 """.format(
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS, query="{query}"
+    GET_LATEST_PERSON_SQL=GET_LATEST_PERSON_SQL.format(query=""),
+    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+    query="{query}",
 )
 
 GET_LATEST_PERSON_ID_SQL = """

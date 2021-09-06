@@ -67,7 +67,9 @@ def filter_persons_ch(team_id: int, request: Request, queryset: QuerySet) -> Que
         params.update(filter_params)
 
     if and_conditions:
-        final_query = GET_LATEST_PERSON_WITH_DISTINCT_IDS_SQL.format(query=" ".join(and_conditions))
+        final_query = GET_LATEST_PERSON_WITH_DISTINCT_IDS_SQL.format(
+            query=" ".join(and_conditions).replace("AND ", "", 1)
+        )
         uuids_found_rows = cast(list, sync_execute(final_query, params))
         uuids_found = [row[0] for row in uuids_found_rows]
         queryset = queryset.filter(uuid__in=uuids_found)

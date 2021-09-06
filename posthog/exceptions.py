@@ -17,7 +17,7 @@ class EnterpriseFeatureException(APIException):
 
 class UnsupportedFeature(APIException):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
-    default_detail = "{feature} is supported in this deployment of PostHog."
+    default_detail = "{feature} is not supported in this deployment of PostHog."
     default_code = "unsupported_feature"
 
     def __init__(self, feature: str):
