@@ -94,6 +94,7 @@ function ColumnConfigurator({
 
     const selectedColumnsDisplay = searchTerm
         ? new Fuse(selectedColumns, {
+              isCaseSensitive: true,
               threshold: 0.3,
           })
               .search(searchTerm)
@@ -102,6 +103,7 @@ function ColumnConfigurator({
 
     const selectableColumnsDisplay = searchTerm
         ? new Fuse(selectableColumns, {
+              isCaseSensitive: true,
               threshold: 0.3,
           })
               .search(searchTerm)

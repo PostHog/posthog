@@ -42,6 +42,7 @@ export const searchItems = (
 
     if (!fuseCache[groupType]) {
         fuseCache[groupType] = new Fuse(sources, {
+            isCaseSensitive: true,
             keys: ['value'],
             threshold: 0.3,
         })

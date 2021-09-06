@@ -70,6 +70,7 @@ const cohortsUrlLogic = kea<cohortsUrlLogicType>({
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
+        isCaseSensitive: true,
         keys: ['name'],
         threshold: 0.3,
     })

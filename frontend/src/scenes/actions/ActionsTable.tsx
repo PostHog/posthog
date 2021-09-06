@@ -21,6 +21,7 @@ import { teamLogic } from '../teamLogic'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
+        isCaseSensitive: true,
         keys: ['name', 'url'],
         threshold: 0.3,
     })

@@ -386,6 +386,7 @@ export const commandPaletteLogic = kea<
                 guaranteedResults = uniqueBy(guaranteedResults, (result) => result.display)
                 const fusedResults = argument
                     ? new Fuse(fusableResults, {
+                          isCaseSensitive: true,
                           keys: ['display', 'synonyms'],
                       })
                           .search(argument)

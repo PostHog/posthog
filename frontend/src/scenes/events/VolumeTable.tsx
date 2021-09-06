@@ -30,6 +30,7 @@ const isPosthogEvent = (name: string): boolean => {
 
 const search = (sources: VolumeTableRecord[], searchQuery: string): VolumeTableRecord[] => {
     return new Fuse(sources, {
+        isCaseSensitive: true,
         keys: ['eventOrProp.name'],
         threshold: 0.3,
     })

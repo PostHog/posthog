@@ -186,6 +186,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         item: item,
                     })),
                     {
+                        isCaseSensitive: true,
                         keys: ['name'],
                         threshold: 0.3,
                     }
