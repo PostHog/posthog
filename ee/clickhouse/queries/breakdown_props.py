@@ -43,13 +43,10 @@ def get_breakdown_prop_values(
         entity, team_id, with_prop_filters=True, person_properties_column="person_props", table_name="e"
     )
 
-    breakdown_table: TableWithProperties = "events"
-    breakdown_props_column = "properties"
     if filter.breakdown_type == "person":
-        breakdown_table, breakdown_props_column = "person", "person_props"
-    value_expression, _ = get_property_string_expr(
-        breakdown_table, cast(str, filter.breakdown), "%(key)s", breakdown_props_column
-    )
+        value_expression, _ = get_property_string_expr("person", cast(str, filter.breakdown), "%(key)s", "person_props")
+    else:
+        value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
 
     person_join_clauses = ""
     person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer)

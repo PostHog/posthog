@@ -82,24 +82,10 @@ class ClickhouseTrendsBreakdown:
         _params, _breakdown_filter_params = {}, {}
 
         if self.filter.breakdown_type == "cohort":
-            _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_cohort_params(
-                self.team_id, self.filter, self.entity
-            )
-        elif self.filter.breakdown_type == "person":
-            (_params, breakdown_filter, _breakdown_filter_params, breakdown_value,) = self._breakdown_person_params(
-                "count(*)" if self.entity.math == "dau" else aggregate_operation,
-                math_params,
-                self.entity,
-                self.filter,
-                self.team_id,
-            )
+            _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_cohort_params()
         else:
-            (_params, breakdown_filter, _breakdown_filter_params, breakdown_value,) = self._breakdown_prop_params(
-                "count(*)" if self.entity.math == "dau" else aggregate_operation,
-                math_params,
-                self.entity,
-                self.filter,
-                self.team_id,
+            _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_prop_params(
+                "count(*)" if self.entity.math == "dau" else aggregate_operation, math_params,
             )
 
         if len(_params["values"]) == 0:
