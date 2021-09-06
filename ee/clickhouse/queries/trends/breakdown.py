@@ -269,20 +269,12 @@ class ClickhouseTrendsBreakdown:
             return str(value) or "none"
 
     @property
-    def _should_join_person_table(self) -> bool:
-        return (
-            self.column_optimizer.should_query_person_properties_column
-            or len(self.column_optimizer.materialized_person_columns_to_query) > 0
-        )
-
-    @property
     def _person_join_condition(self) -> str:
-        if self._should_join_person_table:
+        person_query = ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer)
+        if person_query.is_used:
             return f"""
             {EVENT_JOIN_PERSON_SQL}
-            INNER JOIN (
-                {ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer).get_query()}
-            ) person
+            INNER JOIN ({person_query.get_query()}) person
             ON person.id = pdi.person_id
             """
         elif self.entity.math == "dau":
