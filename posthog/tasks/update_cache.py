@@ -38,7 +38,7 @@ PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACH
 logger = logging.getLogger(__name__)
 
 if is_clickhouse_enabled():
-    from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
+    from ee.clickhouse.queries import ClickhousePaths
     from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
     from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
     from ee.clickhouse.queries.funnels import (

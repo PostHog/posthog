@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
+from ee.clickhouse.queries import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import (
