@@ -495,6 +495,7 @@ AUTH_PASSWORD_VALIDATORS = [
 SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
 SHELL_PLUS_POST_IMPORTS = [
     ("posthog.models.filters", ("Filter",)),
+    ("posthog.models.property", ("Property",)),
 ]
 
 if PRIMARY_DB == RDBMS.CLICKHOUSE:
