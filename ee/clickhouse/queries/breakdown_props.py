@@ -53,10 +53,7 @@ def get_breakdown_prop_values(
     if person_query.is_used:
         person_join_clauses = f"""
             INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON e.distinct_id = pdi.distinct_id
-            INNER JOIN
-                (
-                    {person_query.get_query()}
-                ) person ON pdi.person_id = person.id
+            INNER JOIN ({person_query.get_query()}) person ON pdi.person_id = person.id
         """
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
