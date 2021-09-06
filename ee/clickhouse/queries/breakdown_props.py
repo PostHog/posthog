@@ -12,6 +12,7 @@ from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
+from posthog.models.property import TableWithProperties
 
 ALL_USERS_COHORT_ID = 0
 
@@ -42,7 +43,8 @@ def get_breakdown_prop_values(
         entity, team_id, with_prop_filters=True, person_properties_column="person_props", table_name="e"
     )
 
-    breakdown_table, breakdown_props_column = "events", "properties"
+    breakdown_table: TableWithProperties = "events"
+    breakdown_props_column = "properties"
     if filter.breakdown_type == "person":
         breakdown_table, breakdown_props_column = "person", "person_props"
     value_expression, _ = get_property_string_expr(
