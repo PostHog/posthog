@@ -115,7 +115,7 @@ HAVING team_id = %(team_id)s
   AND person_max.is_deleted = 0
   {query}
 """.format(
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS, query="{query}", query_aggregated="{query_aggregated}"
+    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS, query="{query}"
 )
 
 GET_LATEST_PERSON_ID_SQL = """
