@@ -14,21 +14,13 @@ from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFunnelTrendsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
-from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
+from ee.clickhouse.sql.person import GET_LATEST_PERSON_WITH_DISTINCT_IDS_SQL, GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
 from posthog.api.utils import format_offset_absolute_url
 from posthog.constants import FunnelVizType
 from posthog.decorators import cached_function
 from posthog.exceptions import UnsupportedFeature
 from posthog.models import Event, Filter, Person
-
-BASE_FILTER_PERSONS_QUERY = """
-SELECT person.id FROM person
-LEFT OUTER JOIN (
-    SELECT * FROM person_distinct_id WHERE person_distinct_id.team_id = %(team_id)s
-) person_distinct_id
-ON person.id = person_distinct_id.person_id
-WHERE team_id = %(team_id)s"""
 
 
 def filter_persons_ch(team_id: int, request: Request, queryset: QuerySet) -> QuerySet:
@@ -49,29 +41,33 @@ def filter_persons_ch(team_id: int, request: Request, queryset: QuerySet) -> Que
                 if matcher == "has":
                     # Matches for example has:email or has:name
                     params[f"has_key_{part_index}"] = key
-                    and_conditions.append(f"AND JSONHas(person.properties, %(has_key_{part_index})s)")
+                    and_conditions.append(f"AND JSONHas(properties, %(has_key_{part_index})s)")
             else:
                 contains.append(part)
-        params["icontains"] = f'%{" ".join(contains)}%'
-        and_conditions.append(
-            f"""
-        AND (
-            person.properties ILIKE %(icontains)s
-            OR person_distinct_id.distinct_id ILIKE %(icontains)s
-        )
-        """
-        )
+        if contains:
+            params["icontains"] = f'%{" ".join(contains)}%'
+            and_conditions.append(
+                f"""
+                AND (
+                    properties ILIKE %(icontains)s
+                    OR arrayExists(distinct_id -> ilike(distinct_id, %(icontains)s), distinct_ids)
+                )"""
+            )
     properties: List[Dict[str, Any]] = json.loads(request.GET["properties"]) if request.GET.get("properties") else []
     if request.GET.get("cohort"):
         properties.append({"type": "cohort", "key": "id", "value": request.GET["cohort"]})
     if properties:
+        for property in properties:
+            if property.get("type") is None:
+                # In this endpoint the default type is "person", not default "event", which we ensure here
+                property["type"] = "person"
         filter = Filter(data={"properties": properties})
         filter_query, filter_params = parse_prop_clauses(filter.properties, team_id, is_person_query=True)
         and_conditions.append(filter_query)
         params.update(filter_params)
 
     if and_conditions:
-        final_query = f"""{BASE_FILTER_PERSONS_QUERY} {' '.join(and_conditions)}"""
+        final_query = GET_LATEST_PERSON_WITH_DISTINCT_IDS_SQL.format(query=" ".join(and_conditions))
         uuids_found_rows = cast(list, sync_execute(final_query, params))
         uuids_found = [row[0] for row in uuids_found_rows]
         queryset = queryset.filter(uuid__in=uuids_found)

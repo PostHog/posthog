@@ -29,8 +29,10 @@ class ClickhouseTestPersonApi(
 ):
     def test_filter_id_or_uuid(self) -> None:
         # Overriding this test due to only UUID being available on ClickHouse
-        person1 = _create_person(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
-        person2 = _create_person(team=self.team, properties={"random_prop": "asdf"})
+        person1 = _create_person(
+            team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"}, distinct_ids=["person1"]
+        )
+        person2 = _create_person(team=self.team, properties={"random_prop": "asdf"}, distinct_ids=["person2"])
         _create_person(team=self.team, properties={"random_prop": "asdf"})
 
         response_uuid = self.client.get("/api/person/?uuid={},{}".format(person1.uuid, person2.uuid))
