@@ -30,5 +30,5 @@ class ClickhousePathsViewSet(PathsViewSet):
 
         team = self.team
         filter = PathFilter(request=request)
-        resp = ClickhousePaths().run(filter=filter, team=team)
+        resp = ClickhousePaths(filter=filter, team=team).run()
         return Response(resp)

@@ -66,7 +66,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def calculate_path(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
-        resp = ClickhousePaths().run(filter=filter, team=team)
+        resp = ClickhousePaths(filter=filter, team=team).run()
         return {"result": resp}
 
     @action(methods=["GET", "POST"], detail=False)
