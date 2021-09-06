@@ -8,7 +8,7 @@ import { Placement } from '@popperjs/core'
 interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
-    children: React.ReactChild | ((props: { setRef?: (ref: HTMLElement) => void }) => JSX.Element)
+    children: React.ReactChild | ((props: { setRef: (ref: HTMLElement | null) => void }) => JSX.Element)
     overlay: React.ReactNode
     placement?: Placement
     fallbackPlacements?: Placement[]
