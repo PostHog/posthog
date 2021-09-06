@@ -343,6 +343,40 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         self.assertEntityResponseEqual(action_response, event_response)
 
+    @test_with_materialized_columns(event_properties=["$host"], person_properties=["$some_prop"])
+    def test_against_clashing_entity_and_property_filter_naming(self):
+        # Regression test for https://github.com/PostHog/posthog/issues/5814
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="blabla",
+            properties={"$host": "app.example.com"},
+            timestamp="2020-01-03T12:00:00Z",
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "properties": [{"key": "$host", "operator": "icontains", "value": ".com"}],
+                            }
+                        ],
+                        "properties": [{"key": "$host", "value": ["app.example.com", "another.com"]}],
+                        "breakdown": "$some_prop",
+                        "breakdown_type": "person",
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["count"], 1)
+
     # this ensures that the properties don't conflict when formatting params
     @test_with_materialized_columns(["$current_url"])
     def test_action_with_prop(self):
