@@ -69,13 +69,13 @@ def get_breakdown_prop_values(
     return sync_execute(
         elements_query,
         {
-            **prop_filter_params,
-            **entity_params,
-            **extra_params,
             "key": filter.breakdown,
             "limit": limit,
             "team_id": team_id,
             "offset": filter.offset,
+            **prop_filter_params,
+            **entity_params,
+            **extra_params,
         },
     )[0][0]
 
