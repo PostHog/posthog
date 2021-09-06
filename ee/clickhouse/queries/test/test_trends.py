@@ -127,6 +127,46 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             event_response, action_response,
         )
 
+    @test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
+    def test_breakdown_with_person_property_filter(self):
+        self._create_multiple_people()
+        action = _create_action(name="watched movie", team=self.team)
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "order",
+                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
+                        "properties": [{"key": "name", "value": "person2", "type": "person"}],
+                    }
+                ),
+                self.team,
+            )
+            event_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "order",
+                        "events": [
+                            {
+                                "id": "watched movie",
+                                "name": "watched movie",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [{"key": "name", "value": "person2", "type": "person"}],
+                            }
+                        ],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2",}, event_response[0])
+        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1",}, event_response[1])
+        self.assertEntityResponseEqual(event_response, action_response)
+
     @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering(self):
         self._create_events()
