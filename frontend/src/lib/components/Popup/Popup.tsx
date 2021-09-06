@@ -12,6 +12,7 @@ interface PopupProps {
     overlay: React.ReactNode
     placement?: Placement
     fallbackPlacements?: Placement[]
+    className?: string
 }
 
 // if we're inside a popup inside a popup, prevent the parent's onClickOutside from working
@@ -27,6 +28,7 @@ export function Popup({
     onClickOutside,
     placement = 'bottom-start',
     fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
+    className,
 }: PopupProps): JSX.Element {
     const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
 
@@ -82,7 +84,7 @@ export function Popup({
             {visible
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip"
+                          className={className ? `popper-tooltip ${className}` : 'popper-tooltip'}
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}

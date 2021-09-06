@@ -162,6 +162,7 @@ export function LineGraph({
             pointHoverBorderWidth: 2,
             pointHitRadius: 8,
             ...dataset,
+            type,
         }
     }
 
@@ -200,7 +201,7 @@ export function LineGraph({
                     }
 
                     datasetCopy.data =
-                        datasetCopy.data.length > 2
+                        datasetCopy.data?.length > 2
                             ? datasetCopy.data.map((datum, idx) =>
                                   idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
                               )
@@ -223,7 +224,7 @@ export function LineGraph({
             precision: 0,
         }
 
-        const inspectUsersLabel = !dashboardItemId && onClick && showPersonsModal
+        const inspectPersonsLabel = !dashboardItemId && onClick && showPersonsModal
 
         const tooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)
@@ -331,7 +332,7 @@ export function LineGraph({
                             referenceDate={referenceDate}
                             interval={interval}
                             bodyLines={bodyLines}
-                            inspectUsersLabel={inspectUsersLabel}
+                            inspectPersonsLabel={inspectPersonsLabel}
                             preferAltTitle={tooltipPreferAltTitle}
                             hideHeader={type === 'horizontalBar'}
                         />,

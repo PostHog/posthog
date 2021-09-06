@@ -7,7 +7,7 @@ import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-import { FunnelExclusionEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
+import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
 
 function ExclusionRowSuffix({
     filter,
@@ -15,7 +15,7 @@ function ExclusionRowSuffix({
     onClose,
     isVertical,
 }: {
-    filter: ActionFilterType | FunnelExclusionEntityFilter
+    filter: ActionFilterType | FunnelStepRangeEntityFilter
     index: number
     onClose?: () => void
     isVertical: boolean
@@ -47,7 +47,7 @@ function ExclusionRowSuffix({
             justify="space-between"
             align="middle"
             wrap={false}
-            style={{ margin: `${isVertical ? 4 : 0}px 0`, paddingLeft: 4, width: '100%' }}
+            style={{ margin: `${isVertical ? 4 : 0}px 0`, paddingLeft: 4, width: isVertical ? '100%' : 'auto' }}
         >
             between
             <Select

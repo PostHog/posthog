@@ -78,7 +78,7 @@ export function RetentionLineGraph({
                         {peopleData.length === 1 ? 'user' : 'users'}
                     </p>
                 ) : (
-                    <p>Loading users...</p>
+                    <p>Loading persons…</p>
                 )}
                 <PersonsTable
                     loading={peopleLoading}

@@ -68,16 +68,10 @@ WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_ra
 
 BREAKDOWN_PERSON_PROP_JOIN_SQL = """
 INNER JOIN (
-    SELECT *
-    from (
-        SELECT
-            id,
-            trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
-        FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
-    )
+    {person_query}
 ) ep
 ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
-AND breakdown_value in (%(values)s) {actions_query}
+AND {breakdown_value_expr} in (%(values)s) {actions_query}
 """
 
 BREAKDOWN_PROP_JOIN_SQL = """

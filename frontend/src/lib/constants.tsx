@@ -240,6 +240,9 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_PROPERTY_FILTER: '4267-taxonomic-property-filter',
     INGESTION_HELP_BUTTON: '112-ingestion-help-button',
     SAVED_INSIGHTS: '3408-saved-insights',
+    MULTIVARIATE_SUPPORT: '5440-multivariate-support',
+    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
+    DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

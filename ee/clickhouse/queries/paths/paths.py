@@ -1,16 +1,13 @@
-from abc import ABC
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
-import sqlparse
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
-from posthog.constants import LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
-from posthog.queries.paths import Paths
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
@@ -32,6 +29,12 @@ class ClickhousePathsNew:
             "autocapture_match": "%autocapture:%",
         }
         self._funnel_filter = funnel_filter
+
+        if self._filter.include_all_custom_events and self._filter.custom_events:
+            raise ValidationError("Cannot include all custom events and specific custom events in the same query")
+
+        # TODO: don't allow including $pageview and excluding $pageview at the same time
+        # TODO: Filter on specific autocapture / page URLs
 
     def run(self, *args, **kwargs):
 
@@ -62,9 +65,19 @@ class ClickhousePathsNew:
         path_event_query, params = PathEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
         self.params.update(params)
 
-        boundary_event_filter, start_params = self.get_start_point_filter()
+        boundary_event_filter, start_params = (
+            self.get_end_point_filter() if self._filter.end_point else self.get_start_point_filter()
+        )
+        path_limiting_clause, time_limiting_clause = self.get_filtered_path_ordering()
+        compacting_function = self.get_array_compacting_function()
         self.params.update(start_params)
-        return PATH_ARRAY_QUERY.format(path_event_query=path_event_query, boundary_event_filter=boundary_event_filter)
+        return PATH_ARRAY_QUERY.format(
+            path_event_query=path_event_query,
+            boundary_event_filter=boundary_event_filter,
+            path_limiting_clause=path_limiting_clause,
+            time_limiting_clause=time_limiting_clause,
+            compacting_function=compacting_function,
+        )
 
     def get_path_query_by_funnel(self, funnel_filter: Filter):
         path_query = self.get_path_query()
@@ -84,6 +97,31 @@ class ClickhousePathsNew:
     def get_start_point_filter(self) -> Tuple[str, Dict]:
 
         if not self._filter.start_point:
-            return "", {"start_point": None}
+            return "", {"target_point": None}
 
-        return "WHERE arrayElement(limited_path, 1) = %(start_point)s", {"start_point": self._filter.start_point}
+        return "WHERE arrayElement(limited_path, 1) = %(target_point)s", {"target_point": self._filter.start_point}
+
+    def get_end_point_filter(self) -> Tuple[str, Dict]:
+        if not self._filter.end_point:
+            return "", {"target_point": None}
+
+        return "WHERE arrayElement(limited_path, -1) = %(target_point)s", {"target_point": self._filter.end_point}
+
+    def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
+        if self._filter.end_point:
+            return "arrayResize"
+        else:
+            return "arraySlice"
+
+    def get_filtered_path_ordering(self) -> Tuple[str, str]:
+
+        if self._filter.end_point:
+            return (
+                "arraySlice(filtered_path, (-1) * %(event_in_session_limit)s)",
+                "arraySlice(filtered_timings, (-1) * %(event_in_session_limit)s)",
+            )
+        else:
+            return (
+                "arraySlice(filtered_path, 1, %(event_in_session_limit)s)",
+                "arraySlice(filtered_timings, 1, %(event_in_session_limit)s)",
+            )

@@ -3,18 +3,20 @@ import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './index.scss'
-import { GoogleOutlined, GithubOutlined, GitlabOutlined } from '@ant-design/icons'
+import { GoogleOutlined, GithubOutlined, GitlabOutlined, LoginOutlined } from '@ant-design/icons'
 
 enum SocialAuthProviders {
     Google = 'google-oauth2',
     GitHub = 'github',
     GitLab = 'gitlab',
+    SAML = 'saml',
 }
 
 const ProviderNames: Record<SocialAuthProviders, string> = {
     [SocialAuthProviders.Google]: 'Google',
     [SocialAuthProviders.GitHub]: 'GitHub',
     [SocialAuthProviders.GitLab]: 'GitLab',
+    [SocialAuthProviders.SAML]: 'Single sign-on',
 }
 
 interface SharedProps {
@@ -38,9 +40,16 @@ export function SocialLoginButton({ provider, queryString }: SocialLoginButtonPr
         return null
     }
 
+    // SAML-based login requires an extra param as technically we can support multiple SAML backends
+    const extraParam =
+        provider === SocialAuthProviders.SAML ? (queryString ? '&idp=posthog_custom' : '?idp=posthog_custom') : ''
+
     return (
         <div>
-            <Button className={`btn-social-login ${provider}`} href={`/login/${provider}/${queryString || ''}`}>
+            <Button
+                className={`btn-social-login ${provider}`}
+                href={`/login/${provider}/${queryString || ''}${extraParam}`}
+            >
                 <div className="btn-social-icon">
                     <div className="img" />
                 </div>
@@ -60,6 +69,8 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
             return <GithubOutlined />
         } else if (provider === SocialAuthProviders.GitLab) {
             return <GitlabOutlined />
+        } else if (provider === SocialAuthProviders.SAML) {
+            return <LoginOutlined />
         }
     }, [provider])
 
@@ -67,10 +78,14 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
         return null
     }
 
+    // SAML-based login requires an extra param as technically we can support multiple SAML backends
+    const extraParam =
+        provider === SocialAuthProviders.SAML ? (queryString ? '&idp=posthog_custom' : '?idp=posthog_custom') : ''
+
     return (
         <Button
             className={`link-social-login ${provider}`}
-            href={`/login/${provider}/${queryString || ''}`}
+            href={`/login/${provider}/${queryString || ''}${extraParam}`}
             icon={icon}
             type="link"
         >

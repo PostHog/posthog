@@ -18,8 +18,8 @@ export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> 
     key?: string
     dataIndex?: string
     render?:
-        | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
-        | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
+        | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType> | null)
+        | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType> | null)
     ellipsis?: boolean
     span: number
     eventProperties?: string[]

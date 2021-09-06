@@ -332,7 +332,7 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelExclusionEntityFilter extends EntityFilter {
+export interface FunnelStepRangeEntityFilter extends EntityFilter {
     funnel_from_step: number
     funnel_to_step: number
 }
@@ -435,18 +435,23 @@ export interface SessionType {
     length: number
     start_time: string
     end_time: string
-    session_recordings: SessionTypeSessionRecording[]
+    session_recordings: SessionRecordingType[]
     start_url: string | null
     end_url: string | null
     email?: string | null
     matching_events: Array<number | string>
 }
 
-export interface SessionTypeSessionRecording {
+export interface SessionRecordingType {
     id: string
+    /** Whether this recording has been viewed already. */
     viewed: boolean
-    /** Length of recording in seconds */
+    /** Length of recording in seconds. */
     recording_duration: number
+    /** When the recording starts in ISO format. */
+    start_time: string
+    /** When the recording ends in ISO format. */
+    end_time: string
 }
 
 export interface BillingType {
@@ -490,6 +495,7 @@ export interface DashboardItemType {
     created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number
+    dive_dashboard?: number
     result: any | null
     updated_at: string
     tags: string[]
@@ -688,7 +694,7 @@ export interface FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
-    exclusions?: FunnelExclusionEntityFilter[] // used in funnel exclusion filters
+    exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
 }
 
 export interface SystemStatusSubrows {
@@ -801,15 +807,6 @@ export interface FunnelsTimeConversionResult {
     type: 'Funnel'
 }
 
-// Indexing boundaries = [from_step, to_step)
-export interface FunnelTimeConversionStep {
-    from_step: number // set this to -1 if querying for all steps
-    to_step: number
-    label?: string
-    average_conversion_time?: number
-    count?: number
-}
-
 export interface FunnelTimeConversionMetrics {
     averageTime: number
     stepRate: number
@@ -873,8 +870,19 @@ export interface FeatureFlagGroupType {
     rollout_percentage: number | null
 }
 
+export interface MultivariateFlagVariant {
+    key: string
+    name: string | null
+    rollout_percentage: number
+}
+
+export interface MultivariateFlagOptions {
+    variants: MultivariateFlagVariant[]
+}
+
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
+    multivariate: MultivariateFlagOptions | null
 }
 
 export interface FeatureFlagType {
@@ -901,6 +909,7 @@ interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    saml?: boolean
 }
 
 export interface PreflightStatus {

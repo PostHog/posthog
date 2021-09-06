@@ -1,11 +1,13 @@
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.http import HttpResponse
+from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
+from django.urls.base import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView
 from social_core.pipeline.partial import partial
@@ -32,6 +34,13 @@ def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
+def login(request):
+    if getattr(settings, "SAML_ENFORCED", False):
+        return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
+
+    return home(request)
+
+
 def authorize_and_redirect(request):
     if not request.GET.get("redirect"):
         return HttpResponse("You need to pass a url to ?redirect=", status=401)
@@ -51,8 +60,11 @@ def is_input_valid(inp_type, val):
 
 
 # Try to include EE endpoints
+ee_urlpatterns: List[Any] = []
 try:
     from ee.urls import extend_api_router
+    from ee.urls import urlpatterns as ee_urlpatterns
+
 except ImportError:
     pass
 else:
@@ -73,6 +85,8 @@ urlpatterns = [
     # admin
     path("admin/", include("loginas.urls")),
     path("admin/", admin.site.urls),
+    # ee
+    *ee_urlpatterns,
     # api
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
@@ -113,6 +127,7 @@ urlpatterns = [
         ),
     ),
     path("accounts/", include("django.contrib.auth.urls")),
+    path("login", login),
 ]
 
 # Allow crawling on PostHog Cloud, disable for all self-hosted installations
@@ -132,7 +147,7 @@ if settings.TEST:
 
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "login"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
