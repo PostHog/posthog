@@ -52,6 +52,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
         setRefreshError: (id: number) => ({ id }),
+        setTitle: (title: string) => ({ title }),
     },
 
     loaders: ({ actions, props }) => ({
@@ -71,6 +72,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             })}`
                         )
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
+                        actions.setTitle(dashboard.name)
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
@@ -559,6 +561,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 cache.autoRefreshInterval = window.setInterval(() => {
                     actions.refreshAllDashboardItems()
                 }, values.autoRefresh.interval * 1000)
+            }
+        },
+        setTitle: ({ title }) => {
+            if (title !== '' || title !== undefined) {
+                document.title = 'Dashboard : ' + title
             }
         },
     }),

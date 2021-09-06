@@ -82,6 +82,12 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
+                    if (updatedAttribute === 'name') {
+                        const title = payload[updatedAttribute]
+                        if (title !== '' || title !== undefined) {
+                            document.title = 'Dashboard : ' + title
+                        }
+                    }
                 }
                 return response
             },
