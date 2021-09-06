@@ -9,7 +9,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 def _create_event(**kwargs):
@@ -18,6 +18,7 @@ def _create_event(**kwargs):
 
 
 class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
+    @test_with_materialized_columns(event_properties=["$host", "distinct_id"], person_properties=["$browser", "email"])
     def test_breakdown_person_props(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
         _create_event(
