@@ -174,38 +174,28 @@ class ClickhouseTrendsBreakdown:
 
             return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
 
-    def _breakdown_cohort_params(self, team_id: int, filter: Filter, entity: Entity):
-        cohort_queries, cohort_ids, cohort_params = format_breakdown_cohort_join_query(team_id, filter, entity=entity)
+    def _breakdown_cohort_params(self):
+        cohort_queries, cohort_ids, cohort_params = format_breakdown_cohort_join_query(
+            self.team_id, self.filter, entity=self.entity
+        )
         params = {"values": cohort_ids, **cohort_params}
         breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
         breakdown_filter_params = {"cohort_queries": cohort_queries}
 
         return params, breakdown_filter, breakdown_filter_params, "value"
 
-    def _breakdown_person_params(
-        self, aggregate_operation: str, math_params: Dict, entity: Entity, filter: Filter, team_id: int
-    ):
-        values_arr = get_breakdown_prop_values(filter, entity, aggregate_operation, team_id, extra_params=math_params)
-
-        # :TRICKY: We only support string breakdown for event/person properties
-        assert isinstance(filter.breakdown, str)
-        breakdown_value, _ = get_property_string_expr("person", filter.breakdown, "%(key)s", "person_props")
-
-        return (
-            {"values": values_arr},
-            BREAKDOWN_PROP_JOIN_SQL,
-            {"breakdown_value_expr": breakdown_value,},
-            breakdown_value,
+    def _breakdown_prop_params(self, aggregate_operation: str, math_params: Dict):
+        values_arr = get_breakdown_prop_values(
+            self.filter, self.entity, aggregate_operation, self.team_id, extra_params=math_params
         )
 
-    def _breakdown_prop_params(
-        self, aggregate_operation: str, math_params: Dict, entity: Entity, filter: Filter, team_id: int
-    ):
-        values_arr = get_breakdown_prop_values(filter, entity, aggregate_operation, team_id, extra_params=math_params)
-
         # :TRICKY: We only support string breakdown for event/person properties
-        assert isinstance(filter.breakdown, str)
-        breakdown_value, _ = get_property_string_expr("events", filter.breakdown, "%(key)s", "properties")
+        assert isinstance(self.filter.breakdown, str)
+
+        if self.filter.breakdown_type == "person":
+            breakdown_value, _ = get_property_string_expr("person", self.filter.breakdown, "%(key)s", "person_props")
+        else:
+            breakdown_value, _ = get_property_string_expr("events", self.filter.breakdown, "%(key)s", "properties")
 
         return (
             {"values": values_arr},
