@@ -3,7 +3,7 @@ from uuid import uuid4
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.breakdown_props import get_breakdown_person_prop_values
+from ee.clickhouse.queries.breakdown_props import get_breakdown_prop_values
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -56,7 +56,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                     "funnel_window_days": 14,
                 }
             )
-            res = get_breakdown_person_prop_values(
+            res = get_breakdown_prop_values(
                 filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team.pk, 5
             )
             self.assertEqual(res, ["test"])
@@ -110,5 +110,5 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "funnel_window_days": 14,
                     }
                 )
-                res = get_breakdown_person_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk, 5)
+                res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk, 5)
                 self.assertEqual(res, ["test"])

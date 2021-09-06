@@ -1,14 +1,12 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
-    get_breakdown_event_prop_values,
-    get_breakdown_person_prop_values,
+    get_breakdown_prop_values,
 )
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
@@ -187,9 +185,7 @@ class ClickhouseTrendsBreakdown:
     def _breakdown_person_params(
         self, aggregate_operation: str, math_params: Dict, entity: Entity, filter: Filter, team_id: int
     ):
-        values_arr = get_breakdown_person_prop_values(
-            filter, entity, aggregate_operation, team_id, extra_params=math_params
-        )
+        values_arr = get_breakdown_prop_values(filter, entity, aggregate_operation, team_id, extra_params=math_params)
 
         # :TRICKY: We only support string breakdown for event/person properties
         assert isinstance(filter.breakdown, str)
@@ -205,9 +201,7 @@ class ClickhouseTrendsBreakdown:
     def _breakdown_prop_params(
         self, aggregate_operation: str, math_params: Dict, entity: Entity, filter: Filter, team_id: int
     ):
-        values_arr = get_breakdown_event_prop_values(
-            filter, entity, aggregate_operation, team_id, extra_params=math_params
-        )
+        values_arr = get_breakdown_prop_values(filter, entity, aggregate_operation, team_id, extra_params=math_params)
 
         # :TRICKY: We only support string breakdown for event/person properties
         assert isinstance(filter.breakdown, str)

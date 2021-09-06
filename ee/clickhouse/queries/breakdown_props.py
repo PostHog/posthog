@@ -4,12 +4,10 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
-from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
-from ee.clickhouse.sql.person import GET_LATEST_PERSON_SQL, GET_TEAM_PERSON_DISTINCT_IDS
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.trends.top_elements import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
-from ee.clickhouse.sql.trends.top_person_props import TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
@@ -17,64 +15,11 @@ from posthog.models.filters.filter import Filter
 ALL_USERS_COHORT_ID = 0
 
 
-def _get_top_elements(filter: Filter, team_id: int, query: str, limit, params: Dict = {}) -> List:
-    # use limit of 25 to determine if there are more than 20
-    element_params = {
-        "limit": limit,
-        "team_id": team_id,
-        "offset": filter.offset,
-        **params,
-    }
-
-    top_elements_array = sync_execute(query, element_params)[0][0]
-
-    return top_elements_array
-
-
-def get_breakdown_person_prop_values(
+def get_breakdown_prop_values(
     filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25, extra_params={}
 ):
-    _event_table_name = "e"
-    parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
-    prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties,
-        team_id,
-        table_name=_event_table_name,
-        filter_test_accounts=filter.filter_test_accounts,
-        person_properties_column="person_props",
-        allow_denormalized_props=True,
-    )
+    "Returns the top N breakdown prop values for event/person breakdown"
 
-    entity_params, entity_format_params = get_entity_filtering_params(
-        entity, team_id, table_name=_event_table_name, with_prop_filters=True, person_properties_column="person_props"
-    )
-
-    value_expression, _ = get_property_string_expr("person", cast(str, filter.breakdown), "%(key)s", "person_props")
-
-    elements_query = TOP_PERSON_PROPS_ARRAY_OF_KEY_SQL.format(
-        value_expression=value_expression,
-        parsed_date_from=parsed_date_from,
-        parsed_date_to=parsed_date_to,
-        person_query=ClickhousePersonQuery(filter, team_id).get_query(),
-        prop_filters=prop_filters,
-        aggregate_operation=aggregate_operation,
-        GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        **entity_format_params,
-    )
-    top_elements_array = _get_top_elements(
-        filter=filter,
-        team_id=team_id,
-        query=elements_query,
-        params={**prop_filter_params, **entity_params, **extra_params, "key": filter.breakdown},
-        limit=limit,
-    )
-
-    return top_elements_array
-
-
-def get_breakdown_event_prop_values(
-    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25, extra_params={}
-):
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
         filter.properties,
@@ -87,10 +32,15 @@ def get_breakdown_event_prop_values(
     )
 
     entity_params, entity_format_params = get_entity_filtering_params(
-        entity, team_id, with_prop_filters=True, person_properties_column="person_props"
+        entity, team_id, with_prop_filters=True, person_properties_column="person_props", table_name="e"
     )
 
-    value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
+    breakdown_table, breakdown_props_column = "events", "properties"
+    if filter.breakdown_type == "person":
+        breakdown_table, breakdown_props_column = "person", "person_props"
+    value_expression, _ = get_property_string_expr(
+        breakdown_table, cast(str, filter.breakdown), "%(key)s", breakdown_props_column
+    )
 
     person_join_clauses = ""
     person_query = ClickhousePersonQuery(filter, team_id)
@@ -112,15 +62,19 @@ def get_breakdown_event_prop_values(
         person_join_clauses=person_join_clauses,
         **entity_format_params,
     )
-    top_elements_array = _get_top_elements(
-        filter=filter,
-        team_id=team_id,
-        query=elements_query,
-        params={**prop_filter_params, **entity_params, **extra_params, "key": filter.breakdown},
-        limit=limit,
-    )
 
-    return top_elements_array
+    return sync_execute(
+        elements_query,
+        {
+            **prop_filter_params,
+            **entity_params,
+            **extra_params,
+            "key": filter.breakdown,
+            "limit": limit,
+            "team_id": team_id,
+            "offset": filter.offset,
+        },
+    )[0][0]
 
 
 def _format_all_query(team_id: int, filter: Filter, **kwargs) -> Tuple[str, Dict]:
