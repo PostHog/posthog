@@ -128,7 +128,7 @@ def _handle_date_interval(filter: Filter) -> Filter:
     elif filter.interval == "week":
         data.update({"date_to": (date_from + relativedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")})
     elif filter.interval == "day":
-        data.update({"date_to": (date_from + timedelta(days=1))})
+        data.update({"date_to": date_from})
     elif filter.interval == "hour":
         data.update({"date_to": date_from + timedelta(hours=1)})
     elif filter.interval == "minute":
