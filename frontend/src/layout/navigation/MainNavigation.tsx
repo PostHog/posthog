@@ -279,14 +279,18 @@ export function MainNavigation(): JSX.Element {
                     <MenuItem
                         title="Insights"
                         icon={<IconInsights />}
-                        identifier="savedInsights"
+                        identifier={featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? 'savedInsights' : 'insights'}
                         to={
                             featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
                                 ? urls.savedInsights()
                                 : urls.insightView(ViewType.TRENDS)
                         }
                         hotkey="i"
-                        tooltip="See your saved insights"
+                        tooltip={
+                            featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                                ? 'See your saved insights'
+                                : 'Answers to all your analytics questions'
+                        }
                     />
                     <Popover
                         content={PinnedDashboards}
