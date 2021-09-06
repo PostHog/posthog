@@ -7,7 +7,7 @@ COPY src/config/idl/ src/config/idl/
 RUN yarn install --frozen-lockfile
 
 COPY ./ ./
-RUN yarn compile:typescript
+RUN yarn typescript:compile
 
 FROM node:14 AS runner
 
