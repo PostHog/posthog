@@ -65,18 +65,12 @@ class ClickhousePathsNew:
         path_event_query, params = PathEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
         self.params.update(params)
 
-        boundary_event_filter, start_params = (
-            self.get_end_point_filter() if self._filter.end_point else self.get_start_point_filter()
-        )
-        path_limiting_clause, time_limiting_clause = self.get_filtered_path_ordering()
-        compacting_function = self.get_array_compacting_function()
+        boundary_event_filter, start_params = self.get_target_point_filter()
         self.params.update(start_params)
+
+        target_clause = self.get_target_clause()
         return PATH_ARRAY_QUERY.format(
-            path_event_query=path_event_query,
-            boundary_event_filter=boundary_event_filter,
-            path_limiting_clause=path_limiting_clause,
-            time_limiting_clause=time_limiting_clause,
-            compacting_function=compacting_function,
+            path_event_query=path_event_query, boundary_event_filter=boundary_event_filter, target_clause=target_clause
         )
 
     def get_path_query_by_funnel(self, funnel_filter: Filter):
@@ -94,18 +88,49 @@ class ClickhousePathsNew:
         {path_query}
         """
 
-    def get_start_point_filter(self) -> Tuple[str, Dict]:
+    def get_target_point_filter(self) -> Tuple[str, Dict]:
+        conditions = []
+        params = {"target_point": None}
 
-        if not self._filter.start_point:
-            return "", {"target_point": None}
+        if self._filter.end_point and self._filter.start_point:
+            conditions.append("arrayElement(limited_path, -1) = %(target_point)s")
+            params.update({"target_point": self._filter.end_point})
 
-        return "WHERE arrayElement(limited_path, 1) = %(target_point)s", {"target_point": self._filter.start_point}
+            conditions.append("arrayElement(limited_path, 1) = %(secondary_target_point)s")
+            params.update({"secondary_target_point": self._filter.start_point})
+        elif self._filter.end_point:
+            conditions.append("arrayElement(limited_path, -1) = %(target_point)s")
+            params.update({"target_point": self._filter.end_point})
+        elif self._filter.start_point:
+            conditions.append("arrayElement(limited_path, 1) = %(target_point)s")
+            params.update({"target_point": self._filter.start_point})
 
-    def get_end_point_filter(self) -> Tuple[str, Dict]:
-        if not self._filter.end_point:
-            return "", {"target_point": None}
+        if not conditions:
+            return "", params
 
-        return "WHERE arrayElement(limited_path, -1) = %(target_point)s", {"target_point": self._filter.end_point}
+        return f"WHERE {' AND '.join(conditions)}", params
+
+    def get_target_clause(self) -> str:
+        if self._filter.end_point and self._filter.start_point:
+            return """
+            , indexOf(compact_path, %(secondary_target_point)s) as start_target_index
+            , if(start_target_index > 0, arraySlice(compact_path, start_target_index), compact_path) as start_filtered_path
+            , if(start_target_index > 0, arraySlice(timings, start_target_index), timings) as start_filtered_timings
+            , indexOf(start_filtered_path, %(target_point)s) as end_target_index
+            , if(end_target_index > 0, arrayResize(start_filtered_path, end_target_index), start_filtered_path) as limited_path
+            , if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as limited_timings
+            """
+        else:
+            path_limiting_clause, time_limiting_clause = self.get_filtered_path_ordering()
+            compacting_function = self.get_array_compacting_function()
+
+            return f"""
+            , indexOf(compact_path, %(target_point)s) as target_index
+            , if(target_index > 0, {compacting_function}(compact_path, target_index), compact_path) as filtered_path
+            , if(target_index > 0, {compacting_function}(timings, target_index), timings) as filtered_timings
+            , {path_limiting_clause} as limited_path
+            , {time_limiting_clause} as limited_timings
+            """
 
     def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
         if self._filter.end_point:

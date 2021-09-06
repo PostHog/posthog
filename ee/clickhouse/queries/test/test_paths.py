@@ -879,7 +879,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         filter = PathFilter(
             data={
                 "path_type": "$pageview",
-                "start_point": "/2",
+                "start_point": "/5",
                 "end_point": "/about",
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 00:00:00",
@@ -887,14 +887,5 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
         response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter,)
         self.assertEqual(
-            response,
-            [
-                {"source": "1_/2", "target": "2_/3", "value": 1, "average_conversion_time": 60000.0},
-                {"source": "1_/3", "target": "2_/4", "value": 1, "average_conversion_time": 60000.0},
-                {"source": "1_/5", "target": "2_/about", "value": 1, "average_conversion_time": 60000.0},
-                {"source": "2_/3", "target": "3_/4", "value": 1, "average_conversion_time": 60000.0},
-                {"source": "2_/4", "target": "3_/about", "value": 1, "average_conversion_time": 60000.0},
-                {"source": "3_/4", "target": "4_/5", "value": 1, "average_conversion_time": 60000.0},
-                {"source": "4_/5", "target": "5_/about", "value": 1, "average_conversion_time": 60000.0},
-            ],
+            response, [{"source": "1_/5", "target": "2_/about", "value": 2, "average_conversion_time": 60000.0}]
         )
