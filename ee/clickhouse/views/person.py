@@ -62,7 +62,10 @@ def filter_persons_ch(team_id: int, request: Request, queryset: QuerySet) -> Que
                 # In this endpoint the default type is "person", not default "event", which we ensure here
                 property["type"] = "person"
         filter = Filter(data={"properties": properties})
-        filter_query, filter_params = parse_prop_clauses(filter.properties, team_id, is_person_query=True)
+        # Materialized columns are disabled as they don't work with GET_LATEST_PERSON_WITH_DISTINCT_IDS_SQL's any()s
+        filter_query, filter_params = parse_prop_clauses(
+            filter.properties, team_id, is_person_query=True, allow_denormalized_props=False
+        )
         and_conditions.append(filter_query)
         params.update(filter_params)
 
