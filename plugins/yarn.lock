@@ -1063,10 +1063,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.9.tgz#7d1e6f07ccc5d72c657ecbf004846a4a4b241bbc"
   integrity sha512-W969xOjlMrWx3kUbRP6hKD85y+UExiYhTRrgISSy0ZorH/vhErJ69a6RPGzDdlIh1Blc6JMvwLffZg1ZPdssbA==
 
-"@posthog/plugin-server@1.5.0":
-  version "1.5.0"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.5.0.tgz#408cb88c6ae1c4dc502b2bac950600cd9abaa612"
-  integrity sha512-6fK9LXeBFJACHsoGCEA9W9U+TLcc4GrzjCZX70fe1iPyvYLKpW2YljCPb8jHVbSBseDObtFwcZEltGXRpGkzQg==
+"@posthog/plugin-server@1.5.1":
+  version "1.5.1"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.5.1.tgz#55d65e1a7d64ce6f009d885c6c97120fca88f714"
+  integrity sha512-gnpEMSjJj7+OzdX/zfAZQ7vpcl189FhEmEBuAfJS7sZEdIEn1Pyc/WgsW05R+GiysGi2y9IgEWJEW3enmvFGtw==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -1092,6 +1092,7 @@
     graphile-worker "^0.11.1"
     hot-shots "^8.3.2"
     ioredis "^4.27.6"
+    jsonwebtoken "^8.5.1"
     kafkajs "^1.15.0"
     lru-cache "^6.0.0"
     luxon "^1.27.0"
