@@ -42,26 +42,28 @@ def factory_test_person(event_factory, person_factory, get_events):
             self.assertEqual(len(response.json()["results"]), 1)
 
         def test_properties(self) -> None:
-            person_factory(
-                team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
-            )
-            person_factory(
-                team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
-            )
-            person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
+            with self.settings(DEBUG=1):
+                person_factory(
+                    team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
+                )
+                person_factory(
+                    team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
+                )
+                person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
 
-            response = self.client.get(
-                "/api/person/?properties=%s" % json.dumps([{"key": "email", "operator": "is_set", "value": "is_set"}])
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(len(response.json()["results"]), 2)
+                response = self.client.get(
+                    "/api/person/?properties=%s"
+                    % json.dumps([{"key": "email", "operator": "is_set", "value": "is_set"}])
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(len(response.json()["results"]), 2)
 
-            response = self.client.get(
-                "/api/person/?properties=%s"
-                % json.dumps([{"key": "email", "operator": "icontains", "value": "another@gm"}])
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(len(response.json()["results"]), 1)
+                response = self.client.get(
+                    "/api/person/?properties=%s"
+                    % json.dumps([{"key": "email", "operator": "icontains", "value": "another@gm"}])
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(len(response.json()["results"]), 1)
 
         def test_person_property_names(self) -> None:
             person_factory(team=self.team, properties={"$browser": "whatever", "$os": "Mac OS X"})
