@@ -16,3 +16,20 @@
         }
     }
 }
+
+.variant-form-list {
+    .ant-form-item {
+        min-height: 32px;
+    }
+    .label-row {
+        margin-bottom: 4px;
+        font-weight: 700;
+
+        .ant-col {
+            min-height: 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    }
+}

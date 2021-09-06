@@ -140,6 +140,7 @@ PATH_ARRAY_QUERY = """
 SELECT if(target_event LIKE %(autocapture_match)s, concat(arrayElement(splitByString('autocapture:', assumeNotNull(source_event)), 1), final_source_element), source_event) final_source_event,
        if(target_event LIKE %(autocapture_match)s, concat(arrayElement(splitByString('autocapture:', assumeNotNull(target_event)), 1), final_target_element), target_event) final_target_event,
        event_count,
+       average_conversion_time,
        if(target_event LIKE %(autocapture_match)s, arrayElement(splitByString('autocapture:', assumeNotNull(source_event)), 2), NULL) source_event_elements_chain,
        concat('<', extract(source_event_elements_chain, '^(.*?)[.|:]'), '> ', extract(source_event_elements_chain, 'text="(.*?)"')) final_source_element,
        if(target_event LIKE %(autocapture_match)s, arrayElement(splitByString('autocapture:', assumeNotNull(target_event)), 2), NULL) target_event_elements_chain,
@@ -147,35 +148,40 @@ SELECT if(target_event LIKE %(autocapture_match)s, concat(arrayElement(splitBySt
 FROM (
     SELECT last_path_key as source_event,
        path_key as target_event,
-       COUNT(*) AS event_count
+       COUNT(*) AS event_count,
+       avg(conversion_time) AS average_conversion_time
   FROM (
         SELECT person_id,
                path,
+               conversion_time,
                event_in_session_index,
                concat(toString(event_in_session_index), '_', path) as path_key,
                if(event_in_session_index > 1, neighbor(path_key, -1), null) AS last_path_key
           FROM (
           
-              SELECT person_id, joined_path_item as path
+              SELECT person_id
+                    , joined_path_tuple.1 as path
+                    , joined_path_tuple.2 as conversion_time
                     , event_in_session_index
                     , session_index
                     , arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0
                     , arrayMap((x,y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping
                     , arrayFilter((x,y) -> y, time, mapping) as timings
                     , arrayFilter((x,y)->y, path_basic, mapping) as compact_path
-                    , indexOf(compact_path, %(start_point)s) as start_index
-                    , if(start_index > 0, arraySlice(compact_path, start_index), compact_path) as filtered_path
-                    , if(start_index > 0, arraySlice(timings, start_index), timings) as filtered_timings
-                    , arraySlice(filtered_path, 1, %(event_in_session_limit)s) as limited_path
-                    , arraySlice(filtered_timings, 1, %(event_in_session_limit)s) as limited_timings
+                    , indexOf(compact_path, %(target_point)s) as target_index
+                    , if(target_index > 0, {compacting_function}(compact_path, target_index), compact_path) as filtered_path
+                    , if(target_index > 0, {compacting_function}(timings, target_index), timings) as filtered_timings
+                    , {path_limiting_clause} as limited_path
+                    , {time_limiting_clause} as limited_timings
+                    , arrayDifference(limited_timings) as timings_diff
+                    , arrayZip(limited_path, timings_diff) as limited_path_timings
                 FROM (
                     SELECT person_id
                         , path_time_tuple.1 as path_basic
                         , path_time_tuple.2 as time
                         , session_index
-                        , arrayDifference(timing) as times
-                        , arrayZip(paths, times) as paths_tuple
-                        , arraySplit(x -> if(x.2 < %(session_time_threshold)s, 0, 1), paths_tuple) as session_paths
+                        , arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple
+                        , arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple) as session_paths
                     FROM (
                             SELECT person_id,
                                    groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
@@ -187,9 +193,9 @@ FROM (
                     /* this array join splits paths for a single personID per session */
                     ARRAY JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index
                 )
-                ARRAY JOIN limited_path AS joined_path_item, arrayEnumerate(limited_path) AS event_in_session_index
+                ARRAY JOIN limited_path_timings AS joined_path_tuple, arrayEnumerate(limited_path_timings) AS event_in_session_index
                 {boundary_event_filter}
-                ORDER BY person_id, session_index
+                ORDER BY person_id, session_index, event_in_session_index
                )
        )
  WHERE source_event IS NOT NULL

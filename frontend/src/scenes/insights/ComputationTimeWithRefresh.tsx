@@ -2,16 +2,16 @@ import { Button } from 'antd'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import React, { useEffect, useState } from 'react'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'antd'
 
 dayjs.extend(relativeTime)
 
-export interface ComputationTimeWithRefresh {
+export interface ComputationTimeWithRefreshProps {
     lastRefresh: string
     loadResults: (refresh: boolean) => void
 }
 
-export function ComputationTimeWithRefresh({ lastRefresh, loadResults }: ComputationTimeWithRefresh): JSX.Element {
+export function ComputationTimeWithRefresh({ lastRefresh, loadResults }: ComputationTimeWithRefreshProps): JSX.Element {
     const [, setRerenderCounter] = useState(0)
 
     useEffect(() => {
@@ -24,9 +24,12 @@ export function ComputationTimeWithRefresh({ lastRefresh, loadResults }: Computa
     }, [])
 
     return (
-        <div className="text-muted-alt" style={{ marginLeft: 'auto' }}>
+        <div
+            className="text-muted-alt"
+            style={{ marginLeft: 'auto', height: 32, display: 'flex', alignItems: 'center' }}
+        >
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-            {' • '}
+            <span style={{ padding: '0 4px' }}>•</span>
             <Tooltip
                 title={
                     <>

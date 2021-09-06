@@ -155,7 +155,7 @@ function RecentInsightList(): JSX.Element {
                     <React.Fragment>
                         <Card className="history-panel-container" bordered={false} style={{ marginTop: '-30px' }}>
                             <Divider />
-                            <Paragraph>Jump back into recent work or an analysis from one of your teammates.</Paragraph>
+                            <Paragraph>Jump back into recent work or insights run by other team members.</Paragraph>
 
                             <InsightHistoryPanel displayLocation="project home" />
                         </Card>

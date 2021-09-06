@@ -31,6 +31,7 @@ export type AvailableFeatures =
 export interface ColumnConfig {
     active: string[] | 'DEFAULT'
 }
+
 export interface UserType {
     uuid: string
     date_joined: string
@@ -121,6 +122,7 @@ export interface PropertyUsageType {
     usage_count: number
     volume: number
 }
+
 export interface TeamBasicType {
     id: number
     uuid: string
@@ -230,7 +232,7 @@ export enum PropertyOperator {
     IsNotSet = 'is_not_set',
 }
 
-export enum SavedInsightsParamOptions {
+export enum SavedInsightsTabs {
     All = 'all',
     Yours = 'yours',
     Favorites = 'favorites',
@@ -308,6 +310,7 @@ export type SessionsPropertyFilter =
     | EventTypePropertyFilter
 
 export type EntityType = 'actions' | 'events' | 'new_entity'
+
 export interface Entity {
     id: string | number
     name: string
@@ -327,6 +330,11 @@ export type EntityFilter = {
     name: string | null
     index?: number
     order?: number
+}
+
+export interface FunnelStepRangeEntityFilter extends EntityFilter {
+    funnel_from_step: number
+    funnel_to_step: number
 }
 
 export interface EntityWithProperties extends Entity {
@@ -400,6 +408,11 @@ export enum PersonsTabType {
     SESSIONS = 'sessions',
 }
 
+export enum LayoutView {
+    Card = 'card',
+    List = 'list',
+}
+
 export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
@@ -422,18 +435,23 @@ export interface SessionType {
     length: number
     start_time: string
     end_time: string
-    session_recordings: SessionTypeSessionRecording[]
+    session_recordings: SessionRecordingType[]
     start_url: string | null
     end_url: string | null
     email?: string | null
     matching_events: Array<number | string>
 }
 
-export interface SessionTypeSessionRecording {
+export interface SessionRecordingType {
     id: string
+    /** Whether this recording has been viewed already. */
     viewed: boolean
-    /** Length of recording in seconds */
+    /** Length of recording in seconds. */
     recording_duration: number
+    /** When the recording starts in ISO format. */
+    start_time: string
+    /** When the recording ends in ISO format. */
+    end_time: string
 }
 
 export interface BillingType {
@@ -477,6 +495,7 @@ export interface DashboardItemType {
     created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number
+    dive_dashboard?: number
     result: any | null
     updated_at: string
     tags: string[]
@@ -510,6 +529,7 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
 }
+
 export interface PluginType {
     id: number
     plugin_type: PluginInstallationType
@@ -602,6 +622,7 @@ export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 // NB! Keep InsightType and ViewType in sync!
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+
 export enum ViewType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
@@ -651,6 +672,7 @@ export interface FilterType {
     path_type?: PathType
     start_point?: string | number
     stickiness_days?: number
+    type?: EntityType
     entity_id?: string | number
     entity_type?: EntityType
     entity_math?: string
@@ -658,7 +680,7 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
-    from_dashboard?: boolean
+    from_dashboard?: boolean | number
     layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
@@ -672,6 +694,7 @@ export interface FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
+    exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
 }
 
 export interface SystemStatusSubrows {
@@ -784,15 +807,6 @@ export interface FunnelsTimeConversionResult {
     type: 'Funnel'
 }
 
-// Indexing boundaries = [from_step, to_step)
-export interface FunnelTimeConversionStep {
-    from_step: number // set this to -1 if querying for all steps
-    to_step: number
-    label?: string
-    average_conversion_time?: number
-    count?: number
-}
-
 export interface FunnelTimeConversionMetrics {
     averageTime: number
     stepRate: number
@@ -815,7 +829,7 @@ export enum FunnelConversionWindowTimeUnit {
 
 export interface FunnelRequestParams extends FilterType {
     refresh?: boolean
-    from_dashboard?: boolean
+    from_dashboard?: boolean | number
     funnel_window_days?: number
 }
 
@@ -855,9 +869,22 @@ export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
 }
+
+export interface MultivariateFlagVariant {
+    key: string
+    name: string | null
+    rollout_percentage: number
+}
+
+export interface MultivariateFlagOptions {
+    variants: MultivariateFlagVariant[]
+}
+
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
+    multivariate: MultivariateFlagOptions | null
 }
+
 export interface FeatureFlagType {
     id: number | null
     key: string
@@ -882,6 +909,7 @@ interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    saml?: boolean
 }
 
 export interface PreflightStatus {
@@ -1037,6 +1065,7 @@ export interface TiledIconModuleProps {
 }
 
 export type EventOrPropType = EventDefinition & PropertyDefinition
+
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus

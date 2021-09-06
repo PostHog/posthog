@@ -8,6 +8,7 @@ from posthog.utils import is_valid_regex
 ValueT = Union[str, int, List[str]]
 PropertyType = Literal["event", "person", "cohort", "element"]
 PropertyName = str
+TableWithProperties = Literal["events", "person"]
 OperatorType = Literal[
     "exact", "is_not", "icontains", "not_icontains", "regex", "not_regex", "gt", "lt", "is_set", "is_not_set",
 ]

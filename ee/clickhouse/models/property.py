@@ -25,6 +25,7 @@ def parse_prop_clauses(
     allow_denormalized_props: bool = True,
     filter_test_accounts=False,
     is_person_query=False,
+    person_properties_column: Optional[str] = None,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -50,10 +51,18 @@ def parse_prop_clauses(
                     "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
                 )
         elif prop.type == "person":
+            # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
+            #   to materialized columns
+            # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
+            is_direct_query = is_person_query or person_properties_column is not None
             filter_query, filter_params = prop_filter_json_extract(
-                prop, idx, "{}person".format(prepend), allow_denormalized_props=allow_denormalized_props
+                prop,
+                idx,
+                "{}person".format(prepend),
+                prop_var=(person_properties_column or "properties") if is_direct_query else "properties",
+                allow_denormalized_props=allow_denormalized_props and is_direct_query,
             )
-            if is_person_query:
+            if is_direct_query:
                 final.append(filter_query)
                 params.update(filter_params)
             else:
@@ -134,7 +143,7 @@ def prop_filter_json_extract(
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         if is_denormalized:
             return (
-                "AND NOT isNull({left})".format(left=property_expr),
+                "AND notEmpty({left})".format(left=property_expr),
                 params,
             )
         return (
@@ -145,7 +154,7 @@ def prop_filter_json_extract(
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         if is_denormalized:
             return (
-                "AND isNull({left})".format(left=property_expr),
+                "AND empty({left})".format(left=property_expr),
                 params,
             )
         return (
@@ -204,8 +213,7 @@ def get_property_string_expr(
 ) -> Tuple[str, bool]:
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
-    # :TODO: Handle denormalized properties in person table
-    if allow_denormalized_props and property_name in materialized_columns and table == "events":
+    if allow_denormalized_props and property_name in materialized_columns:
         return materialized_columns[property_name], True
 
     return f"trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, {var}))", False

@@ -1,6 +1,8 @@
 import json
 from uuid import uuid4
 
+from rest_framework import status
+
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.util import format_ch_timestamp
@@ -14,8 +16,8 @@ def _create_event(**kwargs):
     return Event(pk=create_event(**kwargs))
 
 
-def _get_events():
-    return sync_execute("SELECT * FROM events")
+def _get_events(team_id):
+    return sync_execute("SELECT * FROM events WHERE team_id = %(team_id)s", {"team_id": team_id})
 
 
 def _create_person(**kwargs):
@@ -23,7 +25,7 @@ def _create_person(**kwargs):
 
 
 class ClickhouseTestPersonApi(
-    ClickhouseTestMixin, factory_test_person(_create_event, _create_person, _get_events, Person.objects.all)  # type: ignore
+    ClickhouseTestMixin, factory_test_person(_create_event, _create_person, _get_events)  # type: ignore
 ):
     def test_filter_id_or_uuid(self) -> None:
         # Overriding this test due to only UUID being available on ClickHouse

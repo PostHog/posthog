@@ -17,6 +17,7 @@ import utc from 'dayjs/plugin/utc'
 dayjs.extend(utc)
 
 import { ColumnsType } from 'antd/lib/table'
+import clsx from 'clsx'
 
 export function RetentionTable({
     dashboardItemId = null,
@@ -74,7 +75,8 @@ export function RetentionTable({
                     return renderPercentage(
                         row.values[dayIndex]['count'],
                         row.values[0]['count'],
-                        isLatestPeriod && dayIndex === row.values.length - 1
+                        isLatestPeriod && dayIndex === row.values.length - 1,
+                        dayIndex === 0
                     )
                 },
             })
@@ -123,7 +125,7 @@ export function RetentionTable({
                     {results && !peopleLoading ? (
                         <div>
                             {results[selectedRow]?.values[0]?.count === 0 ? (
-                                <span>No users during this period.</span>
+                                <span>No persons during this period.</span>
                             ) : (
                                 <div>
                                     <table className="table-bordered full-width">
@@ -192,8 +194,12 @@ export function RetentionTable({
                                         }}
                                     >
                                         {people.next ? (
-                                            <Button type="primary" onClick={() => loadMorePeople()}>
-                                                {loadingMore ? <Spin /> : 'Load More People'}
+                                            <Button
+                                                type="primary"
+                                                onClick={() => loadMorePeople()}
+                                                loading={loadingMore}
+                                            >
+                                                Load more people
                                             </Button>
                                         ) : null}
                                     </div>
@@ -209,13 +215,14 @@ export function RetentionTable({
     )
 }
 
-const renderPercentage = (value: number, total: number, latest = false): JSX.Element => {
+const renderPercentage = (value: number, total: number, latest = false, periodZero = false): JSX.Element => {
     const _percentage = total > 0 ? (100.0 * value) / total : 0
-    const backgroundColor = `hsl(212, 63%, ${30 + (100 - _percentage) * 0.65}%)`
-    const color = _percentage >= 65 ? 'hsl(0, 0%, 80%)' : undefined
+    const percentageBasisForColor = periodZero ? 100 : _percentage // So that Period 0 is always shown consistently
+    const backgroundColor = `hsl(212, 63%, ${30 + (100 - percentageBasisForColor) * 0.65}%)`
+    const color = percentageBasisForColor >= 65 ? 'hsl(0, 0%, 80%)' : undefined
 
     const numberCell = (
-        <div style={{ backgroundColor, color }} className={`percentage-cell${latest ? ' period-in-progress' : ''}`}>
+        <div style={{ backgroundColor, color }} className={clsx('percentage-cell', { 'period-in-progress': latest })}>
             {_percentage.toFixed(1)}%{latest && '*'}
         </div>
     )

@@ -56,6 +56,7 @@ class License(models.Model):
         "zapier",
         "organizations_projects",
         "google_login",
+        "saml",
         "dashboard_collaboration",
         "ingestion_taxonomy",
     ]  # Base premium features
