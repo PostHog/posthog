@@ -61,18 +61,11 @@ export function PersonsTable({
 
     const columns: ResizableColumnType<PersonType>[] = [
         {
-            title: 'Email',
-            key: 'email',
+            title: 'Identification',
+            key: 'identification',
             span: 6,
             render: function Render(person: PersonType) {
-                return (
-                    <Link
-                        to={deepLinkToPersonSessions(person, sessionsFilters, date, backTo)}
-                        data-attr="goto-person-email"
-                    >
-                        <PersonHeader person={person} />
-                    </Link>
-                )
+                return <PersonHeader person={person} />
             },
         },
         {
