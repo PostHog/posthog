@@ -1,7 +1,10 @@
+from datetime import datetime
 from uuid import uuid4
 
+from freezegun.api import freeze_time
+
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
+from ee.clickhouse.models.session_recording_event import create_session_recording_event
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
@@ -16,16 +19,38 @@ PERSON_ID_COLUMN = 2
 
 
 def _create_person(**kwargs):
-    person = Person.objects.create(**kwargs)
-    return Person(id=person.uuid, uuid=person.uuid)
+    return Person.objects.create(**kwargs)
 
 
 def _create_event(**kwargs):
-    kwargs.update({"event_uuid": uuid4()})
-    create_event(**kwargs)
+    create_event(event_uuid=uuid4(), **kwargs)
+
+
+def _create_session_recording_event(**kwargs):
+    create_session_recording_event(
+        uuid=uuid4(), **kwargs,
+    )
 
 
 class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
+    def _create_session_recording_snapshot(self, distinct_id, session_id, timestamp, type=2):
+        _create_session_recording_event(
+            team_id=self.team.pk,
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            session_id=session_id,
+            snapshot_data={"timestamp": timestamp.timestamp(), "type": type},
+        )
+
+    def _create_sample_data(self):
+        for i in range(110):
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+
     def _create_sample_data_multiple_dropoffs(self):
         for i in range(5):
             _create_person(distinct_ids=[f"user_{i}"], team=self.team)
@@ -159,13 +184,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
         self.assertEqual(10, len(results))
 
-    def _create_sample_data(self):
-        for i in range(110):
-            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
-            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
-
     def test_basic_offset(self):
         self._create_sample_data()
         data = {
@@ -276,3 +294,53 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(data=filters)
         results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
         self.assertEqual(results[0][0], person.uuid)
+
+    def test_first_step_with_session_recordings(self):
+        filter = Filter(
+            data={
+                "insight": INSIGHT_FUNNELS,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "funnel_window_days": 7,
+                "funnel_step": 1,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+        )
+        with freeze_time("2021-04-20"):
+            person = _create_person(distinct_ids=["user_1"], team=self.team)
+        _create_event(event="step one", distinct_id="user_1", team=self.team, timestamp="2021-05-01 00:00:00")
+        _create_event(event="step two", distinct_id="user_1", team=self.team, timestamp="2021-05-03 00:00:00")
+        _create_event(event="step three", distinct_id="user_1", team=self.team, timestamp="2021-05-05 00:00:00")
+        self._create_session_recording_snapshot("user_1", "444", datetime.fromisoformat("2021-05-03T01:00:00"))
+        self._create_session_recording_snapshot("user_1", "444", datetime.fromisoformat("2021-05-03T01:01:00"))
+        self._create_session_recording_snapshot("user_1", "444", datetime.fromisoformat("2021-05-03T01:02:00"))
+        serialized_persons, _ = ClickhouseFunnelPersons(filter, self.team).run()
+        self.assertListEqual(
+            [
+                {
+                    "id": person.id,
+                    "name": "user_1",
+                    "distinct_ids": ["user_1"],
+                    "properties": {},
+                    "is_identified": False,
+                    "created_at": "2021-04-20T00:00:00Z",
+                    "uuid": str(person.uuid),
+                    "session_recordings": [
+                        {
+                            "id": "444",
+                            "person_id": str(person.uuid),
+                            "start_time": "2021-05-03T01:00:00+00:00",
+                            "end_time": "2021-05-03T01:02:00+00:00",
+                            "recording_duration": 120,
+                            "viewed": False,
+                        }
+                    ],
+                }
+            ],
+            list(map(dict, serialized_persons)),
+        )

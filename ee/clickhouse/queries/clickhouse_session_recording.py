@@ -67,7 +67,9 @@ SESSIONS_FOR_FUNNEL_PERSONS_QUERY = """
         AND timestamp <= %(end_time)s
         AND has(%(distinct_ids)s, distinct_id)
     GROUP BY person_id, session_id
-    HAVING full_snapshots > 0"""
+    HAVING full_snapshots > 0""".format(
+    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
+)
 
 
 class SessionRecording(BaseSessionRecording):
@@ -88,7 +90,7 @@ def query_sessions_for_funnel_persons(
     team: Team, start_time: datetime.datetime, end_time: datetime.datetime, distinct_ids: List[DistinctId]
 ) -> List[dict]:
     results = sync_execute(
-        SESSIONS_FOR_FUNNEL_PERSONS_QUERY.format(GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS),
+        SESSIONS_FOR_FUNNEL_PERSONS_QUERY,
         {
             "team_id": team.id,
             "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S.%f"),

@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple, cast
 
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -13,10 +13,12 @@ from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFun
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
-from posthog.api.utils import format_next_url, format_offset_absolute_url
-from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
+from posthog.api.utils import format_offset_absolute_url
+from posthog.constants import FunnelVizType
 from posthog.decorators import cached_function
 from posthog.models import Event, Filter, Person
+from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class ClickhousePersonViewSet(PersonViewSet):
@@ -52,14 +54,15 @@ class ClickhousePersonViewSet(PersonViewSet):
         if request.user.is_anonymous or not request.user.team:
             return {"result": ([], None, None)}
 
-        team = request.user.team
+        user = cast(User, request.user)
+        team = cast(Team, user.team)
         filter = Filter(request=request)
         funnel_class: Callable = ClickhouseFunnelPersons
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             funnel_class = ClickhouseFunnelTrendsPersons
 
-        people, should_paginate = funnel_class(filter, team).run()
+        people, should_paginate = funnel_class(filter, team, user=user).run()
         limit = filter.limit if filter.limit else 100
         next_url = format_offset_absolute_url(request, filter.offset + limit) if should_paginate else None
         initial_url = format_offset_absolute_url(request, 0)

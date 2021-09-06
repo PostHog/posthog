@@ -55,7 +55,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     """
 
     def __init__(
-        self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+        self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel, **kwargs
     ) -> None:
 
         super().__init__(filter, team)

@@ -1,13 +1,24 @@
 import datetime as dt
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List, Optional, cast
 
 from ee.clickhouse.queries.clickhouse_session_recording import query_sessions_for_funnel_persons
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
-from posthog.models import Person
+from posthog.models.filters.filter import Filter
+from posthog.models.person import Person
+from posthog.models.session_recording_event import SessionRecordingViewed
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.queries.sessions.session_recording import collect_matching_recordings
 
 
 class ClickhouseFunnelPersons(ClickhouseFunnel):
+    _user: Optional[User]
+
+    def __init__(self, filter: Filter, team: Team, user: Optional[User] = None) -> None:
+        super().__init__(filter, team)
+        self._user = user
+
     def get_query(self):
         return FUNNEL_PERSONS_BY_STEP_SQL.format(
             offset=self._filter.offset,
@@ -29,19 +40,32 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
             persons_uuid_map[str(person["uuid"])] = person
             all_distinct_ids.extend(person["distinct_ids"])
 
+        window_timedelta = dt.timedelta(
+            **{(self._filter.funnel_window_interval_unit or "day") + "s": self._filter.funnel_window_interval or 14}
+        )
         session_recordings = query_sessions_for_funnel_persons(
             self._team,
             cast(dt.datetime, self._filter.date_from),
-            cast(dt.datetime, self._filter.date_to)
-            + dt.timedelta(
-                **{(self._filter.funnel_window_interval_unit or "day") + "s": self._filter.funnel_window_interval or 14}
-            ),
+            cast(dt.datetime, self._filter.date_to) + window_timedelta,
             all_distinct_ids,
         )
-        for row in session_recordings:
-            person_uuid = str(row["person_id"])
-            if not "session_recordings" in persons_uuid_map[person_uuid]:
-                persons_uuid_map[person_uuid]["session_recordings"] = []
-            persons_uuid_map[person_uuid]["session_recordings"].append(row)
+        if session_recordings:
+            viewed_session_recordings = (
+                set(
+                    SessionRecordingViewed.objects.filter(team=self._team, user_id=self._user.id).values_list(
+                        "session_id", flat=True
+                    )
+                )
+                if self._user is not None
+                else set()
+            )
+            for row in collect_matching_recordings(None, session_recordings, None, viewed_session_recordings):
+                row["person_id"] = str(row["person_id"])
+                row["start_time"] = row["start_time"].isoformat()
+                row["end_time"] = row["end_time"].isoformat()
+                person_uuid = row["person_id"]
+                if not "session_recordings" in persons_uuid_map[person_uuid]:
+                    persons_uuid_map[person_uuid]["session_recordings"] = []
+                persons_uuid_map[person_uuid]["session_recordings"].append(row)
 
         return persons_serialized, len(results) > cast(int, self._filter.limit) - 1
