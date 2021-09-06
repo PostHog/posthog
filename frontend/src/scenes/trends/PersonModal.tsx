@@ -2,20 +2,19 @@ import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { parsePeopleParams } from 'scenes/trends/trendsLogic'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
-import { Modal, Button, Spin, Input, Skeleton } from 'antd'
+import { Modal, Button, Input, Skeleton } from 'antd'
 import { FilterType, PersonType, ViewType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
-import { Link } from 'lib/components/Link'
 import './PersonModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ExpandIcon, ExpandIconProps } from 'lib/components/ExpandIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { urls } from '../sceneLogic'
 import { SessionRecordingsButton } from '../sessions/SessionRecordingsButton'
+import { PersonHeader } from '../persons/PersonHeader'
 
 export interface PersonModalProps {
     visible: boolean
@@ -49,7 +48,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                 <PropertyKeyInfo value={people?.label || ''} disablePopover />
             ) : filters.insight === ViewType.FUNNELS ? (
                 <>
-                    Persons who {(people?.funnelStep ?? 0) >= 0 ? 'completed' : 'dropped off at'} step #
+                    {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step
                     {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
                     {people?.breakdown_value !== undefined &&
                         `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
@@ -158,7 +157,9 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                 }}
                             >
                                 <Button type="primary" style={{ color: 'white' }} onClick={loadMorePeople}>
-                                    {loadingMorePeople ? <Spin /> : 'Load more people'}
+                                    {' '}
+                                    loading={loadingMorePeople}
+                                    Load more people
                                 </Button>
                             </div>
                         )}
@@ -189,12 +190,11 @@ export function PersonRow({ person }: PersonRowProps): JSX.Element {
                 <div className="person-row-info">
                     <ExpandIcon {...expandProps} />
                     <div className="person-ids">
-                        <Link to={urls.person(person.distinct_ids[0])} className="text-default">
-                            <strong>{person.properties.email}</strong>
-                        </Link>
+                        <strong>
+                            <PersonHeader person={person} withIcon={false} />
+                        </strong>
                         <CopyToClipboardInline
                             explicitValue={person.distinct_ids[0]}
-                            description="person distinct ID"
                             iconStyle={{ color: 'var(--primary)' }}
                             iconPosition="end"
                             className="text-small text-muted-alt"

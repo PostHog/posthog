@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 type RoutePart = string | Record<string, any>
 
 export interface LinkProps extends React.HTMLProps<HTMLAnchorElement> {
-    to: string | [string, RoutePart?, RoutePart?]
+    to?: string | [string, RoutePart?, RoutePart?]
     preventClick?: boolean
     tag?: string | React.FunctionComponentElement<any>
 }

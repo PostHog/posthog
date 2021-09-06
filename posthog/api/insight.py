@@ -80,6 +80,7 @@ class InsightSerializer(InsightBasicSerializer):
             "order",
             "deleted",
             "dashboard",
+            "dive_dashboard",
             "layouts",
             "color",
             "last_refresh",
