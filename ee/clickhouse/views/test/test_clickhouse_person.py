@@ -19,20 +19,7 @@ def _get_events():
 
 
 def _create_person(**kwargs):
-    postgres_person: Person = Person.objects.create(**kwargs)
-    sync_execute(
-        """
-        INSERT INTO person (id, created_at, team_id, properties, is_identified)
-        VALUES (%(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s)""",
-        {
-            "id": postgres_person.uuid,
-            "created_at": postgres_person.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "team_id": postgres_person.team_id,
-            "properties": json.dumps(postgres_person.properties),
-            "is_identified": int(postgres_person.is_identified),
-        },
-    )
-    return postgres_person
+    return Person.objects.create(**kwargs)
 
 
 class ClickhouseTestPersonApi(
