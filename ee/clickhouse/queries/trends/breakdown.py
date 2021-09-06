@@ -186,7 +186,12 @@ class ClickhouseTrendsBreakdown:
 
     def _breakdown_prop_params(self, aggregate_operation: str, math_params: Dict):
         values_arr = get_breakdown_prop_values(
-            self.filter, self.entity, aggregate_operation, self.team_id, extra_params=math_params
+            self.filter,
+            self.entity,
+            aggregate_operation,
+            self.team_id,
+            extra_params=math_params,
+            column_optimizer=self.column_optimizer,
         )
 
         # :TRICKY: We only support string breakdown for event/person properties

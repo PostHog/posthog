@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
@@ -16,7 +17,13 @@ ALL_USERS_COHORT_ID = 0
 
 
 def get_breakdown_prop_values(
-    filter: Filter, entity: Entity, aggregate_operation: str, team_id: int, limit: int = 25, extra_params={}
+    filter: Filter,
+    entity: Entity,
+    aggregate_operation: str,
+    team_id: int,
+    limit: int = 25,
+    extra_params={},
+    column_optimizer: Optional[ColumnOptimizer] = None,
 ):
     "Returns the top N breakdown prop values for event/person breakdown"
 
@@ -43,7 +50,7 @@ def get_breakdown_prop_values(
     )
 
     person_join_clauses = ""
-    person_query = ClickhousePersonQuery(filter, team_id)
+    person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer)
     if person_query.is_used:
         person_join_clauses = f"""
             INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON e.distinct_id = pdi.distinct_id
