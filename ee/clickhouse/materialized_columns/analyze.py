@@ -40,13 +40,14 @@ class TeamManager:
 
 
 class Query:
-    def __init__(self, query_string: str, query_time_ms: float):
+    def __init__(self, query_string: str, query_time_ms: float, min_query_time=MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME):
         self.query_string = query_string
         self.query_time_ms = query_time_ms
+        self.min_query_time = min_query_time
 
     @property
     def cost(self) -> int:
-        return int((self.query_time_ms - MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME) / 1000) + 1
+        return int((self.query_time_ms - self.min_query_time) / 1000) + 1
 
     @cached_property
     def is_valid(self):
@@ -73,7 +74,7 @@ class Query:
                 yield "events", property
 
 
-def get_queries(since_hours_ago: int) -> List[Query]:
+def get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
     "Finds queries that have happened since cutoff that were slow"
 
     raw_queries = sync_execute(
@@ -91,9 +92,9 @@ def get_queries(since_hours_ago: int) -> List[Query]:
             AND query_duration_ms > %(min_query_time)s
         ORDER BY query_duration_ms desc
         """,
-        {"since": since_hours_ago, "min_query_time": MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME},
+        {"since": since_hours_ago, "min_query_time": min_query_time},
     )
-    return [Query(query, query_duration_ms) for query, query_duration_ms in raw_queries]
+    return [Query(query, query_duration_ms, min_query_time) for query, query_duration_ms in raw_queries]
 
 
 def analyze(queries: List[Query]) -> List[Suggestion]:
@@ -121,16 +122,24 @@ def analyze(queries: List[Query]) -> List[Suggestion]:
 def materialize_properties_task(
     time_to_analyze_hours: int = MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     maximum: int = MATERIALIZE_COLUMNS_MAX_AT_ONCE,
+    min_query_time: int = MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
+    backfill_period_days: int = MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
+    dry_run: bool = False,
 ) -> None:
     """
     Creates materialized columns for event and person properties based off of slow queries
     """
-    analysis_results = analyze(get_queries(time_to_analyze_hours))
+    analysis_results = analyze(get_queries(time_to_analyze_hours, min_query_time))
     result = []
     for suggestion in analysis_results:
         table, property_name, _ = suggestion
         if property_name not in get_materialized_columns(table):
             result.append(suggestion)
+
+    if len(result) > 0:
+        logger.info(f"Calculated columns that could be materialized. count={len(result)}")
+    else:
+        logger.info("Found no columns to materialize.")
 
     properties: Dict[TableWithProperties, List[PropertyName]] = {
         "events": [],
@@ -139,13 +148,11 @@ def materialize_properties_task(
     for table, property_name, cost in result[:maximum]:
         logger.info(f"Materializing column. table={table}, property_name={property_name}, cost={cost}")
 
-        materialize(table, property_name)
+        if not dry_run:
+            materialize(table, property_name)
         properties[table].append(property_name)
 
-    if MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS > 0:
-        backfill_materialized_columns(
-            "events", properties["events"], timedelta(days=MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS)
-        )
-        backfill_materialized_columns(
-            "person", properties["person"], timedelta(days=MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS)
-        )
+    if backfill_period_days > 0 and not dry_run:
+        logger.info(f"Starting backfill for new materialized columns. period_days={backfill_period_days}")
+        backfill_materialized_columns("events", properties["events"], timedelta(days=backfill_period_days))
+        backfill_materialized_columns("person", properties["person"], timedelta(days=backfill_period_days))
