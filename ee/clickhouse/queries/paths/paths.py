@@ -1,4 +1,4 @@
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -90,7 +90,7 @@ class ClickhousePathsNew:
 
     def get_target_point_filter(self) -> Tuple[str, Dict]:
         conditions = []
-        params = {"target_point": None}
+        params: Dict[str, Union[str, None]] = {"target_point": None}
 
         if self._filter.end_point and self._filter.start_point:
             conditions.append("arrayElement(limited_path, -1) = %(target_point)s")
