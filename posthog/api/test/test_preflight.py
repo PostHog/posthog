@@ -6,7 +6,6 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.constants import RDBMS
-from posthog.models import User
 from posthog.models.organization import Organization, OrganizationInvite
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
@@ -33,7 +32,12 @@ class TestPreflight(APIBaseTest):
                 "initiated": True,
                 "cloud": False,
                 "realm": "hosted",
-                "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
+                "available_social_auth_providers": {
+                    "google-oauth2": False,
+                    "github": False,
+                    "gitlab": False,
+                    "saml": False,
+                },
                 "can_create_org": False,
             },
         )
@@ -59,7 +63,12 @@ class TestPreflight(APIBaseTest):
                     "ee_available": settings.EE_AVAILABLE,
                     "is_clickhouse_enabled": False,
                     "db_backend": "postgres",
-                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
+                    "available_social_auth_providers": {
+                        "google-oauth2": False,
+                        "github": False,
+                        "gitlab": False,
+                        "saml": False,
+                    },
                     "opt_out_capture": False,
                     "posthog_version": VERSION,
                     "email_service_available": False,
@@ -92,7 +101,12 @@ class TestPreflight(APIBaseTest):
                     "initiated": True,
                     "cloud": True,
                     "realm": "cloud",
-                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
+                    "available_social_auth_providers": {
+                        "google-oauth2": False,
+                        "github": False,
+                        "gitlab": False,
+                        "saml": False,
+                    },
                     "can_create_org": True,
                 },
             )
@@ -119,7 +133,12 @@ class TestPreflight(APIBaseTest):
                     "ee_available": True,
                     "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
-                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False},
+                    "available_social_auth_providers": {
+                        "google-oauth2": False,
+                        "github": False,
+                        "gitlab": False,
+                        "saml": False,
+                    },
                     "opt_out_capture": False,
                     "posthog_version": VERSION,
                     "email_service_available": False,
@@ -160,7 +179,12 @@ class TestPreflight(APIBaseTest):
                     "ee_available": True,
                     "is_clickhouse_enabled": True,
                     "db_backend": "clickhouse",
-                    "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False},
+                    "available_social_auth_providers": {
+                        "google-oauth2": True,
+                        "github": False,
+                        "gitlab": False,
+                        "saml": False,
+                    },
                     "opt_out_capture": False,
                     "posthog_version": VERSION,
                     "email_service_available": True,
@@ -172,6 +196,43 @@ class TestPreflight(APIBaseTest):
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+
+    @pytest.mark.ee
+    @pytest.mark.skip_on_multitenancy
+    def test_ee_preflight_with_saml(self):
+
+        from ee.models.license import License, LicenseManager
+
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        self.client.logout()  # make sure it works anonymously
+
+        with self.settings(PRIMARY_DB=RDBMS.CLICKHOUSE, SAML_CONFIGURED=True):
+            response = self.client.get("/_preflight/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(
+                response.json(),
+                {
+                    "django": True,
+                    "redis": True,
+                    "plugins": True,
+                    "celery": True,
+                    "db": True,
+                    "initiated": True,
+                    "cloud": False,
+                    "realm": "hosted-clickhouse",
+                    "available_social_auth_providers": {
+                        "google-oauth2": False,
+                        "github": False,
+                        "gitlab": False,
+                        "saml": True,
+                    },
+                    "can_create_org": False,
+                },
+            )
 
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy

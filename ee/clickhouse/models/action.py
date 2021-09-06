@@ -113,14 +113,14 @@ def get_action_tables_and_properties(action: Action) -> Set[Tuple[PropertyName, 
     for action_step in action.steps.all():
         if action_step.url:
             result.add(("$current_url", "event"))
-        result |= extract_tables_and_properties(Filter(data={"properties": action_step.properties}).properties)
+        result |= extract_tables_and_properties(Filter(data={"properties": action_step.properties or []}).properties)
 
     return result
 
 
 def uses_elements_chain(action: Action) -> bool:
     for action_step in action.steps.all():
-        if any(Property(**prop).type == "element" for prop in action_step.properties):
+        if any(Property(**prop).type == "element" for prop in (action_step.properties or [])):
             return True
         if any(getattr(action_step, attribute) is not None for attribute in ["selector", "tag_name", "href", "text"]):
             return True

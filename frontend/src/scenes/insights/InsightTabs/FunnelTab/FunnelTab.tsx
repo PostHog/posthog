@@ -44,8 +44,6 @@ export function FunnelTab(): JSX.Element {
         closeModal()
     }
 
-    console.log('Small screen', isSmallScreen)
-
     return (
         <>
             <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">

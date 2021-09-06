@@ -15,7 +15,6 @@ import {
     FunnelResult,
     FunnelStep,
     FunnelsTimeConversionBins,
-    FunnelTimeConversionStep,
     PersonType,
     ViewType,
     FunnelStepWithNestedBreakdown,
@@ -26,7 +25,7 @@ import {
     BinCountValue,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
-    FunnelExclusionEntityFilter,
+    FunnelStepRangeEntityFilter,
 } from '~/types'
 import { FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -37,7 +36,7 @@ import {
     deepCleanFunnelExclusionEvents,
     EMPTY_FUNNEL_RESULTS,
     formatDisplayPercentage,
-    getClampedExclusionFilter,
+    getClampedStepRangeFilter,
     getLastFilledStep,
     getReferenceStep,
     isBreakdownFunnelResults,
@@ -111,7 +110,7 @@ export const funnelLogic = kea<funnelLogicType>({
             mergeWithExisting,
         }),
         setEventExclusionFilters: (filters: Partial<FilterType>) => ({ filters }),
-        setOneEventExclusionFilter: (eventFilter: FunnelExclusionEntityFilter, index: number) => ({
+        setOneEventExclusionFilter: (eventFilter: FunnelStepRangeEntityFilter, index: number) => ({
             eventFilter,
             index,
         }),
@@ -127,7 +126,10 @@ export const funnelLogic = kea<funnelLogicType>({
             breakdown_value,
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
-        changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
+        changeStepRange: (funnel_from_step?: number, funnel_to_step?: number) => ({
+            funnel_from_step,
+            funnel_to_step,
+        }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
     }),
@@ -246,21 +248,22 @@ export const funnelLogic = kea<funnelLogicType>({
                     // make sure exclusion steps are clamped within new step range
                     const newFilters = {
                         ...filters,
+                        ...getClampedStepRangeFilter({ filters: { ...state, ...filters } }),
                         exclusions: (filters.exclusions || state.exclusions || []).map((e) =>
-                            getClampedExclusionFilter(e, filters)
+                            getClampedStepRangeFilter({ stepRange: e, filters })
                         ),
                     }
                     return mergeWithExisting ? { ...state, ...newFilters } : newFilters
                 },
                 setEventExclusionFilters: (state, { filters }) => ({
                     ...state,
-                    exclusions: filters.events as FunnelExclusionEntityFilter[],
+                    exclusions: filters.events as FunnelStepRangeEntityFilter[],
                 }),
                 setOneEventExclusionFilter: (state, { eventFilter, index }) => ({
                     ...state,
                     exclusions: state.exclusions
                         ? state.exclusions.map((e, e_i) =>
-                              e_i === index ? getClampedExclusionFilter(eventFilter, state) : e
+                              e_i === index ? getClampedStepRangeFilter({ stepRange: eventFilter, filters: state }) : e
                           )
                         : [],
                 }),
@@ -292,12 +295,6 @@ export const funnelLogic = kea<funnelLogicType>({
             FunnelStepReference.total as FunnelStepReference,
             {
                 setStepReference: (_, { stepReference }) => stepReference,
-            },
-        ],
-        histogramStep: [
-            { from_step: -1, to_step: -1 } as FunnelTimeConversionStep,
-            {
-                changeHistogramStep: (_, { from_step, to_step }) => ({ from_step, to_step }),
             },
         ],
         isGroupingOutliers: [
@@ -392,40 +389,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 })
             },
         ],
-        histogramStepsDropdown: [
-            () => [selectors.stepsWithCount, selectors.conversionMetrics],
-            (stepsWithCount, conversionMetrics) => {
-                const stepsDropdown: FunnelTimeConversionStep[] = []
-
-                if (stepsWithCount.length > 1) {
-                    stepsDropdown.push({
-                        label: 'All steps',
-                        from_step: -1,
-                        to_step: -1,
-                        count: stepsWithCount[stepsWithCount.length - 1].count,
-                        average_conversion_time: conversionMetrics.averageTime,
-                    })
-                }
-
-                // Don't show steps 1 -> 2 if there's only two steps
-                if (stepsWithCount.length === 2) {
-                    return stepsDropdown
-                }
-
-                stepsWithCount.forEach((_, idx) => {
-                    if (stepsWithCount[idx + 1]) {
-                        stepsDropdown.push({
-                            label: `Steps ${idx + 1} and ${idx + 2}`,
-                            from_step: idx,
-                            to_step: idx + 1,
-                            count: stepsWithCount[idx + 1].count,
-                            average_conversion_time: stepsWithCount[idx + 1].average_conversion_time ?? 0,
-                        })
-                    }
-                })
-                return stepsDropdown
-            },
-        ],
         areFiltersValid: [
             () => [selectors.numberOfSeries],
             (numberOfSeries) => {
@@ -437,8 +400,8 @@ export const funnelLogic = kea<funnelLogicType>({
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
         conversionMetrics: [
-            () => [selectors.stepsWithCount, selectors.histogramStep],
-            (stepsWithCount, timeStep): FunnelTimeConversionMetrics => {
+            () => [selectors.stepsWithCount, selectors.filters],
+            (stepsWithCount, filters): FunnelTimeConversionMetrics => {
                 if (stepsWithCount.length <= 1) {
                     return {
                         averageTime: 0,
@@ -447,11 +410,13 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 }
 
-                const isAllSteps = timeStep.from_step === -1
+                const isAllSteps = filters.funnel_from_step === -1
                 const fromStep = isAllSteps
                     ? getReferenceStep(stepsWithCount, FunnelStepReference.total)
-                    : stepsWithCount[timeStep.from_step]
-                const toStep = isAllSteps ? getLastFilledStep(stepsWithCount) : stepsWithCount[timeStep.to_step]
+                    : stepsWithCount[filters.funnel_from_step ?? 0]
+                const toStep = isAllSteps
+                    ? getLastFilledStep(stepsWithCount)
+                    : stepsWithCount[filters.funnel_to_step ?? 0]
 
                 return {
                     averageTime: toStep?.average_conversion_time || 0,
@@ -582,7 +547,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         exclusionDefaultStepRange: [
             () => [selectors.numberOfSeries, selectors.areFiltersValid],
-            (numberOfSeries, areFiltersValid): Omit<FunnelExclusionEntityFilter, 'id' | 'name'> => ({
+            (numberOfSeries, areFiltersValid): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
                 funnel_from_step: 0,
                 funnel_to_step: areFiltersValid ? numberOfSeries - 1 : 1,
             }),
@@ -671,14 +636,10 @@ export const funnelLogic = kea<funnelLogicType>({
                 funnelStep: stepNumber,
             })
         },
-        changeHistogramStep: async () => {
-            // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
-            // for all steps
-            const isAllSteps = values.histogramStep.from_step === -1
-
+        changeStepRange: ({ funnel_from_step, funnel_to_step }) => {
             actions.setFilters({
-                ...(!isAllSteps ? { funnel_from_step: values.histogramStep.from_step } : {}),
-                ...(!isAllSteps ? { funnel_to_step: values.histogramStep.to_step } : {}),
+                funnel_from_step,
+                funnel_to_step,
             })
         },
         setBinCount: async () => {

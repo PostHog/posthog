@@ -97,6 +97,11 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             },
             fixed: 'left',
             width: 150,
+            sorter: (a, b) => {
+                const labelA = formatBreakdownLabel(a.breakdown_value, cohorts)
+                const labelB = formatBreakdownLabel(b.breakdown_value, cohorts)
+                return labelA.localeCompare(labelB)
+            },
         })
     }
 
@@ -120,6 +125,11 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         },
         fixed: 'left',
         width: 200,
+        sorter: (a, b) => {
+            const labelA = a.action?.name || a.label || ''
+            const labelB = b.action?.name || b.label || ''
+            return labelA.localeCompare(labelB)
+        },
     })
 
     if (indexedResults?.length > 0) {

@@ -1,13 +1,14 @@
 import random
 from datetime import timedelta
 from time import sleep
+from unittest.mock import patch
 from uuid import uuid4
 
 from freezegun import freeze_time
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import (
-    backfill_materialized_events_column,
+    backfill_materialized_columns,
     get_materialized_columns,
     materialize,
 )
@@ -80,7 +81,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(get_materialized_columns("person"), {"SoMePrOp": "pmat_SoMePrOp"})
 
-    def test_backfilling_data(self):
+    @patch("ee.tasks.materialized_column_backfill.check_backfill_done")
+    def test_backfilling_data(self, _):
         sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_prop")
         sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_another")
 
@@ -120,8 +122,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         self.assertEqual(self._count_materialized_rows("mat_another"), 0)
 
         with freeze_time("2021-05-10T14:00:01Z"):
-            backfill_materialized_events_column(
-                ["prop", "another"], timedelta(days=50), test_settings={"mutations_sync": "0"}
+            backfill_materialized_columns(
+                "events", ["prop", "another"], timedelta(days=50), test_settings={"mutations_sync": "0"}
             )
 
         _create_event(
