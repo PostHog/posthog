@@ -23,7 +23,7 @@ def get_entity_filtering_params(
             team_id,
             table_name=table_name,
             person_properties_column=person_properties_column,
-            prepend=f"e_{entity.index}",
+            prepend=f"entity",
         )
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
