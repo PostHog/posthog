@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Type
 import pytz
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
-from django.db import connection, models, transaction
+from django.db import models
 from django.dispatch.dispatcher import receiver
 
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -140,10 +140,7 @@ class Team(UUIDClassicModel):
 
 @receiver(models.signals.pre_delete, sender=Team)
 def team_deleted(sender: Type[Team], instance: Team, **kwargs):
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM posthog_cohort WHERE team_id = %s", [instance.id])
-            cursor.execute("DELETE FROM posthog_persondistinctid WHERE team_id = %s", [instance.id])
-            cursor.execute("DELETE FROM posthog_person WHERE team_id = %s", [instance.id])
-            cursor.execute("DELETE FROM posthog_event WHERE team_id = %s", [instance.id])
-            cursor.execute("DELETE FROM posthog_elementgroup WHERE team_id = %s", [instance.id])
+    instance.event_set.all().delete()
+    instance.elementgroup_set.all().delete()
+    instance.person_set.all().delete()
+    instance.persondistinctid_set.all().delete()
