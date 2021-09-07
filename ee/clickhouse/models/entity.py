@@ -11,8 +11,8 @@ def get_entity_filtering_params(
     team_id: int,
     table_name: str = "",
     *,
+    person_properties_column: str,
     with_prop_filters: bool = False,
-    person_properties_column: Optional[str] = None,
 ) -> Tuple[Dict, Dict]:
     params: Dict[str, Any] = {}
     content_sql_params: Dict[str, str]
