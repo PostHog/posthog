@@ -868,7 +868,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 "date_to": "2021-05-07 00:00:00",
             }
         )
-        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
         self.assertEqual(
             response, [{"source": "1_/5", "target": "2_/about", "value": 2, "average_conversion_time": 60000.0}]
         )
