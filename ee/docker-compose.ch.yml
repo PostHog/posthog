@@ -33,14 +33,26 @@ services:
     zookeeper:
         image: wurstmeister/zookeeper
     kafka:
-        image: wurstmeister/kafka
-        depends_on:
-            - zookeeper
+        command:
+            - redpanda
+            - start
+            - --smp
+            - '1'
+            - --reserve-memory
+            - 0M
+            - --overprovisioned
+            - --node-id
+            - '0'
+            - --kafka-addr
+            - PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+            - --advertise-kafka-addr
+            - PLAINTEXT://kafka:29092,OUTSIDE://kafka:9092
+            # NOTE: Please use the latest version here!
+        image: docker.vectorized.io/vectorized/redpanda:v21.8.1
+        container_name: redpanda-1
         ports:
-            - '9092:9092'
-        environment:
-            KAFKA_ADVERTISED_HOST_NAME: kafka
-            KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+            - 9092:9092
+            - 29092:29092
     worker: &worker
         build:
             context: ../
