@@ -393,7 +393,7 @@ class TestFeatureFlag(APIBaseTest):
     def test_create_override(self):
         response = self.client.get("/api/feature_flag_overrides")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"count": 0, "next": None, "previous": None, "results": []})
+        self.assertEqual(len(response.json()["results"]), 0)
 
         # Boolean override value
         feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")

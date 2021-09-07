@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import authentication, exceptions, mixins, request, serializers, status, viewsets
+from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -11,7 +11,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import FeatureFlag, feature_flag
+from posthog.models import FeatureFlag
 from posthog.models.feature_flag import FeatureFlagOverride, get_active_feature_flags
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
