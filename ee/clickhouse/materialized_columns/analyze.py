@@ -120,6 +120,7 @@ def analyze(queries: List[Query]) -> List[Suggestion]:
 
 
 def materialize_properties_task(
+    columns_to_materialize: Optional[List[Suggestion]] = None,
     time_to_analyze_hours: int = MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     maximum: int = MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     min_query_time: int = MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
@@ -129,9 +130,11 @@ def materialize_properties_task(
     """
     Creates materialized columns for event and person properties based off of slow queries
     """
-    analysis_results = analyze(get_queries(time_to_analyze_hours, min_query_time))
+
+    if columns_to_materialize is None:
+        columns_to_materialize = analyze(get_queries(time_to_analyze_hours, min_query_time))
     result = []
-    for suggestion in analysis_results:
+    for suggestion in columns_to_materialize:
         table, property_name, _ = suggestion
         if property_name not in get_materialized_columns(table):
             result.append(suggestion)

@@ -51,23 +51,22 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         logger.setLevel(logging.INFO)
 
-        dry_run: bool = options["dry_run"]
-        print(options)
-        if dry_run:
+        if options["dry_run"]:
             logger.warn("Dry run: No changes to the tables will be made!")
 
         if options.get("property"):
             logger.info(f"Materializing column. table={options['property_table']}, property_name={options['property']}")
 
-            if not dry_run:
-                materialize(options["property_table"], options["property"])
-
-            return
-
-        materialize_properties_task(
-            time_to_analyze_hours=options["analyze_period"],
-            maximum=options["max_columns"],
-            min_query_time=options["min_query_time"],
-            backfill_period_days=options["backfill_period"],
-            dry_run=dry_run,
-        )
+            materialize_properties_task(
+                columns_to_materialize=[(options["property_table"], options["property"], 0)],
+                backfill_period_days=options["backfill_period"],
+                dry_run=options["dry_run"],
+            )
+        else:
+            materialize_properties_task(
+                time_to_analyze_hours=options["analyze_period"],
+                maximum=options["max_columns"],
+                min_query_time=options["min_query_time"],
+                backfill_period_days=options["backfill_period"],
+                dry_run=options["dry_run"],
+            )
