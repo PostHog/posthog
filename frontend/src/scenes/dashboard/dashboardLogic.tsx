@@ -52,9 +52,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
         setRefreshError: (id: number) => ({ id }),
-        setPageTitle: ({ title }) => {
-            document.title = title ? `${title} • PostHog` : 'PostHog'
-        },
+        setPageTitle: (title: string) => ({ title }),
     },
 
     loaders: ({ actions, props }) => ({
@@ -564,6 +562,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     actions.refreshAllDashboardItems()
                 }, values.autoRefresh.interval * 1000)
             }
+        },
+        setPageTitle: ({ title }) => {
+            document.title = title ? `${title} • PostHog` : 'PostHog'
         },
     }),
 })
