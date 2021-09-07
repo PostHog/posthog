@@ -9,7 +9,7 @@ from django.utils.timezone import now
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.util import cache_for
 from posthog.models.property import PropertyName, TableWithProperties
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION, TEST
 
 ColumnName = str
 
@@ -35,6 +35,12 @@ def get_materialized_columns(table: TableWithProperties) -> Dict[PropertyName, C
 
 
 def materialize(table: TableWithProperties, property: PropertyName) -> None:
+    if property in get_materialized_columns(table, use_cache=False):
+        if TEST:
+            return
+
+        raise ValueError(f"Property already materialized. table={table}, property={property}")
+
     column_name = materialized_column_name(table, property)
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER {CLICKHOUSE_CLUSTER}" if table == "events" else ""
