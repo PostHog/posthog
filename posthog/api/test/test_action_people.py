@@ -363,7 +363,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-02T13:50:00Z",
             )
             event_factory(
-                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T15:50:00Z",
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-05T15:50:00Z",
             )
             calculate_actions_from_last_calculation()
             # test people
