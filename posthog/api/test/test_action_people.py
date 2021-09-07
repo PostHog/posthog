@@ -356,7 +356,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-03T12:00:00Z",
             )
             event_factory(
-                team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-03T20:00:00Z",
+                team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-04T20:00:00Z",
             )
             outside_range_person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
             event_factory(
