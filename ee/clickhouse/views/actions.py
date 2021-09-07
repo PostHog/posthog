@@ -1,9 +1,7 @@
 # NOTE: bad django practice but /ee specifically depends on /posthog so it should be fine
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -12,7 +10,7 @@ from rest_framework_csv import renderers as csvrenderers
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.queries.trends.person import calculate_entity_people, get_person_query
+from ee.clickhouse.queries.trends.person import TrendsPersonQuery
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_SQL,
     GET_TEAM_PERSON_DISTINCT_IDS,
@@ -53,7 +51,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         entity = get_target_entity(request)
 
         current_url = request.get_full_path()
-        serialized_people = calculate_entity_people(team, entity, filter)
+        serialized_people = TrendsPersonQuery(team, entity, filter).get_people()
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
@@ -191,7 +189,7 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
 =======
 >>>>>>> 19b3e130... Move api/action/people SQL code under ee/clickhouse/queries
 def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Filter):
-    content_sql, params = get_person_query(cohort.team, entity, filter)
+    content_sql, params = TrendsPersonQuery(cohort.team, entity, filter).get_events_query()
     sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
             cohort_table=PERSON_STATIC_COHORT_TABLE,

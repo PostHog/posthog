@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -27,22 +27,6 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 
 
-def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
-    content_sql, params = get_person_query(team, entity, filter)
-
-    people = sync_execute(
-        (PEOPLE_SQL if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] else PEOPLE_THROUGH_DISTINCT_SQL).format(
-            content_sql=content_sql,
-            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        ),
-        params,
-    )
-    serialized_people = ClickhousePersonSerializer(people, many=True).data
-
-    return serialized_people
-
-
 def _handle_date_interval(filter: Filter) -> Filter:
     # adhoc date handling. parsed differently with django orm
     date_from = filter.date_from or timezone.now()
@@ -62,48 +46,82 @@ def _handle_date_interval(filter: Filter) -> Filter:
     return Filter(data={**filter._data, **data})
 
 
-def get_person_query(team: Team, entity: Entity, filter: Filter):
+class TrendsPersonQuery:
+    def __init__(self, team: Team, entity: Entity, filter: Filter):
+        self.team = team
+        self.entity = entity
+        self.filter = filter
 
-    if filter.display != TRENDS_CUMULATIVE:
-        filter = _handle_date_interval(filter)
+        if self.filter.display != TRENDS_CUMULATIVE:
+            self.filter = _handle_date_interval(self.filter)
 
-    parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team.pk)
-    entity_sql, entity_params = format_entity_filter(entity=entity)
-    person_filter = ""
-    person_filter_params: Dict[str, Any] = {}
+    def get_events_query(self) -> Tuple[str, Dict]:
+        "Returns query + params for getting relevant distinct_ids/person_ids for this filter"
 
-    if filter.breakdown_type == "cohort" and filter.breakdown_value != "all":
-        cohort = Cohort.objects.get(pk=filter.breakdown_value)
-        person_filter, person_filter_params = format_filter_query(cohort)
-        person_filter = "AND distinct_id IN ({})".format(person_filter)
-    elif filter.breakdown_type and isinstance(filter.breakdown, str) and isinstance(filter.breakdown_value, str):
-        breakdown_prop = Property(key=filter.breakdown, value=filter.breakdown_value, type=filter.breakdown_type)
-        filter.properties.append(breakdown_prop)
+        parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=self.filter, team_id=self.team.pk)
+        entity_sql, entity_params = format_entity_filter(entity=self.entity)
+        person_filter = ""
+        person_filter_params: Dict[str, Any] = {}
 
-    prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
-    )
-    params: Dict = {"team_id": team.pk, **prop_filter_params, **entity_params, "offset": filter.offset}
+        if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
+            cohort = Cohort.objects.get(pk=self.filter.breakdown_value)
+            person_filter, person_filter_params = format_filter_query(cohort)
+            person_filter = "AND distinct_id IN ({})".format(person_filter)
+        elif (
+            self.filter.breakdown_type
+            and isinstance(self.filter.breakdown, str)
+            and isinstance(self.filter.breakdown_value, str)
+        ):
+            breakdown_prop = Property(
+                key=self.filter.breakdown, value=self.filter.breakdown_value, type=self.filter.breakdown_type
+            )
+            self.filter.properties.append(breakdown_prop)
 
-    if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-        active_user_params = get_active_user_params(filter, entity, team.pk)
-        content_sql = PERSONS_ACTIVE_USER_SQL.format(
-            entity_query=f"AND {entity_sql}",
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-            filters=prop_filters,
-            breakdown_filter="",
-            person_filter=person_filter,
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-            **active_user_params,
+        prop_filters, prop_filter_params = parse_prop_clauses(
+            self.filter.properties, self.team.pk, filter_test_accounts=self.filter.filter_test_accounts
         )
-    else:
-        content_sql = PERSON_TREND_SQL.format(
-            entity_filter=f"AND {entity_sql}",
-            parsed_date_from=parsed_date_from,
-            parsed_date_to=parsed_date_to,
-            filters=prop_filters,
-            breakdown_filter="",
-            person_filter=person_filter,
+        params: Dict = {
+            "team_id": self.team.pk,
+            **prop_filter_params,
+            **entity_params,
+            **person_filter_params,
+            "offset": self.filter.offset,
+        }
+
+        if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+            active_user_params = get_active_user_params(self.filter, self.entity, self.team.pk)
+            content_sql = PERSONS_ACTIVE_USER_SQL.format(
+                entity_query=f"AND {entity_sql}",
+                parsed_date_from=parsed_date_from,
+                parsed_date_to=parsed_date_to,
+                filters=prop_filters,
+                breakdown_filter="",
+                person_filter=person_filter,
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+                **active_user_params,
+            )
+        else:
+            content_sql = PERSON_TREND_SQL.format(
+                entity_filter=f"AND {entity_sql}",
+                parsed_date_from=parsed_date_from,
+                parsed_date_to=parsed_date_to,
+                filters=prop_filters,
+                breakdown_filter="",
+                person_filter=person_filter,
+            )
+        return content_sql, params
+
+    def get_people(self) -> List[Dict]:
+        content_sql, params = self.get_query()
+
+        people = sync_execute(
+            (PEOPLE_SQL if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] else PEOPLE_THROUGH_DISTINCT_SQL).format(
+                content_sql=content_sql,
+                latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
+                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+            ),
+            params,
         )
-    return content_sql, {**params, **person_filter_params}
+        serialized_people = ClickhousePersonSerializer(people, many=True).data
+
+        return serialized_people
