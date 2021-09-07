@@ -146,6 +146,9 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
             "override_value",
         ]
 
+    _analytics_updated_event_name = "feature flag override updated"
+    _analytics_created_event_name = "feature flag override created"
+
     def validate_override_value(self, value):
         if not isinstance(value, str) and not isinstance(value, bool):
             raise serializers.ValidationError(
@@ -159,7 +162,23 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
             user=validated_data["user"],
             defaults={"override_value": validated_data["override_value"]},
         )
+        request = self.context["request"]
+        if created:
+            posthoganalytics.capture(
+                request.user.distinct_id, self._analytics_created_event_name,
+            )
+        else:
+            posthoganalytics.capture(
+                request.user.distinct_id, self._analytics_updated_event_name,
+            )
         return feature_flag_override
+
+    def update(self, instance: FeatureFlagOverride, validated_data: Dict) -> FeatureFlagOverride:
+        request = self.context["request"]
+        posthoganalytics.capture(
+            request.user.distinct_id, self._analytics_updated_event_name,
+        )
+        return super().update(instance, validated_data)
 
 
 class FeatureFlagOverrideViewset(
