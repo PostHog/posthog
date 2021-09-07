@@ -161,6 +161,7 @@
     }
 
     .scroll-indicator {
+        @extend %mixin-elevated;
         position: fixed;
         bottom: 16px;
         left: 30px;
@@ -170,7 +171,6 @@
         cursor: pointer;
         border-radius: $radius;
         transition: opacity 0.5s;
-        @extend .mixin-elevated;
 
         @media (max-width: 991px) {
             display: none;
@@ -235,13 +235,13 @@
 }
 
 .navigation-top {
+    @extend %mixin-elevated;
     background-color: $bg_light;
     width: calc(100vw - 80px);
     height: $top_nav_height;
     display: flex;
     align-items: center;
     border-bottom: 1px solid var(--border);
-    @extend .mixin-elevated;
     position: fixed;
     top: 0;
     z-index: $z_top_navigation;
@@ -345,7 +345,7 @@
 }
 
 .navigation-top-dropdown-overlay {
-    @extend .mixin-elevated;
+    @extend %mixin-elevated;
     position: fixed;
     border-radius: $button_radius;
     border: 1px solid var(--border);
