@@ -8,7 +8,7 @@ import { Placement } from '@popperjs/core'
 interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
-    children: React.ReactChild | ((props: { setRef?: (ref: HTMLElement) => void }) => JSX.Element)
+    children: React.ReactChild | ((props: { setRef: (ref: HTMLElement | null) => void }) => JSX.Element)
     overlay: React.ReactNode
     placement?: Placement
     fallbackPlacements?: Placement[]
@@ -70,7 +70,7 @@ export function Popup({
     const clonedChildren =
         typeof children === 'function'
             ? children({
-                  setRef: setReferenceElement as (ref: HTMLElement) => void,
+                  setRef: setReferenceElement as (ref: HTMLElement | null) => void,
               })
             : React.Children.toArray(children).map((child) =>
                   React.cloneElement(child as ReactElement, {
