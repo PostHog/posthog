@@ -62,9 +62,6 @@ function getSessionRecordingsDurationSum(session: SessionType): number {
 
 export const MATCHING_EVENT_ICON_SIZE = 26
 
-const enableSessionRecordingCTA =
-    'Session recording is turned off for this project. Go to the Project page using the sidebar to enable them.'
-
 export function SessionsView({ personIds, isPersonPage = false }: SessionsTableProps): JSX.Element {
     const logic = sessionsTableLogic({ personIds })
     const {
@@ -148,9 +145,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                 <Tooltip
                     title={
                         currentTeam?.session_recording_opt_in
-                            ? 'Replay sessions as if you were right beside your users.'
-                            : enableSessionRecordingCTA
+                            ? 'Replay sessions as if you were right next to your users.'
+                            : 'Session recording is turned off for this project. Click to go to settings.'
                     }
+                    delayMs={0}
                 >
                     <span style={{ whiteSpace: 'nowrap' }}>
                         {currentTeam?.session_recording_opt_in ? (
@@ -159,9 +157,9 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                 <QuestionCircleOutlined className="info-indicator" />
                             </>
                         ) : (
-                            <Link to={urls.projectSettings() + '#session-recording'}>
+                            <Link to={urls.projectSettings() + '#session-recording'} style={{ color: 'inherit' }}>
                                 Recordings
-                                <PoweroffOutlined className="info-indicator text-warning" />
+                                <PoweroffOutlined className="info-indicator" />
                             </Link>
                         )}
                     </span>
@@ -237,7 +235,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                 ? 'No recordings found for this date.'
                                 : currentTeam?.session_recording_opt_in
                                 ? 'Play all recordings found for this date.'
-                                : enableSessionRecordingCTA
+                                : 'Session recording is turned off for this project. Enable in Project Settings.'
                         }
                     >
                         <LinkButton
