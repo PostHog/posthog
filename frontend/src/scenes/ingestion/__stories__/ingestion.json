@@ -1,0 +1,1017 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/ingestion",
+                "search": "",
+                "hash": ""
+            },
+            "searchParams": {},
+            "hashParams": {}
+        }
+    },
+    "scenes": {
+        "userLogic": {
+            "user": {
+                "date_joined": "2021-09-07T07:58:17.108381Z",
+                "uuid": "017bbf43-ce14-0000-1df2-e1dc06c18758",
+                "distinct_id": "muxeRwmOrpqQtE04ypxkNr1R3ySRjOspEDWCVgIl7FV",
+                "first_name": "Marius Andra",
+                "email": "marius@posthog.com",
+                "email_opt_in": true,
+                "anonymize_data": false,
+                "toolbar_mode": "toolbar",
+                "has_password": true,
+                "is_staff": false,
+                "is_impersonated": false,
+                "team": {
+                    "id": 1,
+                    "uuid": "017bbf43-ce53-0000-2333-6846c6625142",
+                    "organization": "017bbf43-c990-0000-8ae8-4eab0a4b2e2f",
+                    "api_token": "phc_eHifeEcAW93pBBhGI0nN55sVEPJEY6rUHUObHuPF1Cz",
+                    "name": "Default Project",
+                    "completed_snippet_onboarding": false,
+                    "ingested_event": false,
+                    "is_demo": false,
+                    "timezone": "UTC"
+                },
+                "organization": {
+                    "id": "017bbf43-c990-0000-8ae8-4eab0a4b2e2f",
+                    "name": "PostHog",
+                    "created_at": "2021-09-07T07:58:15.969523Z",
+                    "updated_at": "2021-09-07T07:58:15.969544Z",
+                    "membership_level": 15,
+                    "personalization": {},
+                    "setup": {
+                        "is_active": false,
+                        "current_section": null
+                    },
+                    "plugins_access_level": 9,
+                    "teams": [
+                        {
+                            "id": 1,
+                            "uuid": "017bbf43-ce53-0000-2333-6846c6625142",
+                            "organization": "017bbf43-c990-0000-8ae8-4eab0a4b2e2f",
+                            "api_token": "phc_eHifeEcAW93pBBhGI0nN55sVEPJEY6rUHUObHuPF1Cz",
+                            "name": "Default Project",
+                            "completed_snippet_onboarding": false,
+                            "ingested_event": false,
+                            "is_demo": false,
+                            "timezone": "UTC"
+                        }
+                    ],
+                    "available_features": [],
+                    "domain_whitelist": [],
+                    "is_member_join_email_enabled": true
+                },
+                "organizations": [
+                    {
+                        "id": "017bbf43-c990-0000-8ae8-4eab0a4b2e2f",
+                        "name": "PostHog"
+                    }
+                ],
+                "events_column_config": {
+                    "active": "DEFAULT"
+                }
+            },
+            "userLoading": false
+        },
+        "PreflightCheck": {
+            "logic": {
+                "preflight": {
+                    "django": true,
+                    "redis": true,
+                    "plugins": true,
+                    "celery": true,
+                    "db": true,
+                    "initiated": true,
+                    "cloud": false,
+                    "realm": "hosted",
+                    "available_social_auth_providers": {
+                        "github": false,
+                        "gitlab": false,
+                        "google-oauth2": false,
+                        "saml": false
+                    },
+                    "can_create_org": false,
+                    "ee_available": true,
+                    "is_clickhouse_enabled": false,
+                    "db_backend": "postgres",
+                    "available_timezones": {
+                        "Africa/Abidjan": 0,
+                        "Africa/Accra": 0,
+                        "Africa/Addis_Ababa": 3,
+                        "Africa/Algiers": 1,
+                        "Africa/Asmara": 3,
+                        "Africa/Bamako": 0,
+                        "Africa/Bangui": 1,
+                        "Africa/Banjul": 0,
+                        "Africa/Bissau": 0,
+                        "Africa/Blantyre": 2,
+                        "Africa/Brazzaville": 1,
+                        "Africa/Bujumbura": 2,
+                        "Africa/Cairo": 2,
+                        "Africa/Casablanca": 1,
+                        "Africa/Ceuta": 2,
+                        "Africa/Conakry": 0,
+                        "Africa/Dakar": 0,
+                        "Africa/Dar_es_Salaam": 3,
+                        "Africa/Djibouti": 3,
+                        "Africa/Douala": 1,
+                        "Africa/El_Aaiun": 1,
+                        "Africa/Freetown": 0,
+                        "Africa/Gaborone": 2,
+                        "Africa/Harare": 2,
+                        "Africa/Johannesburg": 2,
+                        "Africa/Juba": 2,
+                        "Africa/Kampala": 3,
+                        "Africa/Khartoum": 2,
+                        "Africa/Kigali": 2,
+                        "Africa/Kinshasa": 1,
+                        "Africa/Lagos": 1,
+                        "Africa/Libreville": 1,
+                        "Africa/Lome": 0,
+                        "Africa/Luanda": 1,
+                        "Africa/Lubumbashi": 2,
+                        "Africa/Lusaka": 2,
+                        "Africa/Malabo": 1,
+                        "Africa/Maputo": 2,
+                        "Africa/Maseru": 2,
+                        "Africa/Mbabane": 2,
+                        "Africa/Mogadishu": 3,
+                        "Africa/Monrovia": 0,
+                        "Africa/Nairobi": 3,
+                        "Africa/Ndjamena": 1,
+                        "Africa/Niamey": 1,
+                        "Africa/Nouakchott": 0,
+                        "Africa/Ouagadougou": 0,
+                        "Africa/Porto-Novo": 1,
+                        "Africa/Sao_Tome": 0,
+                        "Africa/Tripoli": 2,
+                        "Africa/Tunis": 1,
+                        "Africa/Windhoek": 2,
+                        "America/Adak": -9,
+                        "America/Anchorage": -8,
+                        "America/Anguilla": -4,
+                        "America/Antigua": -4,
+                        "America/Araguaina": -3,
+                        "America/Argentina/Buenos_Aires": -3,
+                        "America/Argentina/Catamarca": -3,
+                        "America/Argentina/Cordoba": -3,
+                        "America/Argentina/Jujuy": -3,
+                        "America/Argentina/La_Rioja": -3,
+                        "America/Argentina/Mendoza": -3,
+                        "America/Argentina/Rio_Gallegos": -3,
+                        "America/Argentina/Salta": -3,
+                        "America/Argentina/San_Juan": -3,
+                        "America/Argentina/San_Luis": -3,
+                        "America/Argentina/Tucuman": -3,
+                        "America/Argentina/Ushuaia": -3,
+                        "America/Aruba": -4,
+                        "America/Asuncion": -4,
+                        "America/Atikokan": -5,
+                        "America/Bahia": -3,
+                        "America/Bahia_Banderas": -5,
+                        "America/Barbados": -4,
+                        "America/Belem": -3,
+                        "America/Belize": -6,
+                        "America/Blanc-Sablon": -4,
+                        "America/Boa_Vista": -4,
+                        "America/Bogota": -5,
+                        "America/Boise": -6,
+                        "America/Cambridge_Bay": -6,
+                        "America/Campo_Grande": -4,
+                        "America/Cancun": -5,
+                        "America/Caracas": -4,
+                        "America/Cayenne": -3,
+                        "America/Cayman": -5,
+                        "America/Chicago": -5,
+                        "America/Chihuahua": -6,
+                        "America/Costa_Rica": -6,
+                        "America/Creston": -7,
+                        "America/Cuiaba": -4,
+                        "America/Curacao": -4,
+                        "America/Danmarkshavn": 0,
+                        "America/Dawson": -7,
+                        "America/Dawson_Creek": -7,
+                        "America/Denver": -6,
+                        "America/Detroit": -4,
+                        "America/Dominica": -4,
+                        "America/Edmonton": -6,
+                        "America/Eirunepe": -5,
+                        "America/El_Salvador": -6,
+                        "America/Fort_Nelson": -7,
+                        "America/Fortaleza": -3,
+                        "America/Glace_Bay": -3,
+                        "America/Goose_Bay": -3,
+                        "America/Grand_Turk": -4,
+                        "America/Grenada": -4,
+                        "America/Guadeloupe": -4,
+                        "America/Guatemala": -6,
+                        "America/Guayaquil": -5,
+                        "America/Guyana": -4,
+                        "America/Halifax": -3,
+                        "America/Havana": -4,
+                        "America/Hermosillo": -7,
+                        "America/Indiana/Indianapolis": -4,
+                        "America/Indiana/Knox": -5,
+                        "America/Indiana/Marengo": -4,
+                        "America/Indiana/Petersburg": -4,
+                        "America/Indiana/Tell_City": -5,
+                        "America/Indiana/Vevay": -4,
+                        "America/Indiana/Vincennes": -4,
+                        "America/Indiana/Winamac": -4,
+                        "America/Inuvik": -6,
+                        "America/Iqaluit": -4,
+                        "America/Jamaica": -5,
+                        "America/Juneau": -8,
+                        "America/Kentucky/Louisville": -4,
+                        "America/Kentucky/Monticello": -4,
+                        "America/Kralendijk": -4,
+                        "America/La_Paz": -4,
+                        "America/Lima": -5,
+                        "America/Los_Angeles": -7,
+                        "America/Lower_Princes": -4,
+                        "America/Maceio": -3,
+                        "America/Managua": -6,
+                        "America/Manaus": -4,
+                        "America/Marigot": -4,
+                        "America/Martinique": -4,
+                        "America/Matamoros": -5,
+                        "America/Mazatlan": -6,
+                        "America/Menominee": -5,
+                        "America/Merida": -5,
+                        "America/Metlakatla": -8,
+                        "America/Mexico_City": -5,
+                        "America/Miquelon": -2,
+                        "America/Moncton": -3,
+                        "America/Monterrey": -5,
+                        "America/Montevideo": -3,
+                        "America/Montserrat": -4,
+                        "America/Nassau": -4,
+                        "America/New_York": -4,
+                        "America/Nipigon": -4,
+                        "America/Nome": -8,
+                        "America/Noronha": -2,
+                        "America/North_Dakota/Beulah": -5,
+                        "America/North_Dakota/Center": -5,
+                        "America/North_Dakota/New_Salem": -5,
+                        "America/Nuuk": -2,
+                        "America/Ojinaga": -6,
+                        "America/Panama": -5,
+                        "America/Pangnirtung": -4,
+                        "America/Paramaribo": -3,
+                        "America/Phoenix": -7,
+                        "America/Port-au-Prince": -4,
+                        "America/Port_of_Spain": -4,
+                        "America/Porto_Velho": -4,
+                        "America/Puerto_Rico": -4,
+                        "America/Punta_Arenas": -3,
+                        "America/Rainy_River": -5,
+                        "America/Rankin_Inlet": -5,
+                        "America/Recife": -3,
+                        "America/Regina": -6,
+                        "America/Resolute": -5,
+                        "America/Rio_Branco": -5,
+                        "America/Santarem": -3,
+                        "America/Santiago": -3,
+                        "America/Santo_Domingo": -4,
+                        "America/Sao_Paulo": -3,
+                        "America/Scoresbysund": 0,
+                        "America/Sitka": -8,
+                        "America/St_Barthelemy": -4,
+                        "America/St_Johns": -2.5,
+                        "America/St_Kitts": -4,
+                        "America/St_Lucia": -4,
+                        "America/St_Thomas": -4,
+                        "America/St_Vincent": -4,
+                        "America/Swift_Current": -6,
+                        "America/Tegucigalpa": -6,
+                        "America/Thule": -3,
+                        "America/Thunder_Bay": -4,
+                        "America/Tijuana": -7,
+                        "America/Toronto": -4,
+                        "America/Tortola": -4,
+                        "America/Vancouver": -7,
+                        "America/Whitehorse": -7,
+                        "America/Winnipeg": -5,
+                        "America/Yakutat": -8,
+                        "America/Yellowknife": -6,
+                        "Antarctica/Casey": 11,
+                        "Antarctica/Davis": 7,
+                        "Antarctica/DumontDUrville": 10,
+                        "Antarctica/Macquarie": 10,
+                        "Antarctica/Mawson": 5,
+                        "Antarctica/McMurdo": 12,
+                        "Antarctica/Palmer": -3,
+                        "Antarctica/Rothera": -3,
+                        "Antarctica/Syowa": 3,
+                        "Antarctica/Troll": 2,
+                        "Antarctica/Vostok": 6,
+                        "Arctic/Longyearbyen": 2,
+                        "Asia/Aden": 3,
+                        "Asia/Almaty": 6,
+                        "Asia/Amman": 3,
+                        "Asia/Anadyr": 12,
+                        "Asia/Aqtau": 5,
+                        "Asia/Aqtobe": 5,
+                        "Asia/Ashgabat": 5,
+                        "Asia/Atyrau": 5,
+                        "Asia/Baghdad": 3,
+                        "Asia/Bahrain": 3,
+                        "Asia/Baku": 4,
+                        "Asia/Bangkok": 7,
+                        "Asia/Barnaul": 7,
+                        "Asia/Beirut": 3,
+                        "Asia/Bishkek": 6,
+                        "Asia/Brunei": 8,
+                        "Asia/Chita": 9,
+                        "Asia/Choibalsan": 8,
+                        "Asia/Colombo": 5.5,
+                        "Asia/Damascus": 3,
+                        "Asia/Dhaka": 6,
+                        "Asia/Dili": 9,
+                        "Asia/Dubai": 4,
+                        "Asia/Dushanbe": 5,
+                        "Asia/Famagusta": 3,
+                        "Asia/Gaza": 3,
+                        "Asia/Hebron": 3,
+                        "Asia/Ho_Chi_Minh": 7,
+                        "Asia/Hong_Kong": 8,
+                        "Asia/Hovd": 7,
+                        "Asia/Irkutsk": 8,
+                        "Asia/Jakarta": 7,
+                        "Asia/Jayapura": 9,
+                        "Asia/Jerusalem": 3,
+                        "Asia/Kabul": 4.5,
+                        "Asia/Kamchatka": 12,
+                        "Asia/Karachi": 5,
+                        "Asia/Kathmandu": 5.75,
+                        "Asia/Khandyga": 9,
+                        "Asia/Kolkata": 5.5,
+                        "Asia/Krasnoyarsk": 7,
+                        "Asia/Kuala_Lumpur": 8,
+                        "Asia/Kuching": 8,
+                        "Asia/Kuwait": 3,
+                        "Asia/Macau": 8,
+                        "Asia/Magadan": 11,
+                        "Asia/Makassar": 8,
+                        "Asia/Manila": 8,
+                        "Asia/Muscat": 4,
+                        "Asia/Nicosia": 3,
+                        "Asia/Novokuznetsk": 7,
+                        "Asia/Novosibirsk": 7,
+                        "Asia/Omsk": 6,
+                        "Asia/Oral": 5,
+                        "Asia/Phnom_Penh": 7,
+                        "Asia/Pontianak": 7,
+                        "Asia/Pyongyang": 9,
+                        "Asia/Qatar": 3,
+                        "Asia/Qostanay": 6,
+                        "Asia/Qyzylorda": 5,
+                        "Asia/Riyadh": 3,
+                        "Asia/Sakhalin": 11,
+                        "Asia/Samarkand": 5,
+                        "Asia/Seoul": 9,
+                        "Asia/Shanghai": 8,
+                        "Asia/Singapore": 8,
+                        "Asia/Srednekolymsk": 11,
+                        "Asia/Taipei": 8,
+                        "Asia/Tashkent": 5,
+                        "Asia/Tbilisi": 4,
+                        "Asia/Tehran": 4.5,
+                        "Asia/Thimphu": 6,
+                        "Asia/Tokyo": 9,
+                        "Asia/Tomsk": 7,
+                        "Asia/Ulaanbaatar": 8,
+                        "Asia/Urumqi": 6,
+                        "Asia/Ust-Nera": 10,
+                        "Asia/Vientiane": 7,
+                        "Asia/Vladivostok": 10,
+                        "Asia/Yakutsk": 9,
+                        "Asia/Yangon": 6.5,
+                        "Asia/Yekaterinburg": 5,
+                        "Asia/Yerevan": 4,
+                        "Atlantic/Azores": 0,
+                        "Atlantic/Bermuda": -3,
+                        "Atlantic/Canary": 1,
+                        "Atlantic/Cape_Verde": -1,
+                        "Atlantic/Faroe": 1,
+                        "Atlantic/Madeira": 1,
+                        "Atlantic/Reykjavik": 0,
+                        "Atlantic/South_Georgia": -2,
+                        "Atlantic/St_Helena": 0,
+                        "Atlantic/Stanley": -3,
+                        "Australia/Adelaide": 9.5,
+                        "Australia/Brisbane": 10,
+                        "Australia/Broken_Hill": 9.5,
+                        "Australia/Darwin": 9.5,
+                        "Australia/Eucla": 8.75,
+                        "Australia/Hobart": 10,
+                        "Australia/Lindeman": 10,
+                        "Australia/Lord_Howe": 10.5,
+                        "Australia/Melbourne": 10,
+                        "Australia/Perth": 8,
+                        "Australia/Sydney": 10,
+                        "Canada/Atlantic": -3,
+                        "Canada/Central": -5,
+                        "Canada/Eastern": -4,
+                        "Canada/Mountain": -6,
+                        "Canada/Newfoundland": -2.5,
+                        "Canada/Pacific": -7,
+                        "Europe/Amsterdam": 2,
+                        "Europe/Andorra": 2,
+                        "Europe/Astrakhan": 4,
+                        "Europe/Athens": 3,
+                        "Europe/Belgrade": 2,
+                        "Europe/Berlin": 2,
+                        "Europe/Bratislava": 2,
+                        "Europe/Brussels": 2,
+                        "Europe/Bucharest": 3,
+                        "Europe/Budapest": 2,
+                        "Europe/Busingen": 2,
+                        "Europe/Chisinau": 3,
+                        "Europe/Copenhagen": 2,
+                        "Europe/Dublin": 1,
+                        "Europe/Gibraltar": 2,
+                        "Europe/Guernsey": 1,
+                        "Europe/Helsinki": 3,
+                        "Europe/Isle_of_Man": 1,
+                        "Europe/Istanbul": 3,
+                        "Europe/Jersey": 1,
+                        "Europe/Kaliningrad": 2,
+                        "Europe/Kiev": 3,
+                        "Europe/Kirov": 3,
+                        "Europe/Lisbon": 1,
+                        "Europe/Ljubljana": 2,
+                        "Europe/London": 1,
+                        "Europe/Luxembourg": 2,
+                        "Europe/Madrid": 2,
+                        "Europe/Malta": 2,
+                        "Europe/Mariehamn": 3,
+                        "Europe/Minsk": 3,
+                        "Europe/Monaco": 2,
+                        "Europe/Moscow": 3,
+                        "Europe/Oslo": 2,
+                        "Europe/Paris": 2,
+                        "Europe/Podgorica": 2,
+                        "Europe/Prague": 2,
+                        "Europe/Riga": 3,
+                        "Europe/Rome": 2,
+                        "Europe/Samara": 4,
+                        "Europe/San_Marino": 2,
+                        "Europe/Sarajevo": 2,
+                        "Europe/Saratov": 4,
+                        "Europe/Simferopol": 3,
+                        "Europe/Skopje": 2,
+                        "Europe/Sofia": 3,
+                        "Europe/Stockholm": 2,
+                        "Europe/Tallinn": 3,
+                        "Europe/Tirane": 2,
+                        "Europe/Ulyanovsk": 4,
+                        "Europe/Uzhgorod": 3,
+                        "Europe/Vaduz": 2,
+                        "Europe/Vatican": 2,
+                        "Europe/Vienna": 2,
+                        "Europe/Vilnius": 3,
+                        "Europe/Volgograd": 3,
+                        "Europe/Warsaw": 2,
+                        "Europe/Zagreb": 2,
+                        "Europe/Zaporozhye": 3,
+                        "Europe/Zurich": 2,
+                        "GMT": 0,
+                        "Indian/Antananarivo": 3,
+                        "Indian/Chagos": 6,
+                        "Indian/Christmas": 7,
+                        "Indian/Cocos": 6.5,
+                        "Indian/Comoro": 3,
+                        "Indian/Kerguelen": 5,
+                        "Indian/Mahe": 4,
+                        "Indian/Maldives": 5,
+                        "Indian/Mauritius": 4,
+                        "Indian/Mayotte": 3,
+                        "Indian/Reunion": 4,
+                        "Pacific/Apia": 13,
+                        "Pacific/Auckland": 12,
+                        "Pacific/Bougainville": 11,
+                        "Pacific/Chatham": 12.75,
+                        "Pacific/Chuuk": 10,
+                        "Pacific/Easter": -5,
+                        "Pacific/Efate": 11,
+                        "Pacific/Enderbury": 13,
+                        "Pacific/Fakaofo": 13,
+                        "Pacific/Fiji": 12,
+                        "Pacific/Funafuti": 12,
+                        "Pacific/Galapagos": -6,
+                        "Pacific/Gambier": -9,
+                        "Pacific/Guadalcanal": 11,
+                        "Pacific/Guam": 10,
+                        "Pacific/Honolulu": -10,
+                        "Pacific/Kiritimati": 14,
+                        "Pacific/Kosrae": 11,
+                        "Pacific/Kwajalein": 12,
+                        "Pacific/Majuro": 12,
+                        "Pacific/Marquesas": -9.5,
+                        "Pacific/Midway": -11,
+                        "Pacific/Nauru": 12,
+                        "Pacific/Niue": -11,
+                        "Pacific/Norfolk": 11,
+                        "Pacific/Noumea": 11,
+                        "Pacific/Pago_Pago": -11,
+                        "Pacific/Palau": 9,
+                        "Pacific/Pitcairn": -8,
+                        "Pacific/Pohnpei": 11,
+                        "Pacific/Port_Moresby": 10,
+                        "Pacific/Rarotonga": -10,
+                        "Pacific/Saipan": 10,
+                        "Pacific/Tahiti": -10,
+                        "Pacific/Tarawa": 12,
+                        "Pacific/Tongatapu": 13,
+                        "Pacific/Wake": 12,
+                        "Pacific/Wallis": 12,
+                        "US/Alaska": -8,
+                        "US/Arizona": -7,
+                        "US/Central": -5,
+                        "US/Eastern": -4,
+                        "US/Hawaii": -10,
+                        "US/Mountain": -6,
+                        "US/Pacific": -7,
+                        "UTC": 0
+                    },
+                    "opt_out_capture": false,
+                    "posthog_version": "1.27.0",
+                    "email_service_available": false,
+                    "is_debug": true,
+                    "is_event_property_usage_enabled": false,
+                    "licensed_users_available": null,
+                    "site_url": "http://localhost:8000"
+                },
+                "preflightLoading": false,
+                "preflightMode": null
+            }
+        },
+        "App": {
+            "showingDelayedSpinner": true,
+            "featureFlagsTimedOut": true
+        },
+        "sceneLogic": {
+            "scene": "ingestion",
+            "params": {},
+            "loadedScenes": {
+                "404": {},
+                "4xx": {},
+                "ingestion": {}
+            },
+            "loadingScene": null,
+            "upgradeModalFeatureNameAndCaption": null
+        },
+        "organizationLogic": {
+            "currentOrganization": {
+                "id": "017bbf43-c990-0000-8ae8-4eab0a4b2e2f",
+                "name": "PostHog",
+                "created_at": "2021-09-07T07:58:15.969523Z",
+                "updated_at": "2021-09-07T07:58:15.969544Z",
+                "membership_level": 15,
+                "personalization": {},
+                "setup": {
+                    "is_active": false,
+                    "current_section": null
+                },
+                "plugins_access_level": 9,
+                "teams": [
+                    {
+                        "id": 1,
+                        "uuid": "017bbf43-ce53-0000-2333-6846c6625142",
+                        "organization": "017bbf43-c990-0000-8ae8-4eab0a4b2e2f",
+                        "api_token": "phc_eHifeEcAW93pBBhGI0nN55sVEPJEY6rUHUObHuPF1Cz",
+                        "name": "Default Project",
+                        "completed_snippet_onboarding": false,
+                        "ingested_event": false,
+                        "is_demo": false,
+                        "timezone": "UTC"
+                    }
+                ],
+                "available_features": [],
+                "domain_whitelist": [],
+                "is_member_join_email_enabled": true
+            },
+            "currentOrganizationLoading": false,
+            "organizationBeingDeleted": null
+        },
+        "instance": {
+            "SystemStatus": {
+                "systemStatusLogic": {
+                    "systemStatus": {
+                        "overview": [
+                            {
+                                "key": "posthog_version",
+                                "metric": "PostHog version",
+                                "value": "1.27.0"
+                            },
+                            {
+                                "key": "analytics_database",
+                                "metric": "Analytics database in use",
+                                "value": "Postgres"
+                            },
+                            {
+                                "key": "plugin_sever_alive",
+                                "metric": "Plugin server alive",
+                                "value": true
+                            },
+                            {
+                                "key": "plugin_sever_version",
+                                "metric": "Plugin server version",
+                                "value": "1.5.1"
+                            },
+                            {
+                                "key": "plugin_sever_job_queues",
+                                "metric": "Job queues enabled in plugin server",
+                                "value": "Graphile"
+                            },
+                            {
+                                "key": "db_alive",
+                                "metric": "Postgres database alive",
+                                "value": true
+                            },
+                            {
+                                "key": "pg_version",
+                                "metric": "Postgres version",
+                                "value": "13.0.1"
+                            },
+                            {
+                                "metric": "Postgres elements table size",
+                                "value": "0 rows (~32 kB)"
+                            },
+                            {
+                                "metric": "Postgres events table size",
+                                "value": "0 rows (~56 kB)"
+                            },
+                            {
+                                "metric": "Postgres session recording table size",
+                                "value": "0 rows (~120 kB)"
+                            },
+                            {
+                                "key": "redis_alive",
+                                "metric": "Redis alive",
+                                "value": true
+                            },
+                            {
+                                "metric": "Redis version",
+                                "value": "6.0.10"
+                            },
+                            {
+                                "metric": "Redis current queue depth",
+                                "value": "0"
+                            },
+                            {
+                                "metric": "Redis connected client count",
+                                "value": "23"
+                            },
+                            {
+                                "metric": "Redis memory used",
+                                "value": "2.00MB"
+                            },
+                            {
+                                "metric": "Redis memory peak",
+                                "value": "7.21MB"
+                            },
+                            {
+                                "metric": "Redis total memory available",
+                                "value": "16.00GB"
+                            }
+                        ],
+                        "internal_metrics": {}
+                    },
+                    "systemStatusLoading": false,
+                    "queries": null,
+                    "queriesLoading": false,
+                    "tab": "overview",
+                    "error": null,
+                    "openSections": ["0"]
+                }
+            }
+        },
+        "billing": {
+            "billingLogic": {
+                "billing": null,
+                "billingLoading": false,
+                "plans": [],
+                "plansLoading": false,
+                "billingSubscription": null,
+                "billingSubscriptionLoading": false
+            }
+        },
+        "teamLogic": {
+            "currentTeam": {
+                "id": 1,
+                "uuid": "017bbf43-ce53-0000-2333-6846c6625142",
+                "organization": "017bbf43-c990-0000-8ae8-4eab0a4b2e2f",
+                "api_token": "phc_eHifeEcAW93pBBhGI0nN55sVEPJEY6rUHUObHuPF1Cz",
+                "app_urls": [],
+                "name": "Default Project",
+                "slack_incoming_webhook": null,
+                "created_at": "2021-09-07T07:58:17.171831Z",
+                "updated_at": "2021-09-07T07:58:17.171849Z",
+                "anonymize_ips": false,
+                "completed_snippet_onboarding": false,
+                "ingested_event": false,
+                "test_account_filters": [
+                    {
+                        "key": "$host",
+                        "value": [
+                            "localhost:8000",
+                            "localhost:5000",
+                            "127.0.0.1:8000",
+                            "127.0.0.1:3000",
+                            "localhost:3000"
+                        ],
+                        "operator": "is_not"
+                    }
+                ],
+                "is_demo": false,
+                "timezone": "UTC",
+                "data_attributes": ["data-attr"],
+                "session_recording_opt_in": false,
+                "session_recording_retention_period_days": null
+            },
+            "currentTeamLoading": false,
+            "teamBeingDeleted": null
+        },
+        "organization": {
+            "Settings": {
+                "bulkInviteLogic": {
+                    "invitedTeamMembers": [],
+                    "invitedTeamMembersLoading": false,
+                    "invites": [
+                        {
+                            "target_email": "",
+                            "first_name": "",
+                            "isValid": true
+                        }
+                    ]
+                }
+            }
+        },
+        "ingestion": {
+            "ingestionLogic": {
+                "platform": null,
+                "framework": null,
+                "verify": false,
+                "activeTab": "browser"
+            }
+        }
+    },
+    "lib": {
+        "logic": {
+            "featureFlagLogic": {
+                "featureFlags": {
+                    "4267-taxonomic-property-filter": true
+                },
+                "receivedFeatureFlags": true
+            }
+        },
+        "components": {
+            "PersonalAPIKeys": {
+                "personalAPIKeysLogic": {
+                    "keys": [],
+                    "keysLoading": false
+                }
+            },
+            "CommandPalette": {
+                "commandPaletteLogic": {
+                    "isPaletteShown": false,
+                    "keyboardResultIndex": 0,
+                    "hoverResultIndex": null,
+                    "input": "",
+                    "activeFlow": null,
+                    "rawCommandRegistrations": {
+                        "go-to": {
+                            "key": "go-to",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"],
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Go to Dashboards"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Insights"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Trends"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Sessions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Funnels"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Retention"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to User Paths"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Events"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Actions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Live Sessions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Persons",
+                                    "synonyms": ["people"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Cohorts"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Feature Flags",
+                                    "synonyms": ["feature flags", "a/b tests"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Annotations"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Team Members",
+                                    "synonyms": ["organization", "members", "invites", "teammates"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Project Settings"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to My Settings",
+                                    "synonyms": ["account"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Plugins",
+                                    "synonyms": ["integrations"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to System Status Page",
+                                    "synonyms": [
+                                        "redis",
+                                        "celery",
+                                        "django",
+                                        "postgres",
+                                        "backend",
+                                        "service",
+                                        "online"
+                                    ]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Create Action"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Log Out"
+                                }
+                            ]
+                        },
+                        "open-urls": {
+                            "key": "open-urls",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"]
+                        },
+                        "debug-clickhouse-queries": {
+                            "key": "debug-clickhouse-queries",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Debug ClickHouse Queries"
+                            }
+                        },
+                        "calculator": {
+                            "key": "calculator",
+                            "scope": "global"
+                        },
+                        "create-personal-api-key": {
+                            "key": "create-personal-api-key",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Personal API Key"
+                            }
+                        },
+                        "create-dashboard": {
+                            "key": "create-dashboard",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Dashboard"
+                            }
+                        },
+                        "share-feedback": {
+                            "key": "share-feedback",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Share Feedback",
+                                "synonyms": ["send opinion", "ask question", "message posthog", "github issue"]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "models": {
+        "actionsModel": {
+            "actions": [],
+            "actionsLoading": false
+        },
+        "annotationsModel": {
+            "globalAnnotations": [],
+            "globalAnnotationsLoading": false
+        },
+        "cohortsModel": {
+            "cohorts": [],
+            "cohortsLoading": false,
+            "pollTimeout": null
+        },
+        "dashboardsModel": {
+            "rawDashboards": {
+                "1": {
+                    "id": 1,
+                    "name": "My App Dashboard",
+                    "description": "",
+                    "pinned": true,
+                    "items": null,
+                    "created_at": "2021-09-07T07:58:17.184215Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": null,
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                }
+            },
+            "rawDashboardsLoading": false,
+            "sharedDashboards": null,
+            "sharedDashboardsLoading": false,
+            "dashboard": null,
+            "dashboardLoading": false,
+            "redirect": true,
+            "lastDashboardId": 3,
+            "diveSourceId": null
+        },
+        "eventDefinitionsModel": {
+            "eventStorage": {
+                "count": 0,
+                "results": [],
+                "next": null
+            },
+            "eventStorageLoading": false
+        },
+        "personPropertiesModel": {
+            "personProperties": [],
+            "personPropertiesLoading": false
+        },
+        "propertyDefinitionsModel": {
+            "propertyStorage": {
+                "count": 0,
+                "results": [],
+                "next": null
+            },
+            "propertyStorageLoading": false
+        }
+    },
+    "layout": {
+        "navigation": {
+            "navigationLogic": {
+                "latestVersion": "1.27.0",
+                "latestVersionLoading": false,
+                "menuCollapsed": true,
+                "changelogModalOpen": false,
+                "toolbarModalOpen": false,
+                "inviteMembersModalOpen": false,
+                "pinnedDashboardsVisible": false,
+                "hotkeyNavigationEngaged": false,
+                "filteredEnvironment": "production"
+            }
+        }
+    }
+}
