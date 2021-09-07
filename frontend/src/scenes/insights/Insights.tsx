@@ -332,9 +332,10 @@ export function Insights(): JSX.Element {
                                             [`${ViewType.RETENTION}`]: (
                                                 <RetentionTab annotationsToCreate={annotationsToCreate} />
                                             ),
-                                            [`${ViewType.PATHS}`]: (
-                                                // <PathTab annotationsToCreate={annotationsToCreate} />
-                                                <NewPathTab annotationsToCreate={annotationsToCreate} />
+                                            [`${ViewType.PATHS}`]: featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] ? (
+                                                <NewPathTab />
+                                            ) : (
+                                                <PathTab annotationsToCreate={annotationsToCreate} />
                                             ),
                                         }[activeView]
                                     }

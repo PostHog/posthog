@@ -12,16 +12,18 @@ import './NewPathTab.scss'
 
 export function NewPathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
-    const { filter, filtersLoading, importantEvents, excludedEvents } = useValues(pathsLogic({ dashboardItemId: null }))
+    const { filter, filtersLoading, importantEvents, excludedEvents, results } = useValues(
+        pathsLogic({ dashboardItemId: null })
+    )
     const { setFilter, showPathEvents } = useActions(pathsLogic({ dashboardItemId: null }))
-
+    console.log('filter', filter)
     return (
         <>
             <Row align="middle" className="event-types" style={{ paddingBottom: 16 }}>
                 <span style={{ paddingRight: 16 }}>Showing paths from</span>
                 <Row style={{ border: 'none' }}>
                     <div style={{ borderRadius: '4px 0px 0px 4px', borderRight: 'none' }}>
-                        <Checkbox onChange={() => showPathEvents(PathType.PageView)}>
+                        <Checkbox defaultChecked={true} onChange={() => showPathEvents(PathType.PageView)}>
                             Page views <span className="text-muted">(web)</span>
                         </Checkbox>
                     </div>
@@ -42,7 +44,7 @@ export function NewPathTab(): JSX.Element {
                 <Col style={{ paddingRight: 8 }}>
                     <span>starting at</span>
                 </Col>
-                <Col style={{ paddingRight: 8 }}>
+                <Col span={8} style={{ paddingRight: 8 }}>
                     <PropertyValue
                         endpoint={filter.path_type === PathType.AutoCapture ? 'api/paths/elements' : undefined}
                         outerOptions={
@@ -64,7 +66,7 @@ export function NewPathTab(): JSX.Element {
                 <Col style={{ paddingRight: 8 }}>
                     <span>and ending at</span>
                 </Col>
-                <Col>
+                <Col span={8}>
                     <PropertyValue
                         endpoint={filter.path_type === PathType.AutoCapture ? 'api/paths/elements' : undefined}
                         outerOptions={
@@ -147,6 +149,9 @@ export function NewPathTab(): JSX.Element {
                             <Button style={{ color: 'var(--primary)' }} icon={<PlusOutlined />}>
                                 Add event
                             </Button>
+                            {results.paths.map((p) => (
+                                <div key={p.source_id}>{p.source}</div>
+                            ))}
                         </Row>
                     </Collapse.Panel>
                 </Collapse>

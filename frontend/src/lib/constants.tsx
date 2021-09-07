@@ -243,6 +243,7 @@ export const FEATURE_FLAGS = {
     MULTIVARIATE_SUPPORT: '5440-multivariate-support',
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
+    NEW_PATHS_UI: 'new-paths-ui',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
