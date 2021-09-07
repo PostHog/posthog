@@ -22,26 +22,21 @@ jobs:
               uses: actions/checkout@v2
               with:
                   fetch-depth: 0
+            - uses: actions/checkout@v1
+            - name: Install dependencies (yarn)
+              run: yarn
+            - name: Build storybook
+              run: yarn build-storybook
             - name: Check out PostHog/storybook-build repo
               uses: actions/checkout@v2
               with:
-                  path: ../storybook-build
+                  path: storybook-build
                   repository: PostHog/storybook-build
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-            - uses: actions/checkout@v1
-            - name: Install dependencies (yarn)
-              run: |
-                  yarn
-            - name: Build storybook
-              run: |
-                  yarn build-storybook
             - name: Publish changes to PostHog/storybook-build repo
               run: |
-                  pwd
-                  ls
-                  cp -a storybook-static ../storybook-build/docs
-                  cd ../storybook-build
-                  pwd
+                  cp -a storybook-static storybook-build/docs
+                  cd storybook-build
                   git add .
                   git commit -m "Storybook build - $GITHUB_SHA"
                   git push
