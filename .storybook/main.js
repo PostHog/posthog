@@ -2,7 +2,7 @@ const { createEntry } = require('../webpack.config')
 const babelConfig = require('../babel.config')
 
 module.exports = {
-    stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx)'],
+    stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
     addons: ['@storybook/addon-links', '@storybook/addon-essentials'],
     babel: async (options) => {
         // compile babel to "defaults" target (ES5)
