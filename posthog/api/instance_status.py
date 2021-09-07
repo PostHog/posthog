@@ -14,7 +14,7 @@ from posthog.permissions import SingleTenancyOrAdmin
 from posthog.utils import (
     dict_from_cursor_fetchall,
     get_git_branch,
-    get_git_sha,
+    get_git_commit,
     get_plugin_server_job_queues,
     get_plugin_server_version,
     get_redis_info,
@@ -47,7 +47,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             {
                 "key": "posthog_git_branch_and_sha",
                 "metric": "PostHog Git branch:sha",
-                "value": f"{get_git_branch()}:{get_git_sha()}",
+                "value": f"{get_git_branch()}:{get_git_commit(short=False)}",
             }
         )
 

@@ -174,7 +174,7 @@ def get_git_branch() -> Optional[str]:
         return None
 
 
-def get_git_commit() -> Optional[str]:
+def get_git_commit(short: bool = True) -> Optional[str]:
     """
     Returns the short hash of the last commit.
     Example: get_git_commit()
@@ -182,7 +182,8 @@ def get_git_commit() -> Optional[str]:
     """
 
     try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode("utf-8").strip()
+        short_arg = ["--short"] if short else []
+        return subprocess.check_output(["git", "rev-parse"] + short_arg + ["HEAD"]).decode("utf-8").strip()
     except Exception:
         return None
 
