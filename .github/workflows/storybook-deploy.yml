@@ -33,10 +33,16 @@ jobs:
                   path: storybook-build
                   repository: PostHog/storybook-build
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-            - name: Publish changes to PostHog/storybook-build repo
+            - name: Copy built changes to PostHog/storybook-build repo
               run: |
+                  rm -rf storybook-build/docs
                   cp -a storybook-static storybook-build/docs
-                  cd storybook-build
-                  git add .
-                  git commit -m "Storybook build - $GITHUB_SHA"
-                  git push
+            - name: Commit update
+              if: github.repository == 'PostHog/posthog'
+              uses: stefanzweifel/git-auto-commit-action@v4
+              with:
+                  repository: storybook-build
+                  commit_message: 'Storybook build - $GITHUB_SHA'
+                  commit_user_name: PostHog Bot
+                  commit_user_email: hey@posthog.com
+                  commit_author: PostHog Bot <hey@posthog.com>
