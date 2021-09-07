@@ -4,6 +4,7 @@ import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { SystemStatusSubrows } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { IconExternalLink } from 'lib/components/icons'
 
 function RenderValue(value: any): JSX.Element | string {
     if (typeof value === 'boolean') {
@@ -56,6 +57,13 @@ export function OverviewTab(): JSX.Element {
                 <h3 className="l3" style={{ marginTop: 32 }}>
                     Configuration options
                 </h3>
+                <a
+                    href="https://posthog.com/docs/self-host#Configure?utm_medium=in-product"
+                    target="_blank"
+                    style={{ display: 'inline-flex', alignItems: 'center' }}
+                >
+                    Learn more <IconExternalLink />
+                </a>
                 <Table
                     className="system-config-table"
                     size="small"
