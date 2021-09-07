@@ -8,15 +8,29 @@ import { Fire } from '~/toolbar/button/icons/Fire'
 import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
+import { Stats } from '~/toolbar/button/icons/Stats'
 import { posthog } from '~/toolbar/posthog'
+import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
 
 export function DraggableButton(): JSX.Element {
-    const { dragPosition, heatmapPosition, heatmapWindowVisible, actionsWindowVisible, actionsPosition } = useValues(
-        toolbarButtonLogic
-    )
-    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, hideActionsInfo, hideHeatmapInfo } = useActions(
-        toolbarButtonLogic
-    )
+    const {
+        dragPosition,
+        heatmapPosition,
+        heatmapWindowVisible,
+        actionsWindowVisible,
+        actionsPosition,
+        statsVisible,
+        statsPosition,
+    } = useValues(toolbarButtonLogic)
+    const {
+        saveDragPosition,
+        saveHeatmapPosition,
+        saveActionsPosition,
+        hideActionsInfo,
+        hideHeatmapInfo,
+        hideStats,
+        saveStatsPosition,
+    } = useActions(toolbarButtonLogic)
 
     return (
         <>
@@ -53,13 +67,25 @@ export function DraggableButton(): JSX.Element {
             <ButtonWindow
                 name="actions"
                 label="Actions"
-                icon={<Flag engaged />}
+                icon={<Stats />}
                 visible={actionsWindowVisible}
                 close={hideActionsInfo}
                 position={actionsPosition}
                 savePosition={saveActionsPosition}
             >
                 <ActionsTab />
+            </ButtonWindow>
+
+            <ButtonWindow
+                name="stats"
+                label="Feature Flags"
+                icon={<Flag engaged />}
+                visible={statsVisible}
+                close={hideStats}
+                position={statsPosition}
+                savePosition={saveStatsPosition}
+            >
+                <FeatureFlags />
             </ButtonWindow>
         </>
     )

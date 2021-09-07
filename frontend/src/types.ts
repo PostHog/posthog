@@ -203,6 +203,7 @@ export type EditorProps = {
     distinctId?: string
     userEmail?: boolean
     dataAttributes?: string[]
+    featureFlags?: Record<string, string | boolean>
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null

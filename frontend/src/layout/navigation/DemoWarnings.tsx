@@ -7,12 +7,15 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { Link } from 'lib/components/Link'
 import { navigationLogic } from './navigationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import posthog from 'posthog-js'
 
 interface WarningInterface {
     message: JSX.Element | string
     description: JSX.Element | string
     action?: JSX.Element
-    type?: 'warning' | 'info'
+    type?: 'error' | 'success' | 'info' | 'warning'
 }
 
 interface WarningsInterface {
@@ -27,6 +30,14 @@ export function DemoWarnings(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { demoWarning } = useValues(navigationLogic)
     const { reportDemoWarningDismissed } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const warningColor: string =
+        typeof featureFlags[FEATURE_FLAGS.DEMO_BANNER_COLOR] === 'string'
+            ? (featureFlags[FEATURE_FLAGS.DEMO_BANNER_COLOR] as string)
+            : 'yellow'
+    const warningType = ({ red: 'error', yellow: 'warning', blue: 'info', green: 'success' }[warningColor] ||
+        'warning') as WarningInterface['type']
 
     const WARNINGS: WarningsInterface = {
         welcome: {
@@ -57,10 +68,12 @@ export function DemoWarnings(): JSX.Element | null {
                     to="/setup"
                     data-attr="demo-warning-cta"
                     data-message="incomplete_setup_on_demo_project-setup"
+                    onClick={() => posthog.capture('demo-warning-click')}
                 >
                     <SettingOutlined /> Go to setup
                 </LinkButton>
             ),
+            type: warningType,
         },
         incomplete_setup_on_real_project: {
             message: `Finish setting up Posthog, ${user?.first_name}!`,
