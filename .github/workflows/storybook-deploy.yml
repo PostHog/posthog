@@ -32,14 +32,19 @@ jobs:
             - uses: actions/checkout@v1
             - name: Install dependencies (yarn)
               run: |
+                  pwd
                   cd posthog
+                  pwd
                   yarn
             - name: Build storybook
               run: |
+                  pwd
                   cd posthog
+                  pwd
                   yarn build-storybook
             - name: Publish changes
               run: |
+                  cd
                   pwd
                   ls
                   ls posthog
