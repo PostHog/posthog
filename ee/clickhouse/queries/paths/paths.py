@@ -91,8 +91,10 @@ class ClickhousePathsNew:
     def get_target_point_filter(self) -> str:
         if self._filter.end_point and self._filter.start_point:
             return "WHERE start_target_index > 0 AND end_target_index > 0"
-        else:
+        elif self._filter.end_point or self._filter.start_point:
             return f"WHERE target_index > 0"
+        else:
+            return ""
 
     def get_target_clause(self) -> Tuple[str, Dict]:
         params: Dict[str, Union[str, None]] = {"target_point": None, "secondary_target_point": None}
