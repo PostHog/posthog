@@ -4,7 +4,7 @@ import { ArrowUpOutlined } from '@ant-design/icons'
 
 import './icons.scss'
 
-export function IconMenu(props: React.HTMLProps<SVGElement>): JSX.Element {
+export function IconMenu(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     // FontAwesome
     return (
         <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
@@ -16,7 +16,7 @@ export function IconMenu(props: React.HTMLProps<SVGElement>): JSX.Element {
     )
 }
 
-export function IconBuilding(props: React.HTMLProps<SVGElement>): JSX.Element {
+export function IconBuilding(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     // FontAwesome
     return (
         <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
