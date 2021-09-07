@@ -45,7 +45,7 @@ class Command(BaseCommand):
             "--max-columns",
             type=int,
             default=MATERIALIZE_COLUMNS_MAX_AT_ONCE,
-            help="Max number of columns to materialize. Same as MATERIALIZE_COLUMNS_MAX_AT_ONCE env variable.",
+            help="Max number of columns to materialize via single invocation. Same as MATERIALIZE_COLUMNS_MAX_AT_ONCE env variable.",
         )
 
     def handle(self, *args, **options):
