@@ -264,6 +264,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
         hideUpgradeModal: true,
         takeToPricing: true,
+        setPageTitle: (title: string) => ({ title }),
     },
     reducers: {
         scene: [
@@ -342,7 +343,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         },
         setScene: () => {
             posthog.capture('$pageview')
-            document.title = values.scene ? `${identifierToHuman(values.scene)} • PostHog` : 'PostHog'
+            actions.setPageTitle(identifierToHuman(values.scene || ''))
         },
         openScene: ({ scene, params }) => {
             const sceneConfig = sceneConfigurations[scene] || {}
@@ -480,6 +481,9 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 await delay(500)
                 unmount()
             }
+        },
+        setPageTitle: ({ title }) => {
+            document.title = title ? `${title} • PostHog` : 'PostHog'
         },
     }),
 })

@@ -12,6 +12,7 @@ import { DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
@@ -71,6 +72,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                             })}`
                         )
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
+                        sceneLogic.actions.setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
