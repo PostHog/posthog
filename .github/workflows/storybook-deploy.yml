@@ -1,0 +1,47 @@
+# .github/workflows/chromatic.yml
+
+# Workflow name
+name: 'Storybook Deployment'
+
+# Event for the workflow
+on:
+    push:
+        branches:
+            - master
+            - main
+            - storybook-build
+
+# List of jobs
+jobs:
+    storybook-deployment:
+        # Operating System
+        runs-on: ubuntu-latest
+        # Job steps
+        steps:
+            - name: Check out the repo
+              uses: actions/checkout@v2
+              with:
+                  path: posthog
+                  fetch-depth: 0
+            - name: Check out storybook build repo
+              uses: actions/checkout@v2
+              with:
+                  path: storybook-build
+                  repository: PostHog/storybook-build
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+            - uses: actions/checkout@v1
+            - name: Install dependencies (yarn)
+              run: |
+                  cd posthog
+                  yarn
+            - name: Build storybook
+              run: |
+                  cd posthog
+                  yarn build-storybook
+            - name: Publish changes
+              run: |
+                  cp -a posthog/storybook-static storybook-build/docs
+                  cd storybook-build
+                  git add .
+                  git commit -m "Storybook build - $GITHUB_SHA"
+                  git push
