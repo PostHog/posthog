@@ -1,51 +1,55 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { pathOptionsToLabels, pathOptionsToProperty, pathsLogic } from 'scenes/paths/pathsLogic'
-import { Checkbox, Col, Collapse, Row, Select, Skeleton } from 'antd'
+import { pathOptionsToProperty, pathsLogic } from 'scenes/paths/pathsLogic'
+import { Button, Checkbox, Col, Collapse, Row, Skeleton } from 'antd'
 import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { BaseTabProps } from '../Insights'
-import { InsightTitle } from './InsightTitle'
-import { InsightActionBar } from './InsightActionBar'
 import { PathType } from '~/types'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { GlobalFiltersTitle } from '../common'
+import { PlusOutlined } from '@ant-design/icons'
 import './NewPathTab.scss'
 
-export function NewPathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
+export function NewPathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
-    const { filter, filtersLoading } = useValues(pathsLogic({ dashboardItemId: null }))
-    const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
-    const { filledFilters: properties } = useValues(propertyFilterLogic({ pageKey: 'insight-path' }))
-
-    const screens = useBreakpoint()
-    const isSmallScreen = screens.xs || (screens.sm && !screens.md)
-
-    const pathsEventTypes = [{name: 'Page views (web)'}]
+    const { filter, filtersLoading, importantEvents, excludedEvents } = useValues(pathsLogic({ dashboardItemId: null }))
+    const { setFilter, showPathEvents } = useActions(pathsLogic({ dashboardItemId: null }))
 
     return (
         <>
-        {/* // <Row> */}
-            <Row align="middle" className="event-types" style={{paddingBottom: 16}}>
-                <span style={{paddingRight: 16}}>Showing paths from</span>
-                    <div style={{borderRadius: '4px 0px 0px 4px', borderRight: 'none'}}><Checkbox>Page views <span style={{color: 'var(--border-dark)'}}>(web)</span></Checkbox></div>
-                    <div style={{borderRight: 'none' }}><Checkbox>Screen views <span style={{color: 'var(--border-dark)'}}>(mobile)</span></Checkbox></div>
-                    <div style={{borderRight: 'none'}}><Checkbox>Autocaptured events</Checkbox></div>
-                    <div style={{borderRadius: '0px 4px 4px 0px'}}><Checkbox>Custom events</Checkbox></div>
+            <Row align="middle" className="event-types" style={{ paddingBottom: 16 }}>
+                <span style={{ paddingRight: 16 }}>Showing paths from</span>
+                <Row style={{ border: 'none' }}>
+                    <div style={{ borderRadius: '4px 0px 0px 4px', borderRight: 'none' }}>
+                        <Checkbox onChange={() => showPathEvents(PathType.PageView)}>
+                            Page views <span className="text-muted">(web)</span>
+                        </Checkbox>
+                    </div>
+                    <div style={{ borderRight: 'none' }}>
+                        <Checkbox onChange={() => showPathEvents(PathType.Screen)}>
+                            Screen views <span className="text-muted">(mobile)</span>
+                        </Checkbox>
+                    </div>
+                    <div style={{ borderRight: 'none' }}>
+                        <Checkbox onChange={() => showPathEvents(PathType.AutoCapture)}>Autocaptured events</Checkbox>
+                    </div>
+                    <div style={{ borderRadius: '0px 4px 4px 0px' }}>
+                        <Checkbox onChange={() => showPathEvents(PathType.CustomEvent)}>Custom events</Checkbox>
+                    </div>
+                </Row>
             </Row>
             <Row align="middle">
-                <Col style={{paddingRight: 8}}><span>starting at</span></Col>
-                <Col style={{paddingRight: 8}}>
+                <Col style={{ paddingRight: 8 }}>
+                    <span>starting at</span>
+                </Col>
+                <Col style={{ paddingRight: 8 }}>
                     <PropertyValue
                         endpoint={filter.path_type === PathType.AutoCapture ? 'api/paths/elements' : undefined}
                         outerOptions={
                             filter.path_type === PathType.CustomEvent
                                 ? customEventNames.map((name) => ({
-                                    name,
-                                }))
+                                      name,
+                                  }))
                                 : undefined
                         }
                         onSet={(value: string | number): void => setFilter({ start_point: value })}
@@ -57,31 +61,51 @@ export function NewPathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
                         allowCustom={filter.path_type !== PathType.AutoCapture}
                     />
                 </Col>
-                <Col style={{paddingRight: 8}}><span>and ending at</span></Col>
+                <Col style={{ paddingRight: 8 }}>
+                    <span>and ending at</span>
+                </Col>
                 <Col>
                     <PropertyValue
                         endpoint={filter.path_type === PathType.AutoCapture ? 'api/paths/elements' : undefined}
                         outerOptions={
                             filter.path_type === PathType.CustomEvent
                                 ? customEventNames.map((name) => ({
-                                    name,
-                                }))
+                                      name,
+                                  }))
                                 : undefined
                         }
-                        onSet={(value: string | number): void => setFilter({ start_point: value })}
+                        onSet={(value: string | number): void => setFilter({ end_point: value })}
                         propertyKey={pathOptionsToProperty[filter.path_type || PathType.PageView]}
                         type="event"
-                        value={filter.start_point}
-                        placeholder={'Select start element'}
+                        value={filter.end_point}
+                        placeholder={'Select end element'}
                         autoFocus={false}
                         allowCustom={filter.path_type !== PathType.AutoCapture}
                     />
                 </Col>
             </Row>
-            <Row>
-                <Collapse>
-                    <Collapse.Panel key="k" header="Filters">
-                        <GlobalFiltersTitle unit="actions/events" />
+            <Row className="path-filters">
+                <Collapse
+                    bordered={false}
+                    expandIconPosition="right"
+                    style={{
+                        paddingLeft: 0,
+                        width: '100%',
+                        color: 'var(--primary-alt)',
+                        background: 'none',
+                        border: 'none',
+                    }}
+                >
+                    <Collapse.Panel
+                        key="k"
+                        header={
+                            <Row align="middle">
+                                Filters
+                                <div style={{ flex: 1, marginLeft: 8, height: 1, background: 'var(--border)' }} />
+                            </Row>
+                        }
+                        style={{ paddingLeft: 0, border: 'none' }}
+                    >
                         {filtersLoading ? (
                             <Skeleton active paragraph={{ rows: 1 }} />
                         ) : (
@@ -92,66 +116,78 @@ export function NewPathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
                         )}
                     </Collapse.Panel>
                 </Collapse>
-            </Row>
-            {/* <Row gutter={24} style={{width: '100%'}}>
-                <Col span={8}>
-                    <Select
-                        value={filter?.path_type || PathType.PageView}
-                        defaultValue={PathType.PageView}
-                        dropdownMatchSelectWidth={false}
-                        style={{width: '100%'}}
-                        onChange={(value): void => setFilter({ path_type: value, start_point: null })}
-                    >
-                        {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
-                            return (
-                                <Select.Option key={index} value={value}>
-                                    {name}
-                                </Select.Option>
-                            )
-                        })}
-                    </Select>
-                </Col>
-                <Col span={4}>
-                    <Select
-                        style={{width: '100%'}}
-                        defaultValue="start" 
-                    >
-                        <Select.Option value="start">starting at</Select.Option>
-                        <Select.Option value="end">ending at</Select.Option>
-                    </Select>
-                </Col>
-                <Col span={12}>
-                    <PropertyValue
-                        endpoint={filter.path_type === PathType.AutoCapture ? 'api/paths/elements' : undefined}
-                        outerOptions={
-                            filter.path_type === PathType.CustomEvent
-                                ? customEventNames.map((name) => ({
-                                    name,
-                                }))
-                                : undefined
+                <Collapse
+                    bordered={false}
+                    expandIconPosition="right"
+                    style={{
+                        paddingLeft: 0,
+                        width: '100%',
+                        color: 'var(--primary-alt)',
+                        background: 'none',
+                        border: 'none',
+                    }}
+                >
+                    <Collapse.Panel
+                        key="k"
+                        header={
+                            <Row align="middle">
+                                Excluded events
+                                <div style={{ flex: 1, marginLeft: 8, height: 1, background: 'var(--border)' }} />
+                            </Row>
                         }
-                        onSet={(value: string | number): void => setFilter({ start_point: value })}
-                        propertyKey={pathOptionsToProperty[filter.path_type || PathType.PageView]}
-                        type="event"
-                        value={filter.start_point}
-                        placeholder={'Select start element'}
-                        autoFocus={false}
-                        allowCustom={filter.path_type !== PathType.AutoCapture}
-                    />
-                </Col>
-            </Row> */}
-            {/* <Row style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
-                <GlobalFiltersTitle unit="actions/events" />
-                {filtersLoading ? (
-                    <Skeleton active paragraph={{ rows: 1 }} />
-                ) : (
-                    <>
-                        <PropertyFilters pageKey="insight-path" />
-                        <TestAccountFilter filters={filter} onChange={setFilter} />
-                    </>
-                )}
-            </Row> */}
-        {/* // </Row> */}
+                        style={{ paddingLeft: 0, border: 'none' }}
+                    >
+                        <Row className="text-muted mb">
+                            Indicate which events you want to omit from the visualization
+                        </Row>
+                        <Row>
+                            {excludedEvents.map((event) => (
+                                <div key={event.source_id}>{event.name}</div>
+                            ))}
+                            <Button style={{ color: 'var(--primary)' }} icon={<PlusOutlined />}>
+                                Add event
+                            </Button>
+                        </Row>
+                    </Collapse.Panel>
+                </Collapse>
+                <Collapse
+                    bordered={false}
+                    expandIconPosition="right"
+                    style={{
+                        paddingLeft: 0,
+                        width: '100%',
+                        color: 'var(--primary-alt)',
+                        background: 'none',
+                        border: 'none',
+                    }}
+                >
+                    <Collapse.Panel
+                        key="k"
+                        header={
+                            <Row align="middle">
+                                Important events
+                                <div style={{ flex: 1, marginLeft: 8, height: 1, background: 'var(--border)' }} />
+                            </Row>
+                        }
+                        style={{ paddingLeft: 0, border: 'none' }}
+                    >
+                        <Row className="text-muted mb">
+                            <span>
+                                Important events are distinguished by color and are given priority when sorting and
+                                aggregating path items
+                            </span>
+                        </Row>
+                        <Row>
+                            {importantEvents.map((event) => (
+                                <div key={event.source_id}>{event.name}</div>
+                            ))}
+                            <Button style={{ color: 'var(--primary)' }} icon={<PlusOutlined />}>
+                                Add event
+                            </Button>
+                        </Row>
+                    </Collapse.Panel>
+                </Collapse>
+            </Row>
         </>
     )
 }

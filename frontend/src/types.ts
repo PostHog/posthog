@@ -670,7 +670,9 @@ export interface FilterType {
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     path_type?: PathType
+    include_event_types?: PathType[]
     start_point?: string | number
+    end_point?: string | number
     stickiness_days?: number
     type?: EntityType
     entity_id?: string | number

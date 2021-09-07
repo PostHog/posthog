@@ -29,7 +29,9 @@ export const pathOptionsToProperty = {
 function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
     return {
         start_point: filters.start_point,
+        end_point: filters.end_point,
         path_type: filters.path_type || PathType.PageView,
+        ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
         date_from: filters.date_from,
         date_to: filters.date_to,
         insight: ViewType.PATHS,
@@ -59,6 +61,15 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     },
     connect: {
         actions: [insightHistoryLogic, ['createInsight']],
+    },
+    actions: {
+        setProperties: (properties) => ({ properties }),
+        setFilter: (filter) => filter,
+        showPathEvents: (event) => ({ event }),
+        addImportantEvent: (event) => ({ event }),
+        addExcludedEvent: (event) => ({ event }),
+        removeImportantEvent: (event) => ({ event }),
+        removeExcludedEvent: (event) => ({ event }),
     },
     loaders: ({ values, props }) => ({
         results: {
@@ -103,6 +114,15 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             >,
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
+                showPathEvents: (state, { event }) => {
+                    if (state.include_event_types) {
+                        const include_event_types = state.include_event_types.includes(event)
+                            ? state.include_event_types.filter((e) => e !== event)
+                            : [...state.include_event_types, event]
+                        return { ...state, include_event_types }
+                    }
+                    return { ...state, include_event_types: [event] }
+                },
             },
         ],
         properties: [
@@ -114,10 +134,20 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 setProperties: (_, { properties }) => properties,
             },
         ],
-    }),
-    actions: () => ({
-        setProperties: (properties) => ({ properties }),
-        setFilter: (filter) => filter,
+        importantEvents: [
+            [],
+            {
+                addImportantEvent: (state, { event }) => [...state, event],
+                removeImportantEvent: (state, { event }) => state.filter((e) => e !== event),
+            },
+        ],
+        excludedEvents: [
+            [],
+            {
+                addExcludedEvent: (state, { event }) => [...state, event],
+                removeExcludedEvent: (state, { event }) => state.filter((e) => e !== event),
+            },
+        ],
     }),
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
