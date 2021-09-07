@@ -1,17 +1,14 @@
 import { infiniteListLogic } from './infiniteListLogic'
 import { BuiltLogic } from 'kea'
-import { waitForAction } from 'kea-waitfor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { mockAPIGet } from 'lib/api.mock'
-import { initKeaTestLogic } from '~/test/utils'
+import { initKeaTestLogic, testLogic } from '~/test/utils'
 import { mockEventDefinitions } from '~/test/mocks'
 
 jest.mock('lib/api')
 
-describe('infiniteListLogic verbose version', () => {
-    let logic: BuiltLogic<infiniteListLogicType>
-
+describe('infiniteListLogic', () => {
     mockAPIGet(async ({ pathname, searchParams }) => {
         if (pathname === 'api/projects/@current/event_definitions') {
             const results = searchParams.search
@@ -24,81 +21,54 @@ describe('infiniteListLogic verbose version', () => {
         }
     })
 
-    initKeaTestLogic({
-        logic: infiniteListLogic,
-        props: {
-            taxonomicFilterLogicKey: 'testList',
-            listGroupType: TaxonomicFilterGroupType.Events,
-        },
-        waitFor: 'loadRemoteItemsSuccess',
-        onLogic: (l) => (logic = l),
-    })
-
-    describe('values', () => {
-        it('has proper defaults', () => {
-            expect(logic.values).toMatchSnapshot()
+    describe('with remote datasource', () => {
+        let logic: BuiltLogic<infiniteListLogicType>
+        initKeaTestLogic({
+            logic: infiniteListLogic,
+            props: {
+                taxonomicFilterLogicKey: 'testList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+            },
+            onLogic: (l) => (logic = l),
         })
-    })
 
-    describe('loaders', () => {
-        describe('remoteItems', () => {
-            it('loads initial items on mount', async () => {
-                expect(logic.values.remoteItems.results.length).toEqual(56)
-            })
+        beforeEach(async () => {
+            console.log('wait 1')
+            await testLogic(logic, ({ actions }, { waitFor }) => [() => waitFor(actions.loadRemoteItemsSuccess)])
+            console.log('wait 2')
+        })
 
-            it('setting search query filters events', async () => {
-                logic.actions.setSearchQuery('event')
-                expect(logic.values.searchQuery).toEqual('event')
-
-                await waitForAction(logic.actions.loadRemoteItemsSuccess)
-                expect(logic.values.remoteItems.results.length).toEqual(3)
-                expect(logic.values.remoteItems).toMatchSnapshot()
+        describe('loads remote items', () => {
+            it('when setting the search query', async () => {
+                await testLogic(logic, ({ actions }, { waitFor }) => [
+                    () => actions.setSearchQuery('event'),
+                    () => waitFor(actions.loadRemoteItemsSuccess),
+                ])
             })
         })
-    })
 
-    describe('reducers', () => {
-        describe('index', () => {
-            it('is set via setIndex', async () => {
-                expect(logic.values.index).toEqual(0)
-                logic.actions.setIndex(1)
-                expect(logic.values.index).toEqual(1)
+        describe('sets search index', () => {
+            it('with setIndex', async () => {
+                await testLogic(logic, ({ actions }) => [() => actions.setIndex(1)])
             })
 
             it('can go up and down', async () => {
-                expect(logic.values.remoteItems.results.length).toEqual(56)
-
-                logic.actions.moveUp()
-                expect(logic.values.index).toEqual(55)
-
-                logic.actions.moveUp()
-                expect(logic.values.index).toEqual(54)
-
-                logic.actions.moveDown()
-                expect(logic.values.index).toEqual(55)
-
-                logic.actions.moveDown()
-                expect(logic.values.index).toEqual(0)
-
-                logic.actions.moveDown()
-                expect(logic.values.index).toEqual(1)
+                await testLogic(logic, ({ actions }) => [
+                    () => actions.moveUp(),
+                    () => actions.moveUp(),
+                    () => actions.moveDown(),
+                    () => actions.moveDown(),
+                    () => actions.moveDown(),
+                ])
             })
         })
-    })
 
-    describe('actions', () => {
-        describe('selectSelected', () => {
-            it('actually selects the selected', async () => {
-                expect(logic.values.selectedItem).toEqual(expect.objectContaining({ name: 'event1' }))
-
-                logic.actions.selectItem = jest.fn()
-                logic.actions.selectSelected()
-
-                expect(logic.actions.selectItem).toHaveBeenCalledWith(
-                    'events',
-                    'event1',
-                    expect.objectContaining({ name: 'event1' })
-                )
+        describe('select selected', () => {
+            it('changes selected item', async () => {
+                await testLogic(logic, ({ actions }, { waitFor }) => [
+                    () => actions.selectSelected(),
+                    () => waitFor(actions.selectItem),
+                ])
             })
         })
     })
