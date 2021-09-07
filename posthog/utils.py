@@ -187,6 +187,19 @@ def get_git_commit() -> Optional[str]:
         return None
 
 
+def get_git_sha() -> Optional[str]:
+    """
+    Returns the long hash of the last commit.
+    Example: get_git_sha()
+        => "a8731a3d00e7fdb9dc147035a62b891a00af82ea"
+    """
+
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
+    except Exception:
+        return None
+
+
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
     from loginas.utils import is_impersonated_session
 

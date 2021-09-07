@@ -13,6 +13,8 @@ from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import SingleTenancyOrAdmin
 from posthog.utils import (
     dict_from_cursor_fetchall,
+    get_git_branch,
+    get_git_sha,
     get_plugin_server_job_queues,
     get_plugin_server_version,
     get_redis_info,
@@ -40,6 +42,14 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         metrics: List[Dict[str, Union[str, bool, int, float]]] = []
 
         metrics.append({"key": "posthog_version", "metric": "PostHog version", "value": VERSION})
+
+        metrics.append(
+            {
+                "key": "posthog_git_branch_and_sha",
+                "metric": "PostHog Git branch:sha",
+                "value": f"{get_git_branch()}:{get_git_sha()}",
+            }
+        )
 
         metrics.append(
             {
