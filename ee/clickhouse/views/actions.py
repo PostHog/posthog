@@ -9,34 +9,22 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_csv import renderers as csvrenderers
-from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.models.action import format_action_filter, format_entity_filter
-from ee.clickhouse.models.cohort import format_filter_query
-from ee.clickhouse.models.person import ClickhousePersonSerializer
-from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.trends.util import get_active_user_params
-from ee.clickhouse.queries.util import parse_timestamps
+from ee.clickhouse.models.action import format_action_filter
+from ee.clickhouse.queries.trends.person import calculate_entity_people, get_person_query
 from ee.clickhouse.sql.person import (
     GET_LATEST_PERSON_SQL,
     GET_TEAM_PERSON_DISTINCT_IDS,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
-    PEOPLE_SQL,
-    PEOPLE_THROUGH_DISTINCT_SQL,
     PERSON_STATIC_COHORT_TABLE,
-    PERSON_TREND_SQL,
 )
-from ee.clickhouse.sql.trends.volume import PERSONS_ACTIVE_USER_SQL
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.api.utils import get_target_entity
-from posthog.constants import MONTHLY_ACTIVE, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
-from posthog.models.property import Property
-from posthog.models.team import Team
 
 
 class ClickhouseActionSerializer(ActionSerializer):
@@ -117,6 +105,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
         return Response({"count": results[0][0]})
 
 
+<<<<<<< HEAD
 def _handle_date_interval(filter: Filter) -> Filter:
     # adhoc date handling. parsed differently with django orm
     date_from = filter.date_from or timezone.now()
@@ -199,8 +188,10 @@ def calculate_entity_people(team: Team, entity: Entity, filter: Filter):
     return serialized_people
 
 
+=======
+>>>>>>> 19b3e130... Move api/action/people SQL code under ee/clickhouse/queries
 def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Filter):
-    content_sql, params = _process_content_sql(cohort.team, entity, filter)
+    content_sql, params = get_person_query(cohort.team, entity, filter)
     sync_execute(
         INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
             cohort_table=PERSON_STATIC_COHORT_TABLE,
