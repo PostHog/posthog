@@ -53,6 +53,7 @@ import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
 import { userLogic } from 'scenes/userLogic'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
+import { NewPathTab } from './InsightTabs/NewPathTab'
 
 export interface BaseTabProps {
     annotationsToCreate: any[] // TODO: Type properly
@@ -332,7 +333,8 @@ export function Insights(): JSX.Element {
                                                 <RetentionTab annotationsToCreate={annotationsToCreate} />
                                             ),
                                             [`${ViewType.PATHS}`]: (
-                                                <PathTab annotationsToCreate={annotationsToCreate} />
+                                                // <PathTab annotationsToCreate={annotationsToCreate} />
+                                                <NewPathTab annotationsToCreate={annotationsToCreate} />
                                             ),
                                         }[activeView]
                                     }
