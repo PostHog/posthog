@@ -1,6 +1,7 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Tuple, Union
 
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
@@ -22,6 +23,8 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     _should_join_distinct_ids = False
     _should_join_persons = False
     _should_round_interval = False
+    _extra_fields: List[ColumnName]
+    _extra_person_fields: List[ColumnName]
 
     def __init__(
         self,
@@ -30,6 +33,8 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
+        extra_fields: List[ColumnName] = [],
+        extra_person_fields: List[ColumnName] = [],
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -41,6 +46,8 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
+        self._extra_fields = extra_fields
+        self._extra_person_fields = extra_person_fields
 
         if not self._should_join_distinct_ids:
             self._determine_should_join_distinct_ids()
@@ -117,7 +124,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._should_join_persons:
             return f"""
             INNER JOIN (
-                {ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer).get_query()}
+                {ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer, self._extra_person_fields).get_query()}
             ) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """
