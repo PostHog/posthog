@@ -2,32 +2,40 @@ import { Meta } from '@storybook/addon-docs';
 
 <Meta title="Welcome" />
 
-<style>{`
-  .subheading {
-    --mediumdark: '#999999';
-    font-weight: 900;
-    font-size: 13px;
-    color: #999;
-    letter-spacing: 6px;
-    line-height: 24px;
-    text-transform: uppercase;
-    margin-bottom: 12px;
-    margin-top: 40px;
-  }
-
-`}</style>
-
 # Welcome to Storybook
 
 We'll be showcasing what the PostHog app can do inside this Storybook, and using it to track the difference between designed and
 implemented product decisions.
 
-<div className="subheading">How to create stories</div>
+## How to create stories
 
 While developing, run `getReduxState()` inside the JS console and save the object as a `.json` file. Then follow what
 the other `*.stories.tsx` files do.
 
-<div className="subheading">Fun story: PostHog Onboarding Story</div>
+```tsx
+// Signup.stories.tsx
+import React from 'react'
+import { ComponentMeta } from '@storybook/react'
+import { KeaStory } from 'lib/storybook/kea-story'
+
+import { Signup } from '../Signup'
+
+import signup from './signup.json'
+
+export default {
+    title: 'PostHog/Onboarding/2 Signup',
+    component: Signup,
+} as ComponentMeta<typeof Signup>
+
+export const Initial = (): JSX.Element => (
+    <KeaStory state={signup}>
+        <Signup />
+    </KeaStory>
+)
+
+```
+
+## Fun story: PostHog Onboarding Story
 
 For a fun story, check out [The Self-Hosted Onboarding Flow](/story/posthog-onboarding-1-preflight--initial), where a user
 has to go through three different designs before reaching the app they came for!
