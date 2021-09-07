@@ -44,7 +44,7 @@ class TrendsPersonQuery:
             self.filter = _handle_date_interval(self.filter)
 
     def get_query(self) -> Tuple[str, Dict]:
-        events_query, params = self.get_events_query()
+        events_query, params = self._get_events_query()
         return (
             f"""
             SELECT
@@ -67,9 +67,7 @@ class TrendsPersonQuery:
             {**params, "offset": self.filter.offset},
         )
 
-    def get_events_query(self) -> Tuple[str, Dict]:
-        "Returns query + params for getting relevant distinct_ids/person_ids for this filter"
-
+    def _get_events_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self.team.pk)
             self.filter.properties.append(Property(key="id", value=cohort.pk, type="cohort"))
@@ -95,8 +93,6 @@ class TrendsPersonQuery:
 
     def get_people(self) -> List[Dict]:
         query, params = self.get_query()
-
         people = sync_execute(query, params)
-        serialized_people = ClickhousePersonSerializer(people, many=True).data
 
-        return serialized_people
+        return ClickhousePersonSerializer(people, many=True).data

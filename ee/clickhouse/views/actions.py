@@ -11,12 +11,7 @@ from rest_framework_csv import renderers as csvrenderers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.trends.person import TrendsPersonQuery
-from ee.clickhouse.sql.person import (
-    GET_LATEST_PERSON_SQL,
-    GET_TEAM_PERSON_DISTINCT_IDS,
-    INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL,
-    PERSON_STATIC_COHORT_TABLE,
-)
+from ee.clickhouse.sql.person import INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID, PERSON_STATIC_COHORT_TABLE
 from posthog.api.action import ActionSerializer, ActionViewSet
 from posthog.api.utils import get_target_entity
 from posthog.models.action import Action
@@ -104,14 +99,9 @@ class ClickhouseActionsViewSet(ActionViewSet):
 
 
 def insert_entity_people_into_cohort(cohort: Cohort, entity: Entity, filter: Filter):
-    content_sql, params = TrendsPersonQuery(cohort.team, entity, filter).get_events_query()
+    query, params = TrendsPersonQuery(cohort.team, entity, filter).get_query()
     sync_execute(
-        INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL.format(
-            cohort_table=PERSON_STATIC_COHORT_TABLE,
-            content_sql=content_sql,
-            latest_person_sql=GET_LATEST_PERSON_SQL.format(query=""),
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        ),
+        INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
         {"cohort_id": cohort.pk, "_timestamp": datetime.now(), **params},
     )
 

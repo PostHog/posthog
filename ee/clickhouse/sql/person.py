@@ -242,15 +242,9 @@ WHERE distinct_id IN (
 AND team_id = %(team_id)s
 """
 
-INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL = """
+INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT id FROM (
-        {latest_person_sql}
-    ) as person INNER JOIN (
-        SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql})
-    ) as pdi ON person.id = pdi.person_id
-    WHERE team_id = %(team_id)s
-    GROUP BY id
+    SELECT person_id FROM ({query})
 )
 """
 
