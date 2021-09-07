@@ -89,8 +89,6 @@ def backfill_materialized_columns(
     This will require reading and writing a lot of data on clickhouse disk.
     """
 
-    from ee.tasks.materialized_column_backfill import DELAY_SECONDS, check_backfill_done
-
     if len(properties) == 0:
         return
 
@@ -130,8 +128,6 @@ def backfill_materialized_columns(
         {"cutoff": (now() - backfill_period).strftime("%Y-%m-%d")},
         settings=test_settings,
     )
-
-    check_backfill_done.apply_async((table, property,), countdown=DELAY_SECONDS)
 
 
 def materialized_column_name(table: TableWithProperties, property: PropertyName) -> str:
