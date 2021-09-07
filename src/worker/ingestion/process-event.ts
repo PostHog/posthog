@@ -229,7 +229,7 @@ export class EventsProcessor {
         properties: Properties,
         propertiesOnce: Properties,
         incrementProperties: Record<string, number>
-    ): Promise<Person> {
+    ): Promise<Properties> {
         let personFound = await this.db.fetchPerson(teamId, distinctId)
         if (!personFound) {
             try {
@@ -254,7 +254,27 @@ export class EventsProcessor {
             )
         }
 
-        let updatedProperties: Properties = { ...propertiesOnce, ...personFound.properties, ...properties }
+        // Figure out which properties we are actually setting
+        const returnedProps: Properties = {}
+        let updatedProperties: Properties = { ...personFound.properties }
+        Object.entries(propertiesOnce).map(([key, value]) => {
+            if (typeof personFound?.properties[key] === 'undefined') {
+                if (!returnedProps['$set_once']) {
+                    returnedProps['$set_once'] = {}
+                }
+                returnedProps['$set_once'][key] = value
+                updatedProperties[key] = value
+            }
+        })
+        Object.entries(properties).map(([key, value]) => {
+            if (personFound?.properties[key] !== value) {
+                if (!returnedProps['$set']) {
+                    returnedProps['$set'] = {}
+                }
+                returnedProps['$set'][key] = value
+                updatedProperties[key] = value
+            }
+        })
 
         let incrementedPropertiesQueryResult: QueryResult | null = null
 
@@ -268,14 +288,15 @@ export class EventsProcessor {
 
         // CH still needs to update if there are $increment props but Postgres has already done so
         if (arePersonsEqualExcludingIncrement && (!this.db.kafkaProducer || !areTherePropsToIncrement)) {
-            return personFound
+            return returnedProps
         }
 
         if (incrementedPropertiesQueryResult && incrementedPropertiesQueryResult.rows.length > 0) {
             updatedProperties = { ...updatedProperties, ...incrementedPropertiesQueryResult.rows[0].properties }
         }
 
-        return await this.db.updatePerson(personFound, { properties: updatedProperties })
+        await this.db.updatePerson(personFound, { properties: updatedProperties })
+        return returnedProps
     }
 
     private async alias(
@@ -472,14 +493,17 @@ export class EventsProcessor {
 
         if (properties['$set'] || properties['$set_once'] || properties['$increment']) {
             const filteredIncrementProperties = filterIncrementProperties(properties['$increment'])
-
-            await this.updatePersonProperties(
+            const updatedSetAndSetOnce = await this.updatePersonProperties(
                 teamId,
                 distinctId,
                 properties['$set'] || {},
                 properties['$set_once'] || {},
                 filteredIncrementProperties
             )
+
+            delete properties['$set']
+            delete properties['$set_once']
+            properties = { ...properties, ...updatedSetAndSetOnce }
         }
 
         return await this.createEvent(

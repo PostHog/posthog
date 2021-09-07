@@ -776,7 +776,8 @@ export class DB {
 
     public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {
         if (this.kafkaProducer) {
-            const events = (await this.clickhouseQuery(`SELECT * FROM events`)).data as ClickHouseEvent[]
+            const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
+                .data as ClickHouseEvent[]
             return (
                 events?.map(
                     (event) =>
@@ -790,7 +791,11 @@ export class DB {
                 ) || []
             )
         } else {
-            const result = await this.postgresQuery('SELECT * FROM posthog_event', undefined, 'fetchAllEvents')
+            const result = await this.postgresQuery(
+                'SELECT * FROM posthog_event ORDER BY timestamp ASC',
+                undefined,
+                'fetchAllEvents'
+            )
             return result.rows as Event[]
         }
     }

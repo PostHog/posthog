@@ -198,11 +198,14 @@ const combinedParams = new Set([...campaignParams, ...initialParams])
 export function personInitialAndUTMProperties(properties: Properties): Properties {
     const propertiesCopy = { ...properties }
     const maybeSet = Object.entries(properties).filter(([key, value]) => campaignParams.has(key))
+
     const maybeSetInitial = Object.entries(properties)
         .filter(([key, value]) => combinedParams.has(key))
         .map(([key, value]) => [`$initial_${key.replace('$', '')}`, value])
     if (Object.keys(maybeSet).length > 0) {
         propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
+    }
+    if (Object.keys(maybeSetInitial).length > 0) {
         propertiesCopy.$set_once = { ...(properties.$set_once || {}), ...Object.fromEntries(maybeSetInitial) }
     }
     return propertiesCopy
