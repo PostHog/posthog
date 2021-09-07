@@ -10,7 +10,7 @@ import { AnalyzeQueryModal } from 'scenes/instance/SystemStatus/AnalyzeQueryModa
 import { Link } from 'lib/components/Link'
 
 export function InternalMetricsTab(): JSX.Element {
-    const { openSections, systemStatus, queries, queriesLoading } = useValues(systemStatusLogic)
+    const { openSections, systemStatus, queries, queriesLoading, showAnalyzeQueryButton } = useValues(systemStatusLogic)
     const { setOpenSections, loadQueries } = useActions(systemStatusLogic)
 
     const [showIdle, setShowIdle] = useState(false)
@@ -57,7 +57,11 @@ export function InternalMetricsTab(): JSX.Element {
                                 <ReloadOutlined /> Reload Queries
                             </Button>
                         </div>
-                        <QueryTable queries={queries?.clickhouse_running} loading={queriesLoading} showAnalyze />
+                        <QueryTable
+                            queries={queries?.clickhouse_running}
+                            loading={queriesLoading}
+                            showAnalyze={showAnalyzeQueryButton}
+                        />
                     </Collapse.Panel>
                 ) : null}
                 {queries?.clickhouse_slow_log != undefined ? (
@@ -67,7 +71,11 @@ export function InternalMetricsTab(): JSX.Element {
                                 <ReloadOutlined /> Reload Queries
                             </Button>
                         </div>
-                        <QueryTable queries={queries?.clickhouse_slow_log} loading={queriesLoading} showAnalyze />
+                        <QueryTable
+                            queries={queries?.clickhouse_slow_log}
+                            loading={queriesLoading}
+                            showAnalyze={showAnalyzeQueryButton}
+                        />
                     </Collapse.Panel>
                 ) : null}
             </Collapse>

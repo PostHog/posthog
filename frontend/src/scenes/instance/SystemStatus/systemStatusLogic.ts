@@ -2,8 +2,16 @@ import api from 'lib/api'
 import { kea } from 'kea'
 import { systemStatusLogicType } from './systemStatusLogicType'
 import { userLogic } from 'scenes/userLogic'
-import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult, SystemStatusAnalyzeResult } from '~/types'
+import {
+    SystemStatus,
+    SystemStatusRow,
+    SystemStatusQueriesResult,
+    SystemStatusAnalyzeResult,
+    OrganizationType,
+} from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 export type TabName = 'overview' | 'internal_metrics'
 
@@ -84,6 +92,11 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
         overview: [
             (s) => [s.systemStatus],
             (status: SystemStatus | null): SystemStatusRow[] => (status ? status.overview : []),
+        ],
+        showAnalyzeQueryButton: [
+            () => [organizationLogic.selectors.currentOrganization],
+            (org: OrganizationType | null): boolean =>
+                !!org?.membership_level && org.membership_level >= OrganizationMembershipLevel.Admin,
         ],
     }),
 
