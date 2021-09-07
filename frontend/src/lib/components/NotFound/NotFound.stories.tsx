@@ -6,6 +6,7 @@ import { NotFound } from './index'
 export default {
     title: 'PostHog/Components/NotFound',
     component: NotFound,
+    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof NotFound>
 
 const Template: ComponentStory<typeof NotFound> = (args) => <NotFound {...args} />
