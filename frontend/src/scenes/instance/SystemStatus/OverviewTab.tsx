@@ -57,13 +57,15 @@ export function OverviewTab(): JSX.Element {
                 <h3 className="l3" style={{ marginTop: 32 }}>
                     Configuration options
                 </h3>
-                <a
-                    href="https://posthog.com/docs/self-host#Configure?utm_medium=in-product"
-                    target="_blank"
-                    style={{ display: 'inline-flex', alignItems: 'center' }}
-                >
-                    Learn more <IconExternalLink />
-                </a>
+                <p>
+                    <a
+                        href="https://posthog.com/docs/self-host#Configure?utm_medium=in-product"
+                        rel="noopener"
+                        target="_blank"
+                    >
+                        Learn more <IconExternalLink style={{ verticalAlign: 'middle' }} />
+                    </a>
+                </p>
                 <Table
                     className="system-config-table"
                     size="small"
