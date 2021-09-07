@@ -12,6 +12,9 @@ jobs:
             - name: Checkout PR branch
               uses: actions/checkout@v2
 
+            - name: Update git sha
+              run: echo "GIT_SHA = '${GITHUB_SHA}'" >posthog/gitsha.py
+
             - name: Lint Dockerfiles with Hadolint
               run: |
                   # Install latest Hadolint binary from GitHub (not available via apt)

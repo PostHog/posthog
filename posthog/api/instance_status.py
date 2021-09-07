@@ -8,13 +8,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.ee import is_clickhouse_enabled
+from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import SingleTenancyOrAdmin
 from posthog.utils import (
     dict_from_cursor_fetchall,
-    get_git_branch,
-    get_git_commit,
     get_plugin_server_job_queues,
     get_plugin_server_version,
     get_redis_info,
@@ -43,13 +42,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         metrics.append({"key": "posthog_version", "metric": "PostHog version", "value": VERSION})
 
-        metrics.append(
-            {
-                "key": "posthog_git_branch_and_sha",
-                "metric": "PostHog Git branch:sha",
-                "value": f"{get_git_branch()}:{get_git_commit(short=False)}",
-            }
-        )
+        metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": GIT_SHA})
 
         metrics.append(
             {
