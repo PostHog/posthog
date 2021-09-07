@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from posthog.ee import is_clickhouse_enabled
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
-from posthog.permissions import SingleTenancyOrAdmin
+from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
 from posthog.utils import (
     dict_from_cursor_fetchall,
     get_plugin_server_job_queues,
@@ -162,7 +162,11 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         return Response({"results": queries})
 
-    @action(methods=["POST"], detail=False)
+    @action(
+        methods=["POST"],
+        detail=False,
+        permission_classes=[IsAuthenticated, SingleTenancyOrAdmin, OrganizationAdminAnyPermissions],
+    )
     def analyze_ch_query(self, request: Request) -> Response:
         response = {}
         if is_clickhouse_enabled():
