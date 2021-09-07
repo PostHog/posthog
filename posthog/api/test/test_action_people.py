@@ -688,17 +688,16 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
             people = self.client.get(
                 "/api/action/people/",
-                data={"interval": interval, "date_from": date_from, ENTITY_TYPE: "events", ENTITY_ID: "watched movie",},
+                data={"interval": interval, "date_from": date_from, ENTITY_TYPE: "events", ENTITY_ID: "watched movie"},
             ).json()
 
-            self.assertEqual(len(people["results"][0]["people"]), 2)
             self.assertCountEqual(
                 [person["distinct_ids"][0] for person in people["results"][0]["people"]], ["person1", "person2"]
             )
 
         def test_interval_month(self):
             self._test_interval(
-                date_from="2021-08-01",
+                date_from="2021-08-01T00:00:00Z",
                 interval="month",
                 timestamps=[
                     "2021-07-31T23:45:00Z",
@@ -710,7 +709,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
         def test_interval_week(self):
             self._test_interval(
-                date_from="2021-09-05",
+                date_from="2021-09-05T00:00:00Z",
                 interval="week",
                 timestamps=[
                     "2021-09-04T23:45:00Z",
@@ -722,7 +721,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
         def test_interval_day(self):
             self._test_interval(
-                date_from="2021-09-05",
+                date_from="2021-09-05T00:00:00Z",
                 interval="day",
                 timestamps=[
                     "2021-09-04T23:45:00Z",
@@ -734,7 +733,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
         def test_interval_hour(self):
             self._test_interval(
-                date_from="2021-09-05 16:00:00",
+                date_from="2021-09-05T16:00:00Z",
                 interval="hour",
                 timestamps=[
                     "2021-09-05T15:45:00Z",
@@ -746,7 +745,7 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
         def test_interval_minute(self):
             self._test_interval(
-                date_from="2021-09-05 16:05:00",
+                date_from="2021-09-05T16:05:00Z",
                 interval="minute",
                 timestamps=[
                     "2021-09-05T16:04:55Z",
