@@ -351,19 +351,19 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
         def test_day_interval_cumulative(self):
             sign_up_action, person = self._create_events()
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"])
-            person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
             event_factory(
-                team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-04T12:00:00Z",
+                team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-03T12:00:00Z",
             )
             event_factory(
-                team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-05T12:00:00Z",
+                team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-03T20:00:00Z",
             )
-            person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
+            outside_range_person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
             event_factory(
-                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-03T13:50:00Z",
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-02T13:50:00Z",
             )
             event_factory(
-                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-05T15:50:00Z",
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T15:50:00Z",
             )
             calculate_actions_from_last_calculation()
             # test people
@@ -389,10 +389,10 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     "display": TRENDS_CUMULATIVE,
                 },
             ).json()
-
             self.assertEqual(len(action_response["results"][0]["people"]), 2)
-            self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
-            self.assertEqual(str(action_response["results"][0]["people"][1]["id"]), str(person.pk))
+            self.assertEqual(
+                sorted([p["id"] for p in action_response["results"][0]["people"]]), sorted([person1.pk, person2.pk])
+            )
             self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
         def test_week_interval(self):
