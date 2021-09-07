@@ -7,7 +7,7 @@ import React from 'react'
 import { toast } from 'react-toastify'
 import { dashboardsModelType } from './dashboardsModelType'
 import { DashboardItemType, DashboardType } from '~/types'
-import { urls } from 'scenes/sceneLogic'
+import { sceneLogic, urls } from 'scenes/sceneLogic'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     actions: () => ({
@@ -83,10 +83,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         payload[updatedAttribute].length
                     )
                     if (updatedAttribute === 'name') {
-                        const title = payload[updatedAttribute]
-                        if (title !== '' || title !== undefined) {
-                            document.title = 'Dashboard : ' + title
-                        }
+                        sceneLogic.actions.setPageTitle(response.name ? `${response.name} • Dashboard` : 'Dashboard')
                     }
                 }
                 return response
