@@ -9,6 +9,7 @@ on:
         branches:
             - master
             - main
+            - storybook-build
 
 # List of jobs
 jobs:
@@ -34,6 +35,8 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - name: Copy built changes to PostHog/storybook-build repo
               run: |
+                  # keep the CNAME file, but discard all the rest
+                  cp storybook-build/docs/CNAME storybook-static/
                   rm -rf storybook-build/docs
                   cp -a storybook-static storybook-build/docs
             - name: Commit update
@@ -41,7 +44,7 @@ jobs:
               uses: stefanzweifel/git-auto-commit-action@v4
               with:
                   repository: storybook-build
-                  commit_message: 'Storybook build - $GITHUB_SHA'
+                  commit_message: 'Storybook build'
                   commit_user_name: PostHog Bot
                   commit_user_email: hey@posthog.com
                   commit_author: PostHog Bot <hey@posthog.com>
