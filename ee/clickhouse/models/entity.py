@@ -19,7 +19,11 @@ def get_entity_filtering_params(
     prop_filters = ""
     if with_prop_filters:
         prop_filters, params = parse_prop_clauses(
-            entity.properties, team_id, table_name=table_name, person_properties_column=person_properties_column
+            entity.properties,
+            team_id,
+            table_name=table_name,
+            person_properties_column=person_properties_column,
+            prepend=f"entity",
         )
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
