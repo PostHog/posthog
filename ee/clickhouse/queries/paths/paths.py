@@ -75,7 +75,7 @@ class ClickhousePathsNew:
 
     def get_path_query_by_funnel(self, funnel_filter: Filter):
         path_query = self.get_path_query()
-        funnel_persons_generator = ClickhouseFunnelPersons(funnel_filter, self._team)
+        funnel_persons_generator = ClickhouseFunnelPersons(funnel_filter, self._team, include_timestamps=0)
         funnel_persons_query = funnel_persons_generator.get_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
         funnel_persons_param = funnel_persons_generator.params
