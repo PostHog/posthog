@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
+from django.core.exceptions import PermissionDenied
 from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -11,7 +12,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, feature_flag
 from posthog.models.feature_flag import FeatureFlagOverride, get_active_feature_flags
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
@@ -162,7 +163,7 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
 
 
 class FeatureFlagOverrideViewset(
-    StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet,
+    AnalyticsDestroyModelMixin, viewsets.ModelViewSet,
 ):
     queryset = FeatureFlagOverride.objects.all()
     serializer_class = FeatureFlagOverrideSerializer
@@ -175,12 +176,43 @@ class FeatureFlagOverrideViewset(
     ]
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+        if not self.request.user.is_authenticated:  # for mypy, since 'AnonymousUser' has no 'team'
+            raise exceptions.NotAuthenticated
+        queryset = (
+            super()
+            .get_queryset()
+            .filter(feature_flag__team=self.request.user.team, user__current_team=self.request.user.team)
+        )
         if self.action == "list":
             feature_flag_id = self.request.GET.get("feature_flag_id")
             if feature_flag_id:
                 queryset = queryset.filter(feature_flag_id=feature_flag_id)
         return queryset
+
+    def perform_create(self, serializer):
+        self._check_team_permissions(serializer)
+        return super().perform_create(serializer)
+
+    def perform_update(self, serializer):
+        self._check_team_permissions(serializer)
+        return super().perform_update(serializer)
+
+    def _check_team_permissions(self, serializer: FeatureFlagOverrideSerializer):
+        if not self.request.user.is_authenticated:  # for mypy, since 'AnonymousUser' has no 'team'
+            raise exceptions.NotAuthenticated
+
+        feature_flag = serializer.validated_data.get("feature_flag")
+        user = serializer.validated_data.get("user")
+
+        if serializer.instance:
+            exisiting_feature_flag_override = cast(FeatureFlagOverride, serializer.instance)
+            if not feature_flag and exisiting_feature_flag_override:
+                feature_flag = exisiting_feature_flag_override.feature_flag
+            if not user and exisiting_feature_flag_override:
+                user = exisiting_feature_flag_override.user
+
+        if feature_flag.team != self.request.user.team or user.team != self.request.user.team:
+            raise PermissionDenied
 
     @action(methods=["GET"], detail=False)
     def my_overrides(self, request: request.Request, **kwargs):
