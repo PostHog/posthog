@@ -470,7 +470,7 @@ if PRIMARY_DB == RDBMS.CLICKHOUSE:
         pass
     else:
         CELERY_IMPORTS.append("ee.tasks.webhooks_ee")
-        CELERY_IMPORTS.append("ee.tasks.materialized_column_backfill")
+        CELERY_IMPORTS.append("ee.tasks.materialized_columns")
 
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
