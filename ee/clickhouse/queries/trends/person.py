@@ -1,12 +1,14 @@
 from datetime import timedelta
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from rest_framework.utils.serializer_helpers import ReturnDict
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.person import ClickhousePersonSerializer
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
+from ee.clickhouse.sql.person import GET_PERSONS_FROM_EVENT_QUERY
 from posthog.constants import TRENDS_CUMULATIVE
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -44,30 +46,6 @@ class TrendsPersonQuery:
             self.filter = _handle_date_interval(self.filter)
 
     def get_query(self) -> Tuple[str, Dict]:
-        events_query, params = self._get_events_query()
-        return (
-            f"""
-            SELECT
-                person_id,
-                created_at,
-                team_id,
-                person_props,
-                is_identified,
-                arrayReduce('groupUniqArray', groupArray(distinct_id))
-            FROM ({events_query})
-            GROUP BY
-                person_id,
-                created_at,
-                team_id,
-                person_props,
-                is_identified
-            LIMIT 200
-            OFFSET %(offset)s
-        """,
-            {**params, "offset": self.filter.offset},
-        )
-
-    def _get_events_query(self) -> Tuple[str, Dict]:
         if self.filter.breakdown_type == "cohort" and self.filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self.filter.breakdown_value, team_id=self.team.pk)
             self.filter.properties.append(Property(key="id", value=cohort.pk, type="cohort"))
@@ -81,7 +59,7 @@ class TrendsPersonQuery:
             )
             self.filter.properties.append(breakdown_prop)
 
-        return TrendsEventQuery(
+        events_query, params = TrendsEventQuery(
             filter=self.filter,
             team_id=self.team.pk,
             entity=self.entity,
@@ -91,7 +69,12 @@ class TrendsPersonQuery:
             extra_person_fields=["created_at", "person_props", "is_identified"],
         ).get_query()
 
-    def get_people(self) -> List[Dict]:
+        return (
+            GET_PERSONS_FROM_EVENT_QUERY.format(events_query=events_query),
+            {**params, "offset": self.filter.offset, "limit": 200},
+        )
+
+    def get_people(self) -> ReturnDict:
         query, params = self.get_query()
         people = sync_execute(query, params)
 

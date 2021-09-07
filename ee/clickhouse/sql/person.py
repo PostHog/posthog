@@ -299,3 +299,22 @@ WHERE team_id = %(team_id)s
 GROUP BY tupleElement(keysAndValues, 1)
 ORDER BY count DESC, key ASC
 """
+
+GET_PERSONS_FROM_EVENT_QUERY = """
+SELECT
+    person_id,
+    created_at,
+    team_id,
+    person_props,
+    is_identified,
+    arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+FROM ({events_query})
+GROUP BY
+    person_id,
+    created_at,
+    team_id,
+    person_props,
+    is_identified
+LIMIT %(limit)s
+OFFSET %(offset)s
+"""
