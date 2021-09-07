@@ -40,6 +40,9 @@ jobs:
                   yarn build-storybook
             - name: Publish changes
               run: |
+                  pwd
+                  ls
+                  ls posthog
                   cp -a posthog/storybook-static storybook-build/docs
                   cd storybook-build
                   git add .
