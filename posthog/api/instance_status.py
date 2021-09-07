@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, List, Union
 
 from django.db import connection
@@ -43,6 +44,10 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         metrics.append({"key": "posthog_version", "metric": "PostHog version", "value": VERSION})
 
         metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": GIT_SHA})
+
+        metrics.append(
+            {"key": "chart_version", "metric": "Chart version", "value": os.getenv("CHART_VERSION", "Undefined"),}
+        )
 
         metrics.append(
             {
