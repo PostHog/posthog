@@ -3,13 +3,13 @@ from uuid import uuid4
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.breakdown_props import get_breakdown_person_prop_values
+from ee.clickhouse.queries.breakdown_props import get_breakdown_prop_values
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 
 
 def _create_event(**kwargs):
@@ -18,6 +18,7 @@ def _create_event(**kwargs):
 
 
 class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
+    @test_with_materialized_columns(event_properties=["$host", "distinct_id"], person_properties=["$browser", "email"])
     def test_breakdown_person_props(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
         _create_event(
@@ -56,7 +57,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                     "funnel_window_days": 14,
                 }
             )
-            res = get_breakdown_person_prop_values(
+            res = get_breakdown_prop_values(
                 filter, Entity({"id": "$pageview", "type": "events"}), "count(*)", self.team.pk, 5
             )
             self.assertEqual(res, ["test"])
@@ -110,5 +111,5 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "funnel_window_days": 14,
                     }
                 )
-                res = get_breakdown_person_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk, 5)
+                res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team.pk, 5)
                 self.assertEqual(res, ["test"])

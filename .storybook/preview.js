@@ -14,6 +14,11 @@ export const parameters = {
             date: /Date$/,
         },
     },
+
+    options: {
+        // opt in to panels in your story by overridding `export const parameters`
+        showPanel: false,
+    },
 }
 
 export const decorators = []

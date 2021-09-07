@@ -168,11 +168,7 @@ FROM (
                     , arrayMap((x,y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping
                     , arrayFilter((x,y) -> y, time, mapping) as timings
                     , arrayFilter((x,y)->y, path_basic, mapping) as compact_path
-                    , indexOf(compact_path, %(target_point)s) as target_index
-                    , if(target_index > 0, {compacting_function}(compact_path, target_index), compact_path) as filtered_path
-                    , if(target_index > 0, {compacting_function}(timings, target_index), timings) as filtered_timings
-                    , {path_limiting_clause} as limited_path
-                    , {time_limiting_clause} as limited_timings
+                    {target_clause}
                     , arrayDifference(limited_timings) as timings_diff
                     , arrayZip(limited_path, timings_diff) as limited_path_timings
                 FROM (
