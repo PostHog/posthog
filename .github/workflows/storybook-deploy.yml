@@ -18,12 +18,12 @@ jobs:
         runs-on: ubuntu-latest
         # Job steps
         steps:
-            - name: Check out the repo
+            - name: Check out PostHog/posthog repo
               uses: actions/checkout@v2
               with:
                   path: posthog
                   fetch-depth: 0
-            - name: Check out storybook build repo
+            - name: Check out PostHog/storybook-build repo
               uses: actions/checkout@v2
               with:
                   path: storybook-build
@@ -42,12 +42,11 @@ jobs:
                   cd posthog
                   pwd
                   yarn build-storybook
-            - name: Publish changes
+            - name: Publish changes to PostHog/storybook-build repo
               run: |
-                  cd
                   pwd
-                  ls
                   ls posthog
+                  ls posthog/storybook-static
                   cp -a posthog/storybook-static storybook-build/docs
                   cd storybook-build
                   git add .
