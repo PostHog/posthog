@@ -1,5 +1,5 @@
 import hashlib
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import models
@@ -201,10 +201,11 @@ def get_overridden_feature_flags(
     team: Team, distinct_id: str, user: Optional[Union[User, AnonymousUser]]
 ) -> Dict[str, Union[bool, str, None]]:
     feature_flags = get_active_feature_flags(team, distinct_id)
-    feature_flag_override: Dict[str, Union[bool, str, None]] = {}
 
-    if user.is_authenticated:
-        feature_flag_overrides = FeatureFlagOverride.objects.filter(user=user).select_related("feature_flag")
+    if user and user.is_authenticated:
+        feature_flag_overrides = FeatureFlagOverride.objects.filter(user=cast(User, user)).select_related(
+            "feature_flag"
+        )
     else:
         feature_flag_overrides = FeatureFlagOverride.objects.filter(user__distinct_id=distinct_id).select_related(
             "feature_flag"

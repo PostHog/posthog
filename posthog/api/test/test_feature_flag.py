@@ -471,6 +471,8 @@ class TestFeatureFlag(APIBaseTest):
     def test_overrides_dont_leak_between_teams(self):
         team_1_user = self.user
         _, _, team_2_user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+        assert team_1_user.team is not None
+        assert team_2_user.team is not None
 
         team1_feature_flag = FeatureFlag.objects.create(
             team=team_1_user.team, created_by=team_1_user, key="beta-feature-1"
@@ -495,8 +497,8 @@ class TestFeatureFlag(APIBaseTest):
             len(response.json()["feature_flag_overrides"]), 0,
         )
 
-        feature_flag = FeatureFlag.objects.create(team=self.user.team, created_by=self.user, key="beta-feature-1")
-        _, _, user_2 = User.objects.bootstrap(self.organization, "user2@posthog.com", None)
+        feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature-1")
+        _, _, user_2 = User.objects.bootstrap(self.organization.name, "user2@posthog.com", None)
 
         FeatureFlagOverride.objects.create(feature_flag=feature_flag, user=self.user, override_value=True)
         FeatureFlagOverride.objects.create(feature_flag=feature_flag, user=user_2, override_value=True)
