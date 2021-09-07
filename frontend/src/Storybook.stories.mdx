@@ -9,10 +9,14 @@ We're using Storybook to:
 - make it easy to work on hard-to-reach scenes (e.g. preflight check)
 - provide permalinks with which to link to stories in issues
 
+## Running locally
+
+To run storybook locally, run `yarn storybook`. It'll open on [http://localhost:6006/](http://localhost:6006/)
+
 ## How to create stories
 
-While developing, run `getReduxState()` inside the JS console and save the object as a `.json` file. Then follow what
-the other `*.stories.tsx` files do.
+To capture a scene as a story, run `getReduxState()` inside Chrome's JS console (only works in [dev mode](http://localhost:8000/)) and save the
+returned state into a `.json` file. Then follow the same pattern other `*.stories.tsx` files use:
 
 ```tsx
 // Events.stories.tsx
