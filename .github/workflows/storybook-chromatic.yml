@@ -1,14 +1,14 @@
 # .github/workflows/chromatic.yml
 
 # Workflow name
-name: 'Chromatic'
+name: 'Storybook Chromatic'
 
 # Event for the workflow
 on: push
 
 # List of jobs
 jobs:
-    chromatic-deployment:
+    storybook-chromatic:
         # Operating System
         runs-on: ubuntu-latest
         # Job steps
