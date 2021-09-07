@@ -23,7 +23,6 @@ from posthog.ee import is_clickhouse_enabled
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_overridden_feature_flags
 from posthog.models.organization import Organization
 from posthog.tasks import user_identify
 from posthog.utils import get_instance_realm
@@ -63,7 +62,6 @@ class UserSerializer(serializers.ModelSerializer):
             "password",
             "current_password",  # used when changing current password
             "events_column_config",
-            "feature_flag_override",
         ]
         extra_kwargs = {
             "date_joined": {"read_only": True},
@@ -98,20 +96,6 @@ class UserSerializer(serializers.ModelSerializer):
             pass
 
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
-
-    def validate_feature_flag_override(self, value: Any) -> Dict[str, Union[str, bool]]:
-        if not isinstance(value, dict):
-            raise serializers.ValidationError(
-                f"Field 'feature_flag_override' must be an object.", code="invalid_feature_flag_object"
-            )
-
-        for k, v in value.items():
-            if not isinstance(v, str) and not isinstance(v, bool):
-                raise serializers.ValidationError(
-                    f"Overridden feature flag '{k}' must be a string or a boolean.", code="invalid_feature_flag"
-                )
-
-        return value
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
@@ -330,7 +314,6 @@ def redirect_to_site(request):
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
         "dataAttributes": team.data_attributes,
-        "featureFlags": get_overridden_feature_flags(team, request.user.distinct_id, request.user),
     }
 
     if settings.JS_URL:

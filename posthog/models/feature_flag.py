@@ -79,6 +79,15 @@ class FeatureFlag(models.Model):
             }
 
 
+class FeatureFlagOverride(models.Model):
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "feature_flag"], name="unique feature flag for a user")]
+
+    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    override_value: models.JSONField = models.JSONField(default=bool)
+
+
 class FeatureFlagMatcher:
     def __init__(self, distinct_id: str, feature_flag: FeatureFlag):
         self.distinct_id = distinct_id
@@ -194,21 +203,20 @@ def get_overridden_feature_flags(
     feature_flags = get_active_feature_flags(team, distinct_id)
     feature_flag_override: Dict[str, Union[bool, str, None]] = {}
 
-    try:
-        feature_flag_override = (
-            user.feature_flag_override
-            if isinstance(user, User) and user.is_authenticated
-            else User.objects.get(distinct_id=distinct_id).feature_flag_override
+    if user.is_authenticated:
+        feature_flag_overrides = FeatureFlagOverride.objects.filter(user=user).select_related("feature_flag")
+    else:
+        feature_flag_overrides = FeatureFlagOverride.objects.filter(user__distinct_id=distinct_id).select_related(
+            "feature_flag"
         )
-    except User.DoesNotExist:
-        pass
 
-    if feature_flag_override:
-        for k, v in feature_flag_override.items():
-            if v is False:
-                if k in feature_flags:
-                    del feature_flags[k]
-            else:
-                feature_flags[k] = v
+    for feature_flag_override in feature_flag_overrides:
+        key = feature_flag_override.feature_flag.key
+        value = feature_flag_override.override_value
+        if value is False:
+            if key in feature_flags:
+                del feature_flags[key]
+        else:
+            feature_flags[key] = value
 
     return feature_flags

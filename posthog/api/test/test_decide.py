@@ -5,6 +5,7 @@ from django.test.client import Client
 from rest_framework import status
 
 from posthog.models import FeatureFlag, Person, PersonalAPIKey
+from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import BaseTest
 
 
@@ -264,12 +265,6 @@ class TestDecide(BaseTest):
 
     def test_feature_flags_v2_override(self):
         self.user.distinct_id = "static-distinct-id"
-        self.user.feature_flag_override = {
-            "bool-key-only-in-override": True,
-            "bool-key-overridden-to-false": False,
-            "multivariate-flag-overridden": "third-variant",
-            "multivariate-only-in-override": "random-string",
-        }
         self.user.save()
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -277,25 +272,27 @@ class TestDecide(BaseTest):
         Person.objects.create(
             team=self.team, distinct_ids=[self.user.distinct_id], properties={"email": self.user.email},
         )
-        FeatureFlag.objects.create(
+        ff_1 = FeatureFlag.objects.create(
             team=self.team, name="Beta feature", key="bool-key-overridden-to-false", created_by=self.user,
         )
-        FeatureFlag.objects.create(
+
+        ff_2 = FeatureFlag.objects.create(
             team=self.team,
-            name="This is a feature flag with default params, no filters.",
-            key="flag-rollout-50",
-            rollout_percentage=50,
+            name="Zero rollout feature",
+            rollout_percentage=0,
+            key="bool-key-overridden-to-true",
             created_by=self.user,
-        )  # Should be enabled for everyone
-        FeatureFlag.objects.create(
+        )
+
+        ff_3 = FeatureFlag.objects.create(
             team=self.team,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 100},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 0},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
                     ],
                 },
             },
@@ -304,16 +301,62 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
+        ff_4 = FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 0},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 100},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                    ],
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag-overridden-to-new-variant",
+            created_by=self.user,
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            name="This is a feature flag with default params, no filters.",
+            key="flag-rollout-100",
+            rollout_percentage=100,
+            created_by=self.user,
+        )  # Should be enabled for everyone
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            name="This is a feature flag with default params, no filters.",
+            key="flag-rollout-0",
+            rollout_percentage=0,
+            created_by=self.user,
+        )  # Should be enabled for nobody
+
+        FeatureFlagOverride.objects.create(
+            user=self.user, feature_flag=ff_1, override_value=False,
+        )
+        FeatureFlagOverride.objects.create(
+            user=self.user, feature_flag=ff_2, override_value=True,
+        )
+        FeatureFlagOverride.objects.create(
+            user=self.user, feature_flag=ff_3, override_value="third-variant",
+        )
+        FeatureFlagOverride.objects.create(
+            user=self.user, feature_flag=ff_4, override_value="new-variant",
+        )
+
         with self.assertNumQueries(3):
             response = self._post_decide(api_version=1, distinct_id=str(self.user.distinct_id))
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(
                 response.json()["featureFlags"],
                 [
-                    "flag-rollout-50",
                     "multivariate-flag-overridden",
-                    "bool-key-only-in-override",
-                    "multivariate-only-in-override",
+                    "multivariate-flag-overridden-to-new-variant",
+                    "flag-rollout-100",
+                    "bool-key-overridden-to-true",
                 ],
             )
 
@@ -322,10 +365,10 @@ class TestDecide(BaseTest):
             self.assertEqual(
                 response.json()["featureFlags"],
                 {
-                    "flag-rollout-50": True,
-                    "bool-key-only-in-override": True,
+                    "bool-key-overridden-to-true": True,
                     "multivariate-flag-overridden": "third-variant",
-                    "multivariate-only-in-override": "random-string",
+                    "multivariate-flag-overridden-to-new-variant": "new-variant",
+                    "flag-rollout-100": True,
                 },
             )
 
@@ -333,7 +376,12 @@ class TestDecide(BaseTest):
             response = self._post_decide(api_version=2, distinct_id="user-with-no-overriden-flags")
             self.assertEqual(
                 response.json()["featureFlags"],
-                {"bool-key-overridden-to-false": True, "multivariate-flag-overridden": "first-variant"},
+                {
+                    "bool-key-overridden-to-false": True,
+                    "multivariate-flag-overridden": "first-variant",
+                    "multivariate-flag-overridden-to-new-variant": "second-variant",
+                    "flag-rollout-100": True,
+                },
             )
 
     def test_feature_flags_with_personal_api_key(self):

@@ -2,18 +2,17 @@ from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import authentication, exceptions, request, serializers, status, viewsets
+from rest_framework import authentication, exceptions, mixins, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.user import UserSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import FeatureFlag
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models import FeatureFlag, feature_flag
+from posthog.models.feature_flag import FeatureFlagOverride, get_active_feature_flags
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 
@@ -135,15 +134,56 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         flags = get_active_feature_flags(self.team, request.user.distinct_id)
         return Response({"distinct_id": request.user.distinct_id, "flags": flags})
 
-    @action(methods=["GET", "POST"], detail=False)
-    def override(self, request: request.Request, **kwargs):
-        user = request.user
-        if not user.is_authenticated:  # for mypy, since 'AnonymousUser' has no 'feature_flag_override'
-            raise serializers.ValidationError("Must be authenticated to override feature flags.")
-        if request.data.get("feature_flag_override"):
-            serializer = UserSerializer(user, context={"request": request})
-            user.feature_flag_override = serializer.validate_feature_flag_override(
-                request.data.get("feature_flag_override")
+
+class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FeatureFlagOverride
+        fields = [
+            "id",
+            "feature_flag",
+            "user",
+            "override_value",
+        ]
+
+    def validate_override_value(self, value):
+        if not isinstance(value, str) and not isinstance(value, bool):
+            raise serializers.ValidationError(
+                f"Overridden feature flag value ('{value}') must be a string or a boolean.", code="invalid_feature_flag"
             )
-            user.save()
-        return Response({"feature_flag_override": user.feature_flag_override})
+        return value
+
+    def create(self, validated_data: Dict) -> FeatureFlagOverride:
+        feature_flag_override, created = FeatureFlagOverride.objects.update_or_create(
+            feature_flag=validated_data["feature_flag"],
+            user=validated_data["user"],
+            defaults={"override_value": validated_data["override_value"]},
+        )
+        return feature_flag_override
+
+
+class FeatureFlagOverrideViewset(
+    StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet,
+):
+    queryset = FeatureFlagOverride.objects.all()
+    serializer_class = FeatureFlagOverrideSerializer
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    authentication_classes = [
+        PersonalAPIKeyAuthentication,
+        TemporaryTokenAuthentication,
+        authentication.SessionAuthentication,
+        authentication.BasicAuthentication,
+    ]
+
+    def get_queryset(self) -> QuerySet:
+        queryset = super().get_queryset()
+        if self.action == "list":
+            feature_flag_id = self.request.GET.get("feature_flag_id")
+            if feature_flag_id:
+                queryset = queryset.filter(feature_flag_id=feature_flag_id)
+        return queryset
+
+    @action(methods=["GET"], detail=False)
+    def my_overrides(self, request: request.Request, **kwargs):
+        queryset = super().get_queryset().filter(user=request.user)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"feature_flag_overrides": serializer.data})
