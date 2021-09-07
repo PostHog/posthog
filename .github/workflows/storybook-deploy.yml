@@ -9,7 +9,6 @@ on:
         branches:
             - master
             - main
-            - storybook-build
 
 # List of jobs
 jobs:
