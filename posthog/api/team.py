@@ -11,6 +11,7 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token, generate_random_token_project
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, ProjectMembershipNecessaryPermissions
+from posthog.types import AvailableFeature
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -24,7 +25,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
             (user.organization is None)
             or (
                 user.organization.teams.exclude(is_demo=True).count() >= 1
-                and not user.organization.is_feature_available("organizations_projects")
+                and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             )
         ):
             return False

@@ -18,6 +18,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     extract_organization,
 )
+from posthog.types import AvailableFeature
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -31,7 +32,10 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
             # make multiple orgs only premium on self-hosted, since enforcement of this is not possible on Cloud
             not getattr(settings, "MULTI_TENANCY", False)
             and request.method in CREATE_METHODS
-            and (user.organization is None or not user.organization.is_feature_available("organizations_projects"))
+            and (
+                user.organization is None
+                or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+            )
             and user.organizations.count() >= 1
         ):
             return False
