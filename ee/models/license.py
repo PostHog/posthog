@@ -9,7 +9,7 @@ from django.utils import timezone
 from rest_framework import exceptions, status
 
 from posthog.celery import sync_all_organization_available_features
-from posthog.types import AvailableFeature
+from posthog.constants import AvailableFeature
 
 
 class LicenseError(exceptions.APIException):

@@ -4,11 +4,11 @@ from django.db import models
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition
 from posthog.permissions import OrganizationMemberPermissions
-from posthog.types import AvailableFeature
 
 _MT = TypeVar("_MT", bound=models.Model)
 

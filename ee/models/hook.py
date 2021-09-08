@@ -5,9 +5,9 @@ from rest_hooks.models import AbstractHook
 from statshog.defaults.django import statsd
 
 from ee.tasks.hooks import DeliverHook
+from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token
-from posthog.types import AvailableFeature
 
 
 class Hook(AbstractHook):
