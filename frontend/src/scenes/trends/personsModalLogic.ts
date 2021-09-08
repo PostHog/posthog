@@ -9,7 +9,7 @@ import { personsModalLogicType } from './personsModalLogicType'
 import { parsePeopleParams, TrendPeople } from './trendsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { cohortLogic } from 'scenes/cohorts/CohortV2/cohortLogic'
+import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
