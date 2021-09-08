@@ -145,6 +145,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _get_timestamp_selects(self) -> Tuple[str, str]:
         target_step = self._filter.funnel_step
+
+        if not target_step:
+            return "", ""
+
         if target_step < 0:
             if target_step == -1:
                 raise ValueError("To request dropoff of initial step use -2")
