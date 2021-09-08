@@ -7,7 +7,7 @@ import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
-import { CohortV2, CohortV2Footer } from './CohortV2'
+import { Cohort, CohortFooter } from './Cohort'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
@@ -213,9 +213,9 @@ export function Cohorts(): JSX.Element {
                     onClose={() => setOpenCohort(null)}
                     destroyOnClose={true}
                     visible={!!openCohort}
-                    footer={openCohort && <CohortV2Footer cohort={openCohort} />}
+                    footer={openCohort && <CohortFooter cohort={openCohort} />}
                 >
-                    {openCohort && <CohortV2 cohort={openCohort} />}
+                    {openCohort && <Cohort cohort={openCohort} />}
                 </Drawer>
             </div>
         </div>

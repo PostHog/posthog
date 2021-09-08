@@ -16,7 +16,7 @@ import { UploadFile } from 'antd/lib/upload/interface'
 import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 
-export function CohortV2(props: { cohort: CohortType }): JSX.Element {
+export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort } = useActions(logic)
     const { cohort, submitted } = useValues(logic)
@@ -187,7 +187,7 @@ export function CohortV2(props: { cohort: CohortType }): JSX.Element {
     )
 }
 
-export function CohortV2Footer(props: { cohort: CohortType }): JSX.Element {
+export function CohortFooter(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { cohort } = useValues(logic)
     const { saveCohort } = useActions(logic)
