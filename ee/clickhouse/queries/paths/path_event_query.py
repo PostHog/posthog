@@ -10,17 +10,6 @@ class PathEventQuery(ClickhouseEventQuery):
     FUNNEL_PERSONS_ALIAS = "funnel_persons"
     _filter: PathFilter
 
-    def __init__(
-        self,
-        filter: PathFilter,
-        team_id: int,
-        round_interval=False,
-        should_join_distinct_ids=False,
-        should_join_persons=False,
-        **kwargs,
-    ) -> None:
-        super().__init__(filter, team_id, round_interval, should_join_distinct_ids, should_join_persons, **kwargs)
-
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
 
         funnel_paths_timestamp = ""
@@ -34,16 +23,30 @@ class PathEventQuery(ClickhouseEventQuery):
 
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp",
-            (
-                f"if(event = '{SCREEN_EVENT}', {self._get_screen_name_parsing()}, "
-                f"if({self.EVENT_TABLE_ALIAS}.event = '{PAGEVIEW_EVENT}', {self._get_current_url_parsing()}, "
-                f"if({self.EVENT_TABLE_ALIAS}.event = '{AUTOCAPTURE_EVENT}', concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), "
-                f"{self.EVENT_TABLE_ALIAS}.event))) AS path_item"
-            ),
             f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
             funnel_paths_timestamp,
         ]
 
+        event_conditional = (
+            f"if({self.EVENT_TABLE_ALIAS}.event = '{SCREEN_EVENT}', {self._get_screen_name_parsing()}, "
+            if self._column_optimizer.should_query_screen_in_paths
+            else "if(0, '', "
+        )
+        event_conditional += (
+            f"if({self.EVENT_TABLE_ALIAS}.event = '{PAGEVIEW_EVENT}', {self._get_current_url_parsing()}, "
+            if self._column_optimizer.should_query_url_in_paths
+            else "if(0, '', "
+        )
+        event_conditional += (
+            f"if({self.EVENT_TABLE_ALIAS}.event = '{AUTOCAPTURE_EVENT}', concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), "
+            if self._column_optimizer.should_query_elements_chain_column
+            else "if(0, '', "
+        )
+        event_conditional += f"{self.EVENT_TABLE_ALIAS}.event))) AS path_item"
+
+        _fields.append(event_conditional)
+
+        # remove empty strings
         _fields = list(filter(None, _fields))
 
         date_query, date_params = self._get_date_filter()
