@@ -127,7 +127,7 @@ RETENTION_FIRST_TIME = "retention_first_time"
 DISTINCT_ID_FILTER = "distinct_id"
 
 
-class RDBMS(str, Enum):
+class AnalyticsDBMS(str, Enum):
     POSTGRES = "postgres"
     CLICKHOUSE = "clickhouse"
 

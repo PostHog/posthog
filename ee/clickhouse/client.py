@@ -17,7 +17,7 @@ from sentry_sdk.api import capture_exception
 from ee.clickhouse.errors import wrap_query_error
 from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
-from posthog.constants import RDBMS
+from posthog.constants import AnalyticsDBMS
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
@@ -57,7 +57,7 @@ def make_ch_pool(**overrides) -> ChPool:
     )
 
 
-if PRIMARY_DB != RDBMS.CLICKHOUSE:
+if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
 
     def async_execute(query, args=None, settings=None, with_column_types=False):
