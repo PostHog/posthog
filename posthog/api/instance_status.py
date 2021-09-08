@@ -40,7 +40,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         redis_alive = is_redis_alive()
         postgres_alive = is_postgres_alive()
 
-        metrics: List[Dict[str, Union[str, bool, int, float]]] = []
+        metrics: List[Dict[str, Union[str, bool, int, float, Dict[str, Any]]]] = []
 
         metrics.append({"key": "posthog_version", "metric": "PostHog version", "value": VERSION})
 
