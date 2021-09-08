@@ -161,7 +161,10 @@ def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type:
 
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
-    result = insight_class().run(filter, Team(pk=team_id))
+    if cache_type == CacheType.PATHS:
+        result = insight_class(filter, Team(pk=team_id)).run(filter, Team(pk=team_id))
+    else:
+        result = insight_class().run(filter, Team(pk=team_id))
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
 
