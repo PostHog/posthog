@@ -218,6 +218,12 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 event="between_step_3", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
             )
             _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
+            _create_event(
+                event="between_step_4", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:20"
+            )
+            _create_event(
+                event="between_step_5", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:40"
+            )
             _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:00")
 
         for i in range(5, 15):
@@ -308,7 +314,37 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     def test_path_by_funneL_before_dropoff(self):
-        pass
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_BEFORE_STEP,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "funnel_step": -3,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_step one", "target": "2_between_step_1", "value": 10, "average_conversion_time": 60000.0},
+                {
+                    "source": "2_between_step_1",
+                    "target": "3_between_step_2",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {"source": "3_between_step_2", "target": "4_step two", "value": 10, "average_conversion_time": 60000.0},
+            ],
+        )
 
     def test_path_by_funnel_before_step(self):
         self._create_sample_data_multiple_dropoffs()
