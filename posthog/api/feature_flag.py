@@ -233,8 +233,22 @@ class FeatureFlagOverrideViewset(
         if feature_flag.team != self.request.user.team or user.team != self.request.user.team:
             raise PermissionDenied
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def my_overrides(self, request: request.Request, **kwargs):
-        queryset = super().get_queryset().filter(user=request.user)
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({"feature_flag_overrides": serializer.data})
+        if request.method == "GET":
+            feature_flag_overrides = super().get_queryset().filter(user=request.user)
+            override_dict = {}
+            for feature_flag_override in feature_flag_overrides:
+                key = feature_flag_override.feature_flag.key
+                value = feature_flag_override.override_value
+                override_dict[key] = value
+            return Response({"feature_flag_overrides": override_dict})
+        if request.method == "POST":
+            user = request.user
+            serializer = FeatureFlagOverrideSerializer(
+                data={**request.data, "user": user.id}, context={"request": request}
+            )
+            if serializer.is_valid(raise_exception=True):
+                self._check_team_permissions(serializer)
+            super().perform_create(serializer)
+            return Response({serializer.instance.feature_flag.key: serializer.instance.override_value})

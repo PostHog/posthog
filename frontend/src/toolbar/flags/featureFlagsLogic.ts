@@ -10,7 +10,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         getUserFlags: true,
         getOverriddenFlags: true,
         setFeatureFlags: (flags: Record<string, string | boolean>) => ({ flags }),
-        setOverriddenFlag: (flag: string, variant: string | boolean) => ({ flag, variant }),
+        setOverriddenFlag: (flag: number, override_value: string | boolean) => ({ flag, override_value }),
     },
 
     reducers: {
@@ -18,7 +18,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             {} as Record<string, string | boolean>,
             {
                 // this overrides the loader, so we would have instant feedback in the UI
-                setOverriddenFlag: (state, { flag, variant }) => ({ ...state, [flag]: variant }),
+                setOverriddenFlag: (state, { flag, override_value }) => ({ ...state, [flag]: override_value }),
             },
         ],
         enabledFeatureFlags: [
@@ -46,24 +46,26 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         ],
         overriddenFlags: {
             getOverriddenFlags: async (_, breakpoint) => {
-                const response = await toolbarFetch('api/feature_flag/override')
+                const response = await toolbarFetch('api/feature_flag_override/my_overrides')
                 breakpoint()
                 if (response.status === 403) {
                     return {}
                 }
                 const results = await response.json()
-                return results.feature_flag_override
+                return results.feature_flag_overrides
             },
-            setOverriddenFlag: async ({ flag, variant }, breakpoint) => {
-                const newFlags = { ...values.overriddenFlags, [flag]: variant }
-                const response = await toolbarFetch('api/feature_flag/override', { feature_flag_override: newFlags })
+            setOverriddenFlag: async ({ flag, override_value }, breakpoint) => {
+                const response = await toolbarFetch('api/feature_flag_override/my_overrides', {
+                    feature_flag: flag,
+                    override_value: override_value,
+                })
                 breakpoint()
                 if (response.status === 403) {
                     return {}
                 }
                 const results = await response.json()
                 ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
-                return results.feature_flag_override
+                return { ...values.overriddenFlags, ...results }
             },
         },
         allFeatureFlags: [
