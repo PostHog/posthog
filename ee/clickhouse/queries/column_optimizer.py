@@ -3,7 +3,7 @@ from typing import List, Set, Tuple, Union, cast
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
 from ee.clickhouse.models.property import extract_tables_and_properties
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import PAGEVIEW_EVENT, SCREEN_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -142,8 +142,11 @@ class ColumnOptimizer:
             return result
 
         if self.filter.target_events == [] and self.filter.custom_events == []:
-            result.add(("$current_url", "event"))
-            result.add(("$screen_name", "event"))
+            if PAGEVIEW_EVENT not in self.filter.exclude_events:
+                result.add(("$current_url", "event"))
+
+            if SCREEN_EVENT not in self.filter.exclude_events:
+                result.add(("$screen_name", "event"))
         else:
             if self.filter.include_pageviews:
                 result.add(("$current_url", "event"))
