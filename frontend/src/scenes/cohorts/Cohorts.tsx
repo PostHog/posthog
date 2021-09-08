@@ -19,8 +19,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
-import { FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 dayjs.extend(relativeTime)
@@ -83,7 +82,6 @@ export function Cohorts(): JSX.Element {
     const { openCohort } = useValues(cohortsUrlLogic)
     const { setOpenCohort } = useActions(cohortsUrlLogic)
     const [searchTerm, setSearchTerm] = useState(false as string | false)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
 
     const columns = [
@@ -173,7 +171,7 @@ export function Cohorts(): JSX.Element {
         },
     ]
 
-    const COHORT_V2 = featureFlags[FEATURE_FLAGS.ENGAGEMENT_COHORTS] && preflight?.is_clickhouse_enabled
+    const COHORT_V2 = preflight?.is_clickhouse_enabled
 
     return (
         <div>
