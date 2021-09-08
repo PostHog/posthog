@@ -11,15 +11,19 @@ def get_entity_filtering_params(
     team_id: int,
     table_name: str = "",
     *,
+    person_properties_column: str,
     with_prop_filters: bool = False,
-    person_properties_column: Optional[str] = None,
 ) -> Tuple[Dict, Dict]:
     params: Dict[str, Any] = {}
     content_sql_params: Dict[str, str]
     prop_filters = ""
     if with_prop_filters:
         prop_filters, params = parse_prop_clauses(
-            entity.properties, team_id, table_name=table_name, person_properties_column=person_properties_column
+            entity.properties,
+            team_id,
+            table_name=table_name,
+            person_properties_column=person_properties_column,
+            prepend=f"entity",
         )
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()

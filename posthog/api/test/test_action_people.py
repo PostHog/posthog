@@ -178,7 +178,6 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_factory(
                 team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-04T16:30:00Z",
             )
-            # group by hour
             event_factory(
                 team=self.team, event="sign up", distinct_id="person3", timestamp="2020-01-04T16:50:00Z",
             )
@@ -186,7 +185,6 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_factory(
                 team=self.team, event="sign up", distinct_id="person4", timestamp="2020-01-04T19:20:00Z",
             )
-            # group by min
             event_factory(
                 team=self.team, event="sign up", distinct_id="person5", timestamp="2020-01-04T19:20:00Z",
             )
@@ -194,7 +192,6 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_factory(
                 team=self.team, event="sign up", distinct_id="person6", timestamp="2019-11-05T16:30:00Z",
             )
-            # group by week and month
             event_factory(
                 team=self.team, event="sign up", distinct_id="person7", timestamp="2019-11-07T16:50:00Z",
             )
@@ -208,6 +205,10 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             sign_up_action, person = self._create_events()
 
             person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
+            person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T19:21:01Z",
+            )
 
             # check grouped minute
             min_grouped_action_response = self.client.get(
@@ -243,6 +244,13 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
             person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
 
+            person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T13:50:00Z",
+            )
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T15:50:00Z",
+            )
             # check solo hour
             action_response = self.client.get(
                 "/api/action/people/",
@@ -306,6 +314,13 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             event_factory(
                 team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-05T12:00:00Z",
             )
+            person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-03T13:50:00Z",
+            )
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-05T15:50:00Z",
+            )
             calculate_actions_from_last_calculation()
             # test people
             action_response = self.client.get(
@@ -316,7 +331,6 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     ENTITY_TYPE: "actions",
                     "interval": "day",
                     ENTITY_ID: sign_up_action.id,
-                    "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
                 },
             ).json()
             event_response = self.client.get(
@@ -327,11 +341,58 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                     ENTITY_TYPE: "events",
                     ENTITY_ID: "sign up",
                     "interval": "day",
-                    "display": TRENDS_CUMULATIVE,  # ensure that the date range is used as is
                 },
             ).json()
 
+            self.assertEqual(len(action_response["results"][0]["people"]), 1)
             self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.pk))
+            self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
+
+        def test_day_interval_cumulative(self):
+            sign_up_action, person = self._create_events()
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"])
+            event_factory(
+                team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-03T12:00:00Z",
+            )
+            event_factory(
+                team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-04T20:00:00Z",
+            )
+            outside_range_person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-02T13:50:00Z",
+            )
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-05T15:50:00Z",
+            )
+            calculate_actions_from_last_calculation()
+            # test people
+            action_response = self.client.get(
+                "/api/action/people/",
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-04",
+                    ENTITY_TYPE: "actions",
+                    "interval": "day",
+                    ENTITY_ID: sign_up_action.id,
+                    "display": TRENDS_CUMULATIVE,
+                },
+            ).json()
+            event_response = self.client.get(
+                "/api/action/people/",
+                data={
+                    "date_from": "2020-01-03",
+                    "date_to": "2020-01-04",
+                    ENTITY_TYPE: "events",
+                    ENTITY_ID: "sign up",
+                    "interval": "day",
+                    "display": TRENDS_CUMULATIVE,
+                },
+            ).json()
+            self.assertEqual(len(action_response["results"][0]["people"]), 2)
+            self.assertEqual(
+                sorted([p["id"] for p in action_response["results"][0]["people"]]), sorted([person1.pk, person2.pk])
+            )
             self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
         def test_week_interval(self):
@@ -339,6 +400,13 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
             person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
 
+            person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2019-10-26T13:50:00Z",
+            )
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-11-11T15:50:00Z",
+            )
             # check grouped week
             week_grouped_action_response = self.client.get(
                 "/api/action/people/",
@@ -361,9 +429,10 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
                 },
             ).json()
 
+            self.maxDiff = None
             all_people_ids = [str(person["id"]) for person in week_grouped_action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk)]))
             self.assertEqual(len(all_people_ids), 2)
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk)]))
 
             self.assertEntityResponseEqual(
                 week_grouped_action_response["results"], week_grouped_grevent_response["results"], remove=[],
@@ -374,6 +443,13 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
 
             person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
 
+            person = person_factory(team_id=self.team.pk, distinct_ids=["outside_range"])
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2019-12-01T13:50:00Z",
+            )
+            event_factory(
+                team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-10-10T15:50:00Z",
+            )
             # check grouped month
             month_group_action_response = self.client.get(
                 "/api/action/people/",
@@ -397,8 +473,8 @@ def action_people_test_factory(event_factory, person_factory, action_factory, co
             ).json()
 
             all_people_ids = [str(person["id"]) for person in month_group_action_response["results"][0]["people"]]
-            self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk), str(person1.pk)]))
             self.assertEqual(len(all_people_ids), 3)
+            self.assertListEqual(sorted(all_people_ids), sorted([str(person6.pk), str(person7.pk), str(person1.pk)]))
 
             self.assertEntityResponseEqual(
                 month_group_action_response["results"], month_group_grevent_response["results"], remove=[],

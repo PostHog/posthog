@@ -102,6 +102,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
                 clickhouse_materialize_columns.s(),
                 name="clickhouse materialize columns",
             )
+
+            sender.add_periodic_task(
+                crontab(hour="*/4", minute=0),
+                clickhouse_mark_all_materialized.s(),
+                name="clickhouse mark all columns as materialized",
+            )
         except Exception as err:
             capture_exception(err)
             print(f"Scheduling materialized column task failed: {err}")
@@ -227,7 +233,7 @@ def clickhouse_mutation_count():
                 table,
                 count(1) AS freq
             FROM system.mutations
-            WHERE is_done = 0 
+            WHERE is_done = 0
             GROUP BY table
             ORDER BY freq DESC
         """
@@ -244,6 +250,14 @@ def clickhouse_materialize_columns():
         from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
         materialize_properties_task()
+
+
+@app.task(ignore_result=True)
+def clickhouse_mark_all_materialized():
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+        from ee.tasks.materialized_columns import mark_all_materialized
+
+        mark_all_materialized()
 
 
 @app.task(ignore_result=True)

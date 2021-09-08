@@ -40,3 +40,11 @@ class ClickhousePersonQuery:
             GROUP BY id
             HAVING max(is_deleted) = 0
         """
+
+    @property
+    def is_used(self):
+        "Returns whether properties or any other columns are actually being queried"
+        return (
+            self._column_optimizer.should_query_person_properties_column
+            or len(self._column_optimizer.materialized_person_columns_to_query) > 0
+        )

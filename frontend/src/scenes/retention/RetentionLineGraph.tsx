@@ -4,7 +4,7 @@ import { retentionTableLogic } from './retentionTableLogic'
 import { LineGraph } from '../insights/LineGraph'
 import { useActions, useValues } from 'kea'
 import { LineGraphEmptyState } from '../insights/EmptyStates'
-import { Modal, Button, Spin } from 'antd'
+import { Modal, Button } from 'antd'
 import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
@@ -93,8 +93,8 @@ export function RetentionLineGraph({
                     }}
                 >
                     {peopleNext && (
-                        <Button type="primary" onClick={loadMorePeople}>
-                            {loadingMore ? <Spin /> : 'Load more people'}
+                        <Button type="primary" onClick={loadMorePeople} loading={loadingMore}>
+                            Load more people
                         </Button>
                     )}
                 </div>
