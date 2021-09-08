@@ -3,11 +3,11 @@ from typing import Type
 from rest_framework import filters, mixins, permissions, serializers, status, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition
 from posthog.permissions import OrganizationMemberPermissions
-from posthog.types import AvailableFeature
 
 
 class EventDefinitionSerializer(serializers.ModelSerializer):

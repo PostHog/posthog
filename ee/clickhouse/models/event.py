@@ -18,11 +18,11 @@ from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
 from ee.models.hook import Hook
+from posthog.constants import AvailableFeature
 from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.types import AvailableFeature
 
 
 def create_event(

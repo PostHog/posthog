@@ -39,10 +39,10 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import push_scope
 
+from posthog.constants import AvailableFeature
 from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
-from posthog.types import AvailableFeature
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),

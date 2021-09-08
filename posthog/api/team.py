@@ -6,12 +6,12 @@ from rest_framework import exceptions, permissions, request, response, serialize
 from rest_framework.decorators import action
 
 from posthog.api.shared import TeamBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token, generate_random_token_project
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, ProjectMembershipNecessaryPermissions
-from posthog.types import AvailableFeature
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
