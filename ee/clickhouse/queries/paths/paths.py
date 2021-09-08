@@ -76,9 +76,11 @@ class ClickhousePathsNew:
 
     def get_path_query_by_funnel(self, funnel_filter: Filter):
         path_query = self.get_path_query()
-        _include_timestamp_step = self._get_timestamp_step(funnel_filter)
         funnel_persons_generator = ClickhouseFunnelPersons(
-            funnel_filter, self._team, include_timestamp_step=_include_timestamp_step
+            funnel_filter,
+            self._team,
+            include_timestamp=self._filter.funnel_paths,
+            include_preceding_timestamp=self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS,
         )
         funnel_persons_query = funnel_persons_generator.get_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
@@ -91,14 +93,6 @@ class ClickhousePathsNew:
         )
         {path_query}
         """
-
-    def _get_timestamp_step(self, funnel_filter: Filter) -> Optional[int]:
-        if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP or self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP:
-            return 0
-        elif self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS:
-            return funnel_filter.funnel_step
-        else:
-            return None
 
     def get_target_point_filter(self) -> str:
         if self._filter.end_point and self._filter.start_point:
