@@ -22,7 +22,6 @@ class PathEventQuery(ClickhouseEventQuery):
         super().__init__(filter, team_id, round_interval, should_join_distinct_ids, should_join_persons, **kwargs)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-        # TODO: ColumnOptimizer with options like self._filter.include_pageviews, self._filter.include_screenviews,
 
         funnel_paths_timestamp = ""
         funnel_paths_join = ""
