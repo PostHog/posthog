@@ -128,14 +128,18 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return sync_execute(query, self.params)
 
     def _get_timestamp_outer_select(self) -> str:
+        if not self._include_timestamp_step:
+            return ""
+
         if self._include_timestamp_step == 0:
             return ", timestamp"
         elif self._include_timestamp_step > 0:
             return ", max_timestamp, min_timestamp"
-        else:
-            return ""
 
     def _get_timestamp_selects(self) -> Tuple[str, str]:
+        if not self._include_timestamp_step:
+            return "", ""
+
         if self._include_timestamp_step == 0:
             return ", timestamp", ", argMax(timestamp, steps) as timestamp"
         elif self._include_timestamp_step > 0:
@@ -143,8 +147,6 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 f", latest_{self._include_timestamp_step}, latest_{self._include_timestamp_step - 1}",
                 f", argMax(latest_{self._include_timestamp_step}, steps) as max_timestamp, argMax(latest_{self._include_timestamp_step - 1}, steps) as min_timestamp",
             )
-        else:
-            return "", ""
 
     def _get_step_times(self, max_steps: int):
         conditions: List[str] = []

@@ -148,7 +148,7 @@ class PathStepLimitMixin(BaseParamMixin):
 
 class FunnelPathsMixin(BaseParamMixin):
     @cached_property
-    def funnel_paths(self) -> FunnelPathsType:
+    def funnel_paths(self) -> Optional[FunnelPathsType]:
         _funnel_paths = self._data.get(FUNNEL_PATHS, None)
         return _funnel_paths
 
