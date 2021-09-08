@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any, Dict, List, Union
 
@@ -45,9 +46,16 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": GIT_SHA})
 
-        metrics.append(
-            {"key": "chart_version", "metric": "Chart version", "value": os.getenv("CHART_VERSION", "Undefined"),}
-        )
+        helm_info = json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
+        if len(helm_info) > 0:
+            metrics.append(
+                {
+                    "key": "helm",
+                    "metric": "Helm Info",
+                    "value": "",
+                    "subrows": {"columns": ["key", "value"], "rows": list(helm_info.items())},
+                }
+            )
 
         metrics.append(
             {
