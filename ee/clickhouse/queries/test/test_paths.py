@@ -284,7 +284,28 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     def test_path_by_funnel_after_step(self):
-        pass
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [{"source": "1_step two", "target": "2_step three", "value": 5, "average_conversion_time": 60000.0}],
+        )
 
     def test_path_by_funneL_before_dropoff(self):
         pass
