@@ -22,6 +22,7 @@ from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.person import Person
 from posthog.models.team import Team
+from posthog.types import AvailableFeature
 
 
 def create_event(
@@ -66,7 +67,7 @@ def create_event(
     if not settings.PLUGIN_SERVER_ACTION_MATCHING and (
         team.slack_incoming_webhook
         or (
-            team.organization.is_feature_available("zapier")
+            team.organization.is_feature_available(AvailableFeature.ZAPIER)
             and Hook.objects.filter(event="action_performed", team=team).exists()
         )
     ):

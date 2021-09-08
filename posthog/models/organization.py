@@ -10,6 +10,7 @@ from django.utils import timezone
 from rest_framework import exceptions
 
 from posthog.email import is_email_available
+from posthog.types import AvailableFeature
 from posthog.utils import mask_email_address
 
 from .utils import UUIDModel, sane_repr
@@ -120,7 +121,7 @@ class Organization(UUIDModel):
     def billing_plan(self) -> Optional[str]:
         return self._billing_plan_details[0]
 
-    def update_available_features(self) -> List[str]:
+    def update_available_features(self) -> List[AvailableFeature]:
         """Updates field `available_features`. Does not `save()`."""
         plan, realm = self._billing_plan_details
         if not plan:
@@ -131,7 +132,7 @@ class Organization(UUIDModel):
             self.available_features = self.billing.available_features  # type: ignore
         return self.available_features
 
-    def is_feature_available(self, feature: str) -> bool:
+    def is_feature_available(self, feature: AvailableFeature) -> bool:
         return feature in self.available_features
 
     @property
