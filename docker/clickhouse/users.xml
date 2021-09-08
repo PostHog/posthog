@@ -4,6 +4,7 @@
     <profiles>
         <!-- Default settings. -->
         <default>
+            <allow_experimental_database_materialized_postgresql>true</allow_experimental_database_materialized_postgresql> 
             <!-- Maximum memory usage for processing single query, in bytes. -->
             <max_memory_usage>10000000000</max_memory_usage>
             <!-- How to choose between replicas during distributed query processing.

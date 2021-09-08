@@ -7,6 +7,7 @@ services:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
+        command: -c wal_level=logical -c max_replication_slots=20
         ports:
             - '5432:5432'
     redis:
@@ -16,10 +17,11 @@ services:
     clickhouse:
         # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
         # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
-        image: yandex/clickhouse-server:21.6.5
+        image: yandex/clickhouse-server:21.8.5.7
         depends_on:
             - kafka
             - zookeeper
+            - db
         ports:
             - '8123:8123'
             - '9000:9000'
