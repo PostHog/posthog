@@ -4,6 +4,8 @@ from posthog.constants import (
     AUTOCAPTURE_EVENT,
     CUSTOM_EVENT,
     END_POINT,
+    FUNNEL_PATH_DROPOFF,
+    FUNNEL_PATH_JOURNEY,
     FUNNEL_PATHS,
     PAGEVIEW_EVENT,
     PATH_TYPE,
@@ -18,6 +20,8 @@ from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 
 PathType = Literal["$pageview", "$autocapture", "$screen", "custom_event"]
+
+FunnelPathsType = Literal[FUNNEL_PATH_DROPOFF, FUNNEL_PATH_JOURNEY]
 
 
 class PathTypeMixin(BaseParamMixin):
@@ -144,9 +148,9 @@ class PathStepLimitMixin(BaseParamMixin):
 
 class FunnelPathsMixin(BaseParamMixin):
     @cached_property
-    def funnel_paths(self) -> bool:
+    def funnel_paths(self) -> FunnelPathsType:
         _funnel_paths = self._data.get(FUNNEL_PATHS, None)
-        return process_bool(_funnel_paths)
+        return _funnel_paths
 
     @include_dict
     def funnel_paths_to_dict(self):
