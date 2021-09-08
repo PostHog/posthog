@@ -128,7 +128,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return sync_execute(query, self.params)
 
     def _get_timestamp_outer_select(self) -> str:
-        if not self._include_timestamp_step:
+        if self._include_timestamp_step is None:
             return ""
 
         if self._include_timestamp_step == 0:
@@ -139,7 +139,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return ""
 
     def _get_timestamp_selects(self) -> Tuple[str, str]:
-        if not self._include_timestamp_step:
+        if self._include_timestamp_step is None:
             return "", ""
 
         if self._include_timestamp_step == 0:
