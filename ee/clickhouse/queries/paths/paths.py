@@ -76,7 +76,7 @@ class ClickhousePathsNew:
 
     def get_path_query_by_funnel(self, funnel_filter: Filter):
         path_query = self.get_path_query()
-        _include_timestamp_step = self._get_timestamp_step()
+        _include_timestamp_step = self._get_timestamp_step(funnel_filter)
         funnel_persons_generator = ClickhouseFunnelPersons(
             funnel_filter, self._team, include_timestamp_step=_include_timestamp_step
         )
