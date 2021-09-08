@@ -19,7 +19,7 @@ export function CohortMatchingCriteriaSection({
 }): JSX.Element {
     const addButton = (
         <div style={{ marginTop: 8, marginBottom: 8 }}>
-            <a href="#add" style={{ padding: 0 }} onClick={() => onAddGroup()}>
+            <a href="#add" style={{ padding: 0 }} onClick={() => onAddGroup()} data-attr="add-match-criteria">
                 <PlusOutlined /> Add matching criteria
             </a>
         </div>
