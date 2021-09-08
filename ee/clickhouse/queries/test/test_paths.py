@@ -7,7 +7,14 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.paths.paths import ClickhousePathsNew
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, PAGEVIEW_EVENT, SCREEN_EVENT
+from posthog.constants import (
+    FUNNEL_PATH_AFTER_STEP,
+    FUNNEL_PATH_BEFORE_STEP,
+    FUNNEL_PATH_BETWEEN_STEPS,
+    INSIGHT_FUNNELS,
+    PAGEVIEW_EVENT,
+    SCREEN_EVENT,
+)
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.person import Person
 from posthog.queries.test.test_paths import paths_test_factory
@@ -201,13 +208,28 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         for i in range(5):
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            _create_event(
+                event="between_step_1", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00"
+            )
+            _create_event(
+                event="between_step_2", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
+            )
+            _create_event(
+                event="between_step_3", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
+            )
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:00")
 
         for i in range(5, 15):
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            _create_event(
+                event="between_step_1", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00"
+            )
+            _create_event(
+                event="between_step_2", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
+            )
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00")
 
         for i in range(15, 35):
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
@@ -223,7 +245,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     event="step branch", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
                 )
 
-    def test_path_by_funnel(self):
+    def test_path_by_funnel_after_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
         data = {
             "insight": INSIGHT_FUNNELS,
@@ -258,6 +280,73 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     "value": 10,
                     "average_conversion_time": 60000.0,
                 },
+            ],
+        )
+
+    def test_path_by_funnel_after_step(self):
+        pass
+
+    def test_path_by_funneL_before_dropoff(self):
+        pass
+
+    def test_path_by_funnel_before_step(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_BEFORE_STEP,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        print(response)
+
+    def test_path_by_funnel_between_step(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_BETWEEN_STEPS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_days": 7,
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_step one", "target": "2_between_step_1", "value": 15, "average_conversion_time": 60000.0},
+                {
+                    "source": "2_between_step_1",
+                    "target": "3_between_step_2",
+                    "value": 15,
+                    "average_conversion_time": 60000.0,
+                },
+                {"source": "3_between_step_2", "target": "4_step two", "value": 10, "average_conversion_time": 60000.0},
+                {
+                    "source": "3_between_step_2",
+                    "target": "4_between_step_3",
+                    "value": 5,
+                    "average_conversion_time": 60000.0,
+                },
+                {"source": "4_between_step_3", "target": "5_step two", "value": 5, "average_conversion_time": 60000.0},
             ],
         )
 

@@ -146,8 +146,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return ", timestamp", ", argMax(timestamp, steps) as timestamp"
         elif self._include_timestamp_step > 0:
             return (
-                f", latest_{self._include_timestamp_step}, latest_{self._include_timestamp_step - 1}",
-                f", argMax(latest_{self._include_timestamp_step}, steps) as max_timestamp, argMax(latest_{self._include_timestamp_step - 1}, steps) as min_timestamp",
+                f", latest_{self._include_timestamp_step - 1}, latest_{self._include_timestamp_step - 2}",
+                f", argMax(latest_{self._include_timestamp_step - 1}, steps) as max_timestamp, argMax(latest_{self._include_timestamp_step - 2}, steps) as min_timestamp",
             )
         else:
             return "", ""
