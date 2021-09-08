@@ -8,6 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.ee import is_clickhouse_enabled
+from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import SingleTenancyOrAdmin
@@ -40,6 +41,8 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         metrics: List[Dict[str, Union[str, bool, int, float]]] = []
 
         metrics.append({"key": "posthog_version", "metric": "PostHog version", "value": VERSION})
+
+        metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": GIT_SHA})
 
         metrics.append(
             {

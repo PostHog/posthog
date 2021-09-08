@@ -31,7 +31,7 @@ jobs:
               uses: docker/build-push-action@v2
               with:
                   push: false
-                  tags: posthog/posthog:latest
+                  tags: posthog/posthog:testing
 
             - name: Image digest
               run: echo ${{ steps.docker_build.outputs.digest }}
