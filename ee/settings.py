@@ -4,7 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
-from posthog.constants import RDBMS
+from posthog.constants import AnalyticsDBMS
 from posthog.settings import AUTHENTICATION_BACKENDS, PRIMARY_DB, SITE_URL, TEST, get_from_env
 from posthog.utils import str_to_bool
 
@@ -64,7 +64,7 @@ if os.getenv("SAML_ENTITY_ID") and os.getenv("SAML_ACS_URL") and os.getenv("SAML
 
 
 # ClickHouse and Kafka
-KAFKA_ENABLED = PRIMARY_DB == RDBMS.CLICKHOUSE and not TEST
+KAFKA_ENABLED = PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE and not TEST
 
 # Settings specific for materialized columns
 

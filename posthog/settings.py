@@ -24,7 +24,7 @@ from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
-from posthog.constants import RDBMS
+from posthog.constants import AnalyticsDBMS
 from posthog.utils import print_warning, str_to_bool
 
 
@@ -193,11 +193,11 @@ KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
 _primary_db = os.getenv("PRIMARY_DB", "postgres")
-PRIMARY_DB: RDBMS
+PRIMARY_DB: AnalyticsDBMS
 try:
-    PRIMARY_DB = RDBMS(_primary_db)
+    PRIMARY_DB = AnalyticsDBMS(_primary_db)
 except ValueError:
-    PRIMARY_DB = RDBMS.POSTGRES
+    PRIMARY_DB = AnalyticsDBMS.POSTGRES
 
 EE_AVAILABLE = False
 
@@ -465,7 +465,7 @@ CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 
-if PRIMARY_DB == RDBMS.CLICKHOUSE:
+if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     try:
         from ee.apps import EnterpriseConfig  # noqa: F401
     except ImportError:
@@ -500,7 +500,7 @@ SHELL_PLUS_POST_IMPORTS = [
     ("posthog.models.property", ("Property",)),
 ]
 
-if PRIMARY_DB == RDBMS.CLICKHOUSE:
+if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     SHELL_PLUS_POST_IMPORTS.append(("ee.clickhouse.client", ("sync_execute",)))
 
 
