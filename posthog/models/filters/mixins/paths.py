@@ -21,7 +21,7 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict, p
 
 PathType = Literal["$pageview", "$autocapture", "$screen", "custom_event"]
 
-FunnelPathsType = Literal[FUNNEL_PATH_DROPOFF, FUNNEL_PATH_JOURNEY]
+FunnelPathsType = Literal["funnel_path_dropoff", "funnel_path_journey"]
 
 
 class PathTypeMixin(BaseParamMixin):
