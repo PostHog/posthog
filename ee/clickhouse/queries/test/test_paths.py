@@ -7,7 +7,7 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.paths.paths import ClickhousePathsNew
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import FUNNEL_PATH_DROPOFF, INSIGHT_FUNNELS, PAGEVIEW_EVENT, SCREEN_EVENT
+from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, PAGEVIEW_EVENT, SCREEN_EVENT
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.person import Person
 from posthog.queries.test.test_paths import paths_test_factory
@@ -227,7 +227,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self._create_sample_data_multiple_dropoffs()
         data = {
             "insight": INSIGHT_FUNNELS,
-            "funnel_paths": FUNNEL_PATH_DROPOFF,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
             "interval": "day",
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
