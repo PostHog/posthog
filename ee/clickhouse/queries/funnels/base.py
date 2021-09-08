@@ -19,16 +19,16 @@ from posthog.utils import relative_date_parse
 class ClickhouseFunnelBase(ABC, Funnel):
     _filter: Filter
     _team: Team
-    _include_timestamps: Optional[int]
+    _include_timestamp_step: Optional[int]
 
-    def __init__(self, filter: Filter, team: Team, include_timestamps: Optional[int] = None) -> None:
+    def __init__(self, filter: Filter, team: Team, include_timestamp_step: Optional[int] = None) -> None:
         self._filter = filter
         self._team = team
         self.params = {
             "team_id": self._team.pk,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
-        self._include_timestamps = include_timestamps
+        self._include_timestamp_step = include_timestamp_step
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -128,20 +128,20 @@ class ClickhouseFunnelBase(ABC, Funnel):
         return sync_execute(query, self.params)
 
     def _get_timestamp_outer_select(self) -> str:
-        if self._include_timestamps == 0:
+        if self._include_timestamp_step == 0:
             return ", timestamp"
-        elif self._include_timestamps > 0:
+        elif self._include_timestamp_step > 0:
             return ", max_timestamp, min_timestamp"
         else:
             return ""
 
     def _get_timestamp_selects(self) -> Tuple[str, str]:
-        if self._include_timestamps == 0:
+        if self._include_timestamp_step == 0:
             return ", timestamp", ", argMax(timestamp, steps) as timestamp"
-        elif self._include_timestamps > 0:
+        elif self._include_timestamp_step > 0:
             return (
-                f", latest_{self._include_timestamps}, latest_{self._include_timestamps - 1}",
-                f", argMax(latest_{self._include_timestamps}, steps) as max_timestamp, argMax(latest_{self._include_timestamps - 1}, steps) as min_timestamp",
+                f", latest_{self._include_timestamp_step}, latest_{self._include_timestamp_step - 1}",
+                f", argMax(latest_{self._include_timestamp_step}, steps) as max_timestamp, argMax(latest_{self._include_timestamp_step - 1}, steps) as min_timestamp",
             )
         else:
             return "", ""

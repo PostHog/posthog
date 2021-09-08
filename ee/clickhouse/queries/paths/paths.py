@@ -6,6 +6,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
+from posthog.constants import FUNNEL_PATH_DROPOFF, FUNNEL_PATH_JOURNEY
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 
@@ -57,7 +58,7 @@ class ClickhousePathsNew:
     def get_query(self) -> str:
 
         if self._filter.funnel_paths and self._funnel_filter:
-            return self.get_path_query_by_funnel(funnel_filter=self._funnel_filter)
+            return self.get_path_query_by_funnel()
         else:
             return self.get_path_query()
 
@@ -73,9 +74,12 @@ class ClickhousePathsNew:
             path_event_query=path_event_query, boundary_event_filter=boundary_event_filter, target_clause=target_clause
         )
 
-    def get_path_query_by_funnel(self, funnel_filter: Filter):
+    def get_path_query_by_funnel(self):
         path_query = self.get_path_query()
-        funnel_persons_generator = ClickhouseFunnelPersons(funnel_filter, self._team, include_timestamps=0)
+        _include_timestamp_step = self._get_timestamp_step()
+        funnel_persons_generator = ClickhouseFunnelPersons(
+            self._funnel_filter, self._team, include_timestamp_step=_include_timestamp_step
+        )
         funnel_persons_query = funnel_persons_generator.get_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
         funnel_persons_param = funnel_persons_generator.params
@@ -87,6 +91,14 @@ class ClickhousePathsNew:
         )
         {path_query}
         """
+
+    def _get_timestamp_step(self) -> int:
+        if self._filter.funnel_paths == FUNNEL_PATH_DROPOFF:
+            return 0
+        elif self._filter.funnel_paths == FUNNEL_PATH_JOURNEY:
+            return self._funnel_filter.funnel_step
+        else:
+            return None
 
     def get_target_point_filter(self) -> str:
         if self._filter.end_point and self._filter.start_point:
