@@ -16,6 +16,7 @@ from posthog.models import Element, Event, SessionRecordingEvent
 from posthog.permissions import SingleTenancyOrAdmin
 from posthog.utils import (
     dict_from_cursor_fetchall,
+    get_helm_info_env,
     get_plugin_server_job_queues,
     get_plugin_server_version,
     get_redis_info,
@@ -46,7 +47,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
         metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": GIT_SHA})
 
-        helm_info = json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
+        helm_info = get_helm_info_env()
         if len(helm_info) > 0:
             metrics.append(
                 {
