@@ -11,7 +11,7 @@ from posthog.ee import is_clickhouse_enabled
 from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
-from posthog.permissions import SingleTenancyOrAdmin
+from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
 from posthog.utils import (
     dict_from_cursor_fetchall,
     get_plugin_server_job_queues,
@@ -164,6 +164,20 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             queries["clickhouse_slow_log"] = get_clickhouse_slow_log()
 
         return Response({"results": queries})
+
+    @action(
+        methods=["POST"],
+        detail=False,
+        permission_classes=[IsAuthenticated, SingleTenancyOrAdmin, OrganizationAdminAnyPermissions],
+    )
+    def analyze_ch_query(self, request: Request) -> Response:
+        response = {}
+        if is_clickhouse_enabled():
+            from ee.clickhouse.system_status import analyze_query
+
+            response["results"] = analyze_query(request.data["query"])
+
+        return Response(response)
 
     def get_postgres_running_queries(self):
         from django.db import connection

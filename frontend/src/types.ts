@@ -728,6 +728,21 @@ export interface SystemStatusQueriesResult {
     clickhouse_slow_log?: QuerySummary[]
 }
 
+export interface SystemStatusAnalyzeResult {
+    query: string
+    timing: {
+        query_id: string
+        event_time: string
+        query_duration_ms: number
+        read_rows: number
+        read_size: string
+        result_rows: number
+        result_size: string
+        memory_usage: string
+    }
+    flamegraphs: Record<string, string>
+}
+
 export type PersonalizationData = Record<string, string | string[] | null>
 
 interface EnabledSetupState {
