@@ -31,7 +31,32 @@ jobs:
               uses: docker/build-push-action@v2
               with:
                   push: false
-                  tags: posthog/posthog:latest
+                  tags: posthog/posthog:testing
+
+            - name: Image digest
+              run: echo ${{ steps.docker_build.outputs.digest }}
+    saml:
+        name: Test Docker image build (with SAML)
+        runs-on: ubuntu-20.04
+
+        steps:
+            - name: Checkout PR branch
+              uses: actions/checkout@v2
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v1
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v1
+
+            - name: Build
+              id: docker_build
+              uses: docker/build-push-action@v2
+              env:
+                  SAML_AVAILABLE: '1'
+              with:
+                  push: false
+                  tags: posthog/posthog:testing-saml
 
             - name: Image digest
               run: echo ${{ steps.docker_build.outputs.digest }}

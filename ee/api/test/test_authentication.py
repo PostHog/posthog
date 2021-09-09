@@ -46,13 +46,14 @@ MOCK_SETTINGS = {
     },
     "SOCIAL_AUTH_SAML_SECURITY_CONFIG": {
         "wantAttributeStatement": False,  # already present in settings
-        "allowSingleLabelDomains": True,  # to allow `http://testServer` in tests
+        "allowSingleLabelDomains": True,  # to allow `http://testserver` in tests
     },
 }
 
 CURRENT_FOLDER = os.path.dirname(__file__)
 
 
+@pytest.mark.saml_only
 @pytest.mark.skip_on_multitenancy
 class TestEEAuthenticationAPI(APILicensedTest):
 

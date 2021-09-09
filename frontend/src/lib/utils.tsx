@@ -439,7 +439,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
-    const s = Math.floor((d % 3600) % 60)
+    const s = Math.round((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
@@ -517,6 +517,7 @@ export function colonDelimitedDuration(d: string | number | null | undefined, nu
         m = Math.floor(s / 60)
         s -= m * 60
     }
+    s = Math.round(s)
 
     const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
 
