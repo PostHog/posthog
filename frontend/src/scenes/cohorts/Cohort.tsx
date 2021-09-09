@@ -70,6 +70,15 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
         },
     ]
 
+    const COHORT_TYPE_DROPDOWN = (
+        <DropdownSelector
+            options={COHORT_TYPE_OPTIONS}
+            disabled={cohort.id !== 'new'}
+            value={cohort.is_static ? COHORT_STATIC : COHORT_DYNAMIC}
+            onValueChange={onTypeChange}
+        />
+    )
+
     return (
         <div className="mb">
             <Row gutter={16}>
@@ -82,22 +91,13 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                     <CohortNameInput input={cohort.name} onChange={(name: string) => setCohort({ ...cohort, name })} />
                 </Col>
                 <Col md={10}>
-                    <Tooltip
-                        title={
-                            cohort.id === 'new'
-                                ? 'Switch between a static cohort and dynamic cohort'
-                                : 'Create a new cohort to use a different type of cohort'
-                        }
-                    >
-                        <div>
-                            <DropdownSelector
-                                options={COHORT_TYPE_OPTIONS}
-                                disabled={cohort.id !== 'new'}
-                                value={cohort.is_static ? COHORT_STATIC : COHORT_DYNAMIC}
-                                onValueChange={onTypeChange}
-                            />
-                        </div>
-                    </Tooltip>
+                    {cohort.id === 'new' ? (
+                        COHORT_TYPE_DROPDOWN
+                    ) : (
+                        <Tooltip title="Create a new cohort to use a different type of cohort.">
+                            <div>{COHORT_TYPE_DROPDOWN}</div>
+                        </Tooltip>
+                    )}
                 </Col>
             </Row>
             <Row gutter={16} className="mt">

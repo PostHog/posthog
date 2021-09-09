@@ -109,6 +109,8 @@ function PropertyCriteriaRow({
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.CohortsWithAllUsers,
                     ]}
+                    popoverPlacement="top"
+                    taxonomicPopoverPlacement="auto"
                 />
             </div>
         </div>
