@@ -40,7 +40,6 @@ jobs:
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
             - name: Install python dependencies
-              if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
               run: |
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
