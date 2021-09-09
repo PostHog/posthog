@@ -86,6 +86,7 @@ class FeatureFlagOverride(models.Model):
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
     user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
     override_value: models.JSONField = models.JSONField(default=bool)
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
 
 class FeatureFlagMatcher:

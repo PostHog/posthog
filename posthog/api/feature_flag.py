@@ -1,8 +1,8 @@
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 
 import posthoganalytics
 from django.core.exceptions import PermissionDenied
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -130,9 +130,33 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
 
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
-        if not request.user.is_authenticated:  # for mypy, since 'AnonymousUser' has no 'feature_flag_override'
-            raise serializers.ValidationError("Must be authenticated to get feature flags.")
-        flags = get_active_feature_flags(self.team, request.user.distinct_id)
+        if not request.user.is_authenticated:  # for mypy
+            raise exceptions.NotAuthenticated()
+        feature_flags = FeatureFlag.objects.filter(team=self.team, active=True, deleted=False).prefetch_related(
+            Prefetch(
+                "featureflagoverride_set",
+                queryset=FeatureFlagOverride.objects.filter(user=request.user),
+                to_attr="my_overrides",
+            )
+        )
+        flags = []
+        for feature_flag in feature_flags:
+            my_overrides = cast(List[FeatureFlagOverride], feature_flag.my_overrides)  # type: ignore
+            override = None
+            if len(my_overrides) > 0:
+                override = my_overrides[0]
+
+            value_for_user = feature_flag.distinct_id_matches(request.user.distinct_id)
+            if len(feature_flag.variants) > 0 and value_for_user:
+                value_for_user = feature_flag.get_variant_for_distinct_id(request.user.distinct_id)
+
+            flags.append(
+                {
+                    "feature_flag": FeatureFlagSerializer(feature_flag).data,
+                    "value_for_user_without_override": value_for_user,
+                    "override": FeatureFlagOverrideSerializer(override).data if override else None,
+                }
+            )
         return Response({"distinct_id": request.user.distinct_id, "flags": flags})
 
 
@@ -160,6 +184,7 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
         feature_flag_override, created = FeatureFlagOverride.objects.update_or_create(
             feature_flag=validated_data["feature_flag"],
             user=validated_data["user"],
+            team_id=self.context["team_id"],
             defaults={"override_value": validated_data["override_value"]},
         )
         request = self.context["request"]
@@ -181,9 +206,7 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class FeatureFlagOverrideViewset(
-    AnalyticsDestroyModelMixin, viewsets.ModelViewSet,
-):
+class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.GenericViewSet):
     queryset = FeatureFlagOverride.objects.all()
     serializer_class = FeatureFlagOverrideSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
@@ -194,47 +217,13 @@ class FeatureFlagOverrideViewset(
         authentication.BasicAuthentication,
     ]
 
-    def get_queryset(self) -> QuerySet:
-        if not self.request.user.is_authenticated:  # for mypy, since 'AnonymousUser' has no 'team'
-            raise exceptions.NotAuthenticated
-        queryset = (
-            super()
-            .get_queryset()
-            .filter(feature_flag__team=self.request.user.team, user__current_team=self.request.user.team)
-        )
-        if self.action == "list":
-            feature_flag_id = self.request.GET.get("feature_flag_id")
-            if feature_flag_id:
-                queryset = queryset.filter(feature_flag_id=feature_flag_id)
-        return queryset
-
-    def perform_create(self, serializer):
-        self._check_team_permissions(serializer)
-        return super().perform_create(serializer)
-
-    def perform_update(self, serializer):
-        self._check_team_permissions(serializer)
-        return super().perform_update(serializer)
-
-    def _check_team_permissions(self, serializer: FeatureFlagOverrideSerializer):
-        if not self.request.user.is_authenticated:  # for mypy, since 'AnonymousUser' has no 'team'
-            raise exceptions.NotAuthenticated
-
-        feature_flag = serializer.validated_data.get("feature_flag")
-        user = serializer.validated_data.get("user")
-
-        if serializer.instance:
-            exisiting_feature_flag_override = cast(FeatureFlagOverride, serializer.instance)
-            if not feature_flag and exisiting_feature_flag_override:
-                feature_flag = exisiting_feature_flag_override.feature_flag
-            if not user and exisiting_feature_flag_override:
-                user = exisiting_feature_flag_override.user
-
-        if feature_flag.team != self.request.user.team or user.team != self.request.user.team:
-            raise PermissionDenied
-
-    @action(methods=["GET"], detail=False)
+    @action(methods=["POST"], detail=False)
     def my_overrides(self, request: request.Request, **kwargs):
-        queryset = super().get_queryset().filter(user=request.user)
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({"feature_flag_overrides": serializer.data})
+        if request.method == "POST":
+            user = request.user
+            serializer = FeatureFlagOverrideSerializer(
+                data={**request.data, "user": user.id}, context={**self.get_serializer_context()},
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            return Response(serializer.data)
