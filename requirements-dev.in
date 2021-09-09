@@ -24,3 +24,4 @@ isort
 pytest
 pytest-django
 pytest-mock
+python3-saml==1.12.0 # installed conditionally on production environments

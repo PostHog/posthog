@@ -9,7 +9,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.*' \
-    && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
     && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
     && apt-get install -y --no-install-recommends 'nodejs=14.*' \
     && npm install -g yarn@1 \
@@ -24,6 +23,13 @@ RUN apt-get update \
 # install dependencies but ignore any we don't need for dev environment
 RUN pip install -r requirements.txt --no-cache-dir --compile \
     && pip uninstall ipython-genutils pip -y
+
+# install SAML dependencies (if available)
+RUN if [ -z "${SAML_AVAILABLE}" ] ; then \
+    apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
+    pip install python3-saml==1.12.0 \
+    ; fi
+
 
 # generate Django's static files
 RUN SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
