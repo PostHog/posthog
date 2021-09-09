@@ -88,6 +88,11 @@ class FeatureFlagOverride(models.Model):
     override_value: models.JSONField = models.JSONField(default=bool)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
+    def get_analytics_metadata(self) -> Dict:
+        return {
+            "override_value_type": type(self.override_value).__name__,
+        }
+
 
 class FeatureFlagMatcher:
     def __init__(self, distinct_id: str, feature_flag: FeatureFlag):

@@ -190,20 +190,25 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         if created:
             posthoganalytics.capture(
-                request.user.distinct_id, self._analytics_created_event_name,
+                request.user.distinct_id,
+                self._analytics_created_event_name,
+                feature_flag_override.get_analytics_metadata(),
             )
         else:
             posthoganalytics.capture(
-                request.user.distinct_id, self._analytics_updated_event_name,
+                request.user.distinct_id,
+                self._analytics_updated_event_name,
+                feature_flag_override.get_analytics_metadata(),
             )
         return feature_flag_override
 
     def update(self, instance: FeatureFlagOverride, validated_data: Dict) -> FeatureFlagOverride:
         request = self.context["request"]
+        instance = super().update(instance, validated_data)
         posthoganalytics.capture(
-            request.user.distinct_id, self._analytics_updated_event_name,
+            request.user.distinct_id, self._analytics_updated_event_name, instance.get_analytics_metadata()
         )
-        return super().update(instance, validated_data)
+        return instance
 
 
 class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.GenericViewSet):
