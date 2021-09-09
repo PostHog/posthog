@@ -23,6 +23,7 @@ export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K 
 export enum AvailableFeature {
     ZAPIER = 'zapier',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
+    PER_PROJECT_ACCESS = 'per_project_access',
     GOOGLE_LOGIN = 'google_login',
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
@@ -90,6 +91,7 @@ export interface OrganizationType extends OrganizationBasicType {
     personalization: PersonalizationData
     setup: SetupState
     setup_section_2_completed: boolean
+    per_project_access: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
