@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 import posthoganalytics
 from django.core.exceptions import PermissionDenied
@@ -146,14 +146,16 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             if len(my_overrides) > 0:
                 override = my_overrides[0]
 
-            value_for_user = feature_flag.distinct_id_matches(request.user.distinct_id)
-            if len(feature_flag.variants) > 0 and value_for_user:
-                value_for_user = feature_flag.get_variant_for_distinct_id(request.user.distinct_id)
+            value_for_user_without_override: Union[bool, str, None] = feature_flag.distinct_id_matches(
+                request.user.distinct_id
+            )
+            if len(feature_flag.variants) > 0 and value_for_user_without_override:
+                value_for_user_without_override = feature_flag.get_variant_for_distinct_id(request.user.distinct_id)
 
             flags.append(
                 {
                     "feature_flag": FeatureFlagSerializer(feature_flag).data,
-                    "value_for_user_without_override": value_for_user,
+                    "value_for_user_without_override": value_for_user_without_override,
                     "override": FeatureFlagOverrideSerializer(override).data if override else None,
                 }
             )
