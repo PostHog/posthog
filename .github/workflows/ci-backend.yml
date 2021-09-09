@@ -120,10 +120,10 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee/
+                  pytest ee -m "not saml_only"
 
     saml:
-        name: SAML tests
+        name: Django tests - with SAML
         runs-on: ubuntu-latest
 
         steps:
@@ -168,6 +168,7 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
+                  SAML_AVAILABLE: '1'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -280,7 +281,7 @@ jobs:
                   CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy/
-                  pytest ee -s -m "not skip_on_multitenancy"
+                  pytest ee -m "not skip_on_multitenancy"
 
     foss:
         name: Django tests – FOSS
