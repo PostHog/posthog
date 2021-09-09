@@ -33,6 +33,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
+        # Extra events/person table columns to fetch since parent query needs them
         extra_fields: List[ColumnName] = [],
         extra_person_fields: List[ColumnName] = [],
         **kwargs,
