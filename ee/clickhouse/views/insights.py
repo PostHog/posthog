@@ -5,7 +5,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.clickhouse.queries import ClickhousePaths
-from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths as ClickhousePathsOld
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import (
@@ -72,7 +71,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         #  backwards compatibility
         if filter.path_type:
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
-        resp = ClickhousePaths(filter=filter, team=team).run(filter=filter, team=team)
+        resp = ClickhousePaths(filter=filter, team=team).run()
         return {"result": resp}
 
     @action(methods=["GET", "POST"], detail=False)

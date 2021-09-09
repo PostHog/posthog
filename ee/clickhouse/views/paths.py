@@ -23,12 +23,3 @@ class ClickhousePathsViewSet(PathsViewSet):
             resp.append({"name": row[0], "id": row[1], "count": row[2]})
 
         return Response(resp)
-
-    # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
-    # To avoid unexpected results should convert date range to timestamps with timezone.
-    def list(self, request, **kwargs):
-
-        team = self.team
-        filter = PathFilter(request=request)
-        resp = ClickhousePaths(filter=filter, team=team).run()
-        return Response(resp)
