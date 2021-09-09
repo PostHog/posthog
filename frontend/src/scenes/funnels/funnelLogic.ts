@@ -574,6 +574,9 @@ export const funnelLogic = kea<funnelLogicType>({
                     actions.loadPeople(values.stepsWithCount)
                 }
             }
+            if (!insightLogic.values.insight.id || (insightLogic.values.insight.filters?.insight !== values.filters.insight)) {
+                actions.createInsight(values.filters)
+            }
         },
         setFilters: ({ refresh }) => {
             // No calculate button on Clickhouse, but query performance is suboptimal on psql

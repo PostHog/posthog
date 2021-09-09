@@ -40,7 +40,7 @@ interface InsightType {
     icon?: JSX.Element
 }
 
-interface InsightItem {
+export interface InsightItem {
     type: string
     description: string
 }
@@ -252,9 +252,11 @@ export function SavedInsights(): JSX.Element {
                 <Dropdown
                     overlay={
                         <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
-                            {menuItems.map((menuItem) => (
+                            {menuItems.map((menuItem: InsightItem) => (
                                 <Menu.Item
-                                    onClick={({ key }) => addGraph(key)}
+                                    onClick={() => {
+                                        addGraph(menuItem.type)
+                                    }}
                                     style={{ margin: 8 }}
                                     key={menuItem.type}
                                 >

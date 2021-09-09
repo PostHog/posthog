@@ -9,6 +9,7 @@ import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
 import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { InsightItem } from './SavedInsights'
 
 interface InsightsResult {
     results: DashboardItemType[]
@@ -19,7 +20,7 @@ interface InsightsResult {
 
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
     actions: {
-        addGraph: (type: Key) => ({ type }),
+        addGraph: (type: string) => ({ type }),
         setInsightType: (type: string) => ({ type }),
         setCreatedBy: (user: Partial<UserBasicType> | 'All users') => ({ user }),
         setLayoutView: (view: string) => ({ view }),

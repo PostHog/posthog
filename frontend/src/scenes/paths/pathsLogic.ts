@@ -128,7 +128,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         },
         loadResults: () => {
             insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
-            if (!insightLogic.values.insight.id) {
+            if (!insightLogic.values.insight.id || (insightLogic.values.insight.filters?.insight !== values.filter.insight)) {
                 actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
             }
         },

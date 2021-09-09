@@ -346,7 +346,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             actions.loadResults()
         },
         loadResultsSuccess: () => {
-            if (!insightLogic.values.insight.id) {
+            if (!insightLogic.values.insight.id || (insightLogic.values.insight.filters?.insight !== values.filters.insight)) {
                 insightHistoryLogic.actions.createInsight({
                     ...values.filters,
                     insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
