@@ -94,7 +94,7 @@ export function Insights(): JSX.Element {
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
-    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -196,7 +196,6 @@ export function Insights(): JSX.Element {
                 view={ViewType.FUNNELS}
                 filters={allFilters}
                 onSaveCohort={() => {
-                    refreshCohort()
                     setCohortModalVisible(true)
                 }}
             />

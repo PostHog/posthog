@@ -124,7 +124,9 @@ class CohortSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         cohort.name = validated_data.get("name", cohort.name)
         cohort.groups = validated_data.get("groups", cohort.groups)
+        cohort.is_static = validated_data.get("is_static", cohort.is_static)
         deleted_state = validated_data.get("deleted", None)
+
         is_deletion_change = deleted_state is not None
         if is_deletion_change:
             cohort.deleted = deleted_state
@@ -135,7 +137,9 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if not deleted_state:
             if cohort.is_static:
-                self._handle_static(cohort, request)
+                # You can't update a static cohort using the trend/stickiness thing
+                if request.FILES.get("csv"):
+                    self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
                 calculate_cohort.delay(cohort_id=cohort.pk)
                 calculate_cohort_ch.delay(cohort_id=cohort.pk)

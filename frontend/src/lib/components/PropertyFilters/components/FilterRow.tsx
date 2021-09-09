@@ -16,6 +16,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import 'scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
+import { Placement } from '@popperjs/core'
 
 interface FilterRowProps {
     item: AnyPropertyFilter
@@ -26,6 +27,7 @@ interface FilterRowProps {
     totalCount: number
     disablePopover?: boolean
     popoverPlacement?: TooltipPlacement | null
+    taxonomicPopoverPlacement?: Placement
     groupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
 }
@@ -38,7 +40,8 @@ export const FilterRow = React.memo(function FilterRow({
     showConditionBadge,
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
-    popoverPlacement,
+    popoverPlacement, // used for legacy `unified` & `tabs` filters
+    taxonomicPopoverPlacement = undefined,
     groupTypes,
     showNestedArrow = false,
 }: FilterRowProps) {
@@ -106,7 +109,7 @@ export const FilterRow = React.memo(function FilterRow({
                 <>
                     <Popup
                         visible={open}
-                        placement={'bottom-end'}
+                        placement={taxonomicPopoverPlacement || 'bottom-end'}
                         fallbackPlacements={['bottom-start']}
                         onClickOutside={() => handleVisibleChange(false)}
                         overlay={
