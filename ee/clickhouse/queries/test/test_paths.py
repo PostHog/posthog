@@ -209,13 +209,13 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
             _create_event(
-                event="between_step_1", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00"
+                event="between_step_1_a", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00"
             )
             _create_event(
-                event="between_step_2", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
+                event="between_step_1_b", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
             )
             _create_event(
-                event="between_step_3", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
+                event="between_step_1_c", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
             )
             _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
             _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:00")
@@ -224,17 +224,17 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
             _create_event(
-                event="between_step_1", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00"
+                event="between_step_1_a", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00"
             )
             _create_event(
-                event="between_step_2", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
+                event="between_step_1_b", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
             )
             _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00")
             _create_event(
-                event="between_step_4", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:20"
+                event="between_step_2_a", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:20"
             )
             _create_event(
-                event="between_step_5", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:40"
+                event="between_step_2_b", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:40"
             )
 
         for i in range(15, 35):
@@ -311,10 +311,15 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertEqual(
             response,
             [
-                {"source": "1_step two", "target": "2_between_step_4", "value": 10, "average_conversion_time": 80000.0},
                 {
-                    "source": "2_between_step_4",
-                    "target": "3_between_step_5",
+                    "source": "1_step two",
+                    "target": "2_between_step_2_a",
+                    "value": 10,
+                    "average_conversion_time": 80000.0,
+                },
+                {
+                    "source": "2_between_step_2_a",
+                    "target": "3_between_step_2_b",
                     "value": 10,
                     "average_conversion_time": 80000.0,
                 },
@@ -344,15 +349,30 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertEqual(
             response,
             [
-                {"source": "1_step one", "target": "2_between_step_1", "value": 10, "average_conversion_time": 60000.0},
                 {
-                    "source": "2_between_step_1",
-                    "target": "3_between_step_2",
+                    "source": "1_step one",
+                    "target": "2_between_step_1_a",
                     "value": 10,
                     "average_conversion_time": 60000.0,
                 },
-                {"source": "3_between_step_2", "target": "4_step two", "value": 10, "average_conversion_time": 60000.0},
-                {"source": "4_step two", "target": "5_between_step_4", "value": 10, "average_conversion_time": 80000.0},
+                {
+                    "source": "2_between_step_1_a",
+                    "target": "3_between_step_1_b",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_step two",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "4_step two",
+                    "target": "5_between_step_2_a",
+                    "value": 10,
+                    "average_conversion_time": 80000.0,
+                },
             ],
         )
 
@@ -378,21 +398,36 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertEqual(
             response,
             [
-                {"source": "1_step one", "target": "2_between_step_1", "value": 15, "average_conversion_time": 60000.0},
                 {
-                    "source": "2_between_step_1",
-                    "target": "3_between_step_2",
+                    "source": "1_step one",
+                    "target": "2_between_step_1_a",
                     "value": 15,
                     "average_conversion_time": 60000.0,
                 },
-                {"source": "3_between_step_2", "target": "4_step two", "value": 10, "average_conversion_time": 60000.0},
                 {
-                    "source": "3_between_step_2",
-                    "target": "4_between_step_3",
+                    "source": "2_between_step_1_a",
+                    "target": "3_between_step_1_b",
+                    "value": 15,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_step two",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_between_step_1_c",
                     "value": 5,
                     "average_conversion_time": 60000.0,
                 },
-                {"source": "4_between_step_3", "target": "5_step two", "value": 5, "average_conversion_time": 60000.0},
+                {
+                    "source": "4_between_step_1_c",
+                    "target": "5_step two",
+                    "value": 5,
+                    "average_conversion_time": 60000.0,
+                },
             ],
         )
 
@@ -418,21 +453,36 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertEqual(
             response,
             [
-                {"source": "1_step one", "target": "2_between_step_1", "value": 15, "average_conversion_time": 60000.0},
                 {
-                    "source": "2_between_step_1",
-                    "target": "3_between_step_2",
+                    "source": "1_step one",
+                    "target": "2_between_step_1_a",
                     "value": 15,
                     "average_conversion_time": 60000.0,
                 },
-                {"source": "3_between_step_2", "target": "4_step two", "value": 10, "average_conversion_time": 60000.0},
                 {
-                    "source": "3_between_step_2",
-                    "target": "4_between_step_3",
+                    "source": "2_between_step_1_a",
+                    "target": "3_between_step_1_b",
+                    "value": 15,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_step two",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_between_step_1_c",
                     "value": 5,
                     "average_conversion_time": 60000.0,
                 },
-                {"source": "4_between_step_3", "target": "5_step two", "value": 5, "average_conversion_time": 60000.0},
+                {
+                    "source": "4_between_step_1_c",
+                    "target": "5_step two",
+                    "value": 5,
+                    "average_conversion_time": 60000.0,
+                },
             ],
         )
 
