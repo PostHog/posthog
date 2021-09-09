@@ -2,7 +2,7 @@ import json
 import os
 import secrets
 import urllib.parse
-from typing import Any, Dict, Optional, Union, cast
+from typing import Any, Optional, cast
 
 import requests
 from django.conf import settings
