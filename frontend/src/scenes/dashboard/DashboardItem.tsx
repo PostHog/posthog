@@ -48,6 +48,7 @@ interface Props {
     setDiveDashboard?: (id: number, dashboardId: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
+    isReloading?: boolean
     dashboardMode: DashboardMode | null
     isOnEditMode: boolean
     setEditMode?: () => void
@@ -163,6 +164,7 @@ export function DashboardItem({
     setDiveDashboard,
     loadDashboardItems,
     isDraggingRef,
+    isReloading,
     dashboardMode,
     isOnEditMode,
     setEditMode,
@@ -285,7 +287,7 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
-            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined }}
+            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
         >
             {item.is_sample && (
                 <div className="sample-dasbhoard-overlay">

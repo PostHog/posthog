@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
@@ -459,29 +459,45 @@ export const dashboardLogic = kea<dashboardLogicType>({
             if (!values?.items || values?.items.length === 0) {
                 return
             }
-            await breakpoint(100)
 
             // Refreshing dashboard items from now on should be done without short-circuiting
+            let broken = false
+            for (const dashboardItem of values.items) {
+                actions.setRefreshStatus(dashboardItem.id, true)
+            }
+
             const fetchItemPromises = values.items.map((dashboardItem) => async () => {
                 try {
-                    actions.setRefreshStatus(dashboardItem.id, true)
+                    breakpoint()
+                    // TODO: only for testing!
+                    await breakpoint(1000)
                     const refreshedDashboardItem = await api.get(
                         `api/dashboard_item/${dashboardItem.id}/?${toParams({
                             share_token: props.shareToken,
                             refresh: true,
                         })}`
                     )
+                    breakpoint()
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.id)
                 } catch (e) {
-                    actions.setRefreshError(dashboardItem.id)
+                    if (isBreakpoint(e)) {
+                        broken = true
+                    } else {
+                        actions.setRefreshError(dashboardItem.id)
+                    }
                 }
-                breakpoint()
             })
 
-            fetchItemPromises.forEach((fetchItem) => {
-                fetchItem()
-            })
+            function loadNextPromise(): void {
+                if (!broken && fetchItemPromises.length > 0) {
+                    fetchItemPromises.shift()?.().then(loadNextPromise)
+                }
+            }
+
+            for (let i = 0; i < 4; i++) {
+                loadNextPromise()
+            }
 
             dashboardItemsModel.actions.refreshAllDashboardItems({})
             eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
