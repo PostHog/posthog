@@ -3,7 +3,7 @@ from typing import List, Set, Tuple, Union, cast
 from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
 from ee.clickhouse.models.action import get_action_tables_and_properties, uses_elements_chain
 from ee.clickhouse.models.property import extract_tables_and_properties
-from posthog.constants import PAGEVIEW_EVENT, SCREEN_EVENT, TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -79,22 +79,7 @@ class ColumnOptimizer:
                 if uses_elements_chain(entity.get_action()):
                     return True
 
-        # PathFilters use inferred properties
-        if isinstance(self.filter, PathFilter):
-            if (
-                self.filter.target_events == [] and self.filter.custom_events == []
-            ) or self.filter.include_autocaptures:
-                return True
-
         return False
-
-    @cached_property
-    def should_query_url_in_paths(self) -> bool:
-        return ("$current_url", "event") in self.properties_used_in_path_filter
-
-    @cached_property
-    def should_query_screen_in_paths(self) -> bool:
-        return ("$screen_name", "event") in self.properties_used_in_path_filter
 
     @cached_property
     def properties_used_in_filter(self) -> Set[Tuple[PropertyName, PropertyType]]:
@@ -130,29 +115,6 @@ class ColumnOptimizer:
             # See ee/clickhouse/models/action.py#format_action_filter for an example
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 result |= get_action_tables_and_properties(entity.get_action())
-
-        return result
-
-    @cached_property
-    def properties_used_in_path_filter(self) -> Set[Tuple[PropertyName, PropertyType]]:
-
-        result: Set[Tuple[PropertyName, PropertyType]] = set()
-
-        if not isinstance(self.filter, PathFilter):
-            return result
-
-        if self.filter.target_events == [] and self.filter.custom_events == []:
-            if PAGEVIEW_EVENT not in self.filter.exclude_events:
-                result.add(("$current_url", "event"))
-
-            if SCREEN_EVENT not in self.filter.exclude_events:
-                result.add(("$screen_name", "event"))
-        else:
-            if self.filter.include_pageviews:
-                result.add(("$current_url", "event"))
-
-            if self.filter.include_screenviews:
-                result.add(("$screen_name", "event"))
 
         return result
 

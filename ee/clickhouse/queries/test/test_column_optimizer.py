@@ -72,43 +72,6 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    def test_properties_used_in_path_filter(self):
-        properties_used_in_path_filter = lambda filter: ColumnOptimizer(
-            filter, self.team.id
-        ).properties_used_in_path_filter
-
-        filter = PathFilter()
-        self.assertEqual(properties_used_in_path_filter(filter), {("$current_url", "event"), ("$screen_name", "event")})
-        self.assertTrue(ColumnOptimizer(filter, self.team.id).should_query_elements_chain_column)
-
-        filter = PathFilter({"include_event_types": ["$pageview"]})
-        self.assertEqual(properties_used_in_path_filter(filter), {("$current_url", "event")})
-
-        filter = PathFilter({"include_event_types": ["$screen"]})
-        self.assertEqual(properties_used_in_path_filter(filter), {("$screen_name", "event")})
-
-        filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom1", "/custom2"]})
-        self.assertEqual(properties_used_in_path_filter(filter), set())
-
-        filter = filter.with_data(
-            {"include_event_types": ["$pageview", "$screen", "custom_event"], "include_custom_events": []}
-        )
-        self.assertEqual(properties_used_in_path_filter(filter), {("$current_url", "event"), ("$screen_name", "event")})
-
-        filter = filter.with_data(
-            {
-                "include_event_types": ["$pageview", "$screen", "custom_event"],
-                "include_custom_events": [],
-                "exclude_events": ["/custom1"],
-            }
-        )
-        self.assertEqual(properties_used_in_path_filter(filter), {("$current_url", "event"), ("$screen_name", "event")})
-
-        filter = filter.with_data(
-            {"include_event_types": [], "include_custom_events": [], "exclude_events": ["$pageview"],}
-        )
-        self.assertEqual(properties_used_in_path_filter(filter), {("$screen_name", "event")})
-
     def test_properties_used_in_filter_with_actions(self):
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(
