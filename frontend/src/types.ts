@@ -899,6 +899,19 @@ export interface FeatureFlagType {
     rollout_percentage: number | null
 }
 
+export interface FeatureFlagOverride {
+    id: number
+    feature_flag: number
+    user: number
+    override_value: boolean | string | null
+}
+
+export interface CombinedFeatureFlagAndOverride {
+    feature_flag: FeatureFlagType
+    value_for_user_without_override: boolean | string
+    override: FeatureFlagOverride | null
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string

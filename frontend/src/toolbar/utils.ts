@@ -403,7 +403,11 @@ export function getHeatMapHue(count: number, maxCount: number): number {
     return 60 - (count / maxCount) * 40
 }
 
-export async function toolbarFetch(url: string, postPayload?: Record<string, any>): Promise<Response> {
+export async function toolbarFetch(
+    url: string,
+    method: string = 'GET',
+    payload?: Record<string, any>
+): Promise<Response> {
     const params = {
         temporary_token: toolbarLogic.values.temporaryToken,
     }
@@ -411,15 +415,20 @@ export async function toolbarFetch(url: string, postPayload?: Record<string, any
         params,
         '?'
     )}`
-    const response = await (postPayload
-        ? fetch(fullUrl, {
-              method: 'POST',
+
+    const payloadData = payload
+        ? {
+              body: JSON.stringify(payload),
               headers: {
                   'Content-Type': 'application/json',
               },
-              body: JSON.stringify(postPayload),
-          })
-        : fetch(fullUrl))
+          }
+        : {}
+
+    const response = await fetch(fullUrl, {
+        method,
+        ...payloadData,
+    })
     if (response.status === 403) {
         toolbarLogic.actions.authenticate()
     }

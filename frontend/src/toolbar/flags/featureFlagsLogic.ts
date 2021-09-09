@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { FeatureFlagType } from '~/types'
+import { CombinedFeatureFlagAndOverride } from '~/types'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { PostHog } from 'posthog-js'
 import { toolbarFetch } from '~/toolbar/utils'
@@ -8,107 +8,64 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     actions: {
         getUserFlags: true,
-        getOverriddenFlags: true,
-        setFeatureFlags: (flags: Record<string, string | boolean>) => ({ flags }),
-        setOverriddenFlag: (flag: number, override_value: string | boolean) => ({ flag, override_value }),
-    },
-
-    reducers: {
-        overriddenFlags: [
-            {} as Record<string, string | boolean>,
-            {
-                // this overrides the loader, so we would have instant feedback in the UI
-                setOverriddenFlag: (state, { flag, override_value }) => ({ ...state, [flag]: override_value }),
-            },
-        ],
-        enabledFeatureFlags: [
-            {} as Record<string, string | boolean>,
-            {
-                setFeatureFlags: (_, { flags }) => flags,
-            },
-        ],
+        setOverriddenUserFlag: (flagId: number, overrideValue: string | boolean) => ({ flagId, overrideValue }),
+        deleteOverriddenUserFlag: (overrideId: number) => ({ overrideId }),
     },
 
     loaders: ({ values }) => ({
         userFlags: [
-            {} as Record<string, string | boolean>,
+            [] as CombinedFeatureFlagAndOverride[],
             {
                 getUserFlags: async (_, breakpoint) => {
                     const response = await toolbarFetch('api/feature_flag/my_flags')
                     breakpoint()
                     if (response.status === 403) {
-                        return {}
+                        return []
                     }
                     const results = await response.json()
                     return results.flags
                 },
-            },
-        ],
-        overriddenFlags: {
-            getOverriddenFlags: async (_, breakpoint) => {
-                const response = await toolbarFetch('api/feature_flag_override/my_overrides')
-                breakpoint()
-                if (response.status === 403) {
-                    return {}
-                }
-                const results = await response.json()
-                return results.feature_flag_overrides
-            },
-            setOverriddenFlag: async ({ flag, override_value }, breakpoint) => {
-                const response = await toolbarFetch('api/feature_flag_override/my_overrides', {
-                    feature_flag: flag,
-                    override_value: override_value,
-                })
-                breakpoint()
-                if (response.status === 403) {
-                    return {}
-                }
-                const results = await response.json()
-                ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
-                return { ...values.overriddenFlags, ...results }
-            },
-        },
-        allFeatureFlags: [
-            [] as FeatureFlagType[],
-            {
-                // eslint-disable-next-line
-                getFlags: async (_ = null, breakpoint: () => void) => {
-                    const response = await toolbarFetch('api/feature_flag/')
+                setOverriddenUserFlag: async ({ flagId, overrideValue }, breakpoint) => {
+                    const response = await toolbarFetch(
+                        'api/projects/@current/feature_flag_overrides/my_overrides',
+                        'POST',
+                        {
+                            feature_flag: flagId,
+                            override_value: overrideValue,
+                        }
+                    )
                     breakpoint()
                     if (response.status === 403) {
                         return []
                     }
                     const results = await response.json()
-                    if (!Array.isArray(results?.results)) {
-                        throw new Error('Error loading feature flags!')
+                    return [...values.userFlags].map((userFlag) =>
+                        userFlag.feature_flag.id === results.feature_flag
+                            ? { ...userFlag, override: results }
+                            : userFlag
+                    )
+                },
+                deleteOverriddenUserFlag: async ({ overrideId }, breakpoint) => {
+                    const response = await toolbarFetch(
+                        `api/projects/@current/feature_flag_overrides/${overrideId}`,
+                        'DELETE'
+                    )
+                    breakpoint()
+                    if (response.status === 403) {
+                        return []
                     }
-
-                    return results.results
+                    return [...values.userFlags].map((userFlag) =>
+                        userFlag?.override?.id === overrideId ? { ...userFlag, override: null } : userFlag
+                    )
                 },
             },
         ],
     }),
 
-    selectors: {
-        combinedFlags: [
-            (s) => [s.userFlags, s.overriddenFlags],
-            (userFlags, overriddenFlags) => ({ ...userFlags, ...overriddenFlags }),
-        ],
-        sortedFeatureFlags: [
-            (s) => [s.allFeatureFlags],
-            (allFeatureFlags): FeatureFlagType[] =>
-                [...allFeatureFlags].sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')),
-        ],
-        featureFlagCount: [(s) => [s.sortedFeatureFlags], (sortedFeatureFlags) => sortedFeatureFlags.length],
-    },
-
     events: ({ actions }) => ({
         afterMount: () => {
-            actions.getFlags()
             actions.getUserFlags()
-            actions.getOverriddenFlags()
             ;(window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
-                actions.setFeatureFlags(variants)
                 toolbarLogic.actions.updateFeatureFlags(variants)
             })
         },

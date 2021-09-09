@@ -18,7 +18,6 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const HELP_URL =
     'https://posthog.com/docs/tutorials/toolbar?utm_medium=in-product&utm_source=in-product&utm_campaign=toolbar-help-button'
@@ -58,14 +57,14 @@ export function ToolbarButton(): JSX.Element {
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
-    const { isAuthenticated, featureFlags } = useValues(toolbarLogic)
+    const { isAuthenticated } = useValues(toolbarLogic)
     const { authenticate, logout } = useActions(toolbarLogic)
 
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
     })
 
-    const showFeatureFlags = featureFlags[FEATURE_FLAGS.TOOLBAR_FEATURE_FLAGS]
+    const showFeatureFlags = true // TODO: Make this real
 
     useEffect(() => {
         globalMouseMove.current = function (e: MouseEvent): void {
