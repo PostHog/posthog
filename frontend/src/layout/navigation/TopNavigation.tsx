@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import './Navigation.scss'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
@@ -18,8 +18,11 @@ import {
     SettingOutlined,
     UserAddOutlined,
     InfoCircleOutlined,
+    CreditCardOutlined,
+    KeyOutlined,
+    SmileOutlined,
 } from '@ant-design/icons'
-import { guardPremiumFeature } from 'scenes/UpgradeModal'
+import { guardAvailableFeature } from 'scenes/UpgradeModal'
 import { sceneLogic, urls } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
@@ -28,7 +31,7 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
-import { UserType } from '~/types'
+import { AvailableFeature, UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -50,9 +53,14 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
 }
 
 export function TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, setInviteMembersModalOpen, setFilteredEnvironment } = useActions(
-        navigationLogic
-    )
+    const {
+        setMenuCollapsed,
+        setChangelogModalOpen,
+        setInviteMembersModalOpen,
+        setFilteredEnvironment,
+        setProjectModalShown,
+        setOrganizationModalShown,
+    } = useActions(navigationLogic)
     const {
         menuCollapsed,
         systemStatus,
@@ -60,6 +68,8 @@ export function TopNavigation(): JSX.Element {
         changelogModalOpen,
         inviteMembersModalOpen,
         filteredEnvironment,
+        projectModalShown,
+        organizationModalShown,
     } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -69,109 +79,105 @@ export function TopNavigation(): JSX.Element {
     const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
     const { showPalette } = useActions(commandPaletteLogic)
-    const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
-    const [organizationModalShown, setOrganizationModalShown] = useState(false) // TODO: Same as above
     const { featureFlags } = useValues(featureFlagLogic)
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
-            <div className="whoami" style={{ paddingRight: 16, paddingLeft: 16 }}>
+            <div className="whoami" style={{ margin: 16 }}>
                 <ProfilePicture name={user?.first_name} email={user?.email} />
                 <div className="details">
                     <span>{user?.email}</span>
                     <span>{user?.organization?.name}</span>
                 </div>
             </div>
-            <div className="text-center mt" style={{ paddingRight: 16, paddingLeft: 16 }}>
-                {preflight?.cloud && billing?.should_display_current_bill && (
-                    <Link to={urls.organizationBilling()} data-attr="top-menu-billing-usage">
-                        <Card
-                            bodyStyle={{ padding: 4, fontWeight: 'bold' }}
-                            style={{ marginBottom: 16, cursor: 'pointer' }}
-                        >
-                            <span className="text-small text-muted">
-                                <b>Current usage</b>
-                            </span>
-                            <div style={{ fontSize: '1.05rem' }}>
-                                {billing?.current_bill_amount !== undefined && billing?.current_bill_amount !== null ? (
-                                    `$${billing?.current_bill_amount?.toLocaleString()}`
-                                ) : (
-                                    <>
-                                        Unavailable{' '}
-                                        <Tooltip title="We can't show your current bill amount right now. Please check back in a few minutes. If you keep seeing this message, contact us.">
-                                            <InfoCircleOutlined />
-                                        </Tooltip>
-                                    </>
-                                )}
-                            </div>
-                        </Card>
-                    </Link>
-                )}
-                <div>
-                    {preflight?.email_service_available ? (
-                        <Button
-                            type="primary"
-                            icon={<UserAddOutlined />}
-                            onClick={() => setInviteMembersModalOpen(true)}
-                            data-attr="top-menu-invite-team-members"
-                            style={{ width: '100%' }}
-                        >
-                            Invite Team Members
-                        </Button>
-                    ) : (
-                        <CreateInviteModalWithButton block />
-                    )}
-                </div>
-                <div style={{ marginTop: 10 }}>
-                    <LinkButton
-                        to={urls.organizationSettings()}
-                        data-attr="top-menu-item-org-settings"
-                        style={{ width: '100%' }}
-                        icon={<SettingOutlined />}
+            {preflight?.cloud && billing?.should_display_current_bill && (
+                <Link to={urls.organizationBilling()} data-attr="top-menu-billing-usage">
+                    <Card
+                        bodyStyle={{ padding: 4, fontWeight: 'bold' }}
+                        style={{ marginBottom: 16, cursor: 'pointer' }}
                     >
-                        Organization settings
-                    </LinkButton>
-                </div>
-                {preflight?.cloud ? (
-                    <div className="mt-05">
-                        <Link to={urls.organizationBilling()} data-attr="top-menu-item-billing">
-                            Billing
-                        </Link>
-                    </div>
-                ) : (
-                    <div className="mt-05">
-                        <Link to={urls.instanceLicenses()} data-attr="top-menu-item-licenses">
-                            Licenses
-                        </Link>
-                    </div>
-                )}
-                <div className="mt-05">
-                    <Link to={urls.mySettings()} data-attr="top-menu-item-me">
-                        My account
-                    </Link>
-                </div>
-            </div>
-            {((user?.organizations.length ?? 0) > 1 || preflight?.can_create_org) && <div className="divider mt-05" />}
+                        <span className="text-small text-muted">
+                            <b>Current usage</b>
+                        </span>
+                        <div style={{ fontSize: '1.05rem' }}>
+                            {billing?.current_bill_amount !== undefined && billing?.current_bill_amount !== null ? (
+                                `$${billing?.current_bill_amount?.toLocaleString()}`
+                            ) : (
+                                <>
+                                    Unavailable{' '}
+                                    <Tooltip title="We can't show your current bill amount right now. Please check back in a few minutes. If you keep seeing this message, contact us.">
+                                        <InfoCircleOutlined />
+                                    </Tooltip>
+                                </>
+                            )}
+                        </div>
+                    </Card>
+                </Link>
+            )}
+            {preflight?.email_service_available ? (
+                <Button
+                    type="primary"
+                    icon={<UserAddOutlined />}
+                    onClick={() => setInviteMembersModalOpen(true)}
+                    data-attr="top-menu-invite-team-members"
+                >
+                    Invite team members
+                </Button>
+            ) : (
+                <CreateInviteModalWithButton />
+            )}
+            <LinkButton to={urls.mySettings()} data-attr="top-menu-item-me" icon={<SmileOutlined />}>
+                My account
+            </LinkButton>
+            {preflight?.cloud ? (
+                <LinkButton
+                    to={urls.organizationBilling()}
+                    data-attr="top-menu-item-billing"
+                    icon={<CreditCardOutlined />}
+                >
+                    Billing
+                </LinkButton>
+            ) : (
+                <LinkButton to={urls.instanceLicenses()} data-attr="top-menu-item-licenses" icon={<KeyOutlined />}>
+                    Licenses
+                </LinkButton>
+            )}
+            <LinkButton
+                to={urls.organizationSettings()}
+                data-attr="top-menu-item-org-settings"
+                icon={<SettingOutlined />}
+            >
+                Organization settings
+            </LinkButton>
             <div className="organizations">
-                {user?.organizations.map((organization) => {
-                    if (organization.id == user.organization?.id) {
-                        return undefined
-                    }
-                    return (
-                        <a key={organization.id} onClick={() => updateCurrentOrganization(organization.id)}>
-                            <IconBuilding /> {organization.name}
-                        </a>
+                {user?.organizations
+                    .sort((orgA, orgB) =>
+                        orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
                     )
-                })}
+                    .map(
+                        (organization) =>
+                            organization.id !== user.organization?.id && (
+                                <button
+                                    type="button"
+                                    className="plain-button"
+                                    key={organization.id}
+                                    onClick={() => updateCurrentOrganization(organization.id)}
+                                >
+                                    <IconBuilding className="mr-05" style={{ width: 14 }} />
+                                    {organization.name}
+                                </button>
+                            )
+                    )}
                 {preflight?.can_create_org && (
-                    <a
-                        style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'center' }}
+                    <button
+                        type="button"
+                        className="plain-button"
                         onClick={() =>
-                            guardPremiumFeature(
+                            guardAvailableFeature(
                                 user,
                                 preflight,
                                 showUpgradeModal,
-                                'organizations_projects',
+                                AvailableFeature.ORGANIZATIONS_PROJECTS,
                                 'multiple organizations',
                                 'Organizations group people building products together. An organization can then have multiple projects.',
                                 () => {
@@ -184,65 +190,78 @@ export function TopNavigation(): JSX.Element {
                             )
                         }
                     >
-                        <PlusOutlined style={{ marginRight: 8, fontSize: 18 }} /> New organization
-                    </a>
+                        <PlusOutlined className="mr-05" />
+                        Create new organization
+                    </button>
                 )}
             </div>
-            <div className="divider mb-05" />
-            <div className="text-center">
-                <a onClick={logout} data-attr="top-menu-item-logout">
-                    Log out
-                </a>
-            </div>
+            <button type="button" onClick={logout} className="bottom-button" data-attr="top-menu-item-logout">
+                Log out
+            </button>
         </div>
     )
 
     const projectDropdown = (
         <div className="navigation-top-dropdown project-dropdown">
-            <div className="dp-title">SELECT A PROJECT</div>
+            <div className="title">Select project</div>
             <div className="projects">
                 {user?.organization?.teams &&
-                    user.organization.teams.map((team) => {
-                        return (
-                            <a onClick={() => updateCurrentTeam(team.id, '/')} key={team.id}>
-                                <span style={{ flexGrow: 1 }}>{team.name}</span>
-                                <span
-                                    className="settings"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (team.id === user?.team?.id) {
-                                            push(urls.projectSettings())
-                                        } else {
-                                            updateCurrentTeam(team.id, '/project/settings')
-                                        }
-                                    }}
+                    user.organization.teams
+                        .sort((teamA, teamB) =>
+                            teamA.id === user?.team?.id ? -2 : teamA.name.localeCompare(teamB.name)
+                        )
+                        .map((team) => {
+                            const isCurrentTeam = team.id === user?.team?.id
+                            return (
+                                <button
+                                    key={team.id}
+                                    className="plain-button"
+                                    type="button"
+                                    onClick={() => updateCurrentTeam(team.id, '/')}
+                                    style={isCurrentTeam ? { cursor: 'default' } : undefined}
+                                    disabled={isCurrentTeam}
                                 >
-                                    <ToolOutlined />
-                                </span>
-                            </a>
-                        )
-                    })}
+                                    <ProjectOutlined className="mr-05" />
+                                    <span style={{ flexGrow: 1, fontWeight: isCurrentTeam ? 700 : 400 }}>
+                                        {team.name}
+                                    </span>
+                                    <span
+                                        className="subaction"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (isCurrentTeam) {
+                                                push(urls.projectSettings())
+                                            } else {
+                                                updateCurrentTeam(team.id, '/project/settings')
+                                            }
+                                        }}
+                                    >
+                                        <ToolOutlined />
+                                    </span>
+                                </button>
+                            )
+                        })}
             </div>
-            <div className="divider mt mb-05" />
-            <div className="text-center">
-                <a
-                    onClick={() =>
-                        guardPremiumFeature(
-                            user,
-                            preflight,
-                            showUpgradeModal,
-                            'organizations_projects',
-                            'multiple projects',
-                            'Projects allow you to separate data and configuration for different products or environments.',
-                            () => {
-                                setProjectModalShown(true)
-                            }
-                        )
-                    }
-                >
-                    <PlusOutlined /> Create new project
-                </a>
-            </div>
+            <button
+                type="button"
+                className="plain-button"
+                onClick={() =>
+                    guardAvailableFeature(
+                        user,
+                        preflight,
+                        showUpgradeModal,
+                        AvailableFeature.ORGANIZATIONS_PROJECTS,
+                        'multiple projects',
+                        'Projects allow you to separate data and configuration for different products or environments.',
+                        () => {
+                            setProjectModalShown(true)
+                        }
+                    )
+                }
+            >
+                <PlusOutlined className="mr-05" />
+                Create new project
+            </button>
         </div>
     )
 
@@ -286,16 +305,23 @@ export function TopNavigation(): JSX.Element {
                         )}
                     </div>
                 </div>
-                <div className="project-chooser">
-                    <Dropdown overlay={projectDropdown} trigger={['click']} placement="bottomCenter">
-                        <div style={{ height: '100%' }} className="cursor-pointer flexed">
+                <div className="project-chooser-container">
+                    <Dropdown
+                        overlay={projectDropdown}
+                        className="project-chooser"
+                        overlayClassName="navigation-top-dropdown-overlay"
+                        trigger={['click']}
+                        placement="bottomCenter"
+                    >
+                        <div>
                             <ProjectOutlined className="mr-05" />
-                            {user?.team?.name} <DownOutlined className="ml-05" />
+                            {user?.team?.name}
+                            <DownOutlined className="ml-05" />
                         </div>
                     </Dropdown>
                 </div>
                 {user && (
-                    <div>
+                    <>
                         {featureFlags[FEATURE_FLAGS.TEST_ENVIRONMENT] && (
                             <div className="global-environment-switch">
                                 <label
@@ -320,12 +346,16 @@ export function TopNavigation(): JSX.Element {
                                 />
                             </div>
                         )}
-                        <Dropdown overlay={whoAmIDropdown} trigger={['click']}>
+                        <Dropdown
+                            overlay={whoAmIDropdown}
+                            overlayClassName="navigation-top-dropdown-overlay"
+                            trigger={['click']}
+                        >
                             <div>
                                 <WhoAmI user={user} />
                             </div>
                         </Dropdown>
-                    </div>
+                    </>
                 )}
             </div>
             <BulkInviteModal visible={inviteMembersModalOpen} onClose={() => setInviteMembersModalOpen(false)} />

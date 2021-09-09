@@ -1,18 +1,12 @@
-import React from 'react'
-import { ComponentMeta } from '@storybook/react'
-import { KeaStory } from 'lib/storybook/kea-story'
+import { Meta } from '@storybook/react'
+import { keaStory } from 'lib/storybook/kea-story'
 
 import { Signup } from '../Signup'
 
-import signup from './signup.json'
+import signupJson from './signup.json'
 
 export default {
     title: 'PostHog/Onboarding/2 Signup',
-    component: Signup,
-} as ComponentMeta<typeof Signup>
+} as Meta
 
-export const Initial = (): JSX.Element => (
-    <KeaStory state={signup}>
-        <Signup />
-    </KeaStory>
-)
+export const Initial = keaStory(Signup, signupJson)

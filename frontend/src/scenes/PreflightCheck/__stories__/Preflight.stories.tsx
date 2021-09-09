@@ -1,6 +1,5 @@
-import React from 'react'
-import { ComponentMeta } from '@storybook/react'
-import { KeaStory } from 'lib/storybook/kea-story'
+import { Meta } from '@storybook/react'
+import { keaStory } from 'lib/storybook/kea-story'
 
 import { PreflightCheck } from '../index'
 
@@ -8,11 +7,6 @@ import preflightInitial from './preflight.initial.json'
 
 export default {
     title: 'PostHog/Onboarding/1 Preflight',
-    component: PreflightCheck,
-} as ComponentMeta<typeof PreflightCheck>
+} as Meta
 
-export const Initial = (): JSX.Element => (
-    <KeaStory state={preflightInitial}>
-        <PreflightCheck />
-    </KeaStory>
-)
+export const Initial = keaStory(PreflightCheck, preflightInitial)
