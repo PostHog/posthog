@@ -123,7 +123,7 @@ jobs:
                   pytest ee -m "not saml_only"
 
     saml:
-        name: Django tests - with SAML
+        name: Django tests – with SAML
         runs-on: ubuntu-latest
 
         steps:
