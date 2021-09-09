@@ -8,6 +8,8 @@ import {
     SystemStatusQueriesResult,
     SystemStatusAnalyzeResult,
     OrganizationType,
+    UserType,
+    PreflightStatus,
 } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -94,9 +96,17 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
             (status: SystemStatus | null): SystemStatusRow[] => (status ? status.overview : []),
         ],
         showAnalyzeQueryButton: [
-            () => [organizationLogic.selectors.currentOrganization],
-            (org: OrganizationType | null): boolean =>
-                !!org?.membership_level && org.membership_level >= OrganizationMembershipLevel.Admin,
+            () => [
+                preflightLogic.selectors.preflight,
+                organizationLogic.selectors.currentOrganization,
+                userLogic.selectors.user,
+            ],
+            (preflight: PreflightStatus | null, org: OrganizationType | null, user: UserType | null): boolean => {
+                if (preflight?.cloud) {
+                    return !!user?.is_staff
+                }
+                return !!org?.membership_level && org.membership_level >= OrganizationMembershipLevel.Admin
+            },
         ],
     }),
 

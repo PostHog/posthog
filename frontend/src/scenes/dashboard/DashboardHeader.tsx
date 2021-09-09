@@ -18,7 +18,7 @@ import {
 import { FullScreen } from 'lib/components/FullScreen'
 import dayjs from 'dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardMode, DashboardType } from '~/types'
+import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HotkeyButton } from 'lib/components/HotkeyButton'
 import { router } from 'kea-router'
@@ -240,7 +240,7 @@ export function DashboardHeader(): JSX.Element {
                     </>
                 )}
             </div>
-            {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+            {user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION) && (
                 <>
                     <div className="mb" data-attr="dashboard-tags">
                         <ObjectTags
