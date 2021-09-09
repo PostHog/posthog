@@ -26,8 +26,8 @@ RUN pip install -r requirements.txt --no-cache-dir --compile \
 
 # install SAML dependencies (if available)
 RUN if [ -z "${SAML_AVAILABLE}" ] ; then \
-    apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
-    pip install python3-saml==1.12.0 \
+    apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' && \
+    pip install python3-saml==1.12.0 --no-cache-dir --compile \
     ; fi
 
 
