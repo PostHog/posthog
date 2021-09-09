@@ -126,10 +126,6 @@ jobs:
         name: SAML tests
         runs-on: ubuntu-latest
 
-        strategy:
-            fail-fast: false
-            matrix:
-                python-version: 3.9
         steps:
             - uses: actions/checkout@v1
               with:
@@ -141,7 +137,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: ${{ matrix.python-version }}
+                  python-version: 3.9
 
             - name: Install SAML (python3-saml) dependencies (not required for Cloud or FOSS)
               run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
