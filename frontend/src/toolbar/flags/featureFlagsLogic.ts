@@ -39,6 +39,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         return []
                     }
                     const results = await response.json()
+                    ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
+
                     return [...values.userFlags].map((userFlag) =>
                         userFlag.feature_flag.id === results.feature_flag
                             ? { ...userFlag, override: results }
@@ -54,6 +56,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     if (response.status === 403) {
                         return []
                     }
+                    ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
+
                     return [...values.userFlags].map((userFlag) =>
                         userFlag?.override?.id === overrideId ? { ...userFlag, override: null } : userFlag
                     )
