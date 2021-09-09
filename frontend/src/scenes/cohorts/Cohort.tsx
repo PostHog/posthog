@@ -4,8 +4,8 @@ import { CohortNameInput } from './CohortNameInput'
 import { CohortDescriptionInput } from './CohortDescriptionInput'
 import { Button, Col, Divider, Row, Spin } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
-import { CohortGroupType, CohortType } from '~/types'
-import { COHORT_DYNAMIC, COHORT_STATIC, ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { CohortType } from '~/types'
+import { COHORT_DYNAMIC, COHORT_STATIC } from 'lib/constants'
 import { InboxOutlined, DeleteOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
 import { CohortDetailsRow } from './CohortDetailsRow'
@@ -15,58 +15,18 @@ import { UploadFile } from 'antd/lib/upload/interface'
 
 import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
+import { Tooltip } from 'antd'
 
 export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort } = useActions(logic)
     const { cohort, submitted } = useValues(logic)
 
-    const onNameChange = (name: string): void => {
-        setCohort({
-            ...cohort,
-            name,
-        })
-    }
-
     const onDescriptionChange = (description: string): void => {
         setCohort({
             ...cohort,
             description,
         })
-    }
-
-    const onCriteriaChange = (_group: Partial<CohortGroupType>, id: string): void => {
-        const index = cohort.groups.findIndex((group: CohortGroupType) => group.id === id)
-        if (_group.matchType) {
-            cohort.groups[index] = {
-                id: cohort.groups[index].id,
-                matchType: ENTITY_MATCH_TYPE, // default
-                ..._group,
-            }
-        } else {
-            cohort.groups[index] = {
-                ...cohort.groups[index],
-                ..._group,
-            }
-        }
-        setCohort({ ...cohort })
-    }
-
-    const onAddGroup = (): void => {
-        cohort.groups = [
-            ...cohort.groups,
-            {
-                id: Math.random().toString().substr(2, 5),
-                matchType: PROPERTY_MATCH_TYPE,
-                properties: [],
-            },
-        ]
-        setCohort({ ...cohort })
-    }
-
-    const onRemoveGroup = (index: number): void => {
-        cohort.groups.splice(index, 1)
-        setCohort({ ...cohort })
     }
 
     const onTypeChange = (type: string): void => {
@@ -119,14 +79,25 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
             </Row>
             <Row gutter={16}>
                 <Col md={14}>
-                    <CohortNameInput input={cohort.name} onChange={onNameChange} />
+                    <CohortNameInput input={cohort.name} onChange={(name: string) => setCohort({ ...cohort, name })} />
                 </Col>
                 <Col md={10}>
-                    <DropdownSelector
-                        options={COHORT_TYPE_OPTIONS}
-                        value={cohort.is_static ? COHORT_STATIC : COHORT_DYNAMIC}
-                        onValueChange={onTypeChange}
-                    />
+                    <Tooltip
+                        title={
+                            cohort.id === 'new'
+                                ? 'Switch between a static cohort and dynamic cohort'
+                                : 'Create a new cohort to use a different type of cohort'
+                        }
+                    >
+                        <div>
+                            <DropdownSelector
+                                options={COHORT_TYPE_OPTIONS}
+                                disabled={cohort.id !== 'new'}
+                                value={cohort.is_static ? COHORT_STATIC : COHORT_DYNAMIC}
+                                onValueChange={onTypeChange}
+                            />
+                        </div>
+                    </Tooltip>
                 </Col>
             </Row>
             <Row gutter={16} className="mt">
@@ -151,17 +122,15 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                             <p className="ant-upload-hint">
                                 The CSV file only requires a single column with the user’s distinct ID.
                             </p>
+
+                            {submitted && !cohort.csv && (
+                                <p style={{ color: 'var(--danger)', marginTop: 16 }}>You need to upload a CSV file.</p>
+                            )}
                         </div>
                     </Dragger>
                 </div>
             ) : (
-                <CohortMatchingCriteriaSection
-                    onCriteriaChange={onCriteriaChange}
-                    cohort={cohort}
-                    onAddGroup={onAddGroup}
-                    onRemoveGroup={onRemoveGroup}
-                    showErrors={submitted}
-                />
+                <CohortMatchingCriteriaSection logic={logic} />
             )}
 
             {cohort.id !== 'new' && (
@@ -203,7 +172,7 @@ export function CohortFooter(props: { cohort: CohortType }): JSX.Element {
                     type="primary"
                     htmlType="submit"
                     data-attr="save-cohort"
-                    onClick={saveCohort}
+                    onClick={() => saveCohort()}
                     style={{ float: 'right' }}
                     icon={<SaveOutlined />}
                 >

@@ -180,7 +180,7 @@ function EntityCriteriaRow({
                                 value={count}
                                 data-attr="entity-count"
                                 onChange={(e) => onEntityCountChange(parseInt(e.target.value))}
-                                placeholder="2"
+                                placeholder="1"
                                 type="number"
                             />
                         </Col>

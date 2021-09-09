@@ -46,6 +46,7 @@ export const cohortLogic = kea<cohortLogicType>({
     actions: () => ({
         saveCohort: (cohortParams = {}, filterParams = null) => ({ cohortParams, filterParams }),
         setCohort: (cohort: CohortType) => ({ cohort }),
+        onCriteriaChange: (newGroup: Partial<CohortGroupType>, id: string) => ({ newGroup, id }),
         fetchCohort: (cohort: CohortType) => ({ cohort }),
         setPollTimeout: (pollTimeout: NodeJS.Timeout | null) => ({ pollTimeout }),
         setLastSavedAt: (lastSavedAt: string | false) => ({ lastSavedAt }),
@@ -63,7 +64,27 @@ export const cohortLogic = kea<cohortLogicType>({
         cohort: [
             processCohortOnSet(props.cohort),
             {
-                setCohort: (_, { cohort }) => processCohortOnSet(cohort),
+                setCohort: (_, { cohort }) => {
+                    console.log('cahnged', cohort)
+                    return processCohortOnSet(cohort)
+                },
+                onCriteriaChange: (state, { newGroup, id }) => {
+                    const cohort = { ...state }
+                    const index = cohort.groups.findIndex((group: CohortGroupType) => group.id === id)
+                    if (newGroup.matchType) {
+                        cohort.groups[index] = {
+                            id: cohort.groups[index].id,
+                            matchType: ENTITY_MATCH_TYPE, // default
+                            ...newGroup,
+                        }
+                    } else {
+                        cohort.groups[index] = {
+                            ...cohort.groups[index],
+                            ...newGroup,
+                        }
+                    }
+                    return processCohortOnSet(cohort)
+                },
             },
         ],
         lastSavedAt: [
@@ -85,19 +106,27 @@ export const cohortLogic = kea<cohortLogicType>({
         saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
             let cohort = { ...values.cohort, ...cohortParams } as CohortType
             const cohortFormData = new FormData()
+
             for (const [itemKey, value] of Object.entries(cohort as CohortType)) {
                 if (itemKey === 'groups') {
-                    for (const _group of value) {
-                        if (_group.matchType === PROPERTY_MATCH_TYPE && !_group.properties?.length) {
-                            // Match group should have at least one property
+                    if (cohort.is_static) {
+                        if (!cohort.csv && cohort.id === 'new') {
                             actions.setSubmitted(true)
                             return
                         }
+                    } else {
+                        for (const _group of value) {
+                            if (_group.matchType === PROPERTY_MATCH_TYPE && !_group.properties?.length) {
+                                // Match group should have at least one property
+                                actions.setSubmitted(true)
+                                return
+                            }
 
-                        if (_group.matchType === ENTITY_MATCH_TYPE && !(_group.action_id || _group.event_id)) {
-                            // Match group should have an event or action set
-                            actions.setSubmitted(true)
-                            return
+                            if (_group.matchType === ENTITY_MATCH_TYPE && !(_group.action_id || _group.event_id)) {
+                                // Match group should have an event or action set
+                                actions.setSubmitted(true)
+                                return
+                            }
                         }
                     }
 
