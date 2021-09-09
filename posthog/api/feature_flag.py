@@ -222,6 +222,9 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
         authentication.BasicAuthentication,
     ]
 
+    def get_queryset(self) -> QuerySet:
+        return super().get_queryset().filter(user=self.request.user)
+
     @action(methods=["POST"], detail=False)
     def my_overrides(self, request: request.Request, **kwargs):
         if request.method == "POST":
