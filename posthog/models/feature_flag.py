@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import models
-from django.db.models.expressions import ExpressionWrapper, RawSQL
+from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from django.utils import timezone
@@ -15,7 +15,7 @@ from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
 
 from .filters import Filter
-from .person import Person
+from .person import Person, PersonDistinctId
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
@@ -87,6 +87,11 @@ class FeatureFlagOverride(models.Model):
     user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
     override_value: models.JSONField = models.JSONField(default=bool)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    def get_analytics_metadata(self) -> Dict:
+        return {
+            "override_value_type": type(self.override_value).__name__,
+        }
 
 
 class FeatureFlagMatcher:
@@ -203,14 +208,14 @@ def get_overridden_feature_flags(
 ) -> Dict[str, Union[bool, str, None]]:
     feature_flags = get_active_feature_flags(team, distinct_id)
 
-    if user and user.is_authenticated:
-        feature_flag_overrides = FeatureFlagOverride.objects.filter(user=cast(User, user)).select_related(
-            "feature_flag"
-        )
-    else:
-        feature_flag_overrides = FeatureFlagOverride.objects.filter(user__distinct_id=distinct_id).select_related(
-            "feature_flag"
-        )
+    # Get  a user's feature flag overrides from any distinct_id (not just the connonical one)
+    person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team=team).values_list("person_id")[:1]
+    distinct_ids = PersonDistinctId.objects.filter(person_id__in=Subquery(person)).values_list("distinct_id")
+    user_id = User.objects.filter(distinct_id__in=Subquery(distinct_ids))[:1].values_list("id")
+    feature_flag_overrides = FeatureFlagOverride.objects.filter(
+        user_id__in=Subquery(user_id), team=team
+    ).select_related("feature_flag")
+    feature_flag_overrides = feature_flag_overrides.only("override_value", "feature_flag__key")
 
     for feature_flag_override in feature_flag_overrides:
         key = feature_flag_override.feature_flag.key

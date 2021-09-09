@@ -4,8 +4,9 @@ import json
 from django.test.client import Client
 from rest_framework import status
 
-from posthog.models import FeatureFlag, Person, PersonalAPIKey
+from posthog.models import FeatureFlag, Person, PersonalAPIKey, person
 from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.person import PersonDistinctId
 from posthog.test.base import BaseTest
 
 
@@ -270,11 +271,17 @@ class TestDecide(BaseTest):
         self.team.save()
         self.client.logout()
         Person.objects.create(
-            team=self.team, distinct_ids=[self.user.distinct_id], properties={"email": self.user.email},
+            team=self.team,
+            distinct_ids=[self.user.distinct_id, "not-connonical-distinct-id"],
+            properties={"email": self.user.email},
         )
         ff_1 = FeatureFlag.objects.create(
-            team=self.team, name="Beta feature", key="bool-key-overridden-to-false", created_by=self.user,
-        )
+            team=self.team,
+            name="Full rollout feature",
+            rollout_percentage=100,
+            key="bool-key-overridden-to-false",
+            created_by=self.user,
+        )  # Overriden to False
 
         ff_2 = FeatureFlag.objects.create(
             team=self.team,
@@ -282,7 +289,7 @@ class TestDecide(BaseTest):
             rollout_percentage=0,
             key="bool-key-overridden-to-true",
             created_by=self.user,
-        )
+        )  # Overriden to True
 
         ff_3 = FeatureFlag.objects.create(
             team=self.team,
@@ -296,12 +303,12 @@ class TestDecide(BaseTest):
                     ],
                 },
             },
-            name="This is a feature flag with multiple variants.",
+            name="This is a multi var feature flag that gets overriden.",
             key="multivariate-flag-overridden",
             created_by=self.user,
-        )
+        )  # Multi-var overriden to diff variant
 
-        ff_4 = FeatureFlag.objects.create(
+        FeatureFlag.objects.create(
             team=self.team,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": None}],
@@ -313,10 +320,10 @@ class TestDecide(BaseTest):
                     ],
                 },
             },
-            name="This is a feature flag with multiple variants.",
-            key="multivariate-flag-overridden-to-new-variant",
+            name="This is a multi var feature flag that doens't get overriden.",
+            key="multivariate-flag-not-overridden",
             created_by=self.user,
-        )
+        )  # Multi-var not overriden
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -324,7 +331,7 @@ class TestDecide(BaseTest):
             key="flag-rollout-100",
             rollout_percentage=100,
             created_by=self.user,
-        )  # Should be enabled for everyone
+        )  # True feature flag, not overriden
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -332,19 +339,16 @@ class TestDecide(BaseTest):
             key="flag-rollout-0",
             rollout_percentage=0,
             created_by=self.user,
-        )  # Should be enabled for nobody
+        )  # False feature flag, not overriden
 
         FeatureFlagOverride.objects.create(
-            user=self.user, feature_flag=ff_1, override_value=False,
+            team=self.team, user=self.user, feature_flag=ff_1, override_value=False,
         )
         FeatureFlagOverride.objects.create(
-            user=self.user, feature_flag=ff_2, override_value=True,
+            team=self.team, user=self.user, feature_flag=ff_2, override_value=True,
         )
         FeatureFlagOverride.objects.create(
-            user=self.user, feature_flag=ff_3, override_value="third-variant",
-        )
-        FeatureFlagOverride.objects.create(
-            user=self.user, feature_flag=ff_4, override_value="new-variant",
+            team=self.team, user=self.user, feature_flag=ff_3, override_value="third-variant",
         )
 
         with self.assertNumQueries(3):
@@ -354,7 +358,7 @@ class TestDecide(BaseTest):
                 response.json()["featureFlags"],
                 [
                     "multivariate-flag-overridden",
-                    "multivariate-flag-overridden-to-new-variant",
+                    "multivariate-flag-not-overridden",
                     "flag-rollout-100",
                     "bool-key-overridden-to-true",
                 ],
@@ -362,14 +366,23 @@ class TestDecide(BaseTest):
 
         with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id=str(self.user.distinct_id))
+            feature_flags_for_connonical_distinct_id = response.json()["featureFlags"]
             self.assertEqual(
-                response.json()["featureFlags"],
+                feature_flags_for_connonical_distinct_id,
                 {
                     "bool-key-overridden-to-true": True,
                     "multivariate-flag-overridden": "third-variant",
-                    "multivariate-flag-overridden-to-new-variant": "new-variant",
+                    "multivariate-flag-not-overridden": "second-variant",
                     "flag-rollout-100": True,
                 },
+            )
+        # Ensure we get the same response from both of the user's distinct_ids
+        with self.assertNumQueries(3):
+            response_non_connonical_distinct_id = self._post_decide(
+                api_version=2, distinct_id="not-connonical-distinct-id"
+            )
+            self.assertEqual(
+                response_non_connonical_distinct_id.json()["featureFlags"], feature_flags_for_connonical_distinct_id,
             )
 
         with self.assertNumQueries(3):
@@ -379,7 +392,7 @@ class TestDecide(BaseTest):
                 {
                     "bool-key-overridden-to-false": True,
                     "multivariate-flag-overridden": "first-variant",
-                    "multivariate-flag-overridden-to-new-variant": "second-variant",
+                    "multivariate-flag-not-overridden": "second-variant",
                     "flag-rollout-100": True,
                 },
             )

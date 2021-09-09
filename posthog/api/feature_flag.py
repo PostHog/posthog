@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 import posthoganalytics
 from django.core.exceptions import PermissionDenied
@@ -12,7 +12,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import FeatureFlag, feature_flag
+from posthog.models import FeatureFlag, team
 from posthog.models.feature_flag import FeatureFlagOverride, get_active_feature_flags
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
@@ -146,18 +146,20 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             if len(my_overrides) > 0:
                 override = my_overrides[0]
 
-            value_for_user = feature_flag.distinct_id_matches(request.user.distinct_id)
-            if len(feature_flag.variants) > 0 and value_for_user:
-                value_for_user = feature_flag.get_variant_for_distinct_id(request.user.distinct_id)
+            value_for_user_without_override: Union[bool, str, None] = feature_flag.distinct_id_matches(
+                request.user.distinct_id
+            )
+            if len(feature_flag.variants) > 0 and value_for_user_without_override:
+                value_for_user_without_override = feature_flag.get_variant_for_distinct_id(request.user.distinct_id)
 
             flags.append(
                 {
                     "feature_flag": FeatureFlagSerializer(feature_flag).data,
-                    "value_for_user_without_override": value_for_user,
+                    "value_for_user_without_override": value_for_user_without_override,
                     "override": FeatureFlagOverrideSerializer(override).data if override else None,
                 }
             )
-        return Response({"distinct_id": request.user.distinct_id, "flags": flags})
+        return Response(flags)
 
 
 class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
@@ -181,6 +183,7 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data: Dict) -> FeatureFlagOverride:
+        self._ensure_team_and_feature_flag_match(validated_data)
         feature_flag_override, created = FeatureFlagOverride.objects.update_or_create(
             feature_flag=validated_data["feature_flag"],
             user=validated_data["user"],
@@ -190,20 +193,30 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         if created:
             posthoganalytics.capture(
-                request.user.distinct_id, self._analytics_created_event_name,
+                request.user.distinct_id,
+                self._analytics_created_event_name,
+                feature_flag_override.get_analytics_metadata(),
             )
         else:
             posthoganalytics.capture(
-                request.user.distinct_id, self._analytics_updated_event_name,
+                request.user.distinct_id,
+                self._analytics_updated_event_name,
+                feature_flag_override.get_analytics_metadata(),
             )
         return feature_flag_override
 
     def update(self, instance: FeatureFlagOverride, validated_data: Dict) -> FeatureFlagOverride:
+        self._ensure_team_and_feature_flag_match(validated_data)
         request = self.context["request"]
+        instance = super().update(instance, validated_data)
         posthoganalytics.capture(
-            request.user.distinct_id, self._analytics_updated_event_name,
+            request.user.distinct_id, self._analytics_updated_event_name, instance.get_analytics_metadata()
         )
-        return super().update(instance, validated_data)
+        return instance
+
+    def _ensure_team_and_feature_flag_match(self, validated_data: Dict):
+        if validated_data["feature_flag"].team_id != self.context["team_id"]:
+            raise exceptions.PermissionDenied()
 
 
 class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.GenericViewSet):
@@ -217,6 +230,9 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
         authentication.BasicAuthentication,
     ]
 
+    def get_queryset(self) -> QuerySet:
+        return super().get_queryset().filter(user=self.request.user)
+
     @action(methods=["POST"], detail=False)
     def my_overrides(self, request: request.Request, **kwargs):
         if request.method == "POST":
@@ -226,4 +242,4 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()
-            return Response(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
