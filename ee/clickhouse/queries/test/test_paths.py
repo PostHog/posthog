@@ -310,7 +310,16 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
         self.assertEqual(
             response,
-            [{"source": "1_step two", "target": "2_step three", "value": 5, "average_conversion_time": 60000.0}],
+            [
+                {"source": "1_step two", "target": "2_between_step_4", "value": 10, "average_conversion_time": 80000.0},
+                {
+                    "source": "2_between_step_4",
+                    "target": "3_between_step_5",
+                    "value": 10,
+                    "average_conversion_time": 80000.0,
+                },
+                {"source": "1_step two", "target": "2_step three", "value": 5, "average_conversion_time": 60000.0},
+            ],
         )
 
     def test_path_by_funneL_before_dropoff(self):
