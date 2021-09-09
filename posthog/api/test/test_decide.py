@@ -335,16 +335,16 @@ class TestDecide(BaseTest):
         )  # Should be enabled for nobody
 
         FeatureFlagOverride.objects.create(
-            user=self.user, feature_flag=ff_1, override_value=False,
+            team=self.team, user=self.user, feature_flag=ff_1, override_value=False,
         )
         FeatureFlagOverride.objects.create(
-            user=self.user, feature_flag=ff_2, override_value=True,
+            team=self.team, user=self.user, feature_flag=ff_2, override_value=True,
         )
         FeatureFlagOverride.objects.create(
-            user=self.user, feature_flag=ff_3, override_value="third-variant",
+            team=self.team, user=self.user, feature_flag=ff_3, override_value="third-variant",
         )
         FeatureFlagOverride.objects.create(
-            user=self.user, feature_flag=ff_4, override_value="new-variant",
+            team=self.team, user=self.user, feature_flag=ff_4, override_value="new-variant",
         )
 
         with self.assertNumQueries(3):
