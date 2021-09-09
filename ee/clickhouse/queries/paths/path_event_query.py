@@ -119,27 +119,31 @@ class PathEventQuery(ClickhouseEventQuery):
         return "", {}
 
     def _should_query_url(self) -> bool:
-        if self._filter.target_events == [] and self._filter.custom_events == []:
-            if PAGEVIEW_EVENT not in self._filter.exclude_events:
-                return True
-        else:
-            if self._filter.include_pageviews:
-                return True
+        if (
+            self._filter.target_events == [] and self._filter.custom_events == []
+        ) and PAGEVIEW_EVENT not in self._filter.exclude_events:
+            return True
+        elif self._filter.include_pageviews:
+            return True
 
         return False
 
     def _should_query_screen(self) -> bool:
-        if self._filter.target_events == [] and self._filter.custom_events == []:
-            if SCREEN_EVENT not in self._filter.exclude_events:
-                return True
-        else:
-            if self._filter.include_screenviews:
-                return True
+        if (
+            self._filter.target_events == [] and self._filter.custom_events == []
+        ) and SCREEN_EVENT not in self._filter.exclude_events:
+            return True
+        elif self._filter.include_screenviews:
+            return True
 
         return False
 
     def _should_query_elements_chain(self) -> bool:
-        if (self._filter.target_events == [] and self._filter.custom_events == []) or self._filter.include_autocaptures:
+        if (
+            self._filter.target_events == [] and self._filter.custom_events == []
+        ) and AUTOCAPTURE_EVENT not in self._filter.exclude_events:
+            return True
+        elif self._filter.include_autocaptures:
             return True
 
         return False

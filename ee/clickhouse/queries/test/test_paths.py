@@ -931,3 +931,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             {"include_event_types": [], "include_custom_events": [], "exclude_events": ["$pageview"],}
         )
         self.assertEqual(should_query_list(filter), (False, True, True))
+
+        filter = filter.with_data(
+            {"include_event_types": [], "include_custom_events": [], "exclude_events": ["$autocapture"],}
+        )
+        self.assertEqual(should_query_list(filter), (True, True, False))
