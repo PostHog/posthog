@@ -3,7 +3,6 @@ from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Action, ActionStep
 from posthog.models.filters import Filter
-from posthog.models.filters.path_filter import PathFilter
 from posthog.test.base import APIBaseTest
 
 PROPERTIES_OF_ALL_TYPES = [
