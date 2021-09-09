@@ -23,7 +23,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         return []
                     }
                     const results = await response.json()
-                    return results.flags
+                    return results
                 },
                 setOverriddenUserFlag: async ({ flagId, overrideValue }, breakpoint) => {
                     const response = await toolbarFetch(
