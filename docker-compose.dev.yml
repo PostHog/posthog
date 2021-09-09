@@ -30,6 +30,7 @@ services:
             PGHOST: db
             PGUSER: posthog
             PGPASSWORD: posthog
+            SAML_AVAILABLE: 'true'
         depends_on:
             - db
             - redis

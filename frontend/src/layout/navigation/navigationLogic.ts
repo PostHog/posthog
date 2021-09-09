@@ -30,6 +30,8 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
         setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
         setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
         setFilteredEnvironment: (environment: string, pageLoad: boolean = false) => ({ environment, pageLoad }),
+        setProjectModalShown: (isShown: boolean) => ({ isShown }),
+        setOrganizationModalShown: (isShown: boolean) => ({ isShown }),
     },
     reducers: {
         menuCollapsed: [
@@ -72,6 +74,18 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             Environments.PRODUCTION.toString(),
             {
                 setFilteredEnvironment: (_, { environment }) => environment,
+            },
+        ],
+        projectModalShown: [
+            false,
+            {
+                setProjectModalShown: (_, { isShown }) => isShown,
+            },
+        ],
+        organizationModalShown: [
+            false,
+            {
+                setOrganizationModalShown: (_, { isShown }) => isShown,
             },
         ],
     },

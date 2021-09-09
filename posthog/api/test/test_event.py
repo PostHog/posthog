@@ -9,7 +9,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.constants import RDBMS
+from posthog.constants import AnalyticsDBMS
 from posthog.models import (
     Action,
     ActionStep,
@@ -51,7 +51,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
             )
 
-            expected_queries = 3 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 10
+            expected_queries = 3 if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE else 10
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?distinct_id=2").json()
@@ -74,7 +74,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
 
-            expected_queries = 3 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 7
+            expected_queries = 3 if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE else 7
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?event=event_name").json()
@@ -91,7 +91,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
             )
 
-            expected_queries = 3 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 7
+            expected_queries = 3 if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE else 7
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get(
@@ -460,7 +460,7 @@ def factory_test_event_api(event_factory, person_factory, _):
         def test_get_event_by_id(self):
             event_id: Union[str, int] = 12345
 
-            if settings.PRIMARY_DB == RDBMS.CLICKHOUSE:
+            if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
                 from ee.clickhouse.models.event import create_event
 
                 event_id = "01793986-dc4b-0000-93e8-1fb646df3a93"

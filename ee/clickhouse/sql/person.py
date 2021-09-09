@@ -242,30 +242,9 @@ WHERE distinct_id IN (
 AND team_id = %(team_id)s
 """
 
-PERSON_TREND_SQL = """
-SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to} {person_filter}
-"""
-
-PEOPLE_THROUGH_DISTINCT_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
-    {latest_person_sql}
-) as person INNER JOIN (
-    SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql})
-) as pdi ON person.id = pdi.person_id
-WHERE team_id = %(team_id)s
-GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 200 OFFSET %(offset)s
-"""
-
-INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL = """
+INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT id FROM (
-        {latest_person_sql}
-    ) as person INNER JOIN (
-        SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql})
-    ) as pdi ON person.id = pdi.person_id
-    WHERE team_id = %(team_id)s
-    GROUP BY id
+    SELECT person_id FROM ({query})
 )
 """
 
@@ -319,4 +298,23 @@ ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) as keysAndValues
 WHERE team_id = %(team_id)s
 GROUP BY tupleElement(keysAndValues, 1)
 ORDER BY count DESC, key ASC
+"""
+
+GET_PERSONS_FROM_EVENT_QUERY = """
+SELECT
+    person_id,
+    created_at,
+    team_id,
+    person_props,
+    is_identified,
+    arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+FROM ({events_query})
+GROUP BY
+    person_id,
+    created_at,
+    team_id,
+    person_props,
+    is_identified
+LIMIT %(limit)s
+OFFSET %(offset)s
 """
