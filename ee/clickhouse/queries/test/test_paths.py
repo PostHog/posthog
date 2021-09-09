@@ -261,7 +261,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             "interval": "day",
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
             "funnel_step": -2,
             "events": [
                 {"id": "step one", "order": 0},
@@ -299,7 +300,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             "interval": "day",
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
             "funnel_step": 2,
             "events": [
                 {"id": "step one", "order": 0},
@@ -337,7 +339,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             "interval": "day",
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
             "funnel_step": -3,
             "events": [
                 {"id": "step one", "order": 0},
@@ -386,7 +389,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             "interval": "day",
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
             "funnel_step": 2,
             "events": [
                 {"id": "step one", "order": 0},
@@ -441,7 +445,8 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             "interval": "day",
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
             "funnel_step": 2,
             "events": [
                 {"id": "step one", "order": 0},

@@ -25,7 +25,9 @@ class PathEventQuery(ClickhouseEventQuery):
 
         if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP or self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP:
             # used when looking for paths up to a dropoff point to account for events happening between the latest even and when the person is deemed dropped off
-            funnel_window = f"+ INTERVAL {self._filter.funnel_window_interval or self._filter.funnel_window_days} {self._filter.funnel_window_interval_unit_ch()}"
+            funnel_window = (
+                f"+ INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}"
+            )
             operator = ">=" if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP else "<="
 
             funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.timestamp AS target_timestamp"

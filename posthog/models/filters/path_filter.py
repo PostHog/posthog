@@ -46,7 +46,6 @@ class PathFilter(
     TargetEventsMixin,
     FunnelWindowMixin,
     FunnelPersonsStepMixin,
-    FunnelWindowDaysMixin,
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):
