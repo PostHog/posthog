@@ -8,6 +8,7 @@ from rest_framework.request import Request
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.event_usage import report_onboarding_completed
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, User
@@ -31,7 +32,10 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
             # make multiple orgs only premium on self-hosted, since enforcement of this is not possible on Cloud
             not getattr(settings, "MULTI_TENANCY", False)
             and request.method in CREATE_METHODS
-            and (user.organization is None or not user.organization.is_feature_available("organizations_projects"))
+            and (
+                user.organization is None
+                or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+            )
             and user.organizations.count() >= 1
         ):
             return False

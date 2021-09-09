@@ -131,8 +131,8 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_HOST::"
                 },
                 {
-                    "name": "CLICKHOUSE_MIGRATION_HOSTS",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_MIGRATION_HOSTS::"
+                    "name": "CLICKHOUSE_STABLE_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_STABLE_HOST::"
                 },
                 {
                     "name": "CLICKHOUSE_PASSWORD",

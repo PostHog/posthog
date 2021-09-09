@@ -4,7 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
-from posthog.constants import RDBMS
+from posthog.constants import AnalyticsDBMS
 from posthog.settings import AUTHENTICATION_BACKENDS, PRIMARY_DB, SITE_URL, TEST, get_from_env
 from posthog.utils import str_to_bool
 
@@ -31,6 +31,7 @@ AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
 ]
 
 # SAML
+SAML_AVAILABLE = get_from_env("SAML_AVAILABLE", False, type_cast=str_to_bool)
 SAML_CONFIGURED = False
 SOCIAL_AUTH_SAML_SP_ENTITY_ID = SITE_URL
 SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
@@ -44,7 +45,7 @@ SOCIAL_AUTH_SAML_TECHNICAL_CONTACT = {"givenName": "PostHog Support", "emailAddr
 SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 
 # Set settings only if SAML is enabled
-if os.getenv("SAML_ENTITY_ID") and os.getenv("SAML_ACS_URL") and os.getenv("SAML_X509_CERT"):
+if SAML_AVAILABLE and os.getenv("SAML_ENTITY_ID") and os.getenv("SAML_ACS_URL") and os.getenv("SAML_X509_CERT"):
     SAML_CONFIGURED = True
     AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
         "social_core.backends.saml.SAMLAuth",
@@ -64,7 +65,7 @@ if os.getenv("SAML_ENTITY_ID") and os.getenv("SAML_ACS_URL") and os.getenv("SAML
 
 
 # ClickHouse and Kafka
-KAFKA_ENABLED = PRIMARY_DB == RDBMS.CLICKHOUSE and not TEST
+KAFKA_ENABLED = PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE and not TEST
 
 # Settings specific for materialized columns
 

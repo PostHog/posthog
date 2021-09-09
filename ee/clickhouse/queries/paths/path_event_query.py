@@ -10,19 +10,7 @@ class PathEventQuery(ClickhouseEventQuery):
     FUNNEL_PERSONS_ALIAS = "funnel_persons"
     _filter: PathFilter
 
-    def __init__(
-        self,
-        filter: PathFilter,
-        team_id: int,
-        round_interval=False,
-        should_join_distinct_ids=False,
-        should_join_persons=False,
-        **kwargs,
-    ) -> None:
-        super().__init__(filter, team_id, round_interval, should_join_distinct_ids, should_join_persons, **kwargs)
-
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-        # TODO: ColumnOptimizer with options like self._filter.include_pageviews, self._filter.include_screenviews,
 
         funnel_paths_timestamp = ""
         funnel_paths_join = ""
@@ -33,18 +21,33 @@ class PathEventQuery(ClickhouseEventQuery):
             funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.person_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
             funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp >= min_timestamp"
 
+        # We don't use ColumnOptimizer to decide what to query because Paths query doesn't surface any filter properties
         _fields = [
             f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp",
-            (
-                f"if(event = '{SCREEN_EVENT}', {self._get_screen_name_parsing()}, "
-                f"if({self.EVENT_TABLE_ALIAS}.event = '{PAGEVIEW_EVENT}', {self._get_current_url_parsing()}, "
-                f"if({self.EVENT_TABLE_ALIAS}.event = '{AUTOCAPTURE_EVENT}', concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), "
-                f"{self.EVENT_TABLE_ALIAS}.event))) AS path_item"
-            ),
             f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "",
             funnel_paths_timestamp,
         ]
 
+        event_conditional = (
+            f"if({self.EVENT_TABLE_ALIAS}.event = '{SCREEN_EVENT}', {self._get_screen_name_parsing()}, "
+            if self._should_query_screen()
+            else "if(0, '', "
+        )
+        event_conditional += (
+            f"if({self.EVENT_TABLE_ALIAS}.event = '{PAGEVIEW_EVENT}', {self._get_current_url_parsing()}, "
+            if self._should_query_url()
+            else "if(0, '', "
+        )
+        event_conditional += (
+            f"if({self.EVENT_TABLE_ALIAS}.event = '{AUTOCAPTURE_EVENT}', concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), "
+            if self._should_query_elements_chain()
+            else "if(0, '', "
+        )
+        event_conditional += f"{self.EVENT_TABLE_ALIAS}.event))) AS path_item"
+
+        _fields.append(event_conditional)
+
+        # remove empty strings
         _fields = list(filter(None, _fields))
 
         date_query, date_params = self._get_date_filter()
@@ -114,3 +117,33 @@ class PathEventQuery(ClickhouseEventQuery):
             return f" AND {' AND '.join(conditions)}", params
 
         return "", {}
+
+    def _should_query_url(self) -> bool:
+        if (
+            self._filter.target_events == [] and self._filter.custom_events == []
+        ) and PAGEVIEW_EVENT not in self._filter.exclude_events:
+            return True
+        elif self._filter.include_pageviews:
+            return True
+
+        return False
+
+    def _should_query_screen(self) -> bool:
+        if (
+            self._filter.target_events == [] and self._filter.custom_events == []
+        ) and SCREEN_EVENT not in self._filter.exclude_events:
+            return True
+        elif self._filter.include_screenviews:
+            return True
+
+        return False
+
+    def _should_query_elements_chain(self) -> bool:
+        if (
+            self._filter.target_events == [] and self._filter.custom_events == []
+        ) and AUTOCAPTURE_EVENT not in self._filter.exclude_events:
+            return True
+        elif self._filter.include_autocaptures:
+            return True
+
+        return False

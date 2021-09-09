@@ -39,6 +39,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import push_scope
 
+from posthog.constants import AvailableFeature
 from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
@@ -593,7 +594,7 @@ def get_can_create_org() -> bool:
             pass
         else:
             license = License.objects.first_valid()
-            if license is not None and "organizations_projects" in license.available_features:
+            if license is not None and AvailableFeature.ZAPIER in license.available_features:
                 return True
             else:
                 print_warning(["You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!"])
@@ -622,13 +623,13 @@ def get_available_social_auth_providers() -> Dict[str, bool]:
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
         settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
     ):
-        if bypass_license or (license is not None and "google_login" in license.available_features):
+        if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
             output["google-oauth2"] = True
         else:
             print_warning(["You have Google login set up, but not the required license!"])
 
     if getattr(settings, "SAML_CONFIGURED", None):
-        if bypass_license or (license is not None and "saml" in license.available_features):
+        if bypass_license or (license is not None and AvailableFeature.SAML in license.available_features):
             output["saml"] = True
         else:
             print_warning(["You have SAML set up, but not the required license!"])
@@ -777,3 +778,10 @@ def str_to_bool(value: Any) -> bool:
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
+
+
+def get_helm_info_env() -> dict:
+    try:
+        return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
+    except Exception:
+        return {}

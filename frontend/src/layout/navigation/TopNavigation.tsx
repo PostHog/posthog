@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import './Navigation.scss'
 import { useActions, useValues } from 'kea'
 import { navigationLogic } from './navigationLogic'
@@ -22,7 +22,7 @@ import {
     KeyOutlined,
     SmileOutlined,
 } from '@ant-design/icons'
-import { guardPremiumFeature } from 'scenes/UpgradeModal'
+import { guardAvailableFeature } from 'scenes/UpgradeModal'
 import { sceneLogic, urls } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
@@ -31,7 +31,7 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
-import { UserType } from '~/types'
+import { AvailableFeature, UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -53,9 +53,14 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
 }
 
 export function TopNavigation(): JSX.Element {
-    const { setMenuCollapsed, setChangelogModalOpen, setInviteMembersModalOpen, setFilteredEnvironment } = useActions(
-        navigationLogic
-    )
+    const {
+        setMenuCollapsed,
+        setChangelogModalOpen,
+        setInviteMembersModalOpen,
+        setFilteredEnvironment,
+        setProjectModalShown,
+        setOrganizationModalShown,
+    } = useActions(navigationLogic)
     const {
         menuCollapsed,
         systemStatus,
@@ -63,6 +68,8 @@ export function TopNavigation(): JSX.Element {
         changelogModalOpen,
         inviteMembersModalOpen,
         filteredEnvironment,
+        projectModalShown,
+        organizationModalShown,
     } = useValues(navigationLogic)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -72,8 +79,6 @@ export function TopNavigation(): JSX.Element {
     const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
     const { showPalette } = useActions(commandPaletteLogic)
-    const [projectModalShown, setProjectModalShown] = useState(false) // TODO: Move to Kea (using useState for backwards-compatibility with TopSelectors.tsx)
-    const [organizationModalShown, setOrganizationModalShown] = useState(false) // TODO: Same as above
     const { featureFlags } = useValues(featureFlagLogic)
 
     const whoAmIDropdown = (
@@ -145,30 +150,34 @@ export function TopNavigation(): JSX.Element {
                 Organization settings
             </LinkButton>
             <div className="organizations">
-                {user?.organizations.map(
-                    (organization) =>
-                        organization.id !== user.organization?.id && (
-                            <button
-                                type="button"
-                                className="plain-button"
-                                key={organization.id}
-                                onClick={() => updateCurrentOrganization(organization.id)}
-                            >
-                                <IconBuilding className="mr-05" style={{ width: 14 }} />
-                                {organization.name}
-                            </button>
-                        )
-                )}
+                {user?.organizations
+                    .sort((orgA, orgB) =>
+                        orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
+                    )
+                    .map(
+                        (organization) =>
+                            organization.id !== user.organization?.id && (
+                                <button
+                                    type="button"
+                                    className="plain-button"
+                                    key={organization.id}
+                                    onClick={() => updateCurrentOrganization(organization.id)}
+                                >
+                                    <IconBuilding className="mr-05" style={{ width: 14 }} />
+                                    {organization.name}
+                                </button>
+                            )
+                    )}
                 {preflight?.can_create_org && (
                     <button
                         type="button"
                         className="plain-button"
                         onClick={() =>
-                            guardPremiumFeature(
+                            guardAvailableFeature(
                                 user,
                                 preflight,
                                 showUpgradeModal,
-                                'organizations_projects',
+                                AvailableFeature.ORGANIZATIONS_PROJECTS,
                                 'multiple organizations',
                                 'Organizations group people building products together. An organization can then have multiple projects.',
                                 () => {
@@ -198,7 +207,9 @@ export function TopNavigation(): JSX.Element {
             <div className="projects">
                 {user?.organization?.teams &&
                     user.organization.teams
-                        .sort((teamA) => (teamA.id === user?.team?.id ? -1 : 0))
+                        .sort((teamA, teamB) =>
+                            teamA.id === user?.team?.id ? -2 : teamA.name.localeCompare(teamB.name)
+                        )
                         .map((team) => {
                             const isCurrentTeam = team.id === user?.team?.id
                             return (
@@ -235,11 +246,11 @@ export function TopNavigation(): JSX.Element {
                 type="button"
                 className="plain-button"
                 onClick={() =>
-                    guardPremiumFeature(
+                    guardAvailableFeature(
                         user,
                         preflight,
                         showUpgradeModal,
-                        'organizations_projects',
+                        AvailableFeature.ORGANIZATIONS_PROJECTS,
                         'multiple projects',
                         'Projects allow you to separate data and configuration for different products or environments.',
                         () => {
