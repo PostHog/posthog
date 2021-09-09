@@ -63,9 +63,7 @@ export const insightLogic = kea<insightLogicType>({
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
-        openSaveToDashboardModal: (open: boolean) => ({ open }),
         setInsightDescription: (description: string) => ({ description }),
-        saveAsNewInsight: true,
         saveInsight: true,
     }),
     loaders: ({ values }) => ({
@@ -171,12 +169,6 @@ export const insightLogic = kea<insightLogicType>({
                 setInsightMode: (_, { mode }) => mode,
             },
         ],
-        saveToDashboardModal: [
-            false,
-            {
-                openSaveToDashboardModal: (_, { open }) => open,
-            },
-        ],
     },
     selectors: {
         insightName: [(s) => [s.insight], (insight) => insight.name],
@@ -271,22 +263,16 @@ export const insightLogic = kea<insightLogicType>({
             await breakpoint(100)
             actions.updateInsight({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
-        saveAsNewInsight: async () => {
-            const newInsight = await api.create('api/insight', values.insight)
-            toast(`New insight ${newInsight.name || newInsight.id} saved!`)
-            router.actions.push(`/i/${newInsight.short_id}`)
-        },
         saveInsight: async () => {
             const savedInsight = await api.update(`api/insight/${values.insight.id}`, { saved: true })
             actions.setInsight(savedInsight)
-            // toast(`Insight saved! Click here to see your list of saved insights`)
             toast(
                 <div data-attr="success-toast">
-                    Insight saved!
+                    Insight saved!&nbsp;
                     <Link to={'/saved_insights'}>Click here to see your list of saved insights</Link>
                 </div>
             )
-        }
+        },
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }) => {

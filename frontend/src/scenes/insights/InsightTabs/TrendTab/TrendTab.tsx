@@ -13,17 +13,14 @@ import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { InsightTitle } from '../InsightTitle'
-import { InsightActionBar } from '../InsightActionBar'
-import { BaseTabProps } from 'scenes/insights/Insights'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export interface TrendTabProps extends BaseTabProps {
+export interface TrendTabProps {
     view: string
 }
 
-export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
+export function TrendTab({ view }: TrendTabProps): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { preflight } = useValues(preflightLogic)

@@ -3,12 +3,7 @@ import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { InfoCircleOutlined } from '@ant-design/icons'
-import {
-    retentionTableLogic,
-    dateOptions,
-    retentionOptionDescriptions,
-    defaultFilters,
-} from 'scenes/retention/retentionTableLogic'
+import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col, Skeleton } from 'antd'
 
 import { FilterType, RetentionType } from '~/types'
@@ -17,14 +12,11 @@ import './RetentionTab.scss'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconExternalLink } from 'lib/components/icons'
-import { BaseTabProps } from '../Insights'
-import { InsightTitle } from './InsightTitle'
-import { InsightActionBar } from './InsightActionBar'
 import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
+export function RetentionTab(): JSX.Element {
     const { filters, filtersLoading, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic({ dashboardItemId: null })
     )

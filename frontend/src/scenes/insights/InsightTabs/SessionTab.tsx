@@ -8,14 +8,11 @@ import { FilterType, ViewType } from '~/types'
 import { Col, Row, Skeleton } from 'antd'
 import { TestAccountFilter } from '../TestAccountFilter'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { BaseTabProps } from '../Insights'
-import { InsightTitle } from './InsightTitle'
-import { InsightActionBar } from './InsightActionBar'
 import { GlobalFiltersTitle } from '../common'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
+export function SessionTab(): JSX.Element {
     const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
 

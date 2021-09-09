@@ -52,18 +52,14 @@ import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
 import { userLogic } from 'scenes/userLogic'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
-import { SaveToDashboardModal } from 'lib/components/SaveToDashboard/SaveToDashboardModal'
-
-export interface BaseTabProps {
-    annotationsToCreate: any[] // TODO: Type properly
-}
+import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 
 dayjs.extend(relativeTime)
 
 export function Insights(): JSX.Element {
     useMountedLogic(insightCommandLogic)
     const {
-        hashParams: { fromItem, fromDashboard },
+        hashParams: { fromItem },
     } = useValues(router)
 
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
@@ -78,7 +74,6 @@ export function Insights(): JSX.Element {
         controlsCollapsed,
         insight,
         insightName,
-        saveToDashboardModal,
         insightLoading,
         insightMode,
         lastInsightModeSource,
@@ -91,7 +86,6 @@ export function Insights(): JSX.Element {
         updateInsight,
         setInsightMode,
         setInsight,
-        openSaveToDashboardModal,
         loadInsight,
         saveInsight,
     } = useActions(insightLogic)
@@ -103,7 +97,6 @@ export function Insights(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
-
 
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
@@ -217,23 +210,15 @@ export function Insights(): JSX.Element {
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />
-            {saveToDashboardModal && (
-                <SaveToDashboardModal
-                    closeModal={() => openSaveToDashboardModal(false)}
-                    name={insight.name || ''}
-                    filters={insight.filters}
-                    fromItem={fromItem}
-                    fromDashboard={fromDashboard}
-                    fromItemName={insight.name || ''}
-                    annotations={null}
-                />
-            )}
             {insight.id && (
                 <Row style={{ alignItems: 'baseline', justifyContent: 'space-between' }}>
                     {insightMode === ItemMode.View ? (
                         <div style={{ display: 'flex', alignItems: 'baseline' }}>
                             <PageHeader title={insight.name || `Insight #${insight.id}`} />
-                            <EditOutlined style={{paddingLeft: 8, color: 'var(--primary)'}} onClick={() => setInsightMode(ItemMode.Edit, null)} />
+                            <EditOutlined
+                                style={{ paddingLeft: 8, color: 'var(--primary)' }}
+                                onClick={() => setInsightMode(ItemMode.Edit, null)}
+                            />
                         </div>
                     ) : (
                         <Input
@@ -269,10 +254,24 @@ export function Insights(): JSX.Element {
                                         </Button>
                                     </Tooltip>
                                 </Popconfirm>
-                                <Button type="primary" onClick={() => openSaveToDashboardModal(true)}>
-                                    Add to dashboard
-                                </Button>
-                                <Button style={{marginLeft: 8}} type="primary" onClick={() => saveInsight()}>
+                                <SaveToDashboard
+                                    displayComponent={
+                                        <Button style={{ color: 'var(--primary)' }} className="btn-save">
+                                            Add to dashboard
+                                        </Button>
+                                    }
+                                    tooltipOptions={{
+                                        placement: 'bottom',
+                                        title: 'Save to dashboard',
+                                    }}
+                                    item={{
+                                        entity: {
+                                            filters: insight.filters || allFilters,
+                                            annotations: annotationsToCreate,
+                                        },
+                                    }}
+                                />
+                                <Button style={{ marginLeft: 8 }} type="primary" onClick={() => saveInsight()}>
                                     Save
                                 </Button>
                             </>
@@ -286,12 +285,6 @@ export function Insights(): JSX.Element {
                                     }}
                                 >
                                     Cancel
-                                </Button>
-                                <Button
-                                    style={{ marginRight: 8, color: 'var(--primary)' }}
-                                    onClick={() => openSaveToDashboardModal(true)}
-                                >
-                                    Save to dashboard
                                 </Button>
                                 <Button type="primary" onClick={() => updateInsight(insight)}>
                                     Save
@@ -311,7 +304,10 @@ export function Insights(): JSX.Element {
                                     {insight.description
                                         ? insight.description
                                         : 'Give your insight a meaningful description'}
-                                    <EditOutlined style={{paddingLeft: 8, color: 'var(--primary)'}} onClick={() => setInsightMode(ItemMode.Edit, InsightEventSource.AddDescription)} />
+                                    <EditOutlined
+                                        style={{ paddingLeft: 8, color: 'var(--primary)' }}
+                                        onClick={() => setInsightMode(ItemMode.Edit, InsightEventSource.AddDescription)}
+                                    />
                                 </span>
                             ) : (
                                 <Input
@@ -381,34 +377,13 @@ export function Insights(): JSX.Element {
                                     {/* These are insight specific filters. They each have insight specific logics */}
                                     {
                                         {
-                                            [`${ViewType.TRENDS}`]: (
-                                                <TrendTab
-                                                    view={ViewType.TRENDS}
-                                                    annotationsToCreate={annotationsToCreate}
-                                                />
-                                            ),
-                                            [`${ViewType.STICKINESS}`]: (
-                                                <TrendTab
-                                                    view={ViewType.STICKINESS}
-                                                    annotationsToCreate={annotationsToCreate}
-                                                />
-                                            ),
-                                            [`${ViewType.LIFECYCLE}`]: (
-                                                <TrendTab
-                                                    view={ViewType.LIFECYCLE}
-                                                    annotationsToCreate={annotationsToCreate}
-                                                />
-                                            ),
-                                            [`${ViewType.SESSIONS}`]: (
-                                                <SessionTab annotationsToCreate={annotationsToCreate} />
-                                            ),
+                                            [`${ViewType.TRENDS}`]: <TrendTab view={ViewType.TRENDS} />,
+                                            [`${ViewType.STICKINESS}`]: <TrendTab view={ViewType.STICKINESS} />,
+                                            [`${ViewType.LIFECYCLE}`]: <TrendTab view={ViewType.LIFECYCLE} />,
+                                            [`${ViewType.SESSIONS}`]: <SessionTab />,
                                             [`${ViewType.FUNNELS}`]: <FunnelTab />,
-                                            [`${ViewType.RETENTION}`]: (
-                                                <RetentionTab annotationsToCreate={annotationsToCreate} />
-                                            ),
-                                            [`${ViewType.PATHS}`]: (
-                                                <PathTab annotationsToCreate={annotationsToCreate} />
-                                            ),
+                                            [`${ViewType.RETENTION}`]: <RetentionTab />,
+                                            [`${ViewType.PATHS}`]: <PathTab />,
                                         }[activeView]
                                     }
                                 </div>

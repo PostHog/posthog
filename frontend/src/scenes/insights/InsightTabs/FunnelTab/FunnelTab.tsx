@@ -7,10 +7,8 @@ import { Button, Col, Row } from 'antd'
 import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
-import { InsightTitle } from '../InsightTitle'
 import { InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
-import { InsightActionBar } from '../InsightActionBar'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepOrderPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepOrderPicker'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -49,18 +47,6 @@ export function FunnelTab(): JSX.Element {
             <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
                 <Col xs={24} md={16} xl={isHorizontalUIEnabled ? undefined : 24}>
                     <div style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
-                        <InsightTitle
-                            actionBar={
-                                clickhouseFeaturesEnabled ? (
-                                    <InsightActionBar
-                                        filters={filters}
-                                        insight="FUNNELS"
-                                        showReset={!isStepsEmpty || !!filters.properties?.length}
-                                        onReset={(): void => clearFunnel()}
-                                    />
-                                ) : undefined
-                            }
-                        />
                         <ToggleButtonChartFilter />
                         <form
                             onSubmit={(e): void => {
