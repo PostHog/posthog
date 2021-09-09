@@ -42,7 +42,7 @@ class PathEventQuery(ClickhouseEventQuery):
 
             funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.timestamp AS target_timestamp"
             funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.person_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-            funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp {operator} target_timestamp {funnel_window if self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP and self._filter.funnel_step < 0 else ''}"
+            funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp {operator} target_timestamp {funnel_window if self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP and self._filter.funnel_step and self._filter.funnel_step < 0 else ''}"
         elif self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS:
             funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.min_timestamp as min_timestamp, {self.FUNNEL_PERSONS_ALIAS}.max_timestamp as max_timestamp"
             funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.person_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
