@@ -54,6 +54,7 @@ def make_ch_pool(**overrides) -> ChPool:
         connections_min=CLICKHOUSE_CONN_POOL_MIN,
         connections_max=CLICKHOUSE_CONN_POOL_MAX,
         settings={"mutations_sync": "1"} if TEST else {},
+        **overrides,
     )
 
 
