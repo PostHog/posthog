@@ -20,13 +20,14 @@ import { UploadFile } from 'antd/lib/upload/interface'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
-export type AvailableFeatures =
-    | 'zapier'
-    | 'organizations_projects'
-    | 'google_login'
-    | 'dashboard_collaboration'
-    | 'clickhouse'
-    | 'ingestion_taxonomy'
+export enum AvailableFeature {
+    ZAPIER = 'zapier',
+    ORGANIZATIONS_PROJECTS = 'organizations_projects',
+    GOOGLE_LOGIN = 'google_login',
+    SAML = 'saml',
+    DASHBOARD_COLLABORATION = 'dashboard_collaboration',
+    INGESTION_TAXONOMY = 'ingestion_taxonomy',
+}
 
 export interface ColumnConfig {
     active: string[] | 'DEFAULT'
@@ -91,7 +92,7 @@ export interface OrganizationType extends OrganizationBasicType {
     setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
-    available_features: AvailableFeatures[]
+    available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
 }

@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { organizationLogicType } from './organizationLogicType'
-import { OrganizationType } from '~/types'
+import { AvailableFeature, OrganizationType } from '~/types'
 import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
 
@@ -28,7 +28,8 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
     selectors: {
         hasDashboardCollaboration: [
             (s) => [s.currentOrganization],
-            (currentOrganization) => currentOrganization?.available_features?.includes('dashboard_collaboration'),
+            (currentOrganization) =>
+                currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
         ],
     },
     loaders: ({ values }) => ({
