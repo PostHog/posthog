@@ -43,19 +43,21 @@ _request_information: Optional[Dict] = None
 
 
 def make_ch_pool(**overrides) -> ChPool:
-    return ChPool(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-        connections_min=CLICKHOUSE_CONN_POOL_MIN,
-        connections_max=CLICKHOUSE_CONN_POOL_MAX,
-        settings={"mutations_sync": "1"} if TEST else {},
+    kwargs = {
+        "host": CLICKHOUSE_HOST,
+        "database": CLICKHOUSE_DATABASE,
+        "secure": CLICKHOUSE_SECURE,
+        "user": CLICKHOUSE_USER,
+        "password": CLICKHOUSE_PASSWORD,
+        "ca_certs": CLICKHOUSE_CA,
+        "verify": CLICKHOUSE_VERIFY,
+        "connections_min": CLICKHOUSE_CONN_POOL_MIN,
+        "connections_max": CLICKHOUSE_CONN_POOL_MAX,
+        "settings": {"mutations_sync": "1"} if TEST else {},
         **overrides,
-    )
+    }
+
+    return ChPool(**kwargs)
 
 
 if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
