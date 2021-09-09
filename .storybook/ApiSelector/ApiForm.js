@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Button } from '@storybook/components'
-import { history } from './constants'
+import { ApiHistory } from './ApiHistory'
 
 export const ApiForm = ({ saveApi, selectedConnection }) => {
     const [apiHost, setApiHost] = useState(selectedConnection.apiHost)
@@ -23,25 +23,7 @@ export const ApiForm = ({ saveApi, selectedConnection }) => {
                     Save
                 </Button>
             </div>
-            <div style={{ margin: 10 }}>
-                <strong>History</strong>
-                {history.map(({ apiHost, apiKey }) => (
-                    <button
-                        onClick={() => saveApi(apiHost, apiKey)}
-                        style={{
-                            display: 'block',
-                            width: '100%',
-                            marginBottom: 3,
-                            textAlign: 'left',
-                            cursor: 'pointer',
-                        }}
-                    >
-                        Host: {apiHost}
-                        <br />
-                        Key: {apiKey}
-                    </button>
-                ))}
-            </div>
+            <ApiHistory saveApi={saveApi} />
         </div>
     )
 }
