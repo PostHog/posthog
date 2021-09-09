@@ -47,7 +47,7 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         for term_idx, search_term in enumerate(search_terms):
             search_filter_query = Q()
             for idx, search_field in enumerate(search_fields):
-                search_filter_query = search_filter_query | Q(**{f"{search_field}__contains": search_term})
+                search_filter_query = search_filter_query | Q(**{f"{search_field}__icontains": search_term})
             term_filter = term_filter & search_filter_query
 
         return queryset.filter(term_filter)

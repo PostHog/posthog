@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Any, Dict, cast
+from typing import Any, Dict, List, cast
 
 from freezegun.api import freeze_time
 from rest_framework import status
@@ -15,7 +15,9 @@ from posthog.test.base import APIBaseTest
 @freeze_time("2020-01-02")
 class TestEventDefinitionAPI(APIBaseTest):
 
-    EXPECTED_EVENT_DEFINITIONS = [
+    demo_team: Team = None  # type: ignore
+
+    EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
         {"name": "installed_app", "volume_30_day": 1, "query_usage_30_day": 0},
         {"name": "rated_app", "volume_30_day": 2, "query_usage_30_day": 0},
         {"name": "purchase", "volume_30_day": 3, "query_usage_30_day": 0},
@@ -32,7 +34,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             create_event_definitions(event_definition["name"], team_id=cls.demo_team.pk)
-            for i in range(event_definition["volume_30_day"]):
+            for _ in range(event_definition["volume_30_day"]):
                 emit_event(
                     event=EventData(
                         event=event_definition["name"],
@@ -54,13 +56,13 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_EVENT_DEFINITIONS))
 
         for item in self.EXPECTED_EVENT_DEFINITIONS:
-            response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
+            response_item: Dict[str, Any] = next(
+                (_i for _i in response.json()["results"] if _i["name"] == item["name"]), {}
+            )
             self.assertEqual(response_item["volume_30_day"], item["volume_30_day"], item)
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(
-                response_item["volume_30_day"],
-                EventDefinition.objects.get(id=response_item["id"]).volume_30_day,
-                item,
+                response_item["volume_30_day"], EventDefinition.objects.get(id=response_item["id"]).volume_30_day, item,
             )
 
     def test_pagination_of_event_definitions(self):
@@ -88,8 +90,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
             self.assertEqual(response.json()["count"], 306)
             self.assertEqual(
-                len(response.json()["results"]),
-                100 if i < 2 else 6,
+                len(response.json()["results"]), 100 if i < 2 else 6,
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_event_{event_checkpoints[i]}")
 
@@ -116,6 +117,11 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # rated app, installed app
 
+        # Search should be case insensitive
+        response = self.client.get("/api/projects/@current/event_definitions/?search=App")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)  # rated app, installed app
+
         # Fuzzy search 1
         response = self.client.get("/api/projects/@current/event_definitions/?search=free tri")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -138,7 +144,7 @@ class TestEventDefinitionAPI(APIBaseTest):
             self.assertIn(item["name"], ["watched_movie"])
 
 
-def create_organization(name: str):
+def create_organization(name: str) -> Organization:
     return Organization.objects.create(name=name)
 
 
