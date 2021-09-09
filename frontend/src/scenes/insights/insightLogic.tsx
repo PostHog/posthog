@@ -9,7 +9,8 @@ import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
-
+import React from 'react'
+import { Link } from 'lib/components/Link'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
@@ -65,6 +66,7 @@ export const insightLogic = kea<insightLogicType>({
         openSaveToDashboardModal: (open: boolean) => ({ open }),
         setInsightDescription: (description: string) => ({ description }),
         saveAsNewInsight: true,
+        saveInsight: true,
     }),
     loaders: ({ values }) => ({
         insight: {
@@ -274,6 +276,17 @@ export const insightLogic = kea<insightLogicType>({
             toast(`New insight ${newInsight.name || newInsight.id} saved!`)
             router.actions.push(`/i/${newInsight.short_id}`)
         },
+        saveInsight: async () => {
+            const savedInsight = await api.update(`api/insight/${values.insight.id}`, { saved: true })
+            actions.setInsight(savedInsight)
+            // toast(`Insight saved! Click here to see your list of saved insights`)
+            toast(
+                <div data-attr="success-toast">
+                    Insight saved!
+                    <Link to={'/saved_insights'}>Click here to see your list of saved insights</Link>
+                </div>
+            )
+        }
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }) => {

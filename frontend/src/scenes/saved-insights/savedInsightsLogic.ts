@@ -2,14 +2,12 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { Key } from 'react'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, UserBasicType } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
 import { Dayjs } from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { InsightItem } from './SavedInsights'
 
 interface InsightsResult {
     results: DashboardItemType[]

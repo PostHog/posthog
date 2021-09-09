@@ -25,11 +25,6 @@ export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
-                <InsightTitle
-                    actionBar={
-                        <InsightActionBar filters={filters} annotations={annotationsToCreate} insight="SESSIONS" />
-                    }
-                />
                 <Row gutter={8} align="middle" className="mb">
                     <Col>Showing</Col>
                     <Col>

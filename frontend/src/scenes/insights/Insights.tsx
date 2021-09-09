@@ -5,7 +5,7 @@ import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Row, Col, Card, Input, Button } from 'antd'
+import { Row, Col, Card, Input, Button, Popconfirm, Tooltip } from 'antd'
 import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
@@ -19,7 +19,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
 import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { DownOutlined, UpOutlined } from '@ant-design/icons'
+import { DownOutlined, UpOutlined, EditOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
@@ -93,6 +93,7 @@ export function Insights(): JSX.Element {
         setInsight,
         openSaveToDashboardModal,
         loadInsight,
+        saveInsight,
     } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
@@ -101,6 +102,8 @@ export function Insights(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
+    const { reportInsightsTabReset } = useActions(eventUsageLogic)
+
 
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
@@ -115,6 +118,8 @@ export function Insights(): JSX.Element {
         setActiveView(view)
         reportHotkeyNavigation('insights', hotkey)
     }
+
+    const { push } = useActions(router)
 
     const nameInputRef = useRef<Input | null>(null)
     const descriptionInputRef = useRef<HTMLInputElement | null>(null)
@@ -216,7 +221,7 @@ export function Insights(): JSX.Element {
                 <SaveToDashboardModal
                     closeModal={() => openSaveToDashboardModal(false)}
                     name={insight.name || ''}
-                    filters={insight}
+                    filters={insight.filters}
                     fromItem={fromItem}
                     fromDashboard={fromDashboard}
                     fromItemName={insight.name || ''}
@@ -228,6 +233,7 @@ export function Insights(): JSX.Element {
                     {insightMode === ItemMode.View ? (
                         <div style={{ display: 'flex', alignItems: 'baseline' }}>
                             <PageHeader title={insight.name || `Insight #${insight.id}`} />
+                            <EditOutlined style={{paddingLeft: 8, color: 'var(--primary)'}} onClick={() => setInsightMode(ItemMode.Edit, null)} />
                         </div>
                     ) : (
                         <Input
@@ -249,11 +255,25 @@ export function Insights(): JSX.Element {
                     <Col>
                         {insightMode === ItemMode.View ? (
                             <>
-                                <Button style={{ marginRight: 8 }} onClick={() => setInsightMode(ItemMode.Edit, null)}>
-                                    Edit
-                                </Button>
+                                <Popconfirm
+                                    title="Are you sure? This will clear all filters and any progress will be lost."
+                                    onConfirm={() => {
+                                        window.scrollTo({ top: 0 })
+                                        push(`/insights?insight=${insight?.filters?.insight}`)
+                                        reportInsightsTabReset()
+                                    }}
+                                >
+                                    <Tooltip placement="top" title="Reset all filters">
+                                        <Button type="link" className="btn-reset">
+                                            {'Reset'}
+                                        </Button>
+                                    </Tooltip>
+                                </Popconfirm>
                                 <Button type="primary" onClick={() => openSaveToDashboardModal(true)}>
                                     Add to dashboard
+                                </Button>
+                                <Button style={{marginLeft: 8}} type="primary" onClick={() => saveInsight()}>
+                                    Save
                                 </Button>
                             </>
                         ) : (
@@ -284,18 +304,20 @@ export function Insights(): JSX.Element {
 
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <Row>
-                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                    {user?.organization?.available_features.includes('dashboard_collaboration') && (
                         <Col style={{ width: '100%' }}>
                             {insightMode === ItemMode.View ? (
                                 <span className="text-muted-alt" style={{ fontStyle: 'italic' }}>
                                     {insight.description
                                         ? insight.description
                                         : 'Give your insight a meaningful description'}
+                                    <EditOutlined style={{paddingLeft: 8, color: 'var(--primary)'}} onClick={() => setInsightMode(ItemMode.Edit, InsightEventSource.AddDescription)} />
                                 </span>
                             ) : (
                                 <Input
                                     placeholder="Give your insight a meaningful description"
                                     style={{ marginTop: 8 }}
+                                    ref={descriptionInputRef}
                                     value={insight.description}
                                     onChange={(e) => setInsight({ ...insight, description: e.target.value })}
                                     onKeyDown={(e) => {

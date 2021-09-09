@@ -43,16 +43,6 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
         <div data-attr="retention-tab" className="retention-tab">
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <InsightTitle
-                        actionBar={
-                            <InsightActionBar
-                                filters={filters}
-                                annotations={annotationsToCreate}
-                                insight="RETENTION"
-                                onReset={() => setFilters(defaultFilters({}))}
-                            />
-                        }
-                    />
                     <Row gutter={8} align="middle">
                         <Col>
                             <ActionFilter

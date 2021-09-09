@@ -45,15 +45,6 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
         <>
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <InsightTitle
-                        actionBar={
-                            <InsightActionBar
-                                filters={filters}
-                                annotations={annotationsToCreate}
-                                insight={filters.insight}
-                            />
-                        }
-                    />
                     {filtersLoading ? (
                         <div data-test-filters-loading>
                             <Skeleton active />

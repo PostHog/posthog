@@ -26,15 +26,6 @@ export function PathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
-                <InsightTitle
-                    actionBar={
-                        <InsightActionBar
-                            filters={{ ...filter, properties }}
-                            annotations={annotationsToCreate}
-                            insight="PATHS"
-                        />
-                    }
-                />
                 <Row gutter={8} align="middle" className="mt">
                     <Col>Showing paths from</Col>
                     <Col>
