@@ -7,6 +7,7 @@ from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.trends.trend_event_query import TrendsEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.models import Action, ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.element import Element
 from posthog.models.entity import Entity
@@ -213,6 +214,23 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         filter = Filter(data={"events": [{"id": "event_name", "order": 0},], "filter_test_accounts": True})
+
+        self._run_query(filter)
+
+    def test_actions(self):
+        person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+        person2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+
+        _create_event(event="event_name", team=self.team, distinct_id="person_1")
+        _create_event(event="event_name", team=self.team, distinct_id="person_2")
+        _create_event(event="event_name", team=self.team, distinct_id="person_2")
+
+        action = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="event_name", action=action, properties=[{"key": "name", "type": "person", "value": "John"}],
+        )
+
+        filter = Filter(data={"actions": [{"id": action.id, "type": "actions", "order": 0},]})
 
         self._run_query(filter)
 
