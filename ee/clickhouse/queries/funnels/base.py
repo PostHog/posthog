@@ -150,6 +150,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return "", ""
 
         if target_step < 0:
+            # the first valid dropoff argument for funnel_step is -2
+            # -2 refers to persons who performed the first step but never made it to the second
             if target_step == -1:
                 raise ValueError("To request dropoff of initial step use -2")
 
