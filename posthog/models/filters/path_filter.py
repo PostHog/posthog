@@ -13,6 +13,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     IntervalMixin,
 )
+from posthog.models.filters.mixins.funnel import FunnelPersonsStepMixin, FunnelWindowDaysMixin, FunnelWindowMixin
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
     EndPointMixin,
@@ -43,6 +44,9 @@ class PathFilter(
     PathStepLimitMixin,
     FunnelPathsMixin,
     TargetEventsMixin,
+    FunnelWindowMixin,
+    FunnelPersonsStepMixin,
+    FunnelWindowDaysMixin,
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):

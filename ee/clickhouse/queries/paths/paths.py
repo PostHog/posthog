@@ -6,7 +6,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
-from posthog.constants import FUNNEL_PATH_AFTER_STEP, FUNNEL_PATH_BEFORE_STEP, FUNNEL_PATH_BETWEEN_STEPS
+from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 
