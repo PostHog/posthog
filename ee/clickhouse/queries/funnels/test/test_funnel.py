@@ -1330,8 +1330,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         filter = Filter(data=filters)
         funnel = ClickhouseFunnel(filter, self.team)
 
-        with self.settings(SHELL_PLUS_PRINT_SQL=True):
-            result = funnel.run()
+        result = funnel.run()
 
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["name"], "user signed up")
