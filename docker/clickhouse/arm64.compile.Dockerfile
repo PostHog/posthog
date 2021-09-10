@@ -33,17 +33,16 @@ ENV CXX clang++-12
 
 RUN cd ClickHouse && mkdir build && cd build && cmake ..
 RUN cd ClickHouse/build && ninja -j 2
+RUN mv ClickHouse/build/programs/clickhouse* /usr/bin/
 
-#RUN cp ClickHouse/build/programs/* /usr/bin/
+RUN mkdir /docker-entrypoint-initdb.d
+COPY ./docker_related_config.xml /etc/clickhouse-server/config.d/
+COPY ./entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-#RUN mkdir /docker-entrypoint-initdb.d
-#COPY ./docker_related_config.xml /etc/clickhouse-server/config.d/
-#COPY ./entrypoint.sh /entrypoint.sh
-#RUN chmod +x /entrypoint.sh
-#
-#EXPOSE 9000 8123 9009
-#VOLUME /var/lib/clickhouse
-#
-##ENV CLICKHOUSE_CONFIG /etc/clickhouse-server/config.xml
-#
-##ENTRYPOINT ["/entrypoint.sh"]
+EXPOSE 9000 8123 9009
+VOLUME /var/lib/clickhouse
+
+ENV CLICKHOUSE_CONFIG /etc/clickhouse-server/config.xml
+
+ENTRYPOINT ["/entrypoint.sh"]
