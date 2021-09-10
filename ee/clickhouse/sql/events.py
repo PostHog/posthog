@@ -1,5 +1,5 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 from .person import GET_TEAM_PERSON_DISTINCT_IDS
@@ -35,7 +35,7 @@ EVENTS_TABLE_SQL = (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-SAMPLE BY uuid
+{sample_by_uuid}
 {storage_policy}
 """
 ).format(
@@ -44,6 +44,7 @@ SAMPLE BY uuid
     engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+    sample_by_uuid="SAMPLE BY uuid" if not DEBUG else "",
     storage_policy=STORAGE_POLICY,
 )
 
