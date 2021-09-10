@@ -4,7 +4,7 @@ This package compiles ClickHouse from scratch to work on an Apple Silicon mac, [
 
 To build, `cd ..`, update `ee/docker-compose.ch.yml` and set the `clickhouse` build context to `arm64.compile.Dockerfile`. Then run `docker-compose -f ee/docker-compose.ch.yml build clickhouse`
 
-NB! It takes abount an hour to build ClickHouse on a M1 mac. Make sure to give at least 4GB of RAM to Docker for the build. It'll fail otherwise.
+NB! It takes abount an hour to build ClickHouse on a M1 mac. Make sure to give **at least 8GB of RAM** to Docker for the build. It'll fail otherwise. Set it back to 2GB after.
 
 To release as a new package:
 
