@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.queries import ClickhousePaths
+from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.sql.events import ELEMENT_TAG_COUNT
 from posthog.api.paths import PathsViewSet
 from posthog.models import Event, Filter
@@ -22,4 +22,13 @@ class ClickhousePathsViewSet(PathsViewSet):
         for row in response:
             resp.append({"name": row[0], "id": row[1], "count": row[2]})
 
+        return Response(resp)
+
+    # FIXME: Timestamp is timezone aware timestamp, date range uses naive date.
+    # To avoid unexpected results should convert date range to timestamps with timezone.
+    def list(self, request, **kwargs):
+
+        team = self.team
+        filter = PathFilter(request=request)
+        resp = ClickhousePaths().run(filter=filter, team=team)
         return Response(resp)

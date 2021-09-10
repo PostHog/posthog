@@ -5,8 +5,9 @@ from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries import ClickhousePaths
+from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
+from ee.clickhouse.queries.paths.paths import ClickhousePathsNew
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS, PAGEVIEW_EVENT, SCREEN_EVENT
 from posthog.models.filters import Filter, PathFilter
@@ -23,15 +24,31 @@ def _create_event(**kwargs):
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
 
 
-class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePaths, _create_event, Person.objects.create)):  # type: ignore
+class TestClickhousePathsOld(ClickhouseTestMixin, paths_test_factory(ClickhousePaths, _create_event, Person.objects.create)):  # type: ignore
+    # remove when migrated to new Paths query
     def test_denormalized_properties(self):
         materialize("events", "$current_url")
         materialize("events", "$screen_name")
 
-        query = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
+        filter = PathFilter(data={"path_type": PAGEVIEW_EVENT})
+        query, _ = ClickhousePaths(team=self.team, filter=filter).get_query(team=self.team, filter=filter)
         self.assertNotIn("json", query.lower())
 
-        query = ClickhousePaths(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
+        query, _ = ClickhousePaths(team=self.team, filter=filter).get_query(team=self.team, filter=filter)
+        self.assertNotIn("json", query.lower())
+
+        self.test_current_url_paths_and_logic()
+
+
+class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePathsNew, _create_event, Person.objects.create)):  # type: ignore
+    def test_denormalized_properties(self):
+        materialize("events", "$current_url")
+        materialize("events", "$screen_name")
+
+        query = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": PAGEVIEW_EVENT})).get_query()
+        self.assertNotIn("json", query.lower())
+
+        query = ClickhousePathsNew(team=self.team, filter=PathFilter(data={"path_type": SCREEN_EVENT})).get_query()
         self.assertNotIn("json", query.lower())
 
         self.test_current_url_paths_and_logic()
@@ -58,7 +75,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
             filter = PathFilter(data={"step_limit": 2})
-            response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response, [{"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE}]
@@ -66,7 +83,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
             filter = PathFilter(data={"step_limit": 3})
-            response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -78,7 +95,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
             filter = PathFilter(data={"step_limit": 4})
-            response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -145,7 +162,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = PathFilter(data={"step_limit": 4, "date_from": "2012-01-01", "include_event_types": ["$pageview"]})
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -172,7 +189,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         filter = PathFilter(
             data={"date_from": "2021-05-01", "date_to": "2021-05-03", "include_event_types": ["custom_event"]}
         )
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -226,7 +243,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = ClickhousePaths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
         self.assertEqual(
             response,
             [
@@ -353,7 +370,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 "date_to": "2021-05-07 00:00:00",
             }
         )
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter,)
         self.assertEqual(
             response,
             [
@@ -430,7 +447,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = PathFilter(data={"step_limit": 4, "date_from": "2012-01-01", "include_event_types": ["$pageview"]})
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -441,7 +458,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = filter.with_data({"include_event_types": ["$screen"]})
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -452,7 +469,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = filter.with_data({"include_event_types": ["custom_event"]})
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -463,7 +480,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom1", "/custom2"]})
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -471,7 +488,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom3", "blah"]})
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response, [],
@@ -480,7 +497,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         filter = filter.with_data(
             {"include_event_types": ["$pageview", "$screen", "custom_event"], "include_custom_events": []}
         )
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -501,7 +518,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 "exclude_events": ["/custom1", "$pageview"],
             }
         )
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -568,7 +585,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = PathFilter(data={"step_limit": 10, "date_from": "2012-01-01"})  # include everything, exclude nothing
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -585,7 +602,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = filter.with_data({"include_event_types": ["$pageview", "$screen"]})
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -601,7 +618,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         filter = filter.with_data(
             {"include_event_types": ["$pageview", "$screen"], "include_custom_events": ["/custom2"]}
         )
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -622,7 +639,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 "exclude_events": ["/custom1", "/custom3"],
             }
         )
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -680,7 +697,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = PathFilter(data={"date_from": "2012-01-01"})
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -752,7 +769,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
         filter = PathFilter(data={"date_from": "2012-01-01"})
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -870,7 +887,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 "date_to": "2021-05-07 00:00:00",
             }
         )
-        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        response = ClickhousePathsNew(team=self.team, filter=filter).run(team=self.team, filter=filter,)
         self.assertEqual(
             response, [{"source": "1_/5", "target": "2_/about", "value": 2, "average_conversion_time": 60000.0}]
         )
