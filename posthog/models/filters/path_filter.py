@@ -13,7 +13,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     IntervalMixin,
 )
-from posthog.models.filters.mixins.funnel import FunnelPersonsStepMixin, FunnelWindowDaysMixin, FunnelWindowMixin
+from posthog.models.filters.mixins.funnel import FunnelPersonsStepMixin, FunnelWindowMixin
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
     EndPointMixin,
