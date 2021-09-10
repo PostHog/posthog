@@ -70,7 +70,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.8.5', '3.9']
+                python-version: ['3.8.5', '3.9.0']
         steps:
             - uses: actions/checkout@v1
               with:
@@ -86,6 +86,7 @@ jobs:
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
+              if: matrix.python-version != '3.9.0' # avoid using dependencies of 3.8.5
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
             - name: Install python dependencies
