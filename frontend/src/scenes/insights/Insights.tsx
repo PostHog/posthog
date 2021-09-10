@@ -115,7 +115,7 @@ export function Insights(): JSX.Element {
     const { push } = useActions(router)
 
     const nameInputRef = useRef<Input | null>(null)
-    const descriptionInputRef = useRef<HTMLInputElement | null>(null)
+    const descriptionInputRef = useRef<Input | null>(null)
 
     useEffect(() => {
         if (insightMode === ItemMode.Edit) {
