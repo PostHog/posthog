@@ -4,10 +4,7 @@
 #
 # This builds an docker image for the M1 Mac.
 # The build will take about 90min.
-# The Clickhouse version you're getting is: 21.9.2.17
-#
-# Related issue you'll run into: https://github.com/PostHog/posthog/issues/5684
-# Just uncomment "SAMPLE BY uuid" in ee/clickhouse/sql/events.py:38
+# Set the GIT_TAG in arm64.compile.Dockerfile to choose a version.
 
 cd "$(dirname "$0")"
 
