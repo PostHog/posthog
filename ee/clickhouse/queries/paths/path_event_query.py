@@ -2,7 +2,14 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from posthog.constants import AUTOCAPTURE_EVENT, PAGEVIEW_EVENT, SCREEN_EVENT
+from posthog.constants import (
+    AUTOCAPTURE_EVENT,
+    FUNNEL_PATH_AFTER_STEP,
+    FUNNEL_PATH_BEFORE_STEP,
+    FUNNEL_PATH_BETWEEN_STEPS,
+    PAGEVIEW_EVENT,
+    SCREEN_EVENT,
+)
 from posthog.models.filters.path_filter import PathFilter
 
 
@@ -16,10 +23,20 @@ class PathEventQuery(ClickhouseEventQuery):
         funnel_paths_join = ""
         funnel_paths_filter = ""
 
-        if self._filter.funnel_paths:
-            funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.timestamp as min_timestamp"
+        if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP or self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP:
+            # used when looking for paths up to a dropoff point to account for events happening between the latest even and when the person is deemed dropped off
+            funnel_window = (
+                f"+ INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}"
+            )
+            operator = ">=" if self._filter.funnel_paths == FUNNEL_PATH_AFTER_STEP else "<="
+
+            funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.timestamp AS target_timestamp"
             funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.person_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
-            funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp >= min_timestamp"
+            funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp {operator} target_timestamp {funnel_window if self._filter.funnel_paths == FUNNEL_PATH_BEFORE_STEP and self._filter.funnel_step and self._filter.funnel_step < 0 else ''}"
+        elif self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS:
+            funnel_paths_timestamp = f"{self.FUNNEL_PERSONS_ALIAS}.min_timestamp as min_timestamp, {self.FUNNEL_PERSONS_ALIAS}.max_timestamp as max_timestamp"
+            funnel_paths_join = f"JOIN {self.FUNNEL_PERSONS_ALIAS} ON {self.FUNNEL_PERSONS_ALIAS}.person_id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            funnel_paths_filter = f"AND {self.EVENT_TABLE_ALIAS}.timestamp >= min_timestamp AND {self.EVENT_TABLE_ALIAS}.timestamp <= max_timestamp"
 
         # We don't use ColumnOptimizer to decide what to query because Paths query doesn't surface any filter properties
         _fields = [

@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Any, Dict, List, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -19,14 +19,24 @@ from posthog.utils import relative_date_parse
 class ClickhouseFunnelBase(ABC, Funnel):
     _filter: Filter
     _team: Team
+    _include_timestamp: Optional[bool]
+    _include_preceding_timestamp: Optional[bool]
 
-    def __init__(self, filter: Filter, team: Team) -> None:
+    def __init__(
+        self,
+        filter: Filter,
+        team: Team,
+        include_timestamp: Optional[bool] = None,
+        include_preceding_timestamp: Optional[bool] = None,
+    ) -> None:
         self._filter = filter
         self._team = team
         self.params = {
             "team_id": self._team.pk,
             "events": [],  # purely a speed optimization, don't need this for filtering
         }
+        self._include_timestamp = include_timestamp
+        self._include_preceding_timestamp = include_preceding_timestamp
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -124,6 +134,44 @@ class ClickhouseFunnelBase(ABC, Funnel):
     def _exec_query(self) -> List[Tuple]:
         query = self.get_query()
         return sync_execute(query, self.params)
+
+    def _get_timestamp_outer_select(self) -> str:
+        if self._include_preceding_timestamp:
+            return ", max_timestamp, min_timestamp"
+        elif self._include_timestamp:
+            return ", timestamp"
+        else:
+            return ""
+
+    def _get_timestamp_selects(self) -> Tuple[str, str]:
+        target_step = self._filter.funnel_step
+
+        if not target_step:
+            return "", ""
+
+        if target_step < 0:
+            # the first valid dropoff argument for funnel_step is -2
+            # -2 refers to persons who performed the first step but never made it to the second
+            if target_step == -1:
+                raise ValueError("To request dropoff of initial step use -2")
+
+            target_step = abs(target_step) - 2
+        else:
+            target_step -= 1
+
+        if self._include_preceding_timestamp:
+
+            if target_step == 0:
+                raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
+
+            return (
+                f", latest_{target_step}, latest_{target_step - 1}",
+                f", argMax(latest_{target_step}, steps) as max_timestamp, argMax(latest_{target_step - 1}, steps) as min_timestamp",
+            )
+        elif self._include_timestamp:
+            return f", latest_{target_step}", f", argMax(latest_{target_step}, steps) as timestamp"
+        else:
+            return "", ""
 
     def _get_step_times(self, max_steps: int):
         conditions: List[str] = []
