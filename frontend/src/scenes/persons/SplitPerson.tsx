@@ -47,7 +47,7 @@ export function SplitPerson({
                 showSearch
                 style={{ width: '100%' }}
                 placeholder="Select a distinct id to assign all properties to (optional)"
-                onChange={(value) => setSelectedDistinctId(value)}
+                onChange={(value) => setSelectedDistinctId(value as string)}
                 filterOption={false}
             >
                 {person.distinct_ids.map((distinct_id) => (

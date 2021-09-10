@@ -10,9 +10,6 @@ describe('Person Visualization Check', () => {
 
     it('Can access person page', () => {
         cy.get('[data-row-key="email"] > :nth-child(1)').should('contain', 'email')
-    })
-
-    it('Events table loads', () => {
         cy.get('.events').should('exist')
     })
 })
@@ -50,9 +47,6 @@ describe('Merge person', () => {
         cy.get('.ant-select-multiple').type('merritt')
         cy.contains('merritt.humphrey@gmail.com').click()
         cy.contains('OK').click()
-
-        cy.contains('There are new events', { timeout: 40000 }).click()
-        cy.reload()
 
         cy.contains('$create_alias').should('exist')
         cy.get('span:contains(Pageview)').should('have.length', 2)
