@@ -638,7 +638,6 @@ export enum ViewType {
 
 export enum PathType {
     PageView = '$pageview',
-    AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
 }
