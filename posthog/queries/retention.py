@@ -30,7 +30,7 @@ class AppearanceRow:
     person_id: str
     appearance_count: int
     # This is actually the number of days from first event to the current event.
-    appearances: List[int]
+    appearances: List[float]
 
 
 class Retention(BaseQuery):
@@ -287,20 +287,24 @@ class Retention(BaseQuery):
                 final_query, params + (100, filter.offset),
             )
             raw_results = cursor.fetchall()
-            people_appearances = [AppearanceRow(*result) for result in raw_results]
-            people_dict: Dict[str, ReturnDict] = {}
-            for person in Person.objects.filter(
-                team_id=team.pk, id__in=[person.person_id for person in people_appearances]
-            ):
-                people_dict.update({person.pk: PersonSerializer(person).data})
 
-            result = self.process_people_in_period(filter, people_appearances, people_dict)
+            people_appearances = [
+                AppearanceRow(person_id=result[0], appearance_count=result[1], appearances=result[2])
+                for result in raw_results
+            ]
 
-        return result
+            people_dict = {
+                person.pk: PersonSerializer(person).data
+                for person in Person.objects.filter(
+                    team_id=team.pk, id__in=[person.person_id for person in people_appearances]
+                )
+            }
+
+            return self.process_people_in_period(filter, people_appearances, people_dict)
 
     def process_people_in_period(
         self, filter: RetentionFilter, people_appearances: List[AppearanceRow], people_dict: Dict[str, ReturnDict]
-    ) -> List[Dict[str, Any]]:
+    ) -> List[Dict[Literal["person", "appearances"], Any]]:
         marker_length = filter.total_intervals
         result: List[Dict[Literal["person", "appearances"], Any]] = []
         for person in people_appearances:
@@ -357,7 +361,7 @@ class Retention(BaseQuery):
             raise ValidationError(f"Period {period} is unsupported.")
 
 
-def appearance_to_markers(appearance_dates: List[int], num_intervals: int) -> List[int]:
+def appearance_to_markers(appearance_dates: List[float], num_intervals: int) -> List[int]:
     markers = [0 for _ in range(num_intervals)]
     for appearance in appearance_dates:
         markers[int(appearance)] = 1

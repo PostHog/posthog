@@ -1,12 +1,13 @@
 import dataclasses
 from datetime import datetime
 from typing import Any, Dict, List, cast
+from uuid import uuid4
 
 from freezegun.api import freeze_time
 from rest_framework import status
 
+from ee.clickhouse.models.event import create_event
 from posthog.models import EventDefinition, Organization, Team
-from posthog.models.event import Event
 from posthog.models.user import User
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
@@ -35,7 +36,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             create_event_definitions(event_definition["name"], team_id=cls.demo_team.pk)
             for _ in range(event_definition["volume_30_day"]):
-                emit_event(
+                capture_event(
                     event=EventData(
                         event=event_definition["name"],
                         team_id=cls.demo_team.pk,
@@ -187,14 +188,22 @@ class EventData:
     properties: Dict[str, Any]
 
 
-def emit_event(event: EventData) -> Event:
+def capture_event(event: EventData) -> str:
     """
     Creates an event, given an event dict. Currently just puts this data
-    directly into the db, but could be created via api to get better parity with
-    real world, and could provide the abstraction over if we are using
+    directly into clickhouse, but could be created via api to get better parity
+    with real world, and could provide the abstraction over if we are using
     clickhouse or postgres as the primary backend
     """
-    return cast(Event, Event.objects.create(**dataclasses.asdict(event)))
+    team = Team.objects.get(id=event.team_id)
+    return create_event(
+        event_uuid=uuid4(),
+        team=team,
+        distinct_id=event.distinct_id,
+        timestamp=event.timestamp,
+        event=event.event,
+        properties=event.properties,
+    )
 
 
 def create_event_definitions(name: str, team_id: int) -> EventDefinition:
