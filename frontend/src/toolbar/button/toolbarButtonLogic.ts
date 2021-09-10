@@ -12,14 +12,14 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideHeatmapInfo: true,
         showActionsInfo: true,
         hideActionsInfo: true,
-        showStats: true,
-        hideStats: true,
+        showFlags: true,
+        hideFlags: true,
         setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
         saveActionsPosition: (x: number, y: number) => ({ x, y }),
-        saveStatsPosition: (x: number, y: number) => ({ x, y }),
+        saveFlagsPosition: (x: number, y: number) => ({ x, y }),
     }),
 
     windowValues: () => ({
@@ -46,11 +46,11 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 [actionsTabLogic.actionTypes.hideButtonActions]: () => false,
             },
         ],
-        statsVisible: [
+        flagsVisible: [
             false,
             {
-                showStats: () => true,
-                hideStats: () => false,
+                showFlags: () => true,
+                hideFlags: () => false,
             },
         ],
         extensionPercentage: [
@@ -84,10 +84,10 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 saveActionsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
-        statsPosition: [
+        flagsPosition: [
             { x: 140, y: 100 } as { x: number; y: number },
             {
-                saveStatsPosition: (_, { x, y }) => ({ x, y }),
+                saveFlagsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
     }),
@@ -160,9 +160,9 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
         ],
         featureFlagsExtensionPercentage: [
-            (s) => [s.statsVisible, s.extensionPercentage],
-            (statsVisible, extensionPercentage) =>
-                statsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
+            (s) => [s.flagsVisible, s.extensionPercentage],
+            (flagsVisible, extensionPercentage) =>
+                flagsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
         ],
     },
 
@@ -170,11 +170,11 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideActionsInfo: () => {
             actionsTabLogic.actions.selectAction(null)
         },
-        showStats: () => {
-            posthog.capture('toolbar mode triggered', { mode: 'stats', enabled: true })
+        showFlags: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: true })
         },
-        hideStats: () => {
-            posthog.capture('toolbar mode triggered', { mode: 'stats', enabled: false })
+        hideFlags: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: false })
         },
         saveDragPosition: ({ x, y }) => {
             const { windowWidth, windowHeight } = values

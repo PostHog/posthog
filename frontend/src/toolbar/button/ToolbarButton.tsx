@@ -36,7 +36,7 @@ export function ToolbarButton(): JSX.Element {
         actionsExtensionPercentage,
         actionsInfoVisible,
         featureFlagsExtensionPercentage,
-        statsVisible,
+        flagsVisible,
     } = useValues(toolbarButtonLogic)
     const {
         setExtensionPercentage,
@@ -44,8 +44,8 @@ export function ToolbarButton(): JSX.Element {
         hideHeatmapInfo,
         showActionsInfo,
         hideActionsInfo,
-        showStats,
-        hideStats,
+        showFlags,
+        hideFlags,
     } = useActions(toolbarButtonLogic)
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
@@ -269,22 +269,16 @@ export function ToolbarButton(): JSX.Element {
                             opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,
                         }}
                         content={
-                            showFeatureFlags ? (
-                                <AimOutlined style={{ fontSize: '27px', color: 'hsl(100deg 41% 25%)' }} />
-                            ) : (
-                                <Flag
-                                    style={{ height: 29 }}
-                                    engaged={buttonActionsVisible}
-                                    animated={buttonActionsVisible && allActionsLoading}
-                                />
-                            )
+                            <AimOutlined
+                                style={{ fontSize: '28px', color: buttonActionsVisible ? '#fef5e2' : '#f1aa04' }}
+                            />
                         }
                         zIndex={1}
                         onClick={buttonActionsVisible ? hideButtonActions : showButtonActions}
                         style={{
                             cursor: 'pointer',
                             transform: `scale(${0.2 + 0.8 * actionsExtensionPercentage})`,
-                            background: buttonActionsVisible ? '#94D674' : '#D6EBCC',
+                            background: buttonActionsVisible ? '#f1aa04' : '#fef5e2',
                             borderRadius,
                         }}
                     >
@@ -311,8 +305,8 @@ export function ToolbarButton(): JSX.Element {
                                 onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
                                 style={{
                                     cursor: 'pointer',
-                                    background: actionsInfoVisible ? 'hsl(100, 65%, 31%)' : 'hsla(101, 44%, 93%, 1)',
-                                    color: actionsInfoVisible ? 'hsl(100, 22%, 93%)' : 'hsla(100, 34%, 35%, 1)',
+                                    background: actionsInfoVisible ? '#f1aa04' : '#fef5e2',
+                                    color: actionsInfoVisible ? '#fef5e2' : '#f1aa04',
                                     width: 'auto',
                                     minWidth: 26,
                                     fontSize: '20px',
@@ -339,13 +333,13 @@ export function ToolbarButton(): JSX.Element {
                                         ? (featureFlagsExtensionPercentage - 0.8) / 0.2
                                         : 0,
                             }}
-                            content={<Flag style={{ height: 29 }} engaged={statsVisible} />}
+                            content={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
                             zIndex={1}
-                            onClick={statsVisible ? hideStats : showStats}
+                            onClick={flagsVisible ? hideFlags : showFlags}
                             style={{
                                 cursor: 'pointer',
                                 transform: `scale(${0.2 + 0.8 * featureFlagsExtensionPercentage})`,
-                                background: statsVisible ? '#F1AA04' : '#FEF5E2',
+                                background: flagsVisible ? '#94D674' : '#D6EBCC',
                                 borderRadius,
                             }}
                         />

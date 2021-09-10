@@ -1,11 +1,10 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
-import { List, Radio, Space, Switch, Row, Typography } from 'antd'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { Radio, Space, Switch, Row, Typography } from 'antd'
+import { Collapse } from 'antd'
 
 export function FeatureFlags(): JSX.Element {
-    const { apiURL } = useValues(toolbarLogic)
     const { userFlags } = useValues(featureFlagsLogic)
     const { setOverriddenUserFlag, deleteOverriddenUserFlag } = useActions(featureFlagsLogic)
 
@@ -14,11 +13,8 @@ export function FeatureFlags(): JSX.Element {
             <h1 className="section-title" style={{ paddingTop: 4 }}>
                 Flags ({userFlags.length})
             </h1>
-
-            <List
-                itemLayout="horizontal"
-                dataSource={userFlags}
-                renderItem={({ feature_flag, value_for_user_without_override, override }) => {
+            <Collapse>
+                {userFlags.map(({ feature_flag, value_for_user_without_override, override }) => {
                     const hasVariants = (feature_flag.filters?.multivariate?.variants?.length || 0) > 0
                     const flagEnabled = override ? !!override?.override_value : !!value_for_user_without_override
                     const selectedVariant = hasVariants
@@ -27,82 +23,111 @@ export function FeatureFlags(): JSX.Element {
                             : value_for_user_without_override
                         : undefined
                     return (
+                        <Collapse.Panel header={`${feature_flag.key}`} key={feature_flag.id as number}>
+                            <>
+                                <Row>
+                                    <div style={{ flex: 1 }}>
+                                        <Switch
+                                            checked={flagEnabled}
+                                            onChange={(checked) => {
+                                                const newValue =
+                                                    hasVariants && checked
+                                                        ? (feature_flag.filters?.multivariate?.variants[0]
+                                                              ?.key as string)
+                                                        : checked
+                                                if (newValue === value_for_user_without_override && override) {
+                                                    deleteOverriddenUserFlag(override.id as number)
+                                                } else {
+                                                    setOverriddenUserFlag(feature_flag.id as number, newValue)
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                    {override ? (
+                                        <div>
+                                            <Typography.Link
+                                                style={{ color: '#f7a501' }}
+                                                onClick={() => {
+                                                    deleteOverriddenUserFlag(override.id as number)
+                                                }}
+                                            >
+                                                Reset Override
+                                            </Typography.Link>
+                                        </div>
+                                    ) : null}
+                                </Row>
+                                <Row style={{ marginTop: 10 }}>
+                                    {hasVariants ? (
+                                        <Radio.Group
+                                            disabled={!flagEnabled}
+                                            value={selectedVariant}
+                                            onChange={(event) => {
+                                                const newValue = event.target.value
+                                                if (newValue === value_for_user_without_override && override) {
+                                                    deleteOverriddenUserFlag(override.id as number)
+                                                } else {
+                                                    setOverriddenUserFlag(feature_flag.id as number, newValue)
+                                                }
+                                            }}
+                                        >
+                                            <Space direction="vertical">
+                                                {feature_flag.filters?.multivariate?.variants.map((variant) => (
+                                                    <Radio key={variant.key} value={variant.key}>
+                                                        {`${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`}
+                                                    </Radio>
+                                                ))}
+                                            </Space>
+                                        </Radio.Group>
+                                    ) : null}
+                                </Row>
+                            </>
+                        </Collapse.Panel>
+                    )
+                })}
+            </Collapse>
+            {/* 
+            <List
+                itemLayout="horizontal"
+                dataSource={userFlags}
+                renderItem={({ feature_flag, value_for_user_without_override, override }) => {
+                    return (
                         <div
                             style={{
-                                padding: '15px 0 15px 0',
+                                padding: '10px 0 10px 0',
                                 borderBottom: '1px solid #d9d9d9',
                             }}
                             key={feature_flag.id}
                         >
                             <Row>
-                                <Space>
-                                    <Switch
-                                        checked={flagEnabled}
-                                        onChange={(checked) => {
-                                            const newValue =
-                                                hasVariants && checked
-                                                    ? (feature_flag.filters?.multivariate?.variants[0]?.key as string)
-                                                    : checked
-                                            if (newValue === value_for_user_without_override && override) {
-                                                deleteOverriddenUserFlag(override.id as number)
-                                            } else {
-                                                setOverriddenUserFlag(feature_flag.id as number, newValue)
-                                            }
-                                        }}
-                                    />
-                                    <code>
-                                        <a
-                                            href={`${apiURL}${apiURL.endsWith('/') ? '' : '/'}feature_flags/${
-                                                feature_flag.id
-                                            }`}
-                                        >
-                                            {feature_flag.key}
-                                        </a>
-                                    </code>
-                                </Space>
-                            </Row>
-                            <Row style={{ marginTop: 10 }}>
-                                {!!flagEnabled && hasVariants ? (
-                                    <Radio.Group
-                                        value={selectedVariant}
-                                        onChange={(event) => {
-                                            const newValue = event.target.value
-                                            if (newValue === value_for_user_without_override && override) {
-                                                deleteOverriddenUserFlag(override.id as number)
-                                            } else {
-                                                setOverriddenUserFlag(feature_flag.id as number, newValue)
-                                            }
+                                <code>
+                                    <a
+                                        onClick={() => {
+                                            setSelectedFlagId(selectedFlagId === feature_flag.id ? null : feature_flag.id)
                                         }}
                                     >
-                                        <Space direction="vertical">
-                                            {feature_flag.filters?.multivariate?.variants.map((variant) => (
-                                                <Radio key={variant.key} value={variant.key}>
-                                                    {`${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`}
-                                                </Radio>
-                                            ))}
-                                        </Space>
-                                    </Radio.Group>
-                                ) : null}
+                                        {feature_flag.key}
+                                    </a>
+                                </code>
                             </Row>
-                            {override ? (
-                                <Row style={{ marginTop: 7 }}>
-                                    <Typography.Paragraph style={{ margin: 0 }}>
-                                        {`Flag Overridden `}
-                                        <Typography.Link
-                                            style={{ color: 'red' }}
-                                            onClick={() => {
-                                                deleteOverriddenUserFlag(override.id as number)
-                                            }}
-                                        >
-                                            (Remove)
-                                        </Typography.Link>
-                                    </Typography.Paragraph>
-                                </Row>
-                            ) : null}
+                            <Row style={{ marginTop: 5 }}>
+                                <Typography.Paragraph>
+                                    <code>
+                                        {hasVariants ? flagEnabled ? selectedVariant : flagEnabled.toString() : flagEnabled.toString()}
+                                    </code>
+                                    {override ?
+                                        <span style={{}}>
+                                            {` (Overridden)`}
+                                        </span>
+                                        : null}
+                                </Typography.Paragraph>
+                            </Row>
+                            {selectedFlagId === feature_flag.id ?
+
+                                : null}
                         </div>
                     )
                 }}
-            />
+            /> */}
         </div>
     )
 }

@@ -19,8 +19,8 @@ export function DraggableButton(): JSX.Element {
         heatmapWindowVisible,
         actionsWindowVisible,
         actionsPosition,
-        statsVisible,
-        statsPosition,
+        flagsVisible,
+        flagsPosition,
     } = useValues(toolbarButtonLogic)
     const {
         saveDragPosition,
@@ -28,8 +28,8 @@ export function DraggableButton(): JSX.Element {
         saveActionsPosition,
         hideActionsInfo,
         hideHeatmapInfo,
-        hideStats,
-        saveStatsPosition,
+        hideFlags,
+        saveFlagsPosition,
     } = useActions(toolbarButtonLogic)
 
     return (
@@ -77,13 +77,13 @@ export function DraggableButton(): JSX.Element {
             </ButtonWindow>
 
             <ButtonWindow
-                name="stats"
+                name="flags"
                 label="Feature Flags"
                 icon={<Flag engaged />}
-                visible={statsVisible}
-                close={hideStats}
-                position={statsPosition}
-                savePosition={saveStatsPosition}
+                visible={flagsVisible}
+                close={hideFlags}
+                position={flagsPosition}
+                savePosition={saveFlagsPosition}
             >
                 <FeatureFlags />
             </ButtonWindow>

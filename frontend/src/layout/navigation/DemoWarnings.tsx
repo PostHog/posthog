@@ -95,6 +95,7 @@ export function DemoWarnings(): JSX.Element | null {
         demo_project: {
             message: "You're viewing demo data.",
             description: <span>This is a demo project with dummy data.</span>,
+            type: warningType,
         },
         real_project_with_no_events: {
             message: 'This project has no events yet.',
