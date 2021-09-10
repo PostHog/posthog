@@ -22,7 +22,6 @@ import {
     KeyOutlined,
     SmileOutlined,
 } from '@ant-design/icons'
-import { guardAvailableFeature } from 'scenes/UpgradeModal'
 import { sceneLogic, urls } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
@@ -75,7 +74,7 @@ export function TopNavigation(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
     const { logout, updateCurrentTeam, updateCurrentOrganization } = useActions(userLogic)
-    const { showUpgradeModal } = useActions(sceneLogic)
+    const { guardAvailableFeature } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { push } = router.actions
     const { showPalette } = useActions(commandPaletteLogic)
@@ -174,9 +173,6 @@ export function TopNavigation(): JSX.Element {
                         className="plain-button"
                         onClick={() =>
                             guardAvailableFeature(
-                                user,
-                                preflight,
-                                showUpgradeModal,
                                 AvailableFeature.ORGANIZATIONS_PROJECTS,
                                 'multiple organizations',
                                 'Organizations group people building products together. An organization can then have multiple projects.',
@@ -247,9 +243,6 @@ export function TopNavigation(): JSX.Element {
                 className="plain-button"
                 onClick={() =>
                     guardAvailableFeature(
-                        user,
-                        preflight,
-                        showUpgradeModal,
                         AvailableFeature.ORGANIZATIONS_PROJECTS,
                         'multiple projects',
                         'Projects allow you to separate data and configuration for different products or environments.',
