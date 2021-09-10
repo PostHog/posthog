@@ -44,7 +44,7 @@ ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
     engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
-    sample_by_uuid="SAMPLE BY uuid" if not DEBUG else "",
+    sample_by_uuid="SAMPLE BY uuid" if not DEBUG else "",  # https://github.com/PostHog/posthog/issues/5684
     storage_policy=STORAGE_POLICY,
 )
 
