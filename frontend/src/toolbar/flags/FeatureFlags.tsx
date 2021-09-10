@@ -85,49 +85,6 @@ export function FeatureFlags(): JSX.Element {
                     )
                 })}
             </Collapse>
-            {/* 
-            <List
-                itemLayout="horizontal"
-                dataSource={userFlags}
-                renderItem={({ feature_flag, value_for_user_without_override, override }) => {
-                    return (
-                        <div
-                            style={{
-                                padding: '10px 0 10px 0',
-                                borderBottom: '1px solid #d9d9d9',
-                            }}
-                            key={feature_flag.id}
-                        >
-                            <Row>
-                                <code>
-                                    <a
-                                        onClick={() => {
-                                            setSelectedFlagId(selectedFlagId === feature_flag.id ? null : feature_flag.id)
-                                        }}
-                                    >
-                                        {feature_flag.key}
-                                    </a>
-                                </code>
-                            </Row>
-                            <Row style={{ marginTop: 5 }}>
-                                <Typography.Paragraph>
-                                    <code>
-                                        {hasVariants ? flagEnabled ? selectedVariant : flagEnabled.toString() : flagEnabled.toString()}
-                                    </code>
-                                    {override ?
-                                        <span style={{}}>
-                                            {` (Overridden)`}
-                                        </span>
-                                        : null}
-                                </Typography.Paragraph>
-                            </Row>
-                            {selectedFlagId === feature_flag.id ?
-
-                                : null}
-                        </div>
-                    )
-                }}
-            /> */}
         </div>
     )
 }
