@@ -571,7 +571,7 @@ export function getKeyMapping(value: string | PropertyFilterValue, type: 'event'
         if (featureFlagKey) {
             return {
                 label: `Feature: ${featureFlagKey}`,
-                description: `Value for the feature flag "${featureFlagKey}" that was active when this event was sent.`,
+                description: `Value for the feature flag "${featureFlagKey}" when this event was sent.`,
                 examples: ['true', 'variant-1a'],
             }
         }
