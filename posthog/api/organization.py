@@ -82,6 +82,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "domain_whitelist",
             "is_member_join_email_enabled",
             "only_allowed_team_ids",
+            "per_project_access",
         ]
         read_only_fields = [
             "id",
@@ -104,7 +105,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
     def get_only_allowed_team_ids(self, organization: Organization) -> Optional[List[int]]:
         if not settings.EE_AVAILABLE or not organization.per_project_access:
             return None  # All projects are allowed if Per-project access is disabled or unavailable
-        # If Per-project access is enabled, we need to check for
+        # If Per-project access is enabled, we need to check which projects the current user is a member of
         from ee.models.explicit_team_membership import ExplicitTeamMembership
 
         allowed_team_ids = ExplicitTeamMembership.objects.filter(
