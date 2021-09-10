@@ -10,8 +10,8 @@ from django.db.models import F
 from django.utils import timezone
 
 from posthog.constants import INSIGHT_STICKINESS
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Cohort
+from posthog.utils import is_clickhouse_enabled
 
 logger = logging.getLogger(__name__)
 
