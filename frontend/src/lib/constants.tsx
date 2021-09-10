@@ -12,7 +12,7 @@ export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
 export const PATHS_VIZ = 'PathsViz'
 export const FUNNEL_VIZ = 'FunnelViz'
 
-export enum OrganizationMembershipLevel {
+export enum OrganizationAccessLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
@@ -27,9 +27,9 @@ export enum PluginsAccessLevel {
 }
 
 export const organizationMembershipLevelToName = new Map<number, string>([
-    [OrganizationMembershipLevel.Member, 'member'],
-    [OrganizationMembershipLevel.Admin, 'administrator'],
-    [OrganizationMembershipLevel.Owner, 'owner'],
+    [OrganizationAccessLevel.Member, 'member'],
+    [OrganizationAccessLevel.Admin, 'administrator'],
+    [OrganizationAccessLevel.Owner, 'owner'],
 ])
 
 export const annotationScopeToName = new Map<string, string>([

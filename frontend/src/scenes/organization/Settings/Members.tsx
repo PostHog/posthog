@@ -12,7 +12,7 @@ import {
     CrownFilled,
 } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
+import { OrganizationAccessLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -20,15 +20,15 @@ import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 
-const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
+const membershipLevelIntegers = Object.values(OrganizationAccessLevel).filter(
     (value) => typeof value === 'number'
-) as OrganizationMembershipLevel[]
+) as OrganizationAccessLevel[]
 
 function isMembershipLevelChangeDisallowed(
     currentOrganization: OrganizationType | null,
     currentUser: UserType,
     memberChanged: OrganizationMemberType,
-    newLevelOrAllowedLevels: OrganizationMembershipLevel | OrganizationMembershipLevel[]
+    newLevelOrAllowedLevels: OrganizationAccessLevel | OrganizationAccessLevel[]
 ): false | string {
     const currentMembershipLevel = currentOrganization?.membership_level
     if (memberChanged.user.uuid === currentUser.uuid) {
@@ -38,7 +38,7 @@ function isMembershipLevelChangeDisallowed(
         return 'Your membership level is unknown.'
     }
     if (Array.isArray(newLevelOrAllowedLevels)) {
-        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
+        if (currentMembershipLevel === OrganizationAccessLevel.Owner) {
             return false
         }
         if (!newLevelOrAllowedLevels.length) {
@@ -48,14 +48,14 @@ function isMembershipLevelChangeDisallowed(
         if (newLevelOrAllowedLevels === memberChanged.level) {
             return "It doesn't make sense to set the same level as before."
         }
-        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
+        if (currentMembershipLevel === OrganizationAccessLevel.Owner) {
             return false
         }
         if (newLevelOrAllowedLevels > currentMembershipLevel) {
             return 'You can only change access level of others to lower or equal to your current one.'
         }
     }
-    if (currentMembershipLevel < OrganizationMembershipLevel.Admin) {
+    if (currentMembershipLevel < OrganizationAccessLevel.Admin) {
         return "You don't have permission to change access levels."
     }
     if (currentMembershipLevel < memberChanged.level) {
@@ -75,13 +75,13 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
 
     const { level } = member
 
-    function generateHandleClick(listLevel: OrganizationMembershipLevel): (event: React.MouseEvent) => void {
+    function generateHandleClick(listLevel: OrganizationAccessLevel): (event: React.MouseEvent) => void {
         return function handleClick(event: React.MouseEvent) {
             event.preventDefault()
             if (!user) {
                 throw Error
             }
-            if (listLevel === OrganizationMembershipLevel.Owner) {
+            if (listLevel === OrganizationAccessLevel.Owner) {
                 Modal.confirm({
                     centered: true,
                     title: `Transfer organization ownership to ${member.user.first_name}?`,
@@ -102,7 +102,7 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const levelButton = (
         <Button
             data-attr="change-membership-level"
-            icon={level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
+            icon={level === OrganizationAccessLevel.Owner ? <CrownFilled /> : undefined}
         >
             {organizationMembershipLevelToName.get(level) ?? `unknown (${level})`}
         </Button>
@@ -122,7 +122,7 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
                     {allowedLevels.map((listLevel) => (
                         <Menu.Item key={`${member.user.uuid}-level-${listLevel}`}>
                             <a href="#" onClick={generateHandleClick(listLevel)} data-test-level={listLevel}>
-                                {listLevel === OrganizationMembershipLevel.Owner ? (
+                                {listLevel === OrganizationAccessLevel.Owner ? (
                                     <>
                                         <CrownFilled style={{ marginRight: '0.5rem' }} />
                                         Transfer organization ownership
@@ -180,10 +180,10 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
 
     const allowDeletion =
         // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
-        ((currentMembershipLevel >= OrganizationMembershipLevel.Admin && member.level <= currentMembershipLevel) ||
+        ((currentMembershipLevel >= OrganizationAccessLevel.Admin && member.level <= currentMembershipLevel) ||
             member.user.uuid === user.uuid) &&
         // unless that user is the organization's owner, in which case they can't leave
-        member.level !== OrganizationMembershipLevel.Owner
+        member.level !== OrganizationAccessLevel.Owner
 
     return (
         <div>

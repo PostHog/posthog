@@ -18,7 +18,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from '../../../lib/constants'
+import { OrganizationAccessLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
@@ -223,7 +223,7 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <SessionRecording />
                 <Divider />
-                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
+                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationAccessLevel.Admin} />
             </Card>
         </div>
     )

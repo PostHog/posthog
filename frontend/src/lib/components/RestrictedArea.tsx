@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 import { organizationLogic } from '../../scenes/organizationLogic'
-import { OrganizationMembershipLevel, organizationMembershipLevelToName } from '../constants'
+import { OrganizationAccessLevel, organizationMembershipLevelToName } from '../constants'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export interface RestrictedComponentProps {
@@ -11,7 +11,7 @@ export interface RestrictedComponentProps {
 
 export interface RestrictedAreaProps {
     Component: (props: RestrictedComponentProps) => JSX.Element
-    minimumAccessLevel: OrganizationMembershipLevel
+    minimumAccessLevel: OrganizationAccessLevel
 }
 
 export function RestrictedArea({ Component, minimumAccessLevel }: RestrictedAreaProps): JSX.Element {
@@ -25,7 +25,7 @@ export function RestrictedArea({ Component, minimumAccessLevel }: RestrictedArea
             return 'Your organization membership level is unknown.'
         }
         if (currentOrganization.membership_level < minimumAccessLevel) {
-            if (minimumAccessLevel === OrganizationMembershipLevel.Owner) {
+            if (minimumAccessLevel === OrganizationAccessLevel.Owner) {
                 return 'This area is restricted to the organization owner.'
             }
             return `This area is restricted to organization ${organizationMembershipLevelToName.get(
