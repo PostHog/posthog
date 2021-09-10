@@ -217,7 +217,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         self._run_query(filter)
 
-    def test_actions(self):
+    def test_action_with_person_property_filter(self):
         person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         person2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
 
