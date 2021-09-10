@@ -10,6 +10,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RemoveField(model_name="team", name="users",),
         migrations.AddField(
             model_name="organization", name="per_project_access", field=models.BooleanField(default=False),
         ),

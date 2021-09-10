@@ -172,6 +172,8 @@ def organization_about_to_be_deleted(sender, instance, **kwargs):
 
 class OrganizationMembership(UUIDModel):
     class Level(models.IntegerChoices):
+        """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
+
         MEMBER = 1, "member"
         ADMIN = 8, "administrator"
         OWNER = 15, "owner"
