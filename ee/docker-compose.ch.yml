@@ -17,12 +17,7 @@ services:
         # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
         # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
 
-        ## Uncomment if not on a M1 Mac
-        # image: yandex/clickhouse-server:21.6.5
-
-        build:
-            context: ../docker/clickhouse/
-            dockerfile: arm64.compile.Dockerfile
+        image: yandex/clickhouse-server:21.6.5
         depends_on:
             - kafka
             - zookeeper
