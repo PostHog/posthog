@@ -42,7 +42,6 @@ from sentry_sdk import push_scope
 from posthog.constants import AnalyticsDBMS, AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
-from posthog.utils import is_clickhouse_enabled
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
