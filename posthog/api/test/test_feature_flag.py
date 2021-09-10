@@ -381,13 +381,13 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(len(response_data), 2)
 
         first_flag = response_data[0]
-        self.assertEqual(first_flag["feature_flag"]["key"], "red_button")
-        self.assertEqual(first_flag["value_for_user_without_override"], True)
+        self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
+        self.assertEqual(first_flag["value_for_user_without_override"], "third-variant")
         self.assertEqual(first_flag["override"], None)
 
         second_flag = response_data[1]
-        self.assertEqual(second_flag["feature_flag"]["key"], "alpha-feature")
-        self.assertEqual(second_flag["value_for_user_without_override"], "third-variant")
+        self.assertEqual(second_flag["feature_flag"]["key"], "red_button")
+        self.assertEqual(second_flag["value_for_user_without_override"], True)
         self.assertEqual(second_flag["override"], None)
 
         # alpha-feature is not set for "distinct_id_0"
@@ -400,10 +400,10 @@ class TestFeatureFlag(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data), 2)
 
-        second_flag = response_data[1]
-        self.assertEqual(second_flag["feature_flag"]["key"], "alpha-feature")
-        self.assertEqual(second_flag["value_for_user_without_override"], False)
-        self.assertEqual(second_flag["override"], None)
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
+        self.assertEqual(first_flag["value_for_user_without_override"], False)
+        self.assertEqual(first_flag["override"], None)
 
     def test_create_override(self):
         # Boolean override value
@@ -437,16 +437,16 @@ class TestFeatureFlag(APIBaseTest):
         response_data = response.json()
 
         first_flag = response_data[0]
-        self.assertEqual(first_flag["feature_flag"]["key"], "red_button")
-        self.assertEqual(first_flag["override"], None)
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature-2")
+        self.assertEqual(first_flag["override"]["override_value"], "hey-hey")
 
         second_flag = response_data[1]
         self.assertEqual(second_flag["feature_flag"]["key"], "beta-feature")
         self.assertEqual(second_flag["override"]["override_value"], True)
 
         third_flag = response_data[2]
-        self.assertEqual(third_flag["feature_flag"]["key"], "beta-feature-2")
-        self.assertEqual(third_flag["override"]["override_value"], "hey-hey")
+        self.assertEqual(third_flag["feature_flag"]["key"], "red_button")
+        self.assertEqual(third_flag["override"], None)
 
     def test_update_override(self):
         # Create an override and, and make sure the my_flags response shows it
@@ -459,9 +459,9 @@ class TestFeatureFlag(APIBaseTest):
         response = self.client.get("/api/feature_flag/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        second_flag = response_data[1]
-        self.assertEqual(second_flag["feature_flag"]["key"], "beta-feature")
-        self.assertEqual(second_flag["override"]["override_value"], "hey-hey")
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature")
+        self.assertEqual(first_flag["override"]["override_value"], "hey-hey")
 
         # Update the override, and make sure the my_flags response reflects the update
         response = self.client.post(
@@ -472,9 +472,9 @@ class TestFeatureFlag(APIBaseTest):
         response = self.client.get("/api/feature_flag/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        second_flag = response_data[1]
-        self.assertEqual(second_flag["feature_flag"]["key"], "beta-feature")
-        self.assertEqual(second_flag["override"]["override_value"], "new-override")
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature")
+        self.assertEqual(first_flag["override"]["override_value"], "new-override")
 
         # Ensure only 1 override exists in the DB for the feature_flag/user combo
         self.assertEqual(
@@ -492,20 +492,21 @@ class TestFeatureFlag(APIBaseTest):
         response = self.client.get("/api/feature_flag/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        second_flag = response_data[1]
-        self.assertEqual(second_flag["feature_flag"]["key"], "beta-feature")
-        self.assertEqual(second_flag["override"]["override_value"], "hey-hey")
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature")
+        self.assertEqual(first_flag["override"]["override_value"], "hey-hey")
 
         # Delete the override, and make sure the my_flags response reflects the update
-        existing_override_id = second_flag["override"]["id"]
+        existing_override_id = first_flag["override"]["id"]
         response = self.client.delete(f"/api/projects/@current/feature_flag_overrides/{existing_override_id}",)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
         response = self.client.get("/api/feature_flag/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        second_flag = response_data[1]
-        self.assertEqual(second_flag["feature_flag"]["key"], "beta-feature")
-        self.assertEqual(second_flag["override"], None)
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature")
+        self.assertEqual(first_flag["override"], None)
 
     def test_create_override_with_invalid_override(self):
         feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
