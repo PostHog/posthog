@@ -1,9 +1,6 @@
-import React, { useRef, useState, useEffect } from 'react'
-import api from 'lib/api'
+import React, { useRef, useEffect } from 'react'
 import { useValues } from 'kea'
 import { stripHTTP } from 'lib/utils'
-import { Modal, Button, Spin } from 'antd'
-import { EventElements } from 'scenes/events/EventElements'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -11,7 +8,6 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 // TODO: Replace with PathType enums when moving to TypeScript
 const PAGEVIEW = '$pageview'
-const AUTOCAPTURE = '$autocapture'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -94,9 +90,6 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
-
-    const [modalVisible, setModalVisible] = useState(false)
-    const [event, setEvent] = useState(null)
 
     useEffect(() => {
         renderPaths()
@@ -246,15 +239,7 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
             .attr('text-anchor', (d) => (d.x0 < width / 2 ? 'start' : 'end'))
             .attr('display', (d) => (d.value > 0 ? 'inherit' : 'none'))
             .text(loadedFilter?.path_type === PAGEVIEW ? pageUrl : pathText)
-            .on('click', async (node) => {
-                if (loadedFilter.path_type === AUTOCAPTURE) {
-                    setModalVisible(true)
-                    setEvent(null)
-                    let result = await api.get('api/event/' + node.id)
-                    setEvent(result)
-                }
-            })
-            .style('cursor', loadedFilter.path_type === AUTOCAPTURE ? 'pointer' : 'auto')
+            .style('cursor', 'auto')
             .style('fill', color === 'white' ? '#000' : '#fff')
 
         textSelection
@@ -268,42 +253,15 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
     }
 
     return (
-        <div>
-            {loadedFilter.path_type === AUTOCAPTURE && (
-                <div style={{ margin: 10 }}>Click on a tag to see related DOM tree</div>
-            )}
-            <div
-                style={{
-                    position: 'relative',
-                }}
-                id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
-            >
-                <div ref={canvas} className="paths" data-attr="paths-viz">
-                    {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
-                </div>
+        <div
+            style={{
+                position: 'relative',
+            }}
+            id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
+        >
+            <div ref={canvas} className="paths" data-attr="paths-viz">
+                {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
             </div>
-            <Modal
-                visible={modalVisible}
-                onOk={() => setModalVisible(false)}
-                onCancel={() => setModalVisible(false)}
-                closable={false}
-                style={{ minWidth: '50%' }}
-                footer={[
-                    <Button key="submit" type="primary" onClick={() => setModalVisible(false)}>
-                        Ok
-                    </Button>,
-                ]}
-                bodyStyle={
-                    !event
-                        ? {
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                          }
-                        : {}
-                }
-            >
-                {event ? <EventElements event={event} /> : <Spin />}
-            </Modal>
         </div>
     )
 }
