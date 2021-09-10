@@ -2,19 +2,16 @@ import re
 from typing import Any, Dict, List, Optional
 
 import pytz
-from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.dispatch.dispatcher import receiver
-from rest_framework import exceptions
 
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
-from posthog.models.organization import OrganizationMembership
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
-from .utils import UUIDClassicModel, UUIDModel, generate_random_token_project, sane_repr
+from .utils import UUIDClassicModel, generate_random_token_project, sane_repr
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
@@ -86,12 +83,6 @@ class Team(UUIDClassicModel):
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
-    explicit_members: Optional[models.ManyToManyField] = models.ManyToManyField(
-        "posthog.User",
-        through="ee.ExplicitTeamMembership",
-        related_name="explicit_teams",
-        related_query_name="explicit_team",
-    ) if settings.EE_AVAILABLE else None
     api_token: models.CharField = models.CharField(
         max_length=200,
         unique=True,
