@@ -349,6 +349,14 @@ export function MainNavigation(): JSX.Element {
                     />
                     <div className="divider" />
                     <MenuItem
+                        title="Annotations"
+                        icon={<MessageOutlined />}
+                        identifier="annotations"
+                        to={urls.annotations()}
+                        hotkey="a"
+                    />
+                    <div className="divider" />
+                    <MenuItem
                         title="Feat. Flags"
                         icon={<IconFeatureFlags />}
                         identifier="featureFlags"
@@ -367,13 +375,6 @@ export function MainNavigation(): JSX.Element {
                             tooltip="Extend your analytics functionality"
                         />
                     )}
-                    <MenuItem
-                        title="Annotations"
-                        icon={<MessageOutlined />}
-                        identifier="annotations"
-                        to={urls.annotations()}
-                        hotkey="a"
-                    />
                     <MenuItem
                         title="Project"
                         icon={<ProjectFilled />}
