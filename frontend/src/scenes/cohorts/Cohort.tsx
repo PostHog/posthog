@@ -1,203 +1,184 @@
 import React from 'react'
-import { CohortGroup } from './CohortGroup'
-import { cohortLogic } from './cohortLogic'
-import { Button, Card, Col, Divider, Input, Row } from 'antd'
-import { AimOutlined, ArrowLeftOutlined, InboxOutlined, UnorderedListOutlined } from '@ant-design/icons'
-import { useValues, useActions, BuiltLogic } from 'kea'
-import { CohortGroupType, CohortType } from '~/types'
-import { Persons } from '../persons/Persons'
+import { useActions, useValues } from 'kea'
+import { CohortNameInput } from './CohortNameInput'
+import { CohortDescriptionInput } from './CohortDescriptionInput'
+import { Button, Col, Divider, Row, Spin } from 'antd'
+import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
+import { CohortType } from '~/types'
+import { COHORT_DYNAMIC, COHORT_STATIC } from 'lib/constants'
+import { InboxOutlined, DeleteOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
+import { CohortDetailsRow } from './CohortDetailsRow'
+import { Persons } from 'scenes/persons/Persons'
+import { cohortLogic } from './cohortLogic'
+import { UploadFile } from 'antd/lib/upload/interface'
 
-const isSubmitDisabled = (cohort: CohortType): boolean => {
-    if (cohort && cohort.csv) {
-        return false
-    }
-    if (cohort && cohort.groups) {
-        return cohort.groups.filter(isValidGroup).length !== cohort.groups.length
-    }
-    return true
-}
+import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
+import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
+import { Tooltip } from 'antd'
 
-const isValidGroup = (group: CohortGroupType): boolean =>
-    !!(group.days && group.action_id) || !!(group.properties && group.properties.length > 0)
-
-function StaticCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
+export function Cohort(props: { cohort: CohortType }): JSX.Element {
+    const logic = cohortLogic(props)
     const { setCohort } = useActions(logic)
-    const { cohort, isNewCohort } = useValues(logic)
-    const props = {
+    const { cohort, submitted } = useValues(logic)
+
+    const onDescriptionChange = (description: string): void => {
+        setCohort({
+            ...cohort,
+            description,
+        })
+    }
+
+    const onTypeChange = (type: string): void => {
+        if (type === COHORT_STATIC) {
+            setCohort({
+                ...cohort,
+                is_static: true,
+            })
+        } else if (type === COHORT_DYNAMIC) {
+            setCohort({
+                ...cohort,
+                is_static: false,
+            })
+        }
+    }
+
+    const staticCSVDraggerProps = {
         name: 'file',
         multiple: false,
         fileList: cohort.csv ? [cohort.csv] : [],
-        beforeUpload(file: File) {
+        beforeUpload(file: UploadFile) {
             setCohort({ ...cohort, csv: file })
 
             return false
         },
         accept: '.csv',
     }
-    return (
-        <>
-            {isNewCohort && (
-                <>
-                    <Button size="small" type="link" onClick={() => setCohort({ ...cohort, is_static: undefined })}>
-                        <ArrowLeftOutlined /> Create dynamic cohort instead
-                    </Button>
-                    <br />
-                    <br />
-                </>
-            )}
-            <Dragger {...props}>
-                <p className="ant-upload-drag-icon">
-                    <InboxOutlined />
-                </p>
-                <p className="ant-upload-text">Click or drag CSV to this area to upload</p>
-                <p className="ant-upload-hint">Make sure the file has a single column with the user's distinct_id.</p>
-            </Dragger>
-            {!isNewCohort && (
-                <p style={{ marginTop: '1rem' }}>
-                    This is a static cohort with <strong>{cohort.count}</strong> user{cohort.count !== 1 && 's'}. If you
-                    upload another .csv file, those users will be added to this cohort.
-                </p>
-            )}
-        </>
+
+    const COHORT_TYPE_OPTIONS = [
+        {
+            key: COHORT_STATIC,
+            label: 'Static',
+            description: 'Upload a list of users. Updates manually',
+            icon: <OrderedListOutlined />,
+        },
+        {
+            key: COHORT_DYNAMIC,
+            label: 'Dynamic',
+            description: 'Cohort updates dynamically based on properties',
+            icon: <CalculatorOutlined />,
+        },
+    ]
+
+    const COHORT_TYPE_DROPDOWN = (
+        <DropdownSelector
+            options={COHORT_TYPE_OPTIONS}
+            disabled={cohort.id !== 'new'}
+            value={cohort.is_static ? COHORT_STATIC : COHORT_DYNAMIC}
+            onValueChange={onTypeChange}
+        />
     )
-}
-
-function DynamicCohort({ logic }: { logic: BuiltLogic }): JSX.Element {
-    const { updateCohortGroups, setCohort } = useActions(logic)
-    const { cohort, isNewCohort } = useValues(logic)
 
     return (
-        <>
-            {isNewCohort && (
-                <>
-                    <Button size="small" type="link" onClick={() => setCohort({ ...cohort, is_static: undefined })}>
-                        <ArrowLeftOutlined /> Create static cohort instead
-                    </Button>
-                    <br />
-                    <br />
-                </>
-            )}
-            {cohort.groups.map((group: CohortGroupType, index: number) => (
-                <React.Fragment key={index}>
-                    <CohortGroup
-                        group={group}
-                        allowRemove={cohort.groups.length > 1}
-                        index={index}
-                        onRemove={() => {
-                            const groups = [...cohort.groups].splice(index, 1)
-                            updateCohortGroups(groups)
-                        }}
-                        onChange={(_group: CohortGroupType) => {
-                            const groups = [...cohort.groups]
-                            groups[index] = _group
-                            updateCohortGroups(groups)
-                        }}
-                    />
-                    {index < cohort.groups.length - 1 && (
-                        <div key={index} className="secondary" style={{ textAlign: 'center', margin: 8 }}>
-                            {' '}
-                            OR{' '}
-                        </div>
+        <div className="mb">
+            <Row gutter={16}>
+                <Col>
+                    <h3 className="l3">General</h3>
+                </Col>
+            </Row>
+            <Row gutter={16}>
+                <Col md={14}>
+                    <CohortNameInput input={cohort.name} onChange={(name: string) => setCohort({ ...cohort, name })} />
+                </Col>
+                <Col md={10}>
+                    {cohort.id === 'new' ? (
+                        COHORT_TYPE_DROPDOWN
+                    ) : (
+                        <Tooltip title="Create a new cohort to use a different type of cohort.">
+                            <div>{COHORT_TYPE_DROPDOWN}</div>
+                        </Tooltip>
                     )}
-                </React.Fragment>
-            ))}
-        </>
-    )
-}
-
-function CohortChoice({ setCohort, cohort }: { setCohort: CallableFunction; cohort: CohortType }): JSX.Element {
-    return (
-        <Row gutter={24}>
-            <Col sm={12}>
-                <Card
-                    title="Dynamic cohort"
-                    size="small"
-                    className="clickable-card"
-                    data-attr="cohort-choice-definition"
-                    onClick={() => setCohort({ ...cohort, is_static: false })}
-                    style={{ height: '100%' }}
-                >
-                    <div style={{ textAlign: 'center', fontSize: 40 }}>
-                        <AimOutlined />
-                    </div>
-                    <div className="cohort-type-description">
-                        Define rules or properties to match automatically to your users. Updates automatically.
-                    </div>
-                </Card>
-            </Col>
-            <Col sm={12}>
-                <Card
-                    title="Static cohort"
-                    size="small"
-                    className="clickable-card"
-                    data-attr="cohort-choice-upload-csv"
-                    onClick={() => setCohort({ ...cohort, is_static: true })}
-                    style={{ height: '100%' }}
-                >
-                    <div style={{ textAlign: 'center', fontSize: 40 }}>
-                        <UnorderedListOutlined />
-                    </div>
-                    <div className="cohort-type-description">
-                        Upload a list of users to create cohort with a specific set of users.
-                    </div>
-                </Card>
-            </Col>
-        </Row>
-    )
-}
-
-export function Cohort(props: { cohort: CohortType }): JSX.Element {
-    const logic = cohortLogic(props)
-    const { setCohort, saveCohort } = useActions(logic)
-
-    const { cohort, lastSavedAt, isNewCohort } = useValues(logic)
-
-    return (
-        <div style={{ maxWidth: 750 }} className="mb">
-            <form
-                onSubmit={(e): void => {
-                    e.preventDefault()
-                    saveCohort()
-                }}
-            >
-                <div className="mb">
-                    <Input
-                        required
-                        autoFocus
-                        placeholder="Cohort name..."
-                        value={cohort.name}
-                        data-attr="cohort-name"
-                        onChange={(e) => setCohort({ ...cohort, name: e.target.value })}
-                    />
-                </div>
-                {isNewCohort && cohort.is_static === undefined && (
-                    <CohortChoice cohort={cohort} setCohort={setCohort} />
-                )}
-                {cohort.is_static && <StaticCohort logic={logic} />}
-                {(cohort.is_static === false || (cohort.is_static === null && !isNewCohort)) && (
-                    <DynamicCohort logic={logic} />
-                )}
-
-                <div className="mt">
-                    <Button
-                        type="primary"
-                        htmlType="submit"
-                        disabled={isSubmitDisabled(cohort)}
-                        data-attr="save-cohort"
-                        style={{ marginRight: '1rem' }}
-                    >
-                        Save cohort
-                    </Button>
-                    {cohort.is_static === false && (
-                        <Button onClick={() => setCohort({ ...cohort, groups: [...cohort.groups, {}] })}>
-                            New group
-                        </Button>
-                    )}
-                </div>
-            </form>
+                </Col>
+            </Row>
+            <Row gutter={16} className="mt">
+                <Col span={24}>
+                    <CohortDescriptionInput description={cohort.description} onChange={onDescriptionChange} />
+                </Col>
+            </Row>
+            {cohort.id && cohort.id !== 'new' && <CohortDetailsRow cohort={cohort} />}
             <Divider />
-            {!isNewCohort && <Persons cohort={cohort} key={lastSavedAt} />}
+            {cohort.is_static ? (
+                <div>
+                    <h3 className="l3">Add Users</h3>
+                    <span>
+                        Drop a <pre style={{ display: 'inline' }}>.csv</pre> file here to add users to your cohort
+                    </span>
+                    <Dragger {...staticCSVDraggerProps} className="cohort-csv-dragger">
+                        <p className="ant-upload-drag-icon">
+                            <InboxOutlined />
+                        </p>
+                        <div>
+                            <p className="ant-upload-text">Click or drag file to this area to upload</p>
+                            <p className="ant-upload-hint">
+                                The CSV file only requires a single column with the user’s distinct ID.
+                            </p>
+
+                            {submitted && !cohort.csv && (
+                                <p style={{ color: 'var(--danger)', marginTop: 16 }}>You need to upload a CSV file.</p>
+                            )}
+                        </div>
+                    </Dragger>
+                </div>
+            ) : (
+                <CohortMatchingCriteriaSection logic={logic} />
+            )}
+
+            {cohort.id !== 'new' && (
+                <>
+                    <Divider />
+                    <div>
+                        <h3 className="l3">Matched Users</h3>
+                        <span>List of users that currently match the criteria defined</span>
+                        {cohort.is_calculating ? (
+                            <div className="cohort-recalculating">
+                                <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} /> We're
+                                recalculating who belongs to this cohort. This could take up to a couple of minutes.
+                            </div>
+                        ) : (
+                            <div style={{ marginTop: 15 }}>
+                                <Persons cohort={cohort} />
+                            </div>
+                        )}
+                    </div>
+                </>
+            )}
         </div>
+    )
+}
+
+export function CohortFooter(props: { cohort: CohortType }): JSX.Element {
+    const logic = cohortLogic(props)
+    const { cohort } = useValues(logic)
+    const { saveCohort } = useActions(logic)
+
+    return (
+        <Row style={{ display: 'flex' }}>
+            <Button type="link" danger icon={<DeleteOutlined />}>
+                Delete cohort
+            </Button>
+            <div style={{ flexGrow: 1, textAlign: 'right' }}>
+                <Button
+                    disabled={!cohort.name}
+                    type="primary"
+                    htmlType="submit"
+                    data-attr="save-cohort"
+                    onClick={() => saveCohort()}
+                    style={{ float: 'right' }}
+                    icon={<SaveOutlined />}
+                >
+                    Save cohort
+                </Button>
+            </div>
+        </Row>
     )
 }

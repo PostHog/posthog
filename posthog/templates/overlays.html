@@ -30,7 +30,7 @@
         }
     })
 </script>
-{% else %}
+{% elif not e2e_testing %}
 <script>
     if (location.protocol !== 'https:') {
         const element = document.createElement('div')
