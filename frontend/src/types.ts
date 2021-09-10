@@ -97,6 +97,7 @@ export interface OrganizationType extends OrganizationBasicType {
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
     membership_level: OrganizationAccessLevel | null
+    only_allowed_team_ids: TeamType['id'][] | null
 }
 
 export interface OrganizationMemberType {

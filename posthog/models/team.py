@@ -24,7 +24,6 @@ TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 DEPRECATED_ATTRS = (
     "plugins_opt_in",
     "opt_out_capture",
-    "users",
     "event_names",
     "event_names_with_usage",
     "event_properties",

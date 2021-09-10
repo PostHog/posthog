@@ -161,7 +161,10 @@ function Permissioning({ isRestricted }: RestrictedComponentProps): JSX.Element 
                             () => updateOrganization({ per_project_access: checked })
                         )
                     }}
-                    checked={currentOrganization?.per_project_access}
+                    checked={
+                        currentOrganization?.available_features.includes(AvailableFeature.PER_PROJECT_ACCESS) &&
+                        currentOrganization?.per_project_access
+                    }
                     loading={currentOrganizationLoading}
                     disabled={isRestricted || !currentOrganization}
                 />
