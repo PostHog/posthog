@@ -17,7 +17,7 @@ from sentry_sdk.api import capture_exception
 from ee.clickhouse.errors import wrap_query_error
 from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
-from posthog.constants import RDBMS
+from posthog.constants import AnalyticsDBMS
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
@@ -43,21 +43,24 @@ _request_information: Optional[Dict] = None
 
 
 def make_ch_pool(**overrides) -> ChPool:
-    return ChPool(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-        connections_min=CLICKHOUSE_CONN_POOL_MIN,
-        connections_max=CLICKHOUSE_CONN_POOL_MAX,
-        settings={"mutations_sync": "1"} if TEST else {},
-    )
+    kwargs = {
+        "host": CLICKHOUSE_HOST,
+        "database": CLICKHOUSE_DATABASE,
+        "secure": CLICKHOUSE_SECURE,
+        "user": CLICKHOUSE_USER,
+        "password": CLICKHOUSE_PASSWORD,
+        "ca_certs": CLICKHOUSE_CA,
+        "verify": CLICKHOUSE_VERIFY,
+        "connections_min": CLICKHOUSE_CONN_POOL_MIN,
+        "connections_max": CLICKHOUSE_CONN_POOL_MAX,
+        "settings": {"mutations_sync": "1"} if TEST else {},
+        **overrides,
+    }
+
+    return ChPool(**kwargs)
 
 
-if PRIMARY_DB != RDBMS.CLICKHOUSE:
+if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
 
     def async_execute(query, args=None, settings=None, with_column_types=False):

@@ -31,6 +31,17 @@ class TrendsEventQuery(ClickhouseEventQuery):
                 )
             )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
+            + (
+                " ".join(
+                    f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields
+                )
+            )
+            + (
+                " ".join(
+                    f", {self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
+                    for column_name in self._extra_person_fields
+                )
+            )
         )
 
         date_query, date_params = self._get_date_filter()

@@ -1,7 +1,7 @@
 import { Alert, Input } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import { useActions } from 'kea'
-import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 export function CreateOrganizationModal({
@@ -9,7 +9,7 @@ export function CreateOrganizationModal({
     setIsVisible,
 }: {
     isVisible: boolean
-    setIsVisible?: Dispatch<SetStateAction<boolean>>
+    setIsVisible?: (newValue: boolean) => void
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)

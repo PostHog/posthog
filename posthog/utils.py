@@ -204,6 +204,9 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
+    if settings.E2E_TESTING:
+        context["e2e_testing"] = True
+
     if settings.SELF_CAPTURE:
         context["self_capture"] = True
         api_token = get_self_capture_api_token(request)
@@ -775,3 +778,10 @@ def str_to_bool(value: Any) -> bool:
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
+
+
+def get_helm_info_env() -> dict:
+    try:
+        return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
+    except Exception:
+        return {}

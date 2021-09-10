@@ -1,7 +1,7 @@
 import { Alert, Input, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React, { Dispatch, SetStateAction, useCallback, useRef, useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -12,7 +12,7 @@ export function CreateProjectModal({
     caption,
 }: {
     isVisible: boolean
-    setIsVisible?: Dispatch<SetStateAction<boolean>>
+    setIsVisible?: (newValue: boolean) => void
     title?: string
     caption?: JSX.Element
 }): JSX.Element {
