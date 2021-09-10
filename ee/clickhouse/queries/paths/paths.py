@@ -13,7 +13,7 @@ EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
 
 
-class ClickhousePathsNew:
+class ClickhousePaths:
     _filter: PathFilter
     _funnel_filter: Optional[Filter]
     _team: Team
@@ -47,7 +47,9 @@ class ClickhousePathsNew:
 
         resp = []
         for res in results:
-            resp.append({"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3]})
+            resp.append(
+                {"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3],}
+            )
         return resp
 
     def _exec_query(self) -> List[Tuple]:
