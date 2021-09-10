@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -30,9 +30,10 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
         join_condition = EVENT_JOIN_PERSON_SQL
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math in MATH_FUNCTIONS:
-        value, _ = get_property_string_expr(
-            "events", cast(str, entity.math_property), f"%(e_{entity.index}_math)s", "properties"
-        )
+        if entity.math_property is None:
+            raise ValidationError(f"Math without math_property passed")
+
+        value, _ = get_property_string_expr("events", entity.math_property, f"%(e_{entity.index}_math)s", "properties")
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
         params["join_property_key"] = entity.math_property
         params[f"e_{entity.index}_math"] = entity.math_property
