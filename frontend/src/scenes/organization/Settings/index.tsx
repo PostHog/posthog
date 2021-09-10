@@ -8,7 +8,7 @@ import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
 import { DangerZone } from './DangerZone'
 import { RestrictedArea, RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationAccessLevel } from '../../../lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
 import { sceneLogic } from '../../sceneLogic'
@@ -198,13 +198,13 @@ export function OrganizationSettings({ user }: { user: UserType }): JSX.Element 
                 caption="View and manage your organization here. Build an even better product together."
             />
             <Card>
-                <RestrictedArea Component={DisplayName} minimumAccessLevel={OrganizationAccessLevel.Admin} />
+                <RestrictedArea Component={DisplayName} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 {!preflight?.cloud && (
                     <>
                         <RestrictedArea
                             Component={DomainWhitelist}
-                            minimumAccessLevel={OrganizationAccessLevel.Admin}
+                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
                         />
                         <Divider />
                     </>
@@ -215,13 +215,16 @@ export function OrganizationSettings({ user }: { user: UserType }): JSX.Element 
                 <Divider />
                 {featureFlags[FEATURE_FLAGS.PER_PROJECT_ACCESS] && (
                     <>
-                        <RestrictedArea Component={Permissioning} minimumAccessLevel={OrganizationAccessLevel.Admin} />
+                        <RestrictedArea
+                            Component={Permissioning}
+                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                        />
                         <Divider />
                     </>
                 )}
-                <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationAccessLevel.Admin} />
+                <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
-                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationAccessLevel.Owner} />
+                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
             </Card>
         </>
     )

@@ -4,14 +4,14 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { membersLogicType } from './membersLogicType'
-import { OrganizationAccessLevel, organizationMembershipLevelToName } from 'lib/constants'
+import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 export const membersLogic = kea<membersLogicType>({
     actions: {
-        changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationAccessLevel) => ({
+        changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
             level,
         }),
@@ -43,7 +43,7 @@ export const membersLogic = kea<membersLogicType>({
             level,
         }: {
             member: OrganizationMemberType
-            level: OrganizationAccessLevel
+            level: OrganizationMembershipLevel
         }) => {
             await api.update(`api/organizations/@current/members/${member.user.id}/`, { level })
             toast(
@@ -55,7 +55,7 @@ export const membersLogic = kea<membersLogicType>({
                 </div>
             )
             // reload organization to account for no longer being organization owner
-            if (level === OrganizationAccessLevel.Owner) {
+            if (level === OrganizationMembershipLevel.Owner) {
                 organizationLogic.actions.loadCurrentOrganization()
             }
             actions.loadMembers()

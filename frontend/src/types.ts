@@ -1,7 +1,7 @@
 import {
     ACTION_TYPE,
     EVENT_TYPE,
-    OrganizationAccessLevel,
+    OrganizationMembershipLevel,
     PluginsAccessLevel,
     ShownAsValue,
     RETENTION_RECURRING,
@@ -96,14 +96,14 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
-    membership_level: OrganizationAccessLevel | null
+    membership_level: OrganizationMembershipLevel | null
     only_allowed_team_ids: TeamType['id'][] | null
 }
 
 export interface OrganizationMemberType {
     id: string
     user: UserBasicType
-    level: OrganizationAccessLevel
+    level: OrganizationMembershipLevel
     joined_at: string
     updated_at: string
 }
@@ -137,7 +137,6 @@ export interface TeamBasicType {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
-    membership_level: OrganizationAccessLevel | null
 }
 
 export interface TeamType extends TeamBasicType {

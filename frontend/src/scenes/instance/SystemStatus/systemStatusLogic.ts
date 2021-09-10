@@ -13,7 +13,7 @@ import {
 } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { OrganizationAccessLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 export type TabName = 'overview' | 'internal_metrics'
 
@@ -105,7 +105,7 @@ export const systemStatusLogic = kea<systemStatusLogicType<TabName>>({
                 if (preflight?.cloud) {
                     return !!user?.is_staff
                 }
-                return !!org?.membership_level && org.membership_level >= OrganizationAccessLevel.Admin
+                return !!org?.membership_level && org.membership_level >= OrganizationMembershipLevel.Admin
             },
         ],
     }),
