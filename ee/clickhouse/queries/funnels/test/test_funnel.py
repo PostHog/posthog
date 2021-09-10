@@ -1313,68 +1313,37 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
         person2 = _create_person(distinct_ids=["test2"], team_id=self.team.pk)
         _create_event(team=self.team, event="user signed up", distinct_id="test2")
 
-        filters = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0,},
-                {
-                    "id": "$autocapture",
-                    "name": "$autocapture",
-                    "order": 1,
-                    "properties": [{"key": "tag_name", "value": ["img"], "operator": "exact", "type": "element"}],
-                    "type": "events",
-                },
-            ],
-            "insight": INSIGHT_FUNNELS,
-        }
-
-        filter = Filter(data=filters)
-        funnel = ClickhouseFunnel(filter, self.team)
-
-        result = funnel.run()
-
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
-        self.assertEqual(result[1]["name"], "$autocapture")
-        self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
-
-        self.assertCountEqual(
-            self._get_people_at_step(filter, 1), [person1.uuid, person2.uuid],
-        )
-        self.assertCountEqual(
-            self._get_people_at_step(filter, 2), [person1.uuid],
-        )
-
-        filter = filter.with_data(
-            {
+        for tag_name in ["img", "svg"]:
+            filters = {
                 "events": [
                     {"id": "user signed up", "type": "events", "order": 0,},
                     {
                         "id": "$autocapture",
                         "name": "$autocapture",
                         "order": 1,
-                        "properties": [{"key": "tag_name", "value": ["svg"], "operator": "exact", "type": "element"}],
+                        "properties": [
+                            {"key": "tag_name", "value": [tag_name], "operator": "exact", "type": "element"}
+                        ],
                         "type": "events",
                     },
-                ]
+                ],
+                "insight": INSIGHT_FUNNELS,
             }
-        )
-        funnel = ClickhouseFunnel(filter, self.team)
 
-        result = funnel.run()
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[0]["count"], 2)
-        self.assertEqual(len(result[0]["people"]), 2)
-        self.assertEqual(result[1]["name"], "$autocapture")
-        self.assertEqual(result[1]["count"], 1)
-        self.assertEqual(len(result[1]["people"]), 1)
+            filter = Filter(data=filters)
+            result = ClickhouseFunnel(filter, self.team).run()
 
-        self.assertCountEqual(
-            self._get_people_at_step(filter, 1), [person1.uuid, person2.uuid],
-        )
-        self.assertCountEqual(
-            self._get_people_at_step(filter, 2), [person1.uuid],
-        )
+            self.assertEqual(len(result), 2)
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(len(result[0]["people"]), 2)
+            self.assertEqual(result[1]["name"], "$autocapture")
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(len(result[1]["people"]), 1)
+
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1), [person1.uuid, person2.uuid],
+            )
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 2), [person1.uuid],
+            )
