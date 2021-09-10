@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
-from posthog.ee import is_clickhouse_enabled
+from posthog.utils import is_clickhouse_enabled
 
 from . import (
     action,

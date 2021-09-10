@@ -4,8 +4,8 @@ from typing import Sequence, cast
 
 from celery import shared_task
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Action
+from posthog.utils import is_clickhouse_enabled
 
 logger = logging.getLogger(__name__)
 

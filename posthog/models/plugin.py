@@ -12,12 +12,12 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec, Version
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
 from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, load_json_file, parse_url
+from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
