@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person_distinct_id
@@ -852,3 +853,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
 
         self.assertEqual(response[0]["count"], 2)
+
+    def test_trends_math_without_math_property(self):
+        with self.assertRaises(ValidationError):
+            ClickhouseTrends().run(
+                Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team,
+            )
