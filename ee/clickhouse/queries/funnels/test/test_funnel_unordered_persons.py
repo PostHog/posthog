@@ -1,7 +1,5 @@
 from uuid import uuid4
 
-import pytest
-
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedPersons
 from ee.clickhouse.util import ClickhouseTestMixin
@@ -59,8 +57,8 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ClickhouseFunnelUnorderedPersons(filter, self.team).run()
 
         filter = filter.with_data({"funnel_step": -1})
-        with pytest.raises(ValueError):
-            _, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
+        results, _ = ClickhouseFunnelUnorderedPersons(filter, self.team).run()
+        self.assertEqual(0, len(results))
 
     def test_first_step(self):
         self._create_sample_data_multiple_dropoffs()
