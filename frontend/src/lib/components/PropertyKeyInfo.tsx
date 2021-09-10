@@ -566,6 +566,15 @@ export function getKeyMapping(value: string | PropertyFilterValue, type: 'event'
             data.description = `${data.description} Data from the first time this user was seen.`
         }
         return data
+    } else if (value.startsWith('$feature/')) {
+        const featureFlagKey = value.replace(/^\$feature\//, '')
+        if (featureFlagKey) {
+            return {
+                label: `Feature: ${featureFlagKey}`,
+                description: `Value for the feature flag "${featureFlagKey}" that was active when this event was sent.`,
+                examples: ['true', 'variant-1a'],
+            }
+        }
     }
     return null
 }
