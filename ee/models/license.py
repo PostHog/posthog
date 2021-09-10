@@ -9,6 +9,7 @@ from django.utils import timezone
 from rest_framework import exceptions, status
 
 from posthog.celery import sync_all_organization_available_features
+from posthog.constants import AvailableFeature
 
 
 class LicenseError(exceptions.APIException):
@@ -53,19 +54,17 @@ class License(models.Model):
 
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = [
-        "zapier",
-        "organizations_projects",
-        "google_login",
-        "saml",
-        "dashboard_collaboration",
-        "ingestion_taxonomy",
+        AvailableFeature.ZAPIER,
+        AvailableFeature.ORGANIZATIONS_PROJECTS,
+        AvailableFeature.GOOGLE_LOGIN,
+        AvailableFeature.SAML,
+        AvailableFeature.DASHBOARD_COLLABORATION,
+        AvailableFeature.INGESTION_TAXONOMY,
     ]  # Base premium features
-    PLANS = {
-        ENTERPRISE_PLAN: ENTERPRISE_FEATURES + ["clickhouse"],
-    }
+    PLANS = {ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
 
     @property
-    def available_features(self) -> List[str]:
+    def available_features(self) -> List[AvailableFeature]:
         return self.PLANS.get(self.plan, [])
 
 

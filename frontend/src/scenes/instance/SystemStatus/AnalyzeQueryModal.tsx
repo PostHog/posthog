@@ -47,9 +47,10 @@ export function AnalyzeQueryModal(): JSX.Element | null {
                         <div key={key}>
                             <h3>Flamegraph: {key}</h3>
 
-                            <img
-                                src={`data:image/svg+xml;utf8,${encodeURIComponent(value)}`}
-                                style={{ width: '100%' }}
+                            <a
+                                className="embedded-svg-wrapper"
+                                href={`data:image/svg+xml;utf8,${encodeURIComponent(value)}`}
+                                dangerouslySetInnerHTML={{ __html: value }}
                             />
                         </div>
                     ))}

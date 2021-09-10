@@ -1,5 +1,15 @@
 from enum import Enum
 
+
+class AvailableFeature(str, Enum):
+    ZAPIER = "zapier"
+    ORGANIZATIONS_PROJECTS = "organizations_projects"
+    GOOGLE_LOGIN = "google_login"
+    SAML = "saml"
+    DASHBOARD_COLLABORATION = "dashboard_collaboration"
+    INGESTION_TAXONOMY = "ingestion_taxonomy"
+
+
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 

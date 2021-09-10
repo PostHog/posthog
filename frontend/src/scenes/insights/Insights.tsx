@@ -34,7 +34,7 @@ import { People } from 'scenes/funnels/FunnelPeople'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
+import { AvailableFeature, FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource, eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -94,7 +94,7 @@ export function Insights(): JSX.Element {
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
-    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -196,7 +196,6 @@ export function Insights(): JSX.Element {
                 view={ViewType.FUNNELS}
                 filters={allFilters}
                 onSaveCohort={() => {
-                    refreshCohort()
                     setCohortModalVisible(true)
                 }}
             />
@@ -232,7 +231,7 @@ export function Insights(): JSX.Element {
                 <Row style={{ alignItems: 'baseline' }}>
                     <PageHeader title={'Insights'} />
                     {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                        user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                        user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION) && (
                             <EditOutlined
                                 style={{ paddingLeft: 16 }}
                                 onClick={() =>
@@ -245,7 +244,7 @@ export function Insights(): JSX.Element {
 
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <Row>
-                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                    {user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION) && (
                         <Col style={{ width: '100%' }}>
                             <div className="mb" data-attr="insight-tags">
                                 <ObjectTags
