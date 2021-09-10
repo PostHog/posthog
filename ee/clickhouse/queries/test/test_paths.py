@@ -294,7 +294,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = ClickhousePaths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
         self.assertEqual(
             response,
             [
@@ -333,7 +333,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = ClickhousePaths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
         self.assertEqual(
             response,
             [
@@ -383,7 +383,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = ClickhousePaths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
         self.assertEqual(
             response,
             [
@@ -439,7 +439,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = ClickhousePaths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
         self.assertEqual(
             response,
             [
