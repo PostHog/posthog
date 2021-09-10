@@ -4,7 +4,7 @@ import { decodeParams } from 'kea-router'
 import { Button, Spin, Space, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
 import { ExpandState, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
-import { humanFriendlyDetailedTime, stripHTTP, pluralize, colonDelimitedDuration } from '~/lib/utils'
+import { humanFriendlyDetailedTime, stripHTTP, pluralize, humanFriendlyDuration } from '~/lib/utils'
 import { SessionDetails } from './SessionDetails'
 import dayjs from 'dayjs'
 import { SessionType } from '~/types'
@@ -14,12 +14,10 @@ import {
     PoweroffOutlined,
     QuestionCircleOutlined,
     ArrowLeftOutlined,
-    PlaySquareOutlined,
-    InfoCircleOutlined,
+    PlayCircleOutlined,
 } from '@ant-design/icons'
-import { SessionsPlayerButton, sessionPlayerUrl } from './SessionsPlayerButton'
+import { SessionRecordingsButton, sessionPlayerUrl } from './SessionRecordingsButton'
 import { SessionsPlay } from './SessionsPlay'
-import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
@@ -35,6 +33,7 @@ import { IconEventsShort } from 'lib/components/icons'
 import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from '../sceneLogic'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -90,23 +89,8 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         setShowOnlyMatches,
     } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
-    const { shareFeedbackCommand } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sessionsTableRef = useRef<HTMLInputElement>(null)
-
-    const enableSessionRecordingCTA = (
-        <>
-            Session recording is turned off for this project. Go to{' '}
-            <Link to="/project/settings#session-recording"> project settings</Link> to enable.
-        </>
-    )
-
-    const playAllCTA =
-        firstRecordingId === null
-            ? currentTeam?.session_recording_opt_in
-                ? 'No recordings found for this date'
-                : enableSessionRecordingCTA
-            : undefined
 
     const columns: ResizableColumnType<SessionType>[] = [
         {
@@ -123,78 +107,71 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             span: 3,
         },
         {
-            title: (
-                <span>
-                    Session Duration
-                    <Tooltip title="Session duration is formatted as HH:MM:SS.">
-                        <InfoCircleOutlined className="info-indicator" />
-                    </Tooltip>
-                </span>
-            ),
+            title: 'Session duration',
             render: function RenderDuration(session: SessionType) {
                 if (session.session_recordings.length > 0) {
                     const seconds = getSessionRecordingsDurationSum(session)
-                    return <span>{colonDelimitedDuration(Math.max(seconds, session.length))}</span>
+                    return <span>{humanFriendlyDuration(Math.max(seconds, session.length))}</span>
                 }
-                return <span>{colonDelimitedDuration(session.length)}</span>
+                return <span>{humanFriendlyDuration(session.length)}</span>
             },
             span: 3,
         },
         {
-            title: 'Start Time',
+            title: 'Start time',
             render: function RenderStartTime(session: SessionType) {
-                return <span>{humanFriendlyDetailedTime(session.start_time)}</span>
+                return humanFriendlyDetailedTime(session.start_time)
             },
             span: 3,
         },
         {
-            title: 'Start Point',
+            title: 'Start point',
             render: function RenderStartPoint(session: SessionType) {
-                return <span>{session.start_url ? stripHTTP(session.start_url) : 'N/A'}</span>
+                return session.start_url ? stripHTTP(session.start_url) : 'N/A'
             },
             ellipsis: true,
             span: 4,
         },
         {
-            title: 'End Point',
+            title: 'End point',
             render: function RenderEndPoint(session: SessionType) {
-                return <span>{session.end_url ? stripHTTP(session.end_url) : 'N/A'}</span>
+                return session.end_url ? stripHTTP(session.end_url) : 'N/A'
             },
             ellipsis: true,
             span: 4,
         },
         {
             title: (
-                <span>
-                    {currentTeam?.session_recording_opt_in ? (
-                        <Tooltip
-                            title={
-                                <>
-                                    Replay sessions as if you were in front of your users. Not seeing a recording you're
-                                    expecting? <a onClick={() => shareFeedbackCommand()}>Let us know</a>.
-                                </>
-                            }
-                        >
-                            <span>
-                                Play recording
-                                <QuestionCircleOutlined style={{ marginLeft: 6 }} />
-                            </span>
-                        </Tooltip>
-                    ) : (
-                        <Tooltip title={enableSessionRecordingCTA}>
-                            <span>
-                                <PoweroffOutlined style={{ marginRight: 6 }} className="text-warning" />
-                                Play recording
-                            </span>
-                        </Tooltip>
-                    )}
-                </span>
+                <Tooltip
+                    title={
+                        currentTeam?.session_recording_opt_in
+                            ? 'Replay sessions as if you were right next to your users.'
+                            : 'Session recording is turned off for this project. Click to go to settings.'
+                    }
+                    delayMs={0}
+                >
+                    <span style={{ whiteSpace: 'nowrap' }}>
+                        {currentTeam?.session_recording_opt_in ? (
+                            <>
+                                Recordings
+                                <QuestionCircleOutlined className="info-indicator" />
+                            </>
+                        ) : (
+                            <Link to={urls.projectSettings() + '#session-recording'} style={{ color: 'inherit' }}>
+                                Recordings
+                                <PoweroffOutlined className="info-indicator" />
+                            </Link>
+                        )}
+                    </span>
+                </Tooltip>
             ),
             render: function RenderEndPoint(session: SessionType) {
-                return <SessionsPlayerButton session={session} />
+                return session.session_recordings.length ? (
+                    <SessionRecordingsButton sessionRecordings={session.session_recordings} />
+                ) : null
             },
-            ellipsis: true,
-            span: 2.5,
+            span: 4,
+            defaultWidth: 184,
         },
     ]
 
@@ -252,17 +229,24 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     )}
                 </div>
                 <div className="sessions-view-actions-right-items">
-                    <Tooltip title={playAllCTA}>
-                        <span>
-                            <LinkButton
-                                to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
-                                type="primary"
-                                data-attr="play-all-recordings"
-                                disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
-                            >
-                                <PlaySquareOutlined /> Play all
-                            </LinkButton>
-                        </span>
+                    <Tooltip
+                        title={
+                            firstRecordingId === null
+                                ? 'No recordings found for this date.'
+                                : currentTeam?.session_recording_opt_in
+                                ? 'Play all recordings found for this date.'
+                                : 'Session recording is turned off for this project. Enable in Project Settings.'
+                        }
+                    >
+                        <LinkButton
+                            to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
+                            type="primary"
+                            data-attr="play-all-recordings"
+                            disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
+                            icon={<PlayCircleOutlined />}
+                        >
+                            Play all
+                        </LinkButton>
                     </Tooltip>
                 </div>
             </div>
@@ -301,7 +285,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                             'matches',
                                             'match',
                                             false
-                                        )} your event filters`}
+                                        )} your event filters.`}
                                     >
                                         <Badge
                                             className="sessions-matching-events-icon cursor-pointer"

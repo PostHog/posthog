@@ -30,3 +30,5 @@ cypress/screenshots/
 docker-compose.prod.yml
 .python-version
 *.isorted
+build-storybook.log
+storybook-static

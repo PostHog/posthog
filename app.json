@@ -31,13 +31,6 @@
                     "quantity": 0
                 }
             }
-        },
-        "test": {
-            "addons": ["heroku-postgresql:in-dyno"],
-            "scripts": {
-                "test": "python manage.py test --keepdb -v 2"
-            },
-            "buildpacks": [{ "url": "heroku/python" }]
         }
     },
     "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],

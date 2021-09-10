@@ -91,7 +91,10 @@ def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx
                 query_parts.append(f"AND person.id IN ({person_id_query})")
         else:
             filter_query, filter_params = prop_filter_json_extract(
-                prop=prop, idx=idx, prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx)
+                prop=prop,
+                idx=idx,
+                prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx),
+                allow_denormalized_props=False,
             )
             params.update(filter_params)
             query_parts.append(filter_query)

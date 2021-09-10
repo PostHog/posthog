@@ -11,7 +11,7 @@ import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { FunnelLayout } from 'lib/constants'
 import {
     getReferenceStep,
@@ -56,7 +56,7 @@ function DuplicateStepIndicator(): JSX.Element {
                     </>
                 }
             >
-                <InfoCircleOutlined />
+                <InfoCircleOutlined className="info-indicator" />
             </Tooltip>
         </span>
     )
@@ -147,7 +147,7 @@ function Bar({
             trigger="hover"
             placement="right"
             content={
-                <InsightTooltip chartType="funnel" altTitle={popoverTitle}>
+                <InsightTooltip altTitle={popoverTitle}>
                     {popoverMetrics.map(({ title, value, visible }, index) =>
                         visible !== false ? <MetricRow key={index} title={title} value={value} /> : null
                     )}

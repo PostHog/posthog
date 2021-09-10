@@ -1,3 +1,5 @@
+import json
+import os
 from typing import Any, Dict, List, Union
 
 from django.db import connection
@@ -8,11 +10,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.ee import is_clickhouse_enabled
+from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
-from posthog.permissions import SingleTenancyOrAdmin
+from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
 from posthog.utils import (
     dict_from_cursor_fetchall,
+    get_helm_info_env,
     get_plugin_server_job_queues,
     get_plugin_server_version,
     get_redis_info,
@@ -37,9 +41,22 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         redis_alive = is_redis_alive()
         postgres_alive = is_postgres_alive()
 
-        metrics: List[Dict[str, Union[str, bool, int, float]]] = []
+        metrics: List[Dict[str, Union[str, bool, int, float, Dict[str, Any]]]] = []
 
         metrics.append({"key": "posthog_version", "metric": "PostHog version", "value": VERSION})
+
+        metrics.append({"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": GIT_SHA})
+
+        helm_info = get_helm_info_env()
+        if len(helm_info) > 0:
+            metrics.append(
+                {
+                    "key": "helm",
+                    "metric": "Helm Info",
+                    "value": "",
+                    "subrows": {"columns": ["key", "value"], "rows": list(helm_info.items())},
+                }
+            )
 
         metrics.append(
             {
@@ -161,6 +178,20 @@ class InstanceStatusViewSet(viewsets.ViewSet):
             queries["clickhouse_slow_log"] = get_clickhouse_slow_log()
 
         return Response({"results": queries})
+
+    @action(
+        methods=["POST"],
+        detail=False,
+        permission_classes=[IsAuthenticated, SingleTenancyOrAdmin, OrganizationAdminAnyPermissions],
+    )
+    def analyze_ch_query(self, request: Request) -> Response:
+        response = {}
+        if is_clickhouse_enabled():
+            from ee.clickhouse.system_status import analyze_query
+
+            response["results"] = analyze_query(request.data["query"])
+
+        return Response(response)
 
     def get_postgres_running_queries(self):
         from django.db import connection

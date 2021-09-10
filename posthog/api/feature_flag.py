@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional, cast
 
 import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import request, serializers, status, viewsets
+from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -69,6 +69,16 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         self._update_filters(validated_data)
+
+        variants = validated_data.get("filters", {}).get("multivariate", {}).get("variants", [])
+        variant_rollout_sum = 0
+        for variant in variants:
+            variant_rollout_sum += variant.get("rollout_percentage")
+
+        if len(variants) > 0 and variant_rollout_sum != 100:
+            raise exceptions.ValidationError(
+                "Invalid variant definitions: Variant rollout percentages must sum to 100."
+            )
 
         FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
         instance = super().create(validated_data)

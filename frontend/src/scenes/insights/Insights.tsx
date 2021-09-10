@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from 'react'
-import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { isMobile } from 'lib/utils'
+import { isMobile, Loading } from 'lib/utils'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
-import { Row, Col, Card, Input } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
+import { Card, Col, Input, Row } from 'antd'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -14,21 +14,27 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 
 import { Paths } from 'scenes/paths/Paths'
 
-import { RetentionTab, SessionTab, TrendTab, PathTab, FunnelTab } from './InsightTabs'
+import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
-import { logicFromInsight } from './utils'
+import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
-import { DownOutlined, UpOutlined, EditOutlined } from '@ant-design/icons'
+import { DownOutlined, EditOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
 
 import './Insights.scss'
-import { ErrorMessage, TimeOut } from './EmptyStates'
+import {
+    ErrorMessage,
+    FunnelEmptyState,
+    FunnelInvalidExclusionFiltersEmptyState,
+    FunnelInvalidFiltersEmptyState,
+    TimeOut,
+} from './EmptyStates'
 import { People } from 'scenes/funnels/FunnelPeople'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
+import { AvailableFeature, FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource, eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -40,11 +46,8 @@ import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
-import { FunnelHistogramHeader } from 'scenes/funnels/FunnelHistogram'
 import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
-import { FunnelSecondaryTabs } from './InsightTabs/FunnelTab/FunnelSecondaryTabs'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import './Insights.scss'
 import { Description } from 'lib/components/Description/Description'
 import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
@@ -90,8 +93,8 @@ export function Insights(): JSX.Element {
     } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
-    const { areFiltersValid } = useValues(funnelLogic)
-    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
+    const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -99,11 +102,11 @@ export function Insights(): JSX.Element {
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const { user } = useValues(userLogic)
-    const verticalLayout = activeView === ViewType.FUNNELS // Whether to display the control tab on the side instead of on top
+    const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
-    const { loadResults } = useActions(
-        logicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
-    )
+    const logicFromInsight = getLogicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
+    const { loadResults } = useActions(logicFromInsight)
+    const { resultsLoading } = useValues(logicFromInsight)
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -152,6 +155,40 @@ export function Insights(): JSX.Element {
         },
     })
 
+    // Empty states that completely replace the graph
+    const BlockingEmptyState = (() => {
+        // Insight specific empty states - note order is important here
+        if (activeView === ViewType.FUNNELS) {
+            if (!areFiltersValid) {
+                return <FunnelInvalidFiltersEmptyState />
+            }
+            if (!areExclusionFiltersValid) {
+                return <FunnelInvalidExclusionFiltersEmptyState />
+            }
+            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+                return <FunnelEmptyState />
+            }
+        }
+
+        // Insight agnostic empty states
+        if (showErrorMessage) {
+            return <ErrorMessage />
+        }
+        if (showTimeoutMessage) {
+            return <TimeOut isLoading={isLoading} />
+        }
+
+        return null
+    })()
+
+    // Empty states that can coexist with the graph (e.g. Loading)
+    const CoexistingEmptyState = (() => {
+        if (isLoading || resultsLoading) {
+            return <Loading />
+        }
+        return null
+    })()
+
     return (
         <div className="insights-page">
             <PersonModal
@@ -159,7 +196,6 @@ export function Insights(): JSX.Element {
                 view={ViewType.FUNNELS}
                 filters={allFilters}
                 onSaveCohort={() => {
-                    refreshCohort()
                     setCohortModalVisible(true)
                 }}
             />
@@ -195,7 +231,7 @@ export function Insights(): JSX.Element {
                 <Row style={{ alignItems: 'baseline' }}>
                     <PageHeader title={'Insights'} />
                     {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                        user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                        user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION) && (
                             <EditOutlined
                                 style={{ paddingLeft: 16 }}
                                 onClick={() =>
@@ -208,7 +244,7 @@ export function Insights(): JSX.Element {
 
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <Row>
-                    {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+                    {user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION) && (
                         <Col style={{ width: '100%' }}>
                             <div className="mb" data-attr="insight-tags">
                                 <ObjectTags
@@ -244,7 +280,7 @@ export function Insights(): JSX.Element {
                     </Col>
                 ) : (
                     <>
-                        <Col span={24} lg={verticalLayout ? 7 : undefined}>
+                        <Col span={24} xl={verticalLayout ? 8 : undefined}>
                             <Card
                                 className={`insight-controls${controlsCollapsed ? ' collapsed' : ''}`}
                                 onClick={() => controlsCollapsed && toggleControlsCollapsed()}
@@ -301,9 +337,8 @@ export function Insights(): JSX.Element {
                                     }
                                 </div>
                             </Card>
-                            {activeView === ViewType.FUNNELS && <FunnelSecondaryTabs />}
                         </Col>
-                        <Col span={24} lg={verticalLayout ? 17 : undefined}>
+                        <Col span={24} xl={verticalLayout ? 16 : undefined}>
                             {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                             {/* These are filters that are reused between insight features. They
                                 each have generic logic that updates the url
@@ -322,15 +357,16 @@ export function Insights(): JSX.Element {
                             >
                                 <div>
                                     <Row
+                                        align="top"
+                                        justify="space-between"
                                         style={{
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
                                             marginTop: -8,
                                             marginBottom: 16,
                                         }}
                                     >
-                                        <FunnelCanvasLabel />
-                                        <FunnelHistogramHeader />
+                                        <Col>
+                                            <FunnelCanvasLabel />
+                                        </Col>
                                         {lastRefresh && (
                                             <ComputationTimeWithRefresh
                                                 lastRefresh={lastRefresh}
@@ -338,31 +374,21 @@ export function Insights(): JSX.Element {
                                             />
                                         )}
                                     </Row>
-                                    {showErrorMessage ? (
-                                        <ErrorMessage />
-                                    ) : (
-                                        showTimeoutMessage && <TimeOut isLoading={isLoading} />
-                                    )}
-                                    <div
-                                        style={{
-                                            display: showErrorMessage || showTimeoutMessage ? 'none' : 'block',
-                                        }}
-                                    >
-                                        {showErrorMessage ? (
-                                            <ErrorMessage />
-                                        ) : showTimeoutMessage ? (
-                                            <TimeOut isLoading={isLoading} />
-                                        ) : (
-                                            {
-                                                [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                                [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-                                                [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-                                                [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                                [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                [`${ViewType.PATHS}`]: <Paths />,
-                                            }[activeView]
-                                        )}
+                                    {!BlockingEmptyState && CoexistingEmptyState}
+                                    <div style={{ display: 'block' }}>
+                                        {!!BlockingEmptyState
+                                            ? BlockingEmptyState
+                                            : {
+                                                  [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+                                                  [`${ViewType.STICKINESS}`]: (
+                                                      <TrendInsight view={ViewType.STICKINESS} />
+                                                  ),
+                                                  [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
+                                                  [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+                                                  [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+                                                  [`${ViewType.RETENTION}`]: <RetentionContainer />,
+                                                  [`${ViewType.PATHS}`]: <Paths />,
+                                              }[activeView]}
                                     </div>
                                 </div>
                             </Card>

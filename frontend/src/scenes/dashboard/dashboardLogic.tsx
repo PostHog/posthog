@@ -24,7 +24,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
     actions: {
         addNewDashboard: true,
-        loadDashboardItems: ({ refresh }: { refresh?: boolean } = {}) => ({ refresh }),
+        loadDashboardItems: ({ refresh, dive_source_id }: { refresh?: boolean; dive_source_id?: number } = {}) => ({
+            refresh,
+            dive_source_id,
+        }),
         triggerDashboardUpdate: (payload) => ({ payload }),
         setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }), // whether the dashboard is shared or not
         // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
@@ -33,6 +36,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
         updateItemColor: (id: number, color: string) => ({ id, color }),
+        setDiveDashboard: (id: number, dive_dashboard: number | null) => ({ id, dive_dashboard }),
         refreshAllDashboardItems: true,
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
@@ -48,18 +52,27 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
         setRefreshError: (id: number) => ({ id }),
+        setPageTitle: (title: string) => ({ title }),
     },
 
     loaders: ({ actions, props }) => ({
         allItems: [
             null as DashboardType | null,
             {
-                loadDashboardItems: async ({ refresh }: { refresh?: boolean } = {}) => {
+                loadDashboardItems: async ({
+                    refresh,
+                    dive_source_id,
+                }: { refresh?: boolean; dive_source_id?: number } = {}) => {
                     try {
                         const dashboard = await api.get(
-                            `api/dashboard/${props.id}/?${toParams({ share_token: props.shareToken, refresh })}`
+                            `api/dashboard/${props.id}/?${toParams({
+                                share_token: props.shareToken,
+                                refresh,
+                                dive_source_id,
+                            })}`
                         )
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
+                        actions.setPageTitle(dashboard.name ? `${dashboard.name} • Dashboard` : 'Dashboard')
                         eventUsageLogic.actions.reportDashboardViewed(dashboard, !!props.shareToken)
                         return dashboard
                     } catch (error) {
@@ -151,6 +164,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return {
                         ...state,
                         items: state?.items.map((i) => (i.id === id ? { ...i, color } : i)),
+                    } as DashboardType
+                },
+                setDiveDashboard: (state, { id, dive_dashboard }) => {
+                    return {
+                        ...state,
+                        items: state?.items.map((i) => (i.id === id ? { ...i, dive_dashboard } : i)),
                     } as DashboardType
                 },
                 [dashboardItemsModel.actionTypes.duplicateDashboardItemSuccess]: (state, { item }): DashboardType => {
@@ -361,7 +380,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
-            actions.loadDashboardItems({ refresh: props.internal })
+            actions.loadDashboardItems({
+                refresh: props.internal,
+                dive_source_id: dashboardsModel.values.diveSourceId ?? undefined,
+            })
             if (props.shareToken) {
                 actions.setDashboardMode(
                     props.internal ? DashboardMode.Internal : DashboardMode.Public,
@@ -423,6 +445,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
         },
         updateItemColor: ({ id, color }) => {
             api.update(`api/insight/${id}`, { color })
+        },
+        setDiveDashboard: ({ id, dive_dashboard }) => {
+            api.update(`api/insight/${id}`, { dive_dashboard })
         },
         refreshAllDashboardItemsManual: () => {
             // reset auto refresh interval
@@ -537,6 +562,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     actions.refreshAllDashboardItems()
                 }, values.autoRefresh.interval * 1000)
             }
+        },
+        setPageTitle: ({ title }) => {
+            document.title = title ? `${title} • PostHog` : 'PostHog'
         },
     }),
 })

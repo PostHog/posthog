@@ -1,9 +1,9 @@
 from typing import Any, Dict, Tuple
 
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns
-from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
-from ee.clickhouse.queries.trends.util import get_active_user_params, populate_entity_params
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models import Entity
@@ -17,22 +17,29 @@ class TrendsEventQuery(ClickhouseEventQuery):
         super().__init__(*args, **kwargs)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-        column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         _fields = (
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp"
             + (
                 f", {self.EVENT_TABLE_ALIAS}.properties as properties"
-                if column_optimizer.should_query_event_properties_column
+                if self._column_optimizer.should_query_event_properties_column
                 else ""
             )
-            + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
-            + (f", {self.PERSON_TABLE_ALIAS}.person_props as person_props" if self._should_join_persons else "")
             + (
                 " ".join(
-                    [
-                        f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
-                        for column_name in column_optimizer.materialized_event_columns_to_query
-                    ]
+                    f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
+                    for column_name in self._column_optimizer.materialized_event_columns_to_query
+                )
+            )
+            + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
+            + (
+                " ".join(
+                    f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields
+                )
+            )
+            + (
+                " ".join(
+                    f", {self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
+                    for column_name in self._extra_person_fields
                 )
             )
         )
@@ -41,7 +48,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
         self.params.update(date_params)
 
         prop_filters = [*self._filter.properties, *self._entity.properties]
-        prop_query, prop_params = self._get_props(prop_filters, allow_denormalized_props=True)
+        prop_query, prop_params = self._get_props(prop_filters)
         self.params.update(prop_params)
 
         entity_query, entity_params = self._get_entity_query()
@@ -98,6 +105,11 @@ class TrendsEventQuery(ClickhouseEventQuery):
         return date_filter, date_params
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
-        entity_params, entity_format_params = populate_entity_params(self._entity, table_name=self.EVENT_TABLE_ALIAS)
+        entity_params, entity_format_params = get_entity_filtering_params(
+            self._entity,
+            self._team_id,
+            table_name=self.EVENT_TABLE_ALIAS,
+            person_properties_column=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
+        )
 
         return entity_format_params["entity_query"], entity_params

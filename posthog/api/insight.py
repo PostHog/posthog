@@ -31,7 +31,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
-from posthog.utils import generate_cache_key, get_safe_cache, should_refresh, str_to_bool
+from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -80,6 +80,7 @@ class InsightSerializer(InsightBasicSerializer):
             "order",
             "deleted",
             "dashboard",
+            "dive_dashboard",
             "layouts",
             "color",
             "last_refresh",
@@ -134,7 +135,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id"]
+    filterset_fields = ["short_id", "created_by"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -170,9 +171,14 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
+            elif key == "date_from":
+                queryset = queryset.filter(updated_at__gt=relative_date_parse(request.GET["date_from"]))
+            elif key == "date_to":
+                queryset = queryset.filter(updated_at__lt=relative_date_parse(request.GET["date_to"]))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
-
+            elif key == "search":
+                queryset = queryset.filter(name__icontains=request.GET["search"])
         return queryset
 
     # ******************************************

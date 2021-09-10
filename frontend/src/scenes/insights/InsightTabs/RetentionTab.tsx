@@ -74,7 +74,7 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                                 typeKey="retention-table"
                                 customRowPrefix={
                                     <>
-                                        Showing <b>Unique users</b> who did
+                                        Showing <b>unique users</b> who did
                                     </>
                                 }
                             />

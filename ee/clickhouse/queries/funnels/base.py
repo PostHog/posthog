@@ -1,18 +1,13 @@
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Dict, List, Tuple, Union, cast
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns import get_materialized_columns
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import parse_prop_clauses
-from ee.clickhouse.queries.breakdown_props import (
-    format_breakdown_cohort_join_query,
-    get_breakdown_event_prop_values,
-    get_breakdown_person_prop_values,
-)
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.constants import FUNNEL_WINDOW_INTERVAL, FUNNEL_WINDOW_INTERVAL_UNIT, LIMIT, TREND_FILTER_TYPE_ACTIONS
@@ -82,6 +77,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
             if exclusion.funnel_to_step > len(self._filter.entities) - 1:
                 raise ValidationError("Exclusion event range is invalid. End of range is greater than number of steps.")
 
+            for entity in self._filter.entities[exclusion.funnel_from_step : exclusion.funnel_to_step + 1]:
+                if entity.equals(exclusion) or exclusion.is_superset(entity):
+                    raise ValidationError("Exclusion event can't be the same as funnel step")
+
         self._filter = self._filter.with_data(data)
 
     def _format_single_funnel(self, results, with_breakdown=False):
@@ -130,7 +129,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         conditions: List[str] = []
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(latest_{i}), dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
+                f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
+                f"dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
             )
 
         formatted = ", ".join(conditions)
@@ -273,7 +273,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action()
             for action_step in action.steps.all():
-                self.params[entity_name].append(action_step.event)
+                if entity_name not in self.params[entity_name]:
+                    self.params[entity_name].append(action_step.event)
             action_query, action_params = format_action_filter(action, f"{entity_name}_{step_prefix}step_{index}")
             if action_query == "":
                 return ""
@@ -281,7 +282,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update(action_params)
             content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
         else:
-            self.params[entity_name].append(entity.id)
+            if entity.id not in self.params[entity_name]:
+                self.params[entity_name].append(entity.id)
             event_param_key = f"{entity_name}_{step_prefix}event_{index}"
             self.params[event_param_key] = entity.id
             content_sql = f"event = %({event_param_key})s {filters}"
@@ -289,7 +291,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _build_filters(self, entity: Entity, index: int) -> str:
         prop_filters, prop_filter_params = parse_prop_clauses(
-            entity.properties, self._team.pk, prepend=str(index), allow_denormalized_props=True
+            entity.properties, self._team.pk, prepend=str(index), person_properties_column="person_props"
         )
         self.params.update(prop_filter_params)
         if entity.properties:
@@ -379,13 +381,19 @@ class ClickhouseFunnelBase(ABC, Funnel):
         if self._filter.breakdown:
             self.params.update({"breakdown": self._filter.breakdown})
             if self._filter.breakdown_type == "person":
-                return f", trim(BOTH '\"' FROM JSONExtractRaw(person_props, %(breakdown)s)) AS prop"
+                # :TRICKY: We only support string breakdown for event/person properties
+                assert isinstance(self._filter.breakdown, str)
+                expression, _ = get_property_string_expr(
+                    "person", self._filter.breakdown, "%(breakdown)s", "person_props"
+                )
+                return f", {expression} AS prop"
             elif self._filter.breakdown_type == "event":
-                column_name = get_materialized_columns("events").get(self._filter.breakdown)
-                if column_name is not None:
-                    return f", {column_name} AS prop"
-                else:
-                    return f", trim(BOTH '\"' FROM JSONExtractRaw(properties, %(breakdown)s)) AS prop"
+                # :TRICKY: We only support string breakdown for event/person properties
+                assert isinstance(self._filter.breakdown, str)
+                expression, _ = get_property_string_expr(
+                    "events", self._filter.breakdown, "%(breakdown)s", "properties"
+                )
+                return f", {expression} AS prop"
             elif self._filter.breakdown_type == "cohort":
                 return ", value AS prop"
 
@@ -407,19 +415,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
             limit = self._filter.breakdown_limit_or_default
             first_entity = self._filter.entities[0]
 
-            values = []
-            if self._filter.breakdown_type == "person":
-                values = get_breakdown_person_prop_values(
-                    self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
-                )
-                # people pagination sets the offset param, which is common across filters
-                # and gives us the wrong breakdown values here, so we override it.
-            elif self._filter.breakdown_type == "event":
-                values = get_breakdown_event_prop_values(
-                    self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
-                )
-                # We assume breakdown values remain stable across the funnel, so using
-                # just the first entity to get breakdown values is ok.
+            values = get_breakdown_prop_values(
+                self._filter, first_entity, "count(*)", self._team.pk, limit, extra_params={"offset": 0}
+            )
+            # For people, pagination sets the offset param, which is common across filters
+            # and gives us the wrong breakdown values here, so we override it.
+            # For events, we assume breakdown values remain stable across the funnel,
+            # so using just the first entity to get breakdown values is ok.
 
             self.params.update({"breakdown_values": values})
 

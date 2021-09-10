@@ -98,6 +98,8 @@ class TestFeatureFlag(APIBaseTest):
             "feature flag created",
             {
                 "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
                 "has_rollout_percentage": True,
                 "has_filters": False,
                 "filter_count": 0,
@@ -122,11 +124,103 @@ class TestFeatureFlag(APIBaseTest):
             "feature flag created",
             {
                 "groups_count": 1,  # 1 is always created by default
+                "has_variants": False,
+                "variants_count": 0,
                 "has_rollout_percentage": False,
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
             },
+        )
+
+    @patch("posthoganalytics.capture")
+    def test_create_multivariate_feature_flag(self, mock_capture):
+
+        response = self.client.post(
+            "/api/feature_flag/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ],
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.key, "multivariate-feature")
+
+        # Assert analytics are sent
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": True,
+                "variants_count": 3,
+                "has_filters": False,
+                "has_rollout_percentage": False,
+                "filter_count": 0,
+                "created_at": instance.created_at,
+            },
+        )
+
+    def test_cant_create_multivariate_feature_flag_with_variant_rollout_lt_100(self):
+        response = self.client.post(
+            "/api/feature_flag/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                        ],
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(
+            response.json().get("detail"), "Invalid variant definitions: Variant rollout percentages must sum to 100."
+        )
+
+    def test_cant_create_multivariate_feature_flag_with_variant_rollout_gt_100(self):
+        response = self.client.post(
+            "/api/feature_flag/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 50},
+                        ],
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(
+            response.json().get("detail"), "Invalid variant definitions: Variant rollout percentages must sum to 100."
         )
 
     def test_cant_create_feature_flag_without_key(self):
@@ -171,6 +265,8 @@ class TestFeatureFlag(APIBaseTest):
             "feature flag updated",
             {
                 "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
                 "has_rollout_percentage": True,
                 "has_filters": True,
                 "filter_count": 1,
@@ -196,6 +292,8 @@ class TestFeatureFlag(APIBaseTest):
             "feature flag deleted",
             {
                 "groups_count": 1,
+                "has_variants": False,
+                "variants_count": 0,
                 "has_rollout_percentage": False,
                 "has_filters": False,
                 "filter_count": 0,

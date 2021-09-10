@@ -1,11 +1,15 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
+from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property, Team
+from posthog.models.filters.path_filter import PathFilter
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -13,30 +17,38 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     PERSON_TABLE_ALIAS = "person"
     EVENT_TABLE_ALIAS = "e"
 
-    _PERSON_PROPERTIES_ALIAS = "person_props"
-    _filter: Filter
+    _filter: Union[Filter, PathFilter]
     _team_id: int
+    _column_optimizer: ColumnOptimizer
     _should_join_distinct_ids = False
     _should_join_persons = False
     _should_round_interval = False
+    _extra_fields: List[ColumnName]
+    _extra_person_fields: List[ColumnName]
 
     def __init__(
         self,
-        filter: Filter,
+        filter: Union[Filter, PathFilter],
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
+        # Extra events/person table columns to fetch since parent query needs them
+        extra_fields: List[ColumnName] = [],
+        extra_person_fields: List[ColumnName] = [],
         **kwargs,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
-        self.params = {
+        self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
+        self.params: Dict[str, Any] = {
             "team_id": self._team_id,
         }
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
+        self._extra_fields = extra_fields
+        self._extra_person_fields = extra_person_fields
 
         if not self._should_join_distinct_ids:
             self._determine_should_join_distinct_ids()
@@ -113,16 +125,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._should_join_persons:
             return f"""
             INNER JOIN (
-                SELECT id, properties as person_props
-                FROM (
-                    SELECT id,
-                        argMax(properties, person._timestamp) as properties,
-                        max(is_deleted) as is_deleted
-                    FROM person
-                    WHERE team_id = %(team_id)s
-                    GROUP BY id
-                    HAVING is_deleted = 0
-                )
+                {ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer, self._extra_person_fields).get_query()}
             ) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """
@@ -140,11 +143,10 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         return query, date_params
 
-    def _get_props(self, filters: List[Property], allow_denormalized_props: bool = False) -> Tuple[str, Dict]:
+    def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
 
         filter_test_accounts = self._filter.filter_test_accounts
         team_id = self._team_id
-        table_name = f"{self.EVENT_TABLE_ALIAS}."
         prepend = "global"
 
         final = []
@@ -165,18 +167,21 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     prop,
                     idx,
                     "{}person".format(prepend),
-                    allow_denormalized_props=allow_denormalized_props,
-                    prop_var=self._PERSON_PROPERTIES_ALIAS,
+                    allow_denormalized_props=True,
+                    prop_var=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
                 )
                 final.append(filter_query)
                 params.update(filter_params)
             elif prop.type == "element":
-                query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
-                final.append(f" AND {query if len(query) > 0 else '1=2'}")
-                params.update(filter_params)
+                query, filter_params = filter_element(
+                    {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
+                )
+                if query:
+                    final.append(f" AND {query}")
+                    params.update(filter_params)
             else:
                 filter_query, filter_params = prop_filter_json_extract(
-                    prop, idx, prepend, prop_var="properties", allow_denormalized_props=allow_denormalized_props,
+                    prop, idx, prepend, prop_var="properties", allow_denormalized_props=True
                 )
 
                 final.append(filter_query)

@@ -300,12 +300,14 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 saving={columnConfigSaving}
                 mainActionComponent={
                     <>
-                        <EventName
-                            value={eventFilter}
-                            onChange={(value: string) => {
-                                setEventFilter(value || '')
-                            }}
-                        />
+                        <div style={{ width: '20%' }}>
+                            <EventName
+                                value={eventFilter}
+                                onChange={(value: string) => {
+                                    setEventFilter(value || '')
+                                }}
+                            />
+                        </div>
                         {filtersEnabled ? (
                             <PropertyFilters pageKey={'EventsTable'} style={{ marginBottom: 0 }} />
                         ) : null}

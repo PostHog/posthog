@@ -1,7 +1,7 @@
 import './ActionsPie.scss'
 
 import React, { useState, useEffect } from 'react'
-import { Loading, maybeAddCommasToInteger } from 'lib/utils'
+import { maybeAddCommasToInteger } from 'lib/utils'
 import { LineGraph } from '../../insights/LineGraph'
 import { getChartColors } from 'lib/colors'
 import { useValues, useActions } from 'kea'
@@ -16,12 +16,12 @@ export function ActionsPie({
     color = 'white',
     cachedResults,
     inSharedMode,
-}: ChartParams): JSX.Element {
+}: ChartParams): JSX.Element | null {
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
     const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
     const { loadPeople } = useActions(personsModalLogic)
-    const { results, resultsLoading } = useValues(logic)
+    const { results } = useValues(logic)
 
     function updateData(): void {
         const _data = results as TrendResultWithAggregate[]
@@ -53,7 +53,7 @@ export function ActionsPie({
         }
     }, [results, color])
 
-    return data && !resultsLoading ? (
+    return data ? (
         data[0] && data[0].labels ? (
             <div className="actions-pie-component">
                 <div className="pie-chart">
@@ -83,7 +83,5 @@ export function ActionsPie({
         ) : (
             <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
         )
-    ) : (
-        <Loading />
-    )
+    ) : null
 }

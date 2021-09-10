@@ -161,6 +161,7 @@
     }
 
     .scroll-indicator {
+        @extend %mixin-elevated;
         position: fixed;
         bottom: 16px;
         left: 30px;
@@ -170,7 +171,6 @@
         cursor: pointer;
         border-radius: $radius;
         transition: opacity 0.5s;
-        @extend .mixin-elevated;
 
         @media (max-width: 991px) {
             display: none;
@@ -235,46 +235,49 @@
 }
 
 .navigation-top {
+    @extend %mixin-elevated;
     background-color: $bg_light;
-    width: calc(100% - 80px);
+    width: calc(100vw - 80px);
     height: $top_nav_height;
     display: flex;
     align-items: center;
-    @extend .mixin-elevated;
+    border-bottom: 1px solid var(--border);
     position: fixed;
     top: 0;
     z-index: $z_top_navigation;
-    color: $text_default;
+    color: var(--text-default);
 
     &.full-width {
-        width: 100%;
+        width: 100vw;
     }
 
     @media (max-width: 991px) {
-        width: 100%;
+        width: 100vw;
         > div {
             min-width: unset !important;
         }
     }
 
     > div {
+        height: 100%;
         justify-content: center;
         align-items: center;
         display: flex;
-        padding: 0 8px;
-        min-width: 124px; // to ensure side items are roughly the same size
+        margin: 0 8px;
     }
 
-    .project-chooser {
+    .project-chooser-container {
         flex-grow: 1;
         height: 100%;
         font-weight: bold;
+    }
 
-        div {
-            justify-content: center;
-            align-items: center;
-            display: flex;
-        }
+    .project-chooser {
+        justify-content: center;
+        align-items: center;
+        display: flex;
+        cursor: pointer;
+        height: 100%;
     }
 
     .menu-toggle {
@@ -285,7 +288,6 @@
     }
 
     .global-environment-switch {
-        margin-right: $default_spacing;
         display: flex;
         align-items: center;
         label {
@@ -321,6 +323,7 @@
 // Dropdown styles (root scope because dropdowns are mounted on <body>
 
 .whoami {
+    height: 100%;
     display: flex;
     align-items: center;
 
@@ -341,77 +344,90 @@
     }
 }
 
-.navigation-top-dropdown {
-    margin-top: $default_spacing / 2;
-    @extend .mixin-elevated;
+.navigation-top-dropdown-overlay {
+    @extend %mixin-elevated;
+    position: fixed;
+    border-radius: $button_radius;
+    border: 1px solid var(--border);
     background-color: $bg_light;
-    padding-top: $default_spacing;
-    padding-bottom: $default_spacing / 2;
-    border-radius: $radius;
+    z-index: $z_top_navigation + 3 !important;
+}
+
+.navigation-top-dropdown {
+    min-width: 240px;
+
+    .title {
+        text-transform: uppercase;
+        color: $text_muted;
+        font-weight: bold;
+        padding: 0 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-bottom: 1px solid var(--border-light);
+        height: 32px;
+    }
+
+    .ant-btn {
+        margin: 0 16px;
+    }
+
+    .plain-button {
+        text-align: left;
+        display: flex;
+        align-items: center;
+        border: none;
+        background: none;
+        color: $text_default;
+        padding: 0 6px 0 16px;
+        height: 40px;
+        width: 100%;
+        cursor: pointer;
+        &:hover {
+            background-color: var(--border-light);
+        }
+        .subaction {
+            cursor: pointer;
+            height: 32px;
+            width: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: $button_radius;
+            color: $primary;
+            &:hover {
+                background-color: $border;
+            }
+        }
+    }
+
+    .bottom-button {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        height: 40px;
+        border: none;
+        background: none;
+        color: var(--primary);
+        cursor: pointer;
+        border-top: 1px solid var(--border-light);
+        &:hover {
+            background-color: var(--border-light);
+        }
+    }
+
+    .ant-btn {
+        margin-bottom: 10px;
+    }
 
     &.whoami-dropdown {
         display: flex;
         flex-direction: column;
 
         .organizations {
-            padding-top: 4px;
-            padding-bottom: 4px;
-
-            a {
-                display: flex;
-                align-items: center;
-                color: $text_default;
-                padding: 6px;
-
-                svg {
-                    color: $text_muted;
-                }
-
-                &:hover {
-                    background-color: $border_light;
-                }
-            }
+            border-top: 1px solid var(--border-light);
         }
-    }
-
-    &.project-dropdown {
-        min-width: 260px;
-
-        .dp-title {
-            padding: 0 $default_spacing / 2;
-            color: $text_muted;
-            font-weight: bold;
-        }
-
-        .projects {
-            a {
-                color: $text_default;
-                padding: 6px;
-                &:hover {
-                    background-color: $border_light;
-                }
-                width: 100%;
-                display: flex;
-            }
-
-            .settings {
-                cursor: pointer;
-                padding: 0 4px;
-                border-radius: $radius;
-                color: $primary;
-
-                &:hover {
-                    background-color: $border;
-                }
-            }
-        }
-        padding-bottom: $default_spacing / 2;
-    }
-
-    .divider {
-        background-color: $border_light;
-        height: 1px;
-        width: 100%;
     }
 }
 

@@ -39,6 +39,8 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import push_scope
 
+from posthog.constants import AvailableFeature
+from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -187,19 +189,12 @@ def get_git_commit() -> Optional[str]:
 
 
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
-    from posthog.models import Team
+    from loginas.utils import is_impersonated_session
 
     template = get_template(template_name)
 
-    # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
-    team: Optional[Team] = None
-    try:
-        team = request.user.team  # type: ignore
-    except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.first()
-
     context["self_capture"] = False
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -209,10 +204,15 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
+    if settings.E2E_TESTING:
+        context["e2e_testing"] = True
+
     if settings.SELF_CAPTURE:
         context["self_capture"] = True
-        if team:
-            context["js_posthog_api_key"] = f"'{team.api_token}'"
+        api_token = get_self_capture_api_token(request)
+
+        if api_token:
+            context["js_posthog_api_key"] = f"'{api_token}'"
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
@@ -242,6 +242,21 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     html = template.render(context, request=request)
     return HttpResponse(html)
+
+
+def get_self_capture_api_token(request: HttpRequest) -> Optional[str]:
+    from posthog.models import Team
+
+    # Get the current user's team (or first team in the instance) to set self capture configs
+    team: Optional[Team] = None
+    try:
+        team = request.user.team  # type: ignore
+    except (Team.DoesNotExist, AttributeError):
+        team = Team.objects.only("api_token").first()
+
+    if team:
+        return team.api_token
+    return None
 
 
 def get_default_event_name():
@@ -548,7 +563,7 @@ def get_instance_realm() -> str:
     """
     if settings.MULTI_TENANCY:
         return "cloud"
-    elif os.getenv("HELM_INSTALL_INFO", False):
+    elif is_clickhouse_enabled():
         return "hosted-clickhouse"
     else:
         return "hosted"
@@ -579,7 +594,7 @@ def get_can_create_org() -> bool:
             pass
         else:
             license = License.objects.first_valid()
-            if license is not None and "organizations_projects" in license.available_features:
+            if license is not None and AvailableFeature.ZAPIER in license.available_features:
                 return True
             else:
                 print_warning(["You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!"])
@@ -588,28 +603,38 @@ def get_can_create_org() -> bool:
 
 
 def get_available_social_auth_providers() -> Dict[str, bool]:
-    github: bool = bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET)
-    gitlab: bool = bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET)
-    google: bool = False
+    output: Dict[str, bool] = {
+        "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
+        "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
+        "google-oauth2": False,
+        "saml": False,
+    }
+
+    # Get license information
+    bypass_license: bool = settings.MULTI_TENANCY
+    license = None
+    try:
+        from ee.models.license import License
+    except ImportError:
+        pass
+    else:
+        license = License.objects.first_valid()
 
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
         settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
     ):
-        if settings.MULTI_TENANCY:
-            google = True
+        if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
+            output["google-oauth2"] = True
         else:
-            try:
-                from ee.models.license import License
-            except ImportError:
-                pass
-            else:
-                license = License.objects.first_valid()
-                if license is not None and "google_login" in license.available_features:
-                    google = True
-                else:
-                    print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+            print_warning(["You have Google login set up, but not the required license!"])
 
-    return {"google-oauth2": google, "github": github, "gitlab": gitlab}
+    if getattr(settings, "SAML_CONFIGURED", None):
+        if bypass_license or (license is not None and AvailableFeature.SAML in license.available_features):
+            output["saml"] = True
+        else:
+            print_warning(["You have SAML set up, but not the required license!"])
+
+    return output
 
 
 def flatten(l: Union[List, Tuple]) -> Generator:
@@ -753,3 +778,10 @@ def str_to_bool(value: Any) -> bool:
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
+
+
+def get_helm_info_env() -> dict:
+    try:
+        return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
+    except Exception:
+        return {}

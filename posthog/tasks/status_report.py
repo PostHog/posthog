@@ -14,7 +14,7 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import EE_AVAILABLE
-from posthog.utils import get_instance_realm, get_machine_id, get_previous_week
+from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_week
 from posthog.version import VERSION
 
 logger = logging.getLogger(__name__)
@@ -165,13 +165,6 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
     with connection.cursor() as cursor:
         cursor.execute(sql.SQL(sql_), params)
         return namedtuplefetchall(cursor)
-
-
-def get_helm_info_env() -> dict:
-    try:
-        return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
-    except Exception:
-        return {}
 
 
 def get_instance_licenses() -> List[str]:

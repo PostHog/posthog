@@ -60,7 +60,7 @@ describe('<Person /> ', () => {
 
             cy.get('[data-attr="sessions-date-picker"]').should('have.value', '2020-01-05')
 
-            cy.get('[data-attr="sessions-player-button"]').click()
+            cy.get('[data-attr="session-recordings-button"]').click()
             cy.wait('@api_session_recording').map(helpers.getSearchParameters).should('eql', {
                 session_recording_id: '177902024d94f6-022e8a39d6abb8-3b710f51-1fa400-177902024da550',
                 save_view: 'true',

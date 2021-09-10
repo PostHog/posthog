@@ -56,7 +56,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                 icon={<UserAddOutlined />}
                 {...buttonProps}
             >
-                Invite teammate
+                Invite team member
             </Button>
             <Modal
                 title={`Inviting Team Member${user?.organization ? ' to ' + user?.organization?.name : ''}`}
@@ -77,7 +77,7 @@ export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Eleme
                         showIcon
                         message={
                             <>
-                                You've hit the limit of users you can invite to your PostHog instance given your
+                                You've hit the limit of team members you can invite to your PostHog instance given your
                                 license. Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to
                                 upgrade your license.
                             </>

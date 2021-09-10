@@ -14,6 +14,9 @@ jobs:
             - name: Checkout default branch
               uses: actions/checkout@v2
 
+            - name: Update git sha
+              run: echo "GIT_SHA = '${GITHUB_SHA}'" >posthog/gitsha.py
+
             - name: Set up QEMU
               if: github.repository == 'PostHog/posthog'
               uses: docker/setup-qemu-action@v1
@@ -33,7 +36,10 @@ jobs:
               id: docker-latest
               if: github.repository == 'PostHog/posthog'
               uses: docker/build-push-action@v2
+              env:
+                  SAML_AVAILABLE: '1'
               with:
+                  context: .
                   push: true
                   tags: posthog/posthog:latest
 
@@ -41,7 +47,10 @@ jobs:
               id: docker-dev
               if: github.repository == 'PostHog/posthog'
               uses: docker/build-push-action@v2
+              env:
+                  SAML_AVAILABLE: '1'
               with:
+                  context: .
                   file: dev.Dockerfile
                   push: true
                   tags: posthog/posthog:dev

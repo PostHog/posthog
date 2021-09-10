@@ -1,10 +1,10 @@
-import React from 'react'
+import React, { HTMLProps } from 'react'
 import { Input } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import { copyToClipboard } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
 
-interface InlineProps {
+interface InlineProps extends HTMLProps<HTMLSpanElement> {
     children?: JSX.Element | string
     explicitValue?: string
     description?: string

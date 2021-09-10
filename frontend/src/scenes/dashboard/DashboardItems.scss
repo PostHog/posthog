@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .dashboard-item {
     display: block;
     background: white;
@@ -43,15 +45,6 @@
         }
         .dashboard-item-settings {
             white-space: nowrap;
-            .anticon {
-                margin-left: 10px;
-                background: hsl(210, 8%, 95%);
-                border-radius: 100%;
-                padding: 4px;
-                &:hover {
-                    background: hsl(210, 8%, 90%);
-                }
-            }
         }
     }
     .dashboard-item-content {
@@ -170,6 +163,28 @@
 
     &:hover .sample-dasbhoard-overlay {
         display: flex;
+    }
+
+    .insight-empty-state {
+        display: flex;
+        height: 100%;
+        align-items: center;
+
+        .illustration-main,
+        .ant-btn {
+            display: none;
+        }
+
+        h2 {
+            font-size: 1.1rem !important;
+        }
+
+        span,
+        p,
+        a {
+            font-size: 0.9rem !important;
+            line-height: 1.2rem;
+        }
     }
 }
 
@@ -355,4 +370,18 @@
 // All dropdowns must be below top navigation
 .ant-dropdown {
     z-index: 700;
+}
+
+.dive-btn {
+    margin-right: 0.5rem;
+
+    &.dive-btn-dive {
+        border-color: $primary;
+        color: $primary;
+
+        &:hover {
+            border-color: darken($primary, 30%);
+            color: darken($primary, 30%);
+        }
+    }
 }
