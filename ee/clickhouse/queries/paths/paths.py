@@ -6,6 +6,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
+from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 
@@ -13,7 +14,7 @@ EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
 
 
-class ClickhousePathsNew:
+class ClickhousePaths:
     _filter: PathFilter
     _funnel_filter: Optional[Filter]
     _team: Team
@@ -45,7 +46,9 @@ class ClickhousePathsNew:
 
         resp = []
         for res in results:
-            resp.append({"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3]})
+            resp.append(
+                {"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3],}
+            )
         return resp
 
     def _exec_query(self) -> List[Tuple]:
@@ -73,7 +76,12 @@ class ClickhousePathsNew:
 
     def get_path_query_by_funnel(self, funnel_filter: Filter):
         path_query = self.get_path_query()
-        funnel_persons_generator = ClickhouseFunnelPersons(funnel_filter, self._team)
+        funnel_persons_generator = ClickhouseFunnelPersons(
+            funnel_filter,
+            self._team,
+            include_timestamp=bool(self._filter.funnel_paths),
+            include_preceding_timestamp=self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS,
+        )
         funnel_persons_query = funnel_persons_generator.get_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
         funnel_persons_param = funnel_persons_generator.params

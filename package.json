@@ -76,7 +76,7 @@
         "kea-waitfor": "^0.2.0",
         "kea-window-values": "^0.0.1",
         "md5": "^2.3.0",
-        "posthog-js": "1.13.8",
+        "posthog-js": "1.13.9",
         "posthog-js-lite": "^0.0.3",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "0.8.0",

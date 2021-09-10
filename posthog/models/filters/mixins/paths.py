@@ -18,6 +18,8 @@ from posthog.models.filters.mixins.utils import cached_property, include_dict, p
 
 PathType = Literal["$pageview", "$screen", "custom_event"]
 
+FunnelPathsType = Literal["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"]
+
 
 class PathTypeMixin(BaseParamMixin):
     @cached_property
@@ -133,9 +135,9 @@ class PathStepLimitMixin(BaseParamMixin):
 
 class FunnelPathsMixin(BaseParamMixin):
     @cached_property
-    def funnel_paths(self) -> bool:
+    def funnel_paths(self) -> Optional[FunnelPathsType]:
         _funnel_paths = self._data.get(FUNNEL_PATHS, None)
-        return process_bool(_funnel_paths)
+        return _funnel_paths
 
     @include_dict
     def funnel_paths_to_dict(self):
