@@ -132,12 +132,16 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     def my_flags(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
-        feature_flags = FeatureFlag.objects.filter(team=self.team, active=True, deleted=False).prefetch_related(
-            Prefetch(
-                "featureflagoverride_set",
-                queryset=FeatureFlagOverride.objects.filter(user=request.user),
-                to_attr="my_overrides",
+        feature_flags = (
+            FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            .prefetch_related(
+                Prefetch(
+                    "featureflagoverride_set",
+                    queryset=FeatureFlagOverride.objects.filter(user=request.user),
+                    to_attr="my_overrides",
+                )
             )
+            .order_by("-created_at")
         )
         flags = []
         for feature_flag in feature_flags:
