@@ -549,7 +549,7 @@ export function PropertyKeyDescription({ data, value }: { data: KeyMapping; valu
                 data.description
             )}
             <hr />
-            Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
+            Sent as <code style={{ padding: '2px 3px' }}>{value}</code>
         </span>
     )
 }
