@@ -8,7 +8,14 @@ from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries import ClickhousePaths
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import INSIGHT_FUNNELS, PAGEVIEW_EVENT, SCREEN_EVENT
+from posthog.constants import (
+    FUNNEL_PATH_AFTER_STEP,
+    FUNNEL_PATH_BEFORE_STEP,
+    FUNNEL_PATH_BETWEEN_STEPS,
+    INSIGHT_FUNNELS,
+    PAGEVIEW_EVENT,
+    SCREEN_EVENT,
+)
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.person import Person
 from posthog.queries.test.test_paths import paths_test_factory
@@ -186,13 +193,34 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         for i in range(5):
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
-            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            _create_event(
+                event="between_step_1_a", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00"
+            )
+            _create_event(
+                event="between_step_1_b", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
+            )
+            _create_event(
+                event="between_step_1_c", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
+            )
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:00")
 
         for i in range(5, 15):
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
-            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00")
+            _create_event(
+                event="between_step_1_a", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:01:00"
+            )
+            _create_event(
+                event="between_step_1_b", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:02:00"
+            )
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00")
+            _create_event(
+                event="between_step_2_a", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:20"
+            )
+            _create_event(
+                event="between_step_2_b", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:40"
+            )
 
         for i in range(15, 35):
             Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
@@ -208,15 +236,16 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     event="step branch", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:03:00"
                 )
 
-    def test_path_by_funnel(self):
+    def test_path_by_funnel_after_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
         data = {
             "insight": INSIGHT_FUNNELS,
-            "funnel_paths": True,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
             "interval": "day",
             "date_from": "2021-05-01 00:00:00",
             "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
             "funnel_step": -2,
             "events": [
                 {"id": "step one", "order": 0},
@@ -241,6 +270,207 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     "source": "3_step dropoff2",
                     "target": "4_step branch",
                     "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+            ],
+        )
+
+    def test_path_by_funnel_after_step(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {
+                    "source": "1_step two",
+                    "target": "2_between_step_2_a",
+                    "value": 10,
+                    "average_conversion_time": 80000.0,
+                },
+                {
+                    "source": "2_between_step_2_a",
+                    "target": "3_between_step_2_b",
+                    "value": 10,
+                    "average_conversion_time": 80000.0,
+                },
+                {"source": "1_step two", "target": "2_step three", "value": 5, "average_conversion_time": 60000.0},
+            ],
+        )
+
+    def test_path_by_funneL_before_dropoff(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_BEFORE_STEP,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": -3,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {
+                    "source": "1_step one",
+                    "target": "2_between_step_1_a",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "2_between_step_1_a",
+                    "target": "3_between_step_1_b",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_step two",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "4_step two",
+                    "target": "5_between_step_2_a",
+                    "value": 10,
+                    "average_conversion_time": 80000.0,
+                },
+            ],
+        )
+
+    def test_path_by_funnel_before_step(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_BEFORE_STEP,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {
+                    "source": "1_step one",
+                    "target": "2_between_step_1_a",
+                    "value": 15,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "2_between_step_1_a",
+                    "target": "3_between_step_1_b",
+                    "value": 15,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_step two",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_between_step_1_c",
+                    "value": 5,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "4_between_step_1_c",
+                    "target": "5_step two",
+                    "value": 5,
+                    "average_conversion_time": 60000.0,
+                },
+            ],
+        )
+
+    def test_path_by_funnel_between_step(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_BETWEEN_STEPS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePathsNew(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {
+                    "source": "1_step one",
+                    "target": "2_between_step_1_a",
+                    "value": 15,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "2_between_step_1_a",
+                    "target": "3_between_step_1_b",
+                    "value": 15,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_step two",
+                    "value": 10,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "3_between_step_1_b",
+                    "target": "4_between_step_1_c",
+                    "value": 5,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "4_between_step_1_c",
+                    "target": "5_step two",
+                    "value": 5,
                     "average_conversion_time": 60000.0,
                 },
             ],
