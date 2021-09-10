@@ -22,7 +22,7 @@ MATH_FUNCTIONS = {
 }
 
 
-def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
+def process_math(entity: Entity) -> Tuple[str, str, Dict[str, str]]:
     aggregate_operation = "count(*)"
     join_condition = ""
     params = {}
