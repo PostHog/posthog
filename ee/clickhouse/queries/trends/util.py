@@ -31,7 +31,7 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, Optional[str]]]:
         aggregate_operation = "count(DISTINCT person_id)"
     elif entity.math in MATH_FUNCTIONS:
         if entity.math_property is None:
-            raise ValidationError(f"Math without math_property passed")
+            raise ValidationError({"math_property": "This field is required when `math` is set."}, code="required")
 
         value, _ = get_property_string_expr("events", entity.math_property, f"%(e_{entity.index}_math)s", "properties")
         aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
