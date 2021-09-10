@@ -1,5 +1,8 @@
 FROM arm64v8/ubuntu:focal
 
+# This package does not contain protobuf bindings for ARM64! These are required to get Clickhouse working with PostHog.
+# See the arm64.compile.Dockerfile for an alternative.
+
 # From https://github.com/ClickHouse/ClickHouse/blob/master/docker/server/Dockerfile
 # Changes:
 # - Using arm64v8 ubuntu

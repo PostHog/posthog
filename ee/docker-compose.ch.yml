@@ -22,7 +22,7 @@ services:
 
         build:
             context: ../docker/clickhouse/
-            dockerfile: arm64.Dockerfile
+            dockerfile: arm64.compile.Dockerfile
         depends_on:
             - kafka
             - zookeeper
