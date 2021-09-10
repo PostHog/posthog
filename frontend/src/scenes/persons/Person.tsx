@@ -8,7 +8,13 @@ import { PersonHeader } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
-import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
+import {
+    DownOutlined,
+    DeleteOutlined,
+    MergeCellsOutlined,
+    SplitCellsOutlined,
+    LoadingOutlined,
+} from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { MergePerson } from './MergePerson'
 import { PersonCohorts } from './PersonCohorts'
@@ -19,6 +25,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SplitPerson } from './SplitPerson'
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
@@ -26,6 +33,7 @@ const { TabPane } = Tabs
 export function Person(): JSX.Element {
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
+    const [splitModalOpen, setSplitModalOpen] = useState(false)
 
     const { person, personLoading, deletedPersonLoading, hasNewKeys, activeTab } = useValues(personsLogic)
     const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
@@ -119,6 +127,13 @@ export function Person(): JSX.Element {
                                         <MergeCellsOutlined /> Merge person
                                     </a>
                                 </div>
+                                {person.distinct_ids.length > 1 && (
+                                    <div className="text-center mt">
+                                        <a onClick={() => setSplitModalOpen(true)} data-attr="merge-person-button">
+                                            <SplitCellsOutlined /> Split IDs into multiple people
+                                        </a>
+                                    </div>
+                                )}
                                 <div className="text-center mt">
                                     <Popconfirm
                                         title="Are you sure to delete this person and all associated data?"
@@ -181,6 +196,9 @@ export function Person(): JSX.Element {
             </Row>
             {mergeModalOpen && person && (
                 <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
+            )}
+            {splitModalOpen && person && (
+                <SplitPerson person={person} onPersonChange={setPerson} closeModal={() => setSplitModalOpen(false)} />
             )}
         </div>
     )

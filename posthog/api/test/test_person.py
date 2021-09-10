@@ -281,6 +281,36 @@ def factory_test_person(event_factory, person_factory, get_events):
                 any_order=True,
             )
 
+        def test_split_people_keep_props(self) -> None:
+            # created first
+            person1 = person_factory(
+                team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+            )
+
+            self.client.post(
+                "/api/person/%s/split/" % person1.pk, {"main_distinct_id": "1"},
+            )
+            people = Person.objects.all().order_by("id")
+            self.assertEqual(len(people), 3)
+            self.assertEqual(people[0].distinct_ids, ["1"])
+            self.assertEqual(people[0].properties, {"$browser": "whatever", "$os": "Mac OS X"})
+            self.assertEqual(people[1].distinct_ids, ["2"])
+            self.assertEqual(people[2].distinct_ids, ["3"])
+
+        def test_split_people_delete_props(self) -> None:
+            # created first
+            person1 = person_factory(
+                team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
+            )
+
+            self.client.post("/api/person/%s/split/" % person1.pk,)
+            people = Person.objects.all().order_by("id")
+            self.assertEqual(len(people), 3)
+            self.assertEqual(people[0].distinct_ids, ["1"])
+            self.assertEqual(people[0].properties, {})
+            self.assertEqual(people[1].distinct_ids, ["2"])
+            self.assertEqual(people[2].distinct_ids, ["3"])
+
         def test_return_non_anonymous_name(self) -> None:
             person_factory(
                 team=self.team,
