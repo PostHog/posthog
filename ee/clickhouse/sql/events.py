@@ -35,6 +35,7 @@ EVENTS_TABLE_SQL = (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
+SAMPLE BY uuid
 {storage_policy}
 """
 ).format(
