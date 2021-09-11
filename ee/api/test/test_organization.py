@@ -5,6 +5,7 @@ from freezegun.api import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from ee.models.license import License
 from posthog.celery import sync_all_organization_available_features
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
@@ -151,8 +152,6 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
     @patch("ee.models.license.requests.post")
     def test_feature_available_self_hosted_has_license(self, patch_post):
         with self.settings(MULTI_TENANCY=False):
-            from ee.models.license import License
-
             mock = Mock()
             mock.json.return_value = {"plan": "enterprise", "valid_until": dt.datetime.now() + dt.timedelta(days=1)}
             patch_post.return_value = mock
@@ -175,14 +174,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
     @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.models.license.requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
-        from ee.models.license import License
-
-        mock = Mock()
-        mock.json.return_value = {"plan": "enterprise", "valid_until": "2012-01-14T12:00:00.000Z"}
-        patch_post.return_value = mock
-        License.objects.create(key="key")
-
-        with freeze_time("2012-01-19T12:00:00.000Z"):
+        with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
             sync_all_organization_available_features()  # This is normally ran every hour
             self.organization.refresh_from_db()
             self.assertFalse(self.organization.is_feature_available("whatever"))

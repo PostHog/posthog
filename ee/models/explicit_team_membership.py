@@ -3,7 +3,6 @@ from typing import Optional
 from django.db import models
 from rest_framework import exceptions
 
-from posthog.models import OrganizationMembership
 from posthog.models.utils import UUIDModel, sane_repr
 
 
@@ -43,6 +42,8 @@ class ExplicitTeamMembership(UUIDModel):
     def validate_update(
         self, membership_being_updated: "ExplicitTeamMembership", new_level: Optional[Level] = None
     ) -> None:
+        from posthog.models.organization import OrganizationMembership
+
         try:
             my_parent_membership: OrganizationMembership = OrganizationMembership.objects.get(
                 user_id=self.user_id, organization_id=self.team.organization_id
