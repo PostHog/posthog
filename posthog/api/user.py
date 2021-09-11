@@ -19,13 +19,12 @@ from rest_framework import mixins, permissions, serializers, viewsets
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
-from posthog.ee import is_clickhouse_enabled
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.tasks import user_identify
-from posthog.utils import get_instance_realm
+from posthog.utils import get_instance_realm, is_clickhouse_enabled
 from posthog.version import VERSION
 
 

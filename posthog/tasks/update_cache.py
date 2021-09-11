@@ -25,13 +25,12 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Dashboard, DashboardItem, Filter, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.types import FilterType
-from posthog.utils import generate_cache_key
+from posthog.utils import generate_cache_key, is_clickhouse_enabled
 
 PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 

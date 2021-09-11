@@ -1,9 +1,9 @@
 from typing import Dict, List
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Action, Event, Person, PersonDistinctId, Team
 from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.utils import UUIDT
+from posthog.utils import is_clickhouse_enabled
 
 
 class DataGenerator:

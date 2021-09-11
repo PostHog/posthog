@@ -15,13 +15,12 @@ from statshog.defaults.django import statsd
 from posthog.api.utils import get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
-from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.utils import cors_response, get_ip_address, load_data_from_request
+from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled, load_data_from_request
 
 if is_clickhouse_enabled():
     from ee.kafka_client.client import KafkaProducer
