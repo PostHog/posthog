@@ -132,7 +132,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         },
     })
 
-    if (indexedResults?.length > 0) {
+    if (indexedResults?.length > 0 && indexedResults[0].data) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
                 <DateDisplay
@@ -204,7 +204,11 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
-            scroll={indexedResults && indexedResults.length > 0 ? { x: indexedResults[0].data.length * 160 } : {}}
+            scroll={
+                indexedResults && indexedResults.length > 0 && indexedResults[0].data
+                    ? { x: indexedResults[0].data.length * 160 }
+                    : {}
+            }
             data-attr="insights-table-graph"
         />
     )
