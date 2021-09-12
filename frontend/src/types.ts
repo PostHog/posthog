@@ -903,7 +903,7 @@ export interface FeatureFlagOverride {
     id: number
     feature_flag: number
     user: number
-    override_value: boolean | string | null
+    override_value: boolean | string
 }
 
 export interface CombinedFeatureFlagAndOverride {

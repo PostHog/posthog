@@ -66,6 +66,25 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         ],
     }),
 
+    selectors: {
+        userFlagsWithCalculatedInfo: [
+            (s) => [s.userFlags],
+            (userFlags) => {
+                return userFlags.map((flag) => {
+                    const hasVariants = (flag.feature_flag.filters?.multivariate?.variants?.length || 0) > 0
+                    const currentValue = flag.override
+                        ? flag.override.override_value
+                        : flag.value_for_user_without_override
+
+                    return {
+                        ...flag,
+                        hasVariants,
+                        currentValue,
+                    }
+                })
+            },
+        ],
+    },
     events: ({ actions }) => ({
         afterMount: () => {
             actions.getUserFlags()
