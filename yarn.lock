@@ -12544,10 +12544,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.13.8:
-  version "1.13.8"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.13.8.tgz#dcf6f836118e4fd95ff6d688ac546e87325e2438"
-  integrity sha512-Ccv7PjH2CVy/sQ2ovH4ik0/QZMftf639DMX/BXXB/rY1pd+cb78BeCaBU5yecCU3EA59sxH9UNkk5FGmmVkM1A==
+posthog-js@1.13.9:
+  version "1.13.9"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.13.9.tgz#d55a1d32ed07089ccad4d76a74a4bbf0bc3633cb"
+  integrity sha512-7sNrJHbs4Z4EpKXZ/ryTfmYjuvn+nsSYDhallrTUmzJQ80gP43VrBftU+mRGqKx7GGvNJGtpAEOGr3/FmRwuQA==
   dependencies:
     "@sentry/types" "^6.11.0"
     fflate "^0.4.1"

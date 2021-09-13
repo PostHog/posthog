@@ -1055,3 +1055,12 @@ export function median(input: number[]): number {
 export function sum(input: number[]): number {
     return input.reduce((a, b) => a + b, 0)
 }
+
+export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+    try {
+        JSON.parse(value)
+        return Promise.resolve()
+    } catch (error) {
+        return Promise.reject('Not valid JSON!')
+    }
+}

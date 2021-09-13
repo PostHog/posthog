@@ -3,8 +3,8 @@ from django.http import HttpRequest, HttpResponse
 from django.urls.base import resolve
 from loginas.utils import is_impersonated_session
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.internal_metrics import incr
+from posthog.utils import is_clickhouse_enabled
 
 
 class CHQueries(object):
