@@ -86,7 +86,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance = super().create(validated_data)
 
         posthoganalytics.capture(
-            request.user.distinct_id, "feature flag created", instance.get_analytics_metadata(),
+            request.user.distinct_id,
+            "feature flag created",
+            instance.get_analytics_metadata(),
         )
 
         return instance
@@ -100,7 +102,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         instance = super().update(instance, validated_data)
 
         posthoganalytics.capture(
-            request.user.distinct_id, "feature flag updated", instance.get_analytics_metadata(),
+            request.user.distinct_id,
+            "feature flag updated",
+            instance.get_analytics_metadata(),
         )
         return instance
 
@@ -117,7 +121,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
     authentication_classes = [
         PersonalAPIKeyAuthentication,
-        TemporaryTokenAuthentication,
+        TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
@@ -145,7 +149,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         )
         flags = []
         for feature_flag in feature_flags:
-            my_overrides = cast(List[FeatureFlagOverride], feature_flag.my_overrides)  # type: ignore
+            my_overrides = feature_flag.my_overrides  # type: ignore
             override = None
             if len(my_overrides) > 0:
                 override = my_overrides[0]
@@ -242,7 +246,8 @@ class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMi
         if request.method == "POST":
             user = request.user
             serializer = FeatureFlagOverrideSerializer(
-                data={**request.data, "user": user.id}, context={**self.get_serializer_context()},
+                data={**request.data, "user": user.id},
+                context={**self.get_serializer_context()},
             )
             serializer.is_valid(raise_exception=True)
             serializer.save()

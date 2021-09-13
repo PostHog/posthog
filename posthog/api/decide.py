@@ -125,12 +125,15 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
-            feature_flags = get_overridden_feature_flags(team, data["distinct_id"], request.user)
+            feature_flags = get_overridden_feature_flags(team, data["distinct_id"])
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
             if team.session_recording_opt_in and (on_permitted_domain(team, request) or len(team.app_urls) == 0):
                 response["sessionRecording"] = {"endpoint": "/s/"}
     statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide",},
+        f"posthog_cloud_raw_endpoint_success",
+        tags={
+            "endpoint": "decide",
+        },
     )
     return cors_response(request, JsonResponse(response))

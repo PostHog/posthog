@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             name="FeatureFlagOverride",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("override_value", models.JSONField(default=bool)),
+                ("override_value", models.JSONField()),
                 (
                     "feature_flag",
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.featureflag"),
@@ -27,6 +27,8 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="featureflagoverride",
-            constraint=models.UniqueConstraint(fields=("user", "feature_flag"), name="unique feature flag for a user"),
+            constraint=models.UniqueConstraint(
+                fields=("user", "feature_flag", "team"), name="unique feature flag for a user/team combo"
+            ),
         ),
     ]
