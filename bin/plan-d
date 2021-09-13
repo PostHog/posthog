@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Sets up clickhouse and kafka on a remote ubuntu box.  This is just the
+# commands that are referenced on
+# https://posthog.com/handbook/engineering/ee-setup as "Option D. Running
+# ClickHouse, Kafka and Zookeeper on a Cloud Server"
+
+ssh -L 8123:localhost:8123 -L 9000:localhost:9000 -L 9440:localhost:9440 -L 9009:localhost:9009 -L 9092:localhost:9092 root@$1 << EOF
+    apt update && apt -y upgrade
+    apt install -y docker.io docker-compose git
+    git clone https://github.com/PostHog/posthog
+    cd posthog
+
+EOF &
+
+docker-compose -f ee/docker-compose.ch.yml up db redis
+
+export DEBUG=1
+export PRIMARY_DB=clickhouse
+export DATABASE_URL=postgres://localhost:5432/posthog
+export KAFKA_ENABLED=true
+export KAFKA_HOSTS=localhost:9092
+
+

@@ -1,0 +1,9 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/env/bin/python",
+    "editor.formatOnSave": true,
+    "python.formatting.provider": "black",
+    "python.linting.mypyArgs": [],
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.typeCheckingMode": "strict",
+    "python.testing.pytestEnabled": true
+}
