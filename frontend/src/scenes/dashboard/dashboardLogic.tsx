@@ -481,12 +481,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     breakpoint()
 
                     // ask to reload the results inside the logic
-                    const itemResultLogic = getLogicFromInsight(dashboardItem.filters.insight, {
-                        dashboardItemId: dashboardItem.id,
-                        filters: dashboardItem.filters,
-                        cachedResults: refreshedDashboardItem.result,
-                    })
-                    itemResultLogic.actions.setCachedResults(dashboardItem.filters, refreshedDashboardItem.result)
+                    if (dashboardItem.filters.insight) {
+                        const itemResultLogic = getLogicFromInsight(dashboardItem.filters.insight, {
+                            dashboardItemId: dashboardItem.id,
+                            filters: dashboardItem.filters,
+                            cachedResults: refreshedDashboardItem.result,
+                        })
+                        itemResultLogic.actions.setCachedResults(dashboardItem.filters, refreshedDashboardItem.result)
+                    }
 
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.id)
