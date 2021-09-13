@@ -3,11 +3,11 @@ from datetime import datetime
 from typing import Any, Dict, List, cast
 from uuid import uuid4
 
+from django.conf import settings
 from freezegun.api import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.models.event import create_event
-from posthog.models import EventDefinition, Organization, Team
+from posthog.models import Event, EventDefinition, Organization, Team
 from posthog.models.user import User
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 from posthog.test.base import APIBaseTest
@@ -188,22 +188,32 @@ class EventData:
     properties: Dict[str, Any]
 
 
-def capture_event(event: EventData) -> str:
+def capture_event(event: EventData):
     """
     Creates an event, given an event dict. Currently just puts this data
     directly into clickhouse, but could be created via api to get better parity
     with real world, and could provide the abstraction over if we are using
     clickhouse or postgres as the primary backend
     """
-    team = Team.objects.get(id=event.team_id)
-    return create_event(
-        event_uuid=uuid4(),
-        team=team,
-        distinct_id=event.distinct_id,
-        timestamp=event.timestamp,
-        event=event.event,
-        properties=event.properties,
-    )
+    # NOTE: I'm switching on PRIMARY_DB here although I would like to move this
+    # behind an app interface rather than have that detail in the tests. It
+    # shouldn't be required to understand the datastore used for us to test.
+    if settings.PRIMARY_DB == "clickhouse":
+        # NOTE: I'm moving this import here as currently in the CI we're
+        # removing the `ee/` directory from the FOSS build
+        from ee.clickhouse.models.event import create_event
+
+        team = Team.objects.get(id=event.team_id)
+        create_event(
+            event_uuid=uuid4(),
+            team=team,
+            distinct_id=event.distinct_id,
+            timestamp=event.timestamp,
+            event=event.event,
+            properties=event.properties,
+        )
+    else:
+        Event.objects.create(**dataclasses.asdict(event))
 
 
 def create_event_definitions(name: str, team_id: int) -> EventDefinition:

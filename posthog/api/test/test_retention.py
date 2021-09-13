@@ -73,7 +73,7 @@ def get_retention(
 
 
 @pytest.mark.django_db
-@freeze_time("2021-08-03T18:46:15.579Z")
+@freeze_time("2021-08-03")
 def test_insight_retention_missing_persons_gh_5443(client: Client):
     """
     This is a regression test for GH-5443.
@@ -146,11 +146,14 @@ def test_insight_retention_missing_persons_gh_5443(client: Client):
     assert response.status_code == 200, response.content
     data = response.json()
 
+    # NOTE: prior to the fix for GH-5443, this test would fail by returning an
+    # empty list. To "fix" I have make the generation of "appearances" more
+    # forgiving of getting too much data from the clickhouse query.
     assert data["result"] == [
         {
             "appearances": [1],
             "person": {
-                "created_at": "2020-01-02T00:00:00Z",
+                "created_at": "2021-08-03T00:00:00Z",
                 "distinct_ids": ["abc"],
                 "id": ANY,
                 "is_identified": False,

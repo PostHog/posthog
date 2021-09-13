@@ -362,7 +362,4 @@ class Retention(BaseQuery):
 
 
 def appearance_to_markers(appearance_dates: List[float], num_intervals: int) -> List[int]:
-    markers = [0 for _ in range(num_intervals)]
-    for appearance in appearance_dates:
-        markers[int(appearance)] = 1
-    return markers
+    return [interval_number in appearance_dates for interval_number in range(num_intervals)]
