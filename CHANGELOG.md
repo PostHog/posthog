@@ -1,5 +1,12 @@
 # Changelog
 
+
+### 1.28.0 - Wednesday 15 September 2021
+
+-   Release details TBD.
+-   300+ improvements & fixes across the app
+-   **❗️Breaking Change**. The previously deprecated `/api/user/` endpoint has **been removed.** See https://posthog.com/docs/api/user for details on how to update.
+
 ### 1.27.0 - Monday 26 July 2021
 
 -   New Funnels Experience.
