@@ -306,7 +306,7 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
 
             page2 = self.client.get(response["next"]).json()
-            from posthog.ee import is_clickhouse_enabled
+            from posthog.utils import is_clickhouse_enabled
 
             if is_clickhouse_enabled():
                 from ee.clickhouse.client import sync_execute

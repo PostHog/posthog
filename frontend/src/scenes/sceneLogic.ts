@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { ViewType } from '~/types'
+import { AvailableFeature, ViewType } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
 
@@ -260,6 +260,19 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
+        guardAvailableFeature: (
+            featureKey: AvailableFeature,
+            featureName: string,
+            featureCaption: string,
+            featureAvailableCallback?: () => void,
+            guardOn: {
+                cloud: boolean
+                selfHosted: boolean
+            } = {
+                cloud: true,
+                selfHosted: true,
+            }
+        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
         hideUpgradeModal: true,
         takeToPricing: true,
         setPageTitle: (title: string) => ({ title }),
@@ -328,6 +341,25 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
     listeners: ({ values, actions }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
+        },
+        guardAvailableFeature: ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }) => {
+            const { preflight } = preflightLogic.values
+            const { user } = userLogic.values
+            let featureAvailable: boolean
+            if (!preflight || !user) {
+                featureAvailable = false
+            } else if (!guardOn.cloud && preflight.cloud) {
+                featureAvailable = true
+            } else if (!guardOn.selfHosted && !preflight.cloud) {
+                featureAvailable = true
+            } else {
+                featureAvailable = !!user.organization?.available_features.includes(featureKey)
+            }
+            if (featureAvailable) {
+                featureAvailableCallback?.()
+            } else {
+                actions.showUpgradeModal(featureName, featureCaption)
+            }
         },
         takeToPricing: () => {
             posthog.capture('upgrade modal pricing interaction')

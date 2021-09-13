@@ -10,8 +10,8 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.models.utils import sane_repr
+from posthog.utils import is_clickhouse_enabled
 
 from .action import Action
 from .event import Event

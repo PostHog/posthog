@@ -3,7 +3,7 @@ const babelConfig = require('../babel.config')
 
 module.exports = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
-    addons: ['@storybook/addon-links', '@storybook/addon-essentials'],
+    addons: ['@storybook/addon-links', '@storybook/addon-essentials', './ApiSelector/register.js'],
     babel: async (options) => {
         // compile babel to "defaults" target (ES5)
         const envPreset = babelConfig.presets.find(
