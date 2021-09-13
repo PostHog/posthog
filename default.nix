@@ -1,3 +1,5 @@
+# Installs postgresql, yarn redis and kafka so I can run locally.
+
 let
   pkgs = import <nixpkgs> {};
 in
