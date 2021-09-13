@@ -296,6 +296,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
                 "metrics": {},
+                "public_jobs": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -331,6 +332,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
                 "metrics": {},
+                "public_jobs": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -367,6 +369,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
                 "metrics": {},
+                "public_jobs": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -479,6 +482,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
                 "metrics": {},
+                "public_jobs": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)

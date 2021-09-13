@@ -16,7 +16,7 @@ class TestAuthenticationAPI(APIBaseTest):
         self.assertEqual(response.json(), {"success": True})
 
         # Test that we're actually logged in
-        response = self.client.get("/api/user/")
+        response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["email"], self.user.email)
 
@@ -36,7 +36,7 @@ class TestAuthenticationAPI(APIBaseTest):
             self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
             # Assert user is not logged in
-            response = self.client.get("/api/user/")
+            response = self.client.get("/api/users/@me/")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
             self.assertNotIn("email", response.json())
 
@@ -51,7 +51,7 @@ class TestAuthenticationAPI(APIBaseTest):
         self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
         # Assert user is not logged in
-        response = self.client.get("/api/user/")
+        response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertNotIn("email", response.json())
 
@@ -84,7 +84,7 @@ class TestAuthenticationAPI(APIBaseTest):
             )
 
             # Assert user is not logged in
-            response = self.client.get("/api/user/")
+            response = self.client.get("/api/users/@me/")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_login_endpoint_is_protected_against_brute_force_attempts(self):
@@ -98,7 +98,7 @@ class TestAuthenticationAPI(APIBaseTest):
                 self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
                 # Assert user is not logged in
-                response = self.client.get("/api/user/")
+                response = self.client.get("/api/users/@me/")
                 self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
             response = self.client.post("/api/login", {"email": "new_user@posthog.com", "password": "invalid"})

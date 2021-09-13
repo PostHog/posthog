@@ -1,3 +1,5 @@
+from rest_framework import status
+
 from posthog.models import PersonalAPIKey
 from posthog.test.base import APIBaseTest
 
@@ -101,12 +103,11 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         self.user.save()
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get("/api/user/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
-        self.assertEqual(response.status_code, 401)
+        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_user_endpoint(self):
-        # special case as /api/user/ is (or used to be) uniquely not DRF (vanilla Django instead)
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get("/api/user", HTTP_AUTHORIZATION=f"Bearer {key.value}")
-        self.assertEqual(response.status_code, 200)
+        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
