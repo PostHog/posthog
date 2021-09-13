@@ -340,7 +340,7 @@ def process_social_saml_signup(backend: BaseAuth, email: str, full_name: str) ->
         return None
 
     return User.objects.create_and_join(
-        organization=Organization.objects.filter(for_internal_metrics=False).first(),
+        organization=Organization.objects.filter(for_internal_metrics=False).order_by("created_at").first(),
         email=email,
         password=None,
         first_name=full_name,

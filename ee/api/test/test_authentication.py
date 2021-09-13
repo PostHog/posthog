@@ -5,13 +5,13 @@ from typing import Dict, cast
 import pytest
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 from social_core.exceptions import AuthFailed
 
 from ee.api.test.base import APILicensedTest
-from posthog.models import User
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 MOCK_SETTINGS = {
     "SOCIAL_AUTH_SAML_SP_ENTITY_ID": "http://localhost:8000",
@@ -184,8 +184,15 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_cannot_signup_on_non_whitelisted_domain_with_saml(self):
+    def test_can_signup_on_non_whitelisted_domain_with_saml(self):
+        """
+        SAML has automatic provisioning for any user who logs in, even if the domain whitelist does not match.
+        """
         self.client.logout()
+
+        organization = Organization.objects.create(name="Base Org")
+        team = Team.objects.create(organization=organization, name="Base Team")
+        Organization.objects.create(name="Red Herring", domain_whitelist=["differentdomain.com"])  # red herring
 
         with self.settings(**MOCK_SETTINGS):
             response = self.client.get("/login/saml/?idp=posthog_custom")
@@ -212,13 +219,23 @@ class TestEEAuthenticationAPI(APILicensedTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(response, "/login?error=no_new_organizations")  # redirect to the home page
+        self.assertRedirects(response, "/")  # redirect to the home page
 
-        # No user is created
-        self.assertEqual(User.objects.count(), user_count)
+        # User is created
+        self.assertEqual(User.objects.count(), user_count + 1)
+        user = cast(User, User.objects.last())
+        self.assertEqual(user.first_name, "PostHog")
+        self.assertEqual(user.email, "engineering@posthog.com")
+        self.assertEqual(user.organization, organization)
+        self.assertEqual(user.team, team)
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(
+            cast(OrganizationMembership, user.organization_memberships.first()).level,
+            OrganizationMembership.Level.MEMBER,
+        )
 
         _session = self.client.session
-        self.assertFalse(_session.has_key("_auth_user_id"))
+        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
 
     @freeze_time("2021-08-25T23:37:55.345Z")
     def test_can_configure_saml_assertion_attribute_names(self):
