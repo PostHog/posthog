@@ -65,6 +65,7 @@ export const insightLogic = kea<insightLogicType>({
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: true,
+        updateInsightFilters: (filters: any) => ({ filters }),
     }),
     loaders: ({ values }) => ({
         insight: {
@@ -78,6 +79,7 @@ export const insightLogic = kea<insightLogicType>({
                 return await api.update(`api/insight/${values.insight.id}`, payload)
             },
             setInsight: (insight) => insight,
+            updateInsightFilters: ({ filters }) => ({ ...values.insight, filters }),
         },
     }),
     reducers: {
@@ -272,6 +274,9 @@ export const insightLogic = kea<insightLogicType>({
                     <Link to={'/saved_insights'}>Click here to see your list of saved insights</Link>
                 </div>
             )
+        },
+        updateInsightFilters: async ({ filters }) => {
+            api.update(`api/insight/${values.insight.id}`, { filters })
         },
     }),
     actionToUrl: ({ actions, values }) => ({
