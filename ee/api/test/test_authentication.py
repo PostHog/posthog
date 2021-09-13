@@ -11,7 +11,7 @@ from social_core.exceptions import AuthFailed
 
 from ee.api.test.base import APILicensedTest
 from posthog.models import User
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 
 MOCK_SETTINGS = {
     "SOCIAL_AUTH_SAML_SP_ENTITY_ID": "http://localhost:8000",
@@ -137,8 +137,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
     def test_can_signup_on_whitelisted_domain_with_saml(self):
         self.client.logout()
 
-        self.organization.domain_whitelist = ["posthog.com"]
-        self.organization.save()
+        # Note the user is signed up to this organization (which is not the default one)
+        organization = Organization.objects.create(name="New Co.", domain_whitelist=["posthog.com"])
 
         with self.settings(**MOCK_SETTINGS):
             response = self.client.get("/login/saml/?idp=posthog_custom")
@@ -172,8 +172,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
         user = cast(User, User.objects.last())
         self.assertEqual(user.first_name, "PostHog")
         self.assertEqual(user.email, "engineering@posthog.com")
-        self.assertEqual(user.organization, self.organization)
-        self.assertEqual(user.team, self.team)
+        self.assertEqual(user.organization, organization)
+        self.assertEqual(user.team, None)  # This org has no teams
         self.assertEqual(user.organization_memberships.count(), 1)
         self.assertEqual(
             cast(OrganizationMembership, user.organization_memberships.first()).level,
