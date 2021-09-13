@@ -31,6 +31,7 @@ services:
             - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
         image: wurstmeister/zookeeper
+        restart: always
     kafka:
         image: wurstmeister/kafka
         depends_on:
