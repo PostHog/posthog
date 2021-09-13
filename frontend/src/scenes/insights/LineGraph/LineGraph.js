@@ -210,7 +210,7 @@ export function LineGraph({
                 }),
             ]
             if (visibilityMap) {
-                datasets = datasets.filter((data) => visibilityMap[data.id])
+                datasets = datasets.filter((data) => visibilityMap[data.id] || visibilityMap[data.id] === undefined)
             }
         } else {
             datasets = datasets.map((dataset, index) => processDataset(dataset, index))

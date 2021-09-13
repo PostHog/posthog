@@ -11,7 +11,6 @@ import { personsModalLogic } from '../personsModalLogic'
 
 export function ActionsPie({
     dashboardItemId,
-    view,
     filters: filtersParam,
     color = 'white',
     cachedResults,
@@ -19,7 +18,7 @@ export function ActionsPie({
 }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
-    const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
+    const logic = trendsLogic({ dashboardItemId, filters: filtersParam, cachedResults })
     const { loadPeople } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
