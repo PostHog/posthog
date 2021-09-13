@@ -155,9 +155,12 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                     textAlign: 'center',
                                 }}
                             >
-                                <Button type="primary" style={{ color: 'white' }} onClick={loadMorePeople}>
-                                    {' '}
+                                <Button
+                                    type="primary"
+                                    style={{ color: 'white' }}
+                                    onClick={loadMorePeople}
                                     loading={loadingMorePeople}
+                                >
                                     Load more people
                                 </Button>
                             </div>
