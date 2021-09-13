@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers, validators
@@ -280,7 +281,9 @@ def finish_social_signup(request):
     return render(request, "signup_to_organization_company.html", {"user_name": request.session["user_name"]})
 
 
-def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email: str, full_name: str) -> User:
+def process_social_invite_signup(
+    strategy: DjangoStrategy, invite_id: str, email: str, full_name: str
+) -> Union[HttpResponse, User]:
     try:
         invite: Union[OrganizationInvite, TeamInviteSurrogate] = OrganizationInvite.objects.select_related(
             "organization",
@@ -340,7 +343,7 @@ def process_social_saml_signup(backend: BaseAuth, email: str, full_name: str) ->
         return None
 
     return User.objects.create_and_join(
-        organization=Organization.objects.filter(for_internal_metrics=False).order_by("created_at").first(),
+        organization=Organization.objects.filter(for_internal_metrics=False).order_by("created_at").first(),  # type: ignore
         email=email,
         password=None,
         first_name=full_name,
