@@ -184,7 +184,7 @@ export function DashboardItem({
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const _type: DisplayedType =
+    const _type =
         item.filters.insight === ViewType.RETENTION
             ? 'RetentionContainer'
             : item.filters.insight === ViewType.PATHS

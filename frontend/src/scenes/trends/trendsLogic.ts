@@ -146,7 +146,7 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
 // - dashboardItemId
 // - cachedResults
 // - filters
-export const trendsLogic = kea<trendsLogicType<TrendResponse>>({
+export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse>>({
     props: {} as DashboardItemLogicProps,
 
     key: (props) => {
@@ -161,7 +161,7 @@ export const trendsLogic = kea<trendsLogicType<TrendResponse>>({
         _results: {
             __default: {} as TrendResponse,
             setCachedResults: ({ results, filters }) => {
-                return { result: results, filters }
+                return { results, filters }
             },
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {

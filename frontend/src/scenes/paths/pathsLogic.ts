@@ -58,6 +58,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     connect: {
         actions: [insightHistoryLogic, ['createInsight']],
     },
+    actions: () => ({
+        setProperties: (properties) => ({ properties }),
+        setFilter: (filter) => filter,
+        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
+    }),
     loaders: ({ values, props }) => ({
         results: {
             __default: { paths: [], filter: {} } as PathResult,
@@ -100,9 +105,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     reducers: ({ props }) => ({
         filter: [
             (props.filters
-                ? cleanPathParams(props.filters as Partial<FilterType>)
-                : (state: Record<string, any>) =>
-                      cleanPathParams(router.selectors.searchParams(state)) as Record<string, any>) as Partial<
+                ? cleanPathParams(props.filters)
+                : (state: Record<string, any>) => cleanPathParams(router.selectors.searchParams(state))) as Partial<
                 FilterType
             >,
             {
@@ -111,18 +115,13 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         ],
         properties: [
             (props.filters
-                ? (props.filters as Partial<FilterType>).properties || []
+                ? props.filters.properties || []
                 : (state: Record<string, any>) =>
                       router.selectors.searchParams(state).properties || []) as PropertyFilter[],
             {
                 setProperties: (_, { properties }) => properties,
             },
         ],
-    }),
-    actions: () => ({
-        setProperties: (properties) => ({ properties }),
-        setFilter: (filter) => filter,
-        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
