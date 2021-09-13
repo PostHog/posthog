@@ -23,6 +23,7 @@ export function FeatureFlags(): JSX.Element {
                                 <>
                                     <Row>
                                         <Typography.Text style={{ flex: 1 }}>
+                                            <Typography.Text style={{ marginRight: 5 }}>Value:</Typography.Text>
                                             <Typography.Text code>{currentValue?.toString()}</Typography.Text>
                                         </Typography.Text>
                                         {override ? (
@@ -36,8 +37,8 @@ export function FeatureFlags(): JSX.Element {
                                             </Typography.Link>
                                         ) : null}
                                     </Row>
-                                    <Row style={{ marginTop: 10 }}>
-                                        <Typography.Text strong>Edit Flag:</Typography.Text>
+                                    <Row style={{ marginTop: 15 }}>
+                                        <Typography.Text strong>Override value</Typography.Text>
                                     </Row>
                                     <Row style={{ marginTop: 7 }}>
                                         <Typography.Text style={{ marginRight: 5 }}>Enabled:</Typography.Text>
