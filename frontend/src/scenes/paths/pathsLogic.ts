@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { FilterType, PathType, PropertyFilter, ViewType } from '~/types'
+import { DashboardItemLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -51,6 +51,7 @@ interface PathNode {
 }
 
 export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
+    props: {} as DashboardItemLogicProps,
     key: (props) => {
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },

@@ -25,6 +25,7 @@ import {
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelStepRangeEntityFilter,
+    DashboardItemLogicProps,
 } from '~/types'
 import { FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -87,16 +88,13 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
     }
 }
 
-export const funnelLogic = kea<funnelLogicType>({
-    props: {} as {
-        dashboardItemId?: number
-        filters?: Partial<FilterType>
-        cachedResults?: any
-        preventLoading?: boolean
-        refresh?: boolean
-        exclusionFilters?: Partial<FilterType>
-    },
+interface FunnelLogicProps extends DashboardItemLogicProps {
+    refresh?: boolean
+    exclusionFilters?: Partial<FilterType>
+}
 
+export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
+    props: {} as FunnelLogicProps,
     key: (props) => {
         return props.dashboardItemId || 'insight_funnel'
     },
@@ -158,10 +156,10 @@ export const funnelLogic = kea<funnelLogicType>({
                     const { apiParams, eventCount, actionCount, interval, filters } = values
 
                     if (
-                        props.cachedResults &&
                         !refresh &&
+                        (props.cachedResults || props.preventLoading) &&
                         equal(cleanFunnelParams(values.filters, true), cleanFunnelParams(props.filters || {}, true)) &&
-                        // TODO: escape hatch for now: this funnel type makes two queries
+                        // TODO: escape hatch for now: timeConversionResults needs two queries
                         filters.funnel_viz_type !== FunnelVizType.TimeToConvert
                     ) {
                         // debugger
@@ -705,6 +703,7 @@ export const funnelLogic = kea<funnelLogicType>({
     events: ({ actions, values }) => ({
         afterMount: () => {
             if (values.areFiltersValid) {
+                // loadResults gets called in urlToAction for non-dashboard insights
                 actions.loadResults()
             }
         },

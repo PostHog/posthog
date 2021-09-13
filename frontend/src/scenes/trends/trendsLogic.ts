@@ -10,6 +10,7 @@ import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHist
 import {
     ActionFilter,
     ChartDisplayType,
+    DashboardItemLogicProps,
     EntityTypes,
     FilterType,
     PersonType,
@@ -141,18 +142,12 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
     return {}
 }
 
-interface TrendsLogicProps {
-    dashboardItemId?: number | null
-    cachedResults?: TrendResult[]
-    filters?: Partial<FilterType>
-}
-
 // props:
 // - dashboardItemId
 // - cachedResults
 // - filters
-export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse, TrendsLogicProps>>({
-    props: {} as TrendsLogicProps,
+export const trendsLogic = kea<trendsLogicType<TrendResponse>>({
+    props: {} as DashboardItemLogicProps,
 
     key: (props) => {
         return props.dashboardItemId || 'all_trends'

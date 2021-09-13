@@ -57,6 +57,7 @@ export function defaultFilters(filters: Record<string, any>): Record<string, any
 }
 
 export const retentionTableLogic = kea<retentionTableLogicType>({
+    props: {} as DashboardItemLogicProps,
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
