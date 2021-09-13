@@ -63,3 +63,13 @@ jobs:
                   branch: ${{ github.event.pull_request.base.ref }}
                   message: 'Bump version to ${{ steps.new-version.outputs.new-version }}'
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Notify Sentry of Release
+              if: steps.bump-type.outputs.bump-type != 'null'
+              uses: getsentry/action-release@v1
+              env:
+                  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+                  SENTRY_ORG: posthog
+                  SENTRY_PROJECT: plugin-server
+              with:
+                  environment: production
