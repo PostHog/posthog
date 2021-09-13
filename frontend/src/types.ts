@@ -890,6 +890,13 @@ export interface ChartParams {
     view: ViewType
 }
 
+export interface DashboardItemLogicProps {
+    dashboardItemId?: number | null
+    cachedResults?: any
+    filters?: Partial<FilterType> | null
+    preventLoading?: boolean
+}
+
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
