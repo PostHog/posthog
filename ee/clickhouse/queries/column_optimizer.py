@@ -54,6 +54,10 @@ class ColumnOptimizer:
         return len(self.materialized_person_columns_to_query) != len(self._used_properties_with_type("person"))
 
     @cached_property
+    def is_using_person_properties(self) -> bool:
+        return len(self._used_properties_with_type("person")) > 0
+
+    @cached_property
     def should_query_elements_chain_column(self) -> bool:
         "Returns whether this query uses elements_chain"
         has_element_type_property = lambda properties: any(prop.type == "element" for prop in properties)

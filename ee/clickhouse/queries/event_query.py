@@ -76,6 +76,13 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return ""
 
     def _determine_should_join_persons(self) -> None:
+        if self._column_optimizer.is_using_person_properties:
+            self._should_join_distinct_ids = True
+            self._should_join_persons = True
+            return
+
+        # :KLUDGE: The following is mostly making sure if cohorts are included as well.
+        #   Can be simplified significantly after https://github.com/PostHog/posthog/issues/5854
         if any(self._should_property_join_persons(prop) for prop in self._filter.properties):
             self._should_join_distinct_ids = True
             self._should_join_persons = True

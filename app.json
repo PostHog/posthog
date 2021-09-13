@@ -16,7 +16,7 @@
                 "DEPLOYMENT": "Heroku Review App",
                 "AUTO_LOGIN": true
             },
-            "buildpacks": [{ "url": "heroku-community/apt" }, { "url": "heroku/nodejs" }, { "url": "heroku/python" }],
+            "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
             "formation": {
                 "web": {
                     "quantity": 1
@@ -33,7 +33,7 @@
             }
         }
     },
-    "buildpacks": [{ "url": "heroku-community/apt" }, { "url": "heroku/nodejs" }, { "url": "heroku/python" }],
+    "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
     "addons": [
         "heroku-postgresql",
         {

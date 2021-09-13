@@ -117,6 +117,9 @@ FUNNEL_PATHS = "funnel_paths"
 PATHS_INCLUDE_EVENT_TYPES = "include_event_types"
 PATHS_INCLUDE_CUSTOM_EVENTS = "include_custom_events"
 PATHS_EXCLUDE_EVENTS = "exclude_events"
+FUNNEL_PATH_AFTER_STEP = "funneL_path_after_step"
+FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
+FUNNEL_PATH_BETWEEN_STEPS = "funneL_path_between_steps"
 
 
 class FunnelOrderType(str, Enum):
