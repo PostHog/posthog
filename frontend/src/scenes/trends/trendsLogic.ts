@@ -161,7 +161,7 @@ export const trendsLogic = kea<trendsLogicType<TrendResponse>>({
         _results: {
             __default: {} as TrendResponse,
             setCachedResults: ({ results, filters }) => {
-                return { results, filters }
+                return { result: results, filters }
             },
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
