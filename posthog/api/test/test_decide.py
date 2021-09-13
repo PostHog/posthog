@@ -272,7 +272,7 @@ class TestDecide(BaseTest):
         self.client.logout()
         Person.objects.create(
             team=self.team,
-            distinct_ids=[self.user.distinct_id, "not-connonical-distinct-id"],
+            distinct_ids=[self.user.distinct_id, "not-canonical-distinct-id"],
             properties={"email": self.user.email},
         )
         ff_1 = FeatureFlag.objects.create(
@@ -366,9 +366,9 @@ class TestDecide(BaseTest):
 
         with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id=str(self.user.distinct_id))
-            feature_flags_for_connonical_distinct_id = response.json()["featureFlags"]
+            feature_flags_for_canonical_distinct_id = response.json()["featureFlags"]
             self.assertEqual(
-                feature_flags_for_connonical_distinct_id,
+                feature_flags_for_canonical_distinct_id,
                 {
                     "bool-key-overridden-to-true": True,
                     "multivariate-flag-overridden": "third-variant",
@@ -378,11 +378,11 @@ class TestDecide(BaseTest):
             )
         # Ensure we get the same response from both of the user's distinct_ids
         with self.assertNumQueries(3):
-            response_non_connonical_distinct_id = self._post_decide(
-                api_version=2, distinct_id="not-connonical-distinct-id"
+            response_non_canonical_distinct_id = self._post_decide(
+                api_version=2, distinct_id="not-canonical-distinct-id"
             )
             self.assertEqual(
-                response_non_connonical_distinct_id.json()["featureFlags"], feature_flags_for_connonical_distinct_id,
+                response_non_canonical_distinct_id.json()["featureFlags"], feature_flags_for_canonical_distinct_id,
             )
 
         with self.assertNumQueries(3):

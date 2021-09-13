@@ -117,7 +117,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
     authentication_classes = [
         PersonalAPIKeyAuthentication,
-        TemporaryTokenAuthentication,
+        TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
@@ -145,7 +145,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
         )
         flags = []
         for feature_flag in feature_flags:
-            my_overrides = cast(List[FeatureFlagOverride], feature_flag.my_overrides)  # type: ignore
+            my_overrides = feature_flag.my_overrides  # type: ignore
             override = None
             if len(my_overrides) > 0:
                 override = my_overrides[0]

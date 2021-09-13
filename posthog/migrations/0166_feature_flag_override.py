@@ -27,6 +27,8 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="featureflagoverride",
-            constraint=models.UniqueConstraint(fields=("user", "feature_flag"), name="unique feature flag for a user"),
+            constraint=models.UniqueConstraint(
+                fields=("user", "feature_flag", "team"), name="unique feature flag for a user/team combo"
+            ),
         ),
     ]

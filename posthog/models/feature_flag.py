@@ -81,7 +81,11 @@ class FeatureFlag(models.Model):
 
 class FeatureFlagOverride(models.Model):
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["user", "feature_flag"], name="unique feature flag for a user")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo"
+            )
+        ]
 
     feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
     user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
@@ -203,12 +207,10 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bo
 
 
 # Return feature flags with per-user overrides
-def get_overridden_feature_flags(
-    team: Team, distinct_id: str, user: Optional[Union[User, AnonymousUser]]
-) -> Dict[str, Union[bool, str, None]]:
+def get_overridden_feature_flags(team: Team, distinct_id: str,) -> Dict[str, Union[bool, str, None]]:
     feature_flags = get_active_feature_flags(team, distinct_id)
 
-    # Get  a user's feature flag overrides from any distinct_id (not just the connonical one)
+    # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
     person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team=team).values_list("person_id")[:1]
     distinct_ids = PersonDistinctId.objects.filter(person_id__in=Subquery(person)).values_list("distinct_id")
     user_id = User.objects.filter(distinct_id__in=Subquery(distinct_ids))[:1].values_list("id")
