@@ -51,14 +51,15 @@ def factory_test_person(event_factory, person_factory, get_events):
             person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
 
             response = self.client.get(
-                "/api/person/?properties=%s" % json.dumps([{"key": "email", "operator": "is_set", "value": "is_set"}])
+                "/api/person/?properties=%s"
+                % json.dumps([{"key": "email", "operator": "is_set", "value": "is_set", "type": "person"}])
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
 
             response = self.client.get(
                 "/api/person/?properties=%s"
-                % json.dumps([{"key": "email", "operator": "icontains", "value": "another@gm"}])
+                % json.dumps([{"key": "email", "operator": "icontains", "value": "another@gm", "type": "person"}])
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
