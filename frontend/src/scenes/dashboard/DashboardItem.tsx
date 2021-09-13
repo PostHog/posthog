@@ -604,6 +604,7 @@ export function DashboardItem({
                             ) : (
                                 <Element
                                     dashboardItemId={item.id}
+                                    cachedResults={item.result}
                                     filters={filters}
                                     color={color}
                                     theme={color === 'white' ? 'light' : 'dark'}
