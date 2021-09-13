@@ -18,7 +18,6 @@ import {
     ViewType,
 } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -142,10 +141,19 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
     return {}
 }
 
+interface TrendsLogicProps {
+    dashboardItemId?: number | null
+    cachedResults?: TrendResult[]
+    filters?: Partial<FilterType>
+}
+
 // props:
 // - dashboardItemId
+// - cachedResults
 // - filters
-export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse>>({
+export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse, TrendsLogicProps>>({
+    props: {} as TrendsLogicProps,
+
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -157,6 +165,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
     loaders: ({ cache, values, props }) => ({
         _results: {
             __default: {} as TrendResponse,
+            setCachedResults: ({ results, filters }) => {
+                return { results, filters }
+            },
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return { result: props.cachedResults } as TrendResponse
@@ -173,7 +184,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 cache.abortController = new AbortController()
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId as number | undefined
+                const dashboardItemId = props.dashboardItemId
                 insightLogic.actions.startQuery(queryId)
                 dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
@@ -239,6 +250,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
 
     reducers: ({ props }) => ({
@@ -368,11 +380,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     })
             }
             actions.setIndexedResults(indexedResults)
-        },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
-            if (props.dashboardItemId) {
-                actions.setFilters(filters, true)
-            }
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {

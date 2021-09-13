@@ -165,11 +165,11 @@ export const isStepsEmpty = (filters: FilterType): boolean =>
 
 export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepRangeEntityFilter[] | undefined => {
     if (!filters.exclusions) {
-        return filters.exclusions
+        return undefined
     }
 
     const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-    return filters.exclusions.map((event) => {
+    const exclusions = filters.exclusions.map((event) => {
         const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
         return {
             ...event,
@@ -181,6 +181,7 @@ export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepR
             },
         }
     })
+    return exclusions.length > 0 ? exclusions : undefined
 }
 
 export const getClampedStepRangeFilter = ({

@@ -12,6 +12,7 @@ import { DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
+import { getLogicFromInsight } from 'scenes/insights/utils'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
@@ -478,6 +479,15 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         })}`
                     )
                     breakpoint()
+
+                    // ask to reload the results inside the logic
+                    const itemResultLogic = getLogicFromInsight(dashboardItem.filters.insight, {
+                        dashboardItemId: dashboardItem.id,
+                        filters: dashboardItem.filters,
+                        cachedResults: refreshedDashboardItem.result,
+                    })
+                    itemResultLogic.actions.setCachedResults(dashboardItem.filters, refreshedDashboardItem.result)
+
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.id)
                 } catch (e) {
@@ -499,13 +509,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 loadNextPromise()
             }
 
-            dashboardItemsModel.actions.refreshAllDashboardItems({})
             eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
             actions.updateDashboard(values.filters)
-            dashboardItemsModel.actions.refreshAllDashboardItems(values.filters)
+            actions.refreshAllDashboardItems()
         },
         setDates: ({ dateFrom, dateTo, reloadDashboard }) => {
             if (reloadDashboard) {

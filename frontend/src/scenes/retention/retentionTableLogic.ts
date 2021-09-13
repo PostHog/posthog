@@ -20,7 +20,6 @@ import {
     RetentionTablePeoplePayload,
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -64,6 +63,9 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     loaders: ({ values, props }) => ({
         results: {
             __default: [] as RetentionTablePayload[] | RetentionTrendPayload[],
+            setCachedResults: ({ results }) => {
+                return results
+            },
             loadResults: async (refresh = false, breakpoint) => {
                 if (!refresh && (props.cachedResults || props.preventLoading) && values.filters === props.filters) {
                     return props.cachedResults
@@ -117,6 +119,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         updateRetention: (retention: RetentionTablePayload[] | RetentionTrendPayload[]) => ({ retention }),
         clearPeople: true,
         clearRetention: true,
+        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
     reducers: ({ props }) => ({
         filters: [
@@ -219,11 +222,6 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                     next: peopleResult['next'],
                 }
                 actions.updatePeople(newPeople)
-            }
-        },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: FilterType) => {
-            if (props.dashboardItemId) {
-                actions.setFilters(filters)
             }
         },
     }),

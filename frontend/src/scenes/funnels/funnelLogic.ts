@@ -5,7 +5,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, sum, uuid } from 'lib/utils'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
@@ -132,6 +131,7 @@ export const funnelLogic = kea<funnelLogicType>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
+        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
 
     connect: {
@@ -143,13 +143,31 @@ export const funnelLogic = kea<funnelLogicType>({
         rawResults: [
             { ...EMPTY_FUNNEL_RESULTS, filters: {} } as LoadedRawFunnelResults,
             {
+                setCachedResults: ({ results, filters }) => {
+                    // TODO: escape hatch for now: this funnel type makes two queries
+                    if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                        return values.rawResults
+                    }
+                    return {
+                        results: results as FunnelStep[] | FunnelStep[][],
+                        timeConversionResults: { bins: [], average_conversion_time: 0 },
+                        filters: values.filters,
+                    }
+                },
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
                     const { apiParams, eventCount, actionCount, interval, filters } = values
 
-                    if (props.cachedResults && !refresh && values.filters === props.filters) {
+                    if (
+                        props.cachedResults &&
+                        !refresh &&
+                        equal(cleanFunnelParams(values.filters, true), cleanFunnelParams(props.filters || {}, true)) &&
+                        // TODO: escape hatch for now: this funnel type makes two queries
+                        filters.funnel_viz_type !== FunnelVizType.TimeToConvert
+                    ) {
+                        // debugger
                         return {
                             results: props.cachedResults as FunnelStep[] | FunnelStep[][],
-                            timeConversionResults: props.cachedResults as FunnelsTimeConversionBins,
+                            timeConversionResults: { bins: [], average_conversion_time: 0 }, //props.cachedResults as FunnelsTimeConversionBins,
                             filters,
                         }
                     }
@@ -597,12 +615,12 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         setEventExclusionFilters: () => {
-            if (!equal(values.filters.exclusions, values.lastAppliedFilters.exclusions)) {
+            if (!equal(values.filters.exclusions || [], values.lastAppliedFilters.exclusions || [])) {
                 actions.loadResults()
             }
         },
         setOneEventExclusionFilter: () => {
-            if (!equal(values.filters.exclusions, values.lastAppliedFilters.exclusions)) {
+            if (!equal(values.filters.exclusions || [], values.lastAppliedFilters.exclusions || [])) {
                 actions.loadResults()
             }
         },
@@ -617,11 +635,6 @@ export const funnelLogic = kea<funnelLogicType>({
         clearFunnel: async () => {
             if (!props.dashboardItemId) {
                 insightLogic.actions.setAllFilters({})
-            }
-        },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters) => {
-            if (props.dashboardItemId) {
-                actions.setFilters(filters, true)
             }
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
