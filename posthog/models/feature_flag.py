@@ -188,11 +188,7 @@ class FeatureFlagMatcher:
 def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bool, str, None]]:
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
-        "id",
-        "team_id",
-        "filters",
-        "key",
-        "rollout_percentage",
+        "id", "team_id", "filters", "key", "rollout_percentage",
     )
 
     for feature_flag in feature_flags:
@@ -211,10 +207,7 @@ def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bo
 
 
 # Return feature flags with per-user overrides
-def get_overridden_feature_flags(
-    team: Team,
-    distinct_id: str,
-) -> Dict[str, Union[bool, str, None]]:
+def get_overridden_feature_flags(team: Team, distinct_id: str,) -> Dict[str, Union[bool, str, None]]:
     feature_flags = get_active_feature_flags(team, distinct_id)
 
     # Get a user's feature flag overrides from any distinct_id (not just the canonical one)

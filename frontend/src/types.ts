@@ -20,13 +20,14 @@ import { UploadFile } from 'antd/lib/upload/interface'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
-export type AvailableFeatures =
-    | 'zapier'
-    | 'organizations_projects'
-    | 'google_login'
-    | 'dashboard_collaboration'
-    | 'clickhouse'
-    | 'ingestion_taxonomy'
+export enum AvailableFeature {
+    ZAPIER = 'zapier',
+    ORGANIZATIONS_PROJECTS = 'organizations_projects',
+    GOOGLE_LOGIN = 'google_login',
+    SAML = 'saml',
+    DASHBOARD_COLLABORATION = 'dashboard_collaboration',
+    INGESTION_TAXONOMY = 'ingestion_taxonomy',
+}
 
 export interface ColumnConfig {
     active: string[] | 'DEFAULT'
@@ -91,7 +92,7 @@ export interface OrganizationType extends OrganizationBasicType {
     setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
-    available_features: AvailableFeatures[]
+    available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
 }
@@ -547,8 +548,17 @@ export interface PluginType {
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    public_jobs?: Record<string, JobSpec>
 }
 
+export interface JobPayloadFieldOptions {
+    type: 'string' | 'boolean' | 'json' | 'number'
+    required?: boolean
+}
+
+export interface JobSpec {
+    payload?: Record<string, JobPayloadFieldOptions>
+}
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -727,6 +737,21 @@ export interface SystemStatusQueriesResult {
     postgres_running: QuerySummary[]
     clickhouse_running?: QuerySummary[]
     clickhouse_slow_log?: QuerySummary[]
+}
+
+export interface SystemStatusAnalyzeResult {
+    query: string
+    timing: {
+        query_id: string
+        event_time: string
+        query_duration_ms: number
+        read_rows: number
+        read_size: string
+        result_rows: number
+        result_size: string
+        memory_usage: string
+    }
+    flamegraphs: Record<string, string>
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>

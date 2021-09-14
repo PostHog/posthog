@@ -10,8 +10,8 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.models.utils import sane_repr
+from posthog.utils import is_clickhouse_enabled
 
 from .action import Action
 from .event import Event
@@ -145,9 +145,11 @@ class Cohort(models.Model):
     def calculate_people_ch(self):
         if is_clickhouse_enabled():
             from ee.clickhouse.models.cohort import recalculate_cohortpeople
+            from posthog.tasks.calculate_cohort import calculate_cohort
 
             try:
                 recalculate_cohortpeople(self)
+                calculate_cohort(self.id)
                 self.last_calculation = timezone.now()
                 self.errors_calculating = 0
             except Exception as e:

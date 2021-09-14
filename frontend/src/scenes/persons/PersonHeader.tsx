@@ -2,8 +2,15 @@ import { PersonType } from '~/types'
 import React, { useMemo } from 'react'
 import { IconPerson } from 'lib/components/icons'
 import './PersonHeader.scss'
+import { Link } from '../../lib/components/Link'
+import { urls } from '../sceneLogic'
 
-export function PersonHeader({ person }: { person?: Partial<PersonType> | null }): JSX.Element {
+export interface PersonHeader {
+    person?: Partial<PersonType> | null
+    withIcon?: boolean
+}
+
+export function PersonHeader({ person, withIcon = true }: PersonHeader): JSX.Element {
     const propertyIdentifier = person?.properties
         ? person.properties.email || person.properties.name || person.properties.username
         : null
@@ -19,12 +26,13 @@ export function PersonHeader({ person }: { person?: Partial<PersonType> | null }
     }, [person])
 
     return (
-        <>
+        <Link
+            to={person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : undefined}
+            data-attr="goto-person-email"
+        >
             {person?.is_identified ? (
                 <div className="person-header identified">
-                    <span>
-                        <IconPerson />
-                    </span>
+                    {withIcon && <IconPerson style={{ marginRight: 8 }} />}
                     {customIdentifier ? (
                         <span className="ph-no-capture text-ellipsis">{customIdentifier}</span>
                     ) : (
@@ -33,9 +41,10 @@ export function PersonHeader({ person }: { person?: Partial<PersonType> | null }
                 </div>
             ) : (
                 <div className="person-header anonymous">
-                    <IconPerson /> Unidentified {customIdentifier || <>user {displayId}</>}
+                    {withIcon && <IconPerson style={{ marginRight: 8 }} />}Unidentified{' '}
+                    {customIdentifier || `user ${displayId}`}
                 </div>
             )}
-        </>
+        </Link>
     )
 }

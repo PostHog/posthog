@@ -50,8 +50,9 @@ export function InsightTooltip({
             )}
             {children}
             {inspectPersonsLabel && (
-                <div>
-                    <IconHandClick /> Click to inspect persons
+                <div className="inspect-persons-label">
+                    <IconHandClick />
+                    Click to view persons
                 </div>
             )}
         </div>

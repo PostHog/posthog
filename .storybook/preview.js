@@ -2,6 +2,7 @@ import React from 'react'
 import { getContext } from 'kea'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import '~/styles'
+import { withApi } from './ApiSelector/withApi'
 
 loadPostHogJS()
 window.getReduxState = () => getContext().store.getState()
@@ -14,6 +15,11 @@ export const parameters = {
             date: /Date$/,
         },
     },
+
+    options: {
+        // opt in to panels in your story by overridding `export const parameters`
+        showPanel: false,
+    },
 }
 
-export const decorators = []
+export const decorators = [withApi]

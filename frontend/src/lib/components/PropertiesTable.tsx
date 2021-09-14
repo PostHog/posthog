@@ -8,6 +8,8 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { IconExternalLink, IconText } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import './PropertiesTable.scss'
+import { CopyOutlined } from '@ant-design/icons'
+import { copyToClipboard } from 'lib/utils'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -112,7 +114,15 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                             {canEdit && boolNullTypes.includes(valueType) ? (
                                 <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                             ) : (
-                                <>{valueComponent}</>
+                                <>
+                                    {valueComponent}
+                                    <CopyOutlined
+                                        style={{ marginLeft: 4, color: 'var(--primary)' }}
+                                        onClick={() => {
+                                            copyToClipboard(value)
+                                        }}
+                                    />
+                                </>
                             )}
 
                             {isURL(value) && (

@@ -1,5 +1,5 @@
 FUNNEL_PERSONS_BY_STEP_SQL = """
-SELECT person_id {timestamp}
+SELECT person_id {extra_fields}
 FROM (
     {steps_per_person_query}
 )

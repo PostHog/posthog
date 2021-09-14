@@ -5,7 +5,6 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import (
     Cohort,
     Dashboard,
@@ -17,6 +16,7 @@ from posthog.models import (
     User,
 )
 from posthog.test.base import APIBaseTest
+from posthog.utils import is_clickhouse_enabled
 
 
 def insight_test_factory(event_factory, person_factory):

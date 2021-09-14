@@ -408,7 +408,7 @@ code.code {
 }
 
 .card-elevated {
-    @extend .mixin-elevated;
+    @extend %mixin-elevated;
 }
 
 // Form & input styles

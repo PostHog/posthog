@@ -3,13 +3,13 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
 import { ActionFilter, FilterType, ViewType, FunnelVizType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { parsePeopleParams, TrendPeople } from './trendsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -38,7 +38,6 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         }),
         saveFirstLoadedPeople: (people: TrendPeople) => ({ people }),
         setFirstLoadedPeople: (firstLoadedPeople: TrendPeople | null) => ({ firstLoadedPeople }),
-        refreshCohort: true,
         savePeopleParams: (peopleParams: PersonModalParams) => ({ peopleParams }),
     }),
     reducers: () => ({
@@ -212,17 +211,6 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         },
     }),
     listeners: ({ actions, values }) => ({
-        refreshCohort: () => {
-            cohortLogic({
-                cohort: {
-                    id: 'personsModalNew',
-                    groups: [],
-                },
-            }).actions.setCohort({
-                id: 'personsModalNew',
-                groups: [],
-            })
-        },
         saveCohortWithFilters: ({ cohortName, filters }) => {
             if (values.people) {
                 const { label, action, day, breakdown_value } = values.people

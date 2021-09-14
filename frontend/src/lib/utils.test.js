@@ -196,6 +196,8 @@ describe('humanFriendlyDuration()', () => {
     it('returns correct value for <= 60', () => {
         expect(humanFriendlyDuration(60)).toEqual('1min')
         expect(humanFriendlyDuration(45)).toEqual('45s')
+        expect(humanFriendlyDuration(44.8)).toEqual('45s')
+        expect(humanFriendlyDuration(45.2)).toEqual('45s')
     })
     it('returns correct value for 60 < t < 120', () => {
         expect(humanFriendlyDuration(90)).toEqual('1min 30s')
@@ -207,9 +209,12 @@ describe('humanFriendlyDuration()', () => {
         expect(humanFriendlyDuration(3600)).toEqual('1h')
         expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
         expect(humanFriendlyDuration(3961)).toEqual('1h 6min 1s')
+        expect(humanFriendlyDuration(3961.333)).toEqual('1h 6min 1s')
+        expect(humanFriendlyDuration(3961.666)).toEqual('1h 6min 2s')
     })
     it('returns correct value for t >= 86400', () => {
         expect(humanFriendlyDuration(86400)).toEqual('1d')
+        expect(humanFriendlyDuration(86400.12)).toEqual('1d')
     })
     it('truncates to specified # of units', () => {
         expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6min')
@@ -232,6 +237,8 @@ describe('colonDelimitedDuration()', () => {
     })
     it('returns correct value for t > 120', () => {
         expect(colonDelimitedDuration(360)).toEqual('00:06:00')
+        expect(colonDelimitedDuration(360.3233)).toEqual('00:06:00')
+        expect(colonDelimitedDuration(360.782)).toEqual('00:06:01')
     })
     it('returns correct value for t >= 3600', () => {
         expect(colonDelimitedDuration(3600)).toEqual('01:00:00')
@@ -252,6 +259,8 @@ describe('colonDelimitedDuration()', () => {
         expect(colonDelimitedDuration(90061, 4)).toEqual('01:01:01:01')
         expect(colonDelimitedDuration(604800, 5)).toEqual('01:00:00:00:00')
         expect(colonDelimitedDuration(604800, 6)).toEqual('01:00:00:00:00')
+        expect(colonDelimitedDuration(604800.222, 5)).toEqual('01:00:00:00:00')
+        expect(colonDelimitedDuration(604800.999, 6)).toEqual('01:00:00:00:01')
     })
     it('returns an empty string for nullish inputs', () => {
         expect(colonDelimitedDuration('')).toEqual('')

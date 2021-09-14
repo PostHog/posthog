@@ -25,20 +25,19 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Dashboard, DashboardItem, Filter, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.types import FilterType
-from posthog.utils import generate_cache_key
+from posthog.utils import generate_cache_key, is_clickhouse_enabled
 
 PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = logging.getLogger(__name__)
 
 if is_clickhouse_enabled():
-    from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
+    from ee.clickhouse.queries import ClickhousePaths
     from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
     from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
     from ee.clickhouse.queries.funnels import (
@@ -161,7 +160,10 @@ def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type:
 
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
-    result = insight_class().run(filter, Team(pk=team_id))
+    if cache_type == CacheType.PATHS:
+        result = insight_class(filter, Team(pk=team_id)).run(filter, Team(pk=team_id))
+    else:
+        result = insight_class().run(filter, Team(pk=team_id))
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
 

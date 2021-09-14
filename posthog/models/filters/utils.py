@@ -10,8 +10,8 @@ from posthog.constants import (
     INSIGHT_STICKINESS,
     INSIGHT_TRENDS,
 )
-from posthog.ee import is_clickhouse_enabled
 from posthog.models.filters.path_filter import PathFilter
+from posthog.utils import is_clickhouse_enabled
 
 
 def earliest_timestamp_func(team_id: int):

@@ -109,11 +109,7 @@ class TestDecide(BaseTest):
         self.client.logout()
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
         FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=50,
-            name="Beta feature",
-            key="beta-feature",
-            created_by=self.user,
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -158,11 +154,7 @@ class TestDecide(BaseTest):
         self.client.logout()
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
         FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=50,
-            name="Beta feature",
-            key="beta-feature",
-            created_by=self.user,
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user,
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -350,22 +342,13 @@ class TestDecide(BaseTest):
         )  # False feature flag, not overriden
 
         FeatureFlagOverride.objects.create(
-            team=self.team,
-            user=self.user,
-            feature_flag=ff_1,
-            override_value=False,
+            team=self.team, user=self.user, feature_flag=ff_1, override_value=False,
         )
         FeatureFlagOverride.objects.create(
-            team=self.team,
-            user=self.user,
-            feature_flag=ff_2,
-            override_value=True,
+            team=self.team, user=self.user, feature_flag=ff_2, override_value=True,
         )
         FeatureFlagOverride.objects.create(
-            team=self.team,
-            user=self.user,
-            feature_flag=ff_3,
-            override_value="third-variant",
+            team=self.team, user=self.user, feature_flag=ff_3, override_value="third-variant",
         )
 
         with self.assertNumQueries(3):
@@ -399,8 +382,7 @@ class TestDecide(BaseTest):
                 api_version=2, distinct_id="not-canonical-distinct-id"
             )
             self.assertEqual(
-                response_non_canonical_distinct_id.json()["featureFlags"],
-                feature_flags_for_canonical_distinct_id,
+                response_non_canonical_distinct_id.json()["featureFlags"], feature_flags_for_canonical_distinct_id,
             )
 
         with self.assertNumQueries(3):
@@ -420,19 +402,10 @@ class TestDecide(BaseTest):
         key.save()
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=100,
-            name="Test",
-            key="test",
-            created_by=self.user,
+            team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
         FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=100,
-            name="Disabled",
-            key="disabled",
-            created_by=self.user,
-            active=False,
+            team=self.team, rollout_percentage=100, name="Disabled", key="disabled", created_by=self.user, active=False,
         )  # disabled flag
         FeatureFlag.objects.create(
             team=self.team,
@@ -467,11 +440,7 @@ class TestDecide(BaseTest):
         key.save()
         Person.objects.create(team=self.team, distinct_ids=["example_id"])
         FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=100,
-            name="Test",
-            key="test",
-            created_by=self.user,
+            team=self.team, rollout_percentage=100, name="Test", key="test", created_by=self.user,
         )
         response = self._post_decide({"distinct_id": "example_id", "api_key": None, "project_id": self.team.id})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -489,8 +458,7 @@ class TestDecide(BaseTest):
             response_data = response.json()
             detail = response_data.pop("detail")
             self.assertEqual(
-                response.json(),
-                {"type": "validation_error", "code": "malformed_data", "attr": None},
+                response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None},
             )
             self.assertIn("Malformed request data:", detail)
 
@@ -506,7 +474,6 @@ class TestDecide(BaseTest):
         response_data = response.json()
         detail = response_data.pop("detail")
         self.assertEqual(
-            response.json(),
-            {"type": "validation_error", "code": "malformed_data", "attr": None},
+            response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None},
         )
         self.assertIn("Malformed request data:", detail)

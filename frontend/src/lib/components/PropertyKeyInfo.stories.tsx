@@ -6,6 +6,7 @@ import { PropertyKeyInfo } from './PropertyKeyInfo'
 export default {
     title: 'PostHog/Components/PropertyKeyInfo',
     component: PropertyKeyInfo,
+    parameters: { options: { showPanel: true } },
 } as ComponentMeta<typeof PropertyKeyInfo>
 
 const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {
@@ -15,6 +16,9 @@ const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {
         <>
             <div>
                 <PropertyKeyInfo {...args} value="$current_url" />
+            </div>
+            <div>
+                <PropertyKeyInfo {...args} value="$feature/some-feature-key" />
             </div>
             <div>
                 <PropertyKeyInfo {...args} value="$country" />

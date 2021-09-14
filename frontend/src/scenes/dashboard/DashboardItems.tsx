@@ -106,6 +106,13 @@ export function DashboardItems(): JSX.Element {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboardMode={dashboardMode}
+                        isHighlighted={
+                            item.id ===
+                            parseInt(
+                                new URLSearchParams(window.location.search).get('dive_source_id') ||
+                                    '0' /* TODO this is so bad */
+                            )
+                        }
                         isOnEditMode={dashboardMode === DashboardMode.Edit}
                         setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}

@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.models.person import create_person_distinct_id
@@ -126,6 +127,46 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEntityResponseEqual(
             event_response, action_response,
         )
+
+    @test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
+    def test_breakdown_with_person_property_filter(self):
+        self._create_multiple_people()
+        action = _create_action(name="watched movie", team=self.team)
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "order",
+                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
+                        "properties": [{"key": "name", "value": "person2", "type": "person"}],
+                    }
+                ),
+                self.team,
+            )
+            event_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "order",
+                        "events": [
+                            {
+                                "id": "watched movie",
+                                "name": "watched movie",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [{"key": "name", "value": "person2", "type": "person"}],
+                            }
+                        ],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2",}, event_response[0])
+        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1",}, event_response[1])
+        self.assertEntityResponseEqual(event_response, action_response)
 
     @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering(self):
@@ -342,6 +383,40 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(event_response[0]["data"][5], 1)  # property not defined
 
         self.assertEntityResponseEqual(action_response, event_response)
+
+    @test_with_materialized_columns(event_properties=["$host"], person_properties=["$some_prop"])
+    def test_against_clashing_entity_and_property_filter_naming(self):
+        # Regression test for https://github.com/PostHog/posthog/issues/5814
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="blabla",
+            properties={"$host": "app.example.com"},
+            timestamp="2020-01-03T12:00:00Z",
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "properties": [{"key": "$host", "operator": "icontains", "value": ".com"}],
+                            }
+                        ],
+                        "properties": [{"key": "$host", "value": ["app.example.com", "another.com"]}],
+                        "breakdown": "$some_prop",
+                        "breakdown_type": "person",
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["count"], 1)
 
     # this ensures that the properties don't conflict when formatting params
     @test_with_materialized_columns(["$current_url"])
@@ -778,3 +853,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
 
         self.assertEqual(response[0]["count"], 2)
+
+    def test_trends_math_without_math_property(self):
+        with self.assertRaises(ValidationError):
+            ClickhouseTrends().run(
+                Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team,
+            )

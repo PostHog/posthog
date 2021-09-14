@@ -10,8 +10,8 @@ from django.db.models import F
 from django.utils import timezone
 
 from posthog.constants import INSIGHT_STICKINESS
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Cohort
+from posthog.utils import is_clickhouse_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,10 @@ def calculate_cohorts() -> None:
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
-        calculate_cohort.delay(cohort.id)
         if is_clickhouse_enabled():
             calculate_cohort_ch.delay(cohort.id)
+        else:
+            calculate_cohort.delay(cohort.id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
