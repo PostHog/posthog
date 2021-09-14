@@ -24,7 +24,14 @@ export function AnimatedCollapsible({
     }, [collapsed])
 
     return (
-        <div className="collapsible" style={{ height }}>
+        <div
+            className="collapsible"
+            style={{
+                height,
+                overflow: 'hidden',
+                transition: 'height 0.3s ease-in-out',
+            }}
+        >
             <div ref={collapsibleSectionRef}>{children}</div>
         </div>
     )
