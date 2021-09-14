@@ -78,7 +78,7 @@ export function PersonsTable({
                         {person.distinct_ids.length && (
                             <CopyToClipboardInline
                                 explicitValue={person.distinct_ids[0]}
-                                tooltipMessage=""
+                                tooltipMessage={null}
                                 iconStyle={{ color: 'var(--primary)' }}
                                 iconPosition="end"
                             >
