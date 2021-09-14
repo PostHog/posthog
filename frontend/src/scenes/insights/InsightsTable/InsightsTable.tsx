@@ -170,7 +170,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         filters.display === ACTIONS_TABLE ||
                         filters.display === ACTIONS_PIE_CHART)
                 ) {
-                    return (item.count || item.aggregated_value).toLocaleString()
+                    return (item.count || item.aggregated_value || 0).toLocaleString()
                 }
                 return (
                     <>
