@@ -145,9 +145,11 @@ class Cohort(models.Model):
     def calculate_people_ch(self):
         if is_clickhouse_enabled():
             from ee.clickhouse.models.cohort import recalculate_cohortpeople
+            from posthog.tasks.calculate_cohort import calculate_cohort
 
             try:
                 recalculate_cohortpeople(self)
+                calculate_cohort(self.id)
                 self.last_calculation = timezone.now()
                 self.errors_calculating = 0
             except Exception as e:
