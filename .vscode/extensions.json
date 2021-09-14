@@ -1,3 +1,9 @@
 {
-    "recommendations": ["rubymaniac.vscode-direnv"]
+    "recommendations": [
+        "esbenp.prettier-vscode",
+        "orta.vscode-jest",
+        "rubymaniac.vscode-direnv",
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+    ]
 }
