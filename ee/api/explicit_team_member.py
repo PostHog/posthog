@@ -1,8 +1,8 @@
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, cast
 
 from django.db.utils import IntegrityError
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
@@ -11,7 +11,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions
 
 
 def get_ephemeral_requesting_team_membership(team: Team, user: User) -> ExplicitTeamMembership:
@@ -37,7 +36,7 @@ class TeamMemberObjectPermissions(BasePermission):
 
     message = "You don't have sufficient permissions in this project."
 
-    def has_permission(self, request: request.Request, view: StructuredViewSetMixin) -> bool:
+    def has_permission(self, request, view) -> bool:
         try:
             team = Team.objects.get(id=view.get_parents_query_dict()["team_id"])
         except Team.DoesNotExist:

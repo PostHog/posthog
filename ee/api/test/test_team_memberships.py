@@ -2,7 +2,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, Team, User
 
 
 class TestTeamMembershipsAPI(APILicensedTest):
@@ -246,7 +246,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         self.assertDictEqual(self.not_found_response("Project not found."), response_data)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_add_member_to_nonexisten_project_forbidden(self):
+    def test_add_member_to_nonexistent_project_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
@@ -256,3 +256,125 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         self.assertDictEqual(self.not_found_response("Project not found."), response_data)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_set_level_of_member_to_admin_as_org_owner_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+        new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            user=new_user, organization=self.organization
+        )
+        new_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=new_org_membership
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/explicit_members/{new_user.id}", {"level": ExplicitTeamMembership.Level.ADMIN}
+        )
+        response_data = response.json()
+
+        self.assertDictContainsSubset(
+            {"effective_level": ExplicitTeamMembership.Level.ADMIN, "level": ExplicitTeamMembership.Level.ADMIN,},
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_set_level_of_member_to_admin_as_org_member_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+        new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            user=new_user, organization=self.organization
+        )
+        new_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=new_org_membership
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/explicit_members/{new_user.id}", {"level": ExplicitTeamMembership.Level.ADMIN}
+        )
+        response_data = response.json()
+
+        self.assertDictEqual(
+            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_set_level_of_member_to_admin_as_org_member_but_project_admin_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+        )
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+        new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            user=new_user, organization=self.organization
+        )
+        new_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=new_org_membership
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/explicit_members/{new_user.id}", {"level": ExplicitTeamMembership.Level.ADMIN}
+        )
+        response_data = response.json()
+
+        self.assertDictContainsSubset(
+            {"effective_level": ExplicitTeamMembership.Level.ADMIN, "level": ExplicitTeamMembership.Level.ADMIN,},
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_remove_member_as_org_admin_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+        new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            user=new_user, organization=self.organization
+        )
+        new_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=new_org_membership
+        )
+
+        response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_remove_member_as_org_member_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+        new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            user=new_user, organization=self.organization
+        )
+        new_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=new_org_membership
+        )
+
+        response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_remove_member_as_org_member_but_project_admin_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+        )
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+        new_org_membership: OrganizationMembership = OrganizationMembership.objects.get(
+            user=new_user, organization=self.organization
+        )
+        new_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=new_org_membership
+        )
+
+        response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)

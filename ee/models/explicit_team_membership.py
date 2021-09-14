@@ -1,7 +1,4 @@
-from typing import Optional
-
 from django.db import models
-from rest_framework import exceptions
 
 from posthog.models.utils import UUIDModel, sane_repr
 
