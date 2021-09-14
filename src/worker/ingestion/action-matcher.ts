@@ -335,7 +335,7 @@ export class ActionMatcher {
      */
     private checkEventAgainstElementFilter(elements: Element[], filter: ElementPropertyFilter): boolean {
         if (filter.key === 'selector') {
-            return this.checkElementsAgainstSelector(elements, filter.value)
+            return filter.value ? this.checkElementsAgainstSelector(elements, filter.value) : false
         } else {
             return elements.some((element) => this.checkPropertiesAgainstFilter(element, filter))
         }
@@ -348,10 +348,14 @@ export class ActionMatcher {
         person: Person | undefined,
         filter: CohortPropertyFilter
     ): Promise<boolean> {
+        let cohortId = filter.value
+        if (cohortId === 'all') {
+            // The "All users" cohort matches anyone
+            return true
+        }
         if (!person) {
             return false // NO PERSON TO MATCH AGAINST COHORT
         }
-        let cohortId = filter.value
         if (typeof cohortId !== 'number') {
             cohortId = parseInt(cohortId)
         }

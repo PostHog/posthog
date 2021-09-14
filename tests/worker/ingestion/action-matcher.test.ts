@@ -726,6 +726,11 @@ describe('ActionMatcher', () => {
                     properties: [{ type: 'cohort', key: 'id', value: testCohort.id }],
                 },
             ])
+            const actionDefinitionAllUsers: Action = await createTestAction([
+                {
+                    properties: [{ type: 'cohort', key: 'id', value: 'all' }],
+                },
+            ])
 
             const cohortPerson = await hub.db.createPerson(
                 DateTime.local(),
@@ -756,19 +761,19 @@ describe('ActionMatcher', () => {
                     eventExamplePersonOk,
                     await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonOk.distinct_id)
                 )
-            ).toEqual([actionDefinition])
+            ).toEqual([actionDefinition, actionDefinitionAllUsers])
             expect(
                 await actionMatcher.match(
                     eventExamplePersonBad,
                     await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonBad.distinct_id)
                 )
-            ).toEqual([])
+            ).toEqual([actionDefinitionAllUsers])
             expect(
                 await actionMatcher.match(
                     eventExamplePersonUnknown,
                     await hub.db.fetchPerson(actionDefinition.team_id, eventExamplePersonUnknown.distinct_id)
                 )
-            ).toEqual([])
+            ).toEqual([actionDefinitionAllUsers])
         })
 
         it('returns a match in case of a CH static cohort match', async () => {
