@@ -446,7 +446,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     : stepsWithCount[filters.funnel_from_step ?? 0]
                 const toStep = isAllSteps
                     ? getLastFilledStep(stepsWithCount)
-                    : stepsWithCount[filters.funnel_from_step ?? 0]
+                    : stepsWithCount[filters.funnel_to_step ?? 0]
 
                 return {
                     averageTime: toStep?.average_conversion_time || 0,

@@ -66,14 +66,6 @@ BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query}
 """
 
-BREAKDOWN_PERSON_PROP_JOIN_SQL = """
-INNER JOIN (
-    {person_query}
-) ep
-ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
-AND {breakdown_value_expr} in (%(values)s) {actions_query}
-"""
-
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
   AND {breakdown_value_expr} in (%(values)s)

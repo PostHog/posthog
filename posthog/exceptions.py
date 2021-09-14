@@ -1,5 +1,7 @@
-from typing import Optional
+from typing import Dict, Literal, Optional, TypedDict
 
+from django.core.signals import got_request_exception
+from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 from rest_framework import status
 from rest_framework.exceptions import APIException
@@ -20,13 +22,24 @@ class EstimatedQueryExecutionTimeTooLong(APIException):
     default_detail = "Estimated query execution time is too long"
 
 
-def exception_reporting(exception: Exception, *args, **kwargs) -> None:
+class ExceptionContext(TypedDict):
+    request: HttpRequest
+
+
+def exception_reporting(exception: Exception, context: ExceptionContext) -> None:
     """
     Determines which exceptions to report and sends them to Sentry.
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
         capture_exception(exception)
+
+        # NOTE: to make sure we get exception tracebacks in test responses, we need
+        # to make sure this signal is called. The django test client uses this to
+        # pull out the exception traceback.
+        #
+        # See https://github.com/django/django/blob/ecf87ad513fd8af6e4a6093ed918723a7d88d5ca/django/test/client.py#L714
+        got_request_exception.send(sender=None, request=context["request"])
 
 
 def generate_exception_response(

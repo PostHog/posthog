@@ -1,5 +1,15 @@
 from enum import Enum
 
+
+class AvailableFeature(str, Enum):
+    ZAPIER = "zapier"
+    ORGANIZATIONS_PROJECTS = "organizations_projects"
+    GOOGLE_LOGIN = "google_login"
+    SAML = "saml"
+    DASHBOARD_COLLABORATION = "dashboard_collaboration"
+    INGESTION_TAXONOMY = "ingestion_taxonomy"
+
+
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
@@ -107,6 +117,9 @@ FUNNEL_PATHS = "funnel_paths"
 PATHS_INCLUDE_EVENT_TYPES = "include_event_types"
 PATHS_INCLUDE_CUSTOM_EVENTS = "include_custom_events"
 PATHS_EXCLUDE_EVENTS = "exclude_events"
+FUNNEL_PATH_AFTER_STEP = "funneL_path_after_step"
+FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
+FUNNEL_PATH_BETWEEN_STEPS = "funneL_path_between_steps"
 
 
 class FunnelOrderType(str, Enum):
@@ -127,7 +140,7 @@ RETENTION_FIRST_TIME = "retention_first_time"
 DISTINCT_ID_FILTER = "distinct_id"
 
 
-class RDBMS(str, Enum):
+class AnalyticsDBMS(str, Enum):
     POSTGRES = "postgres"
     CLICKHOUSE = "clickhouse"
 

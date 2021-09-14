@@ -7,7 +7,7 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
-import { EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
+import { AvailableFeature, EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitions/definitionDrawerLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
@@ -52,7 +52,7 @@ export function VolumeTable({
 
     const hasTaxonomyFeatures =
         featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
-        user?.organization?.available_features?.includes('ingestion_taxonomy')
+        user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY)
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {

@@ -1,9 +1,10 @@
-from typing import Optional, Type, TypeVar
+from typing import Type, TypeVar
 
-from django.db import connection, models
+from django.db import models
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition
@@ -42,7 +43,7 @@ class PropertyDefinitionViewSet(
 
     def get_queryset(self):
 
-        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
             except ImportError:
@@ -74,7 +75,7 @@ class PropertyDefinitionViewSet(
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
                 from ee.api.enterprise_property_definition import EnterprisePropertyDefinitionSerializer
             except ImportError:
@@ -85,7 +86,7 @@ class PropertyDefinitionViewSet(
 
     def get_object(self):
         id = self.kwargs["id"]
-        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
+        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
             except ImportError:

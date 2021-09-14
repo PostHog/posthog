@@ -54,6 +54,10 @@ class ColumnOptimizer:
         return len(self.materialized_person_columns_to_query) != len(self._used_properties_with_type("person"))
 
     @cached_property
+    def is_using_person_properties(self) -> bool:
+        return len(self._used_properties_with_type("person")) > 0
+
+    @cached_property
     def should_query_elements_chain_column(self) -> bool:
         "Returns whether this query uses elements_chain"
         has_element_type_property = lambda properties: any(prop.type == "element" for prop in properties)
@@ -93,8 +97,8 @@ class ColumnOptimizer:
 
         # Some breakdown types read properties
         #
-        # See ee/clickhouse/queries/trends/breakdown.py#_format_breakdown_query or
-        # ee/clickhouse/queries/breakdown_props.py#get_breakdown_event_prop_values
+        # See ee/clickhouse/queries/trends/breakdown.py#get_query or
+        # ee/clickhouse/queries/breakdown_props.py#get_breakdown_prop_values
         if self.filter.breakdown_type in ["event", "person"]:
             # :TRICKY: We only support string breakdown for event/person properties
             assert isinstance(self.filter.breakdown, str)

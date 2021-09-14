@@ -15,9 +15,14 @@ const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems(): JSX.Element {
     const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode } = useValues(dashboardLogic)
-    const { loadDashboardItems, updateLayouts, updateContainerWidth, updateItemColor, setDashboardMode } = useActions(
-        dashboardLogic
-    )
+    const {
+        loadDashboardItems,
+        updateLayouts,
+        updateContainerWidth,
+        updateItemColor,
+        setDashboardMode,
+        setDiveDashboard,
+    } = useActions(dashboardLogic)
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
     // make sure the dashboard takes up the right size
@@ -93,6 +98,7 @@ export function DashboardItems(): JSX.Element {
                             resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
                         }
                         loadDashboardItems={loadDashboardItems}
+                        setDiveDashboard={setDiveDashboard}
                         duplicateDashboardItem={duplicateDashboardItem}
                         moveDashboardItem={(it: DashboardItemType, dashboardId: number) =>
                             duplicateDashboardItem(it, dashboardId, true)
@@ -100,6 +106,13 @@ export function DashboardItems(): JSX.Element {
                         updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboardMode={dashboardMode}
+                        isHighlighted={
+                            item.id ===
+                            parseInt(
+                                new URLSearchParams(window.location.search).get('dive_source_id') ||
+                                    '0' /* TODO this is so bad */
+                            )
+                        }
                         isOnEditMode={dashboardMode === DashboardMode.Edit}
                         setEditMode={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.LongPress)}
                         index={index}

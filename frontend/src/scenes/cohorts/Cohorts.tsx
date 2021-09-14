@@ -7,8 +7,7 @@ import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions, kea } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PlusOutlined } from '@ant-design/icons'
-import { CohortV2, CohortV2Footer } from './CohortV2'
-import { Cohort } from './Cohort'
+import { Cohort, CohortFooter } from './Cohort'
 import { Drawer } from 'lib/components/Drawer'
 import { CohortType } from '~/types'
 import api from 'lib/api'
@@ -19,9 +18,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
-import { FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 dayjs.extend(relativeTime)
 
@@ -83,8 +80,6 @@ export function Cohorts(): JSX.Element {
     const { openCohort } = useValues(cohortsUrlLogic)
     const { setOpenCohort } = useActions(cohortsUrlLogic)
     const [searchTerm, setSearchTerm] = useState(false as string | false)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { preflight } = useValues(preflightLogic)
 
     const columns = [
         {
@@ -173,8 +168,6 @@ export function Cohorts(): JSX.Element {
         },
     ]
 
-    const COHORT_V2 = featureFlags[FEATURE_FLAGS.ENGAGEMENT_COHORTS] && preflight?.is_clickhouse_enabled
-
     return (
         <div>
             <PageHeader
@@ -220,9 +213,9 @@ export function Cohorts(): JSX.Element {
                     onClose={() => setOpenCohort(null)}
                     destroyOnClose={true}
                     visible={!!openCohort}
-                    footer={openCohort && COHORT_V2 ? <CohortV2Footer cohort={openCohort} /> : null}
+                    footer={openCohort && <CohortFooter cohort={openCohort} />}
                 >
-                    {openCohort && (COHORT_V2 ? <CohortV2 cohort={openCohort} /> : <Cohort cohort={openCohort} />)}
+                    {openCohort && <Cohort cohort={openCohort} />}
                 </Drawer>
             </div>
         </div>

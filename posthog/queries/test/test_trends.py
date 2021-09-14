@@ -1576,17 +1576,24 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 properties=[{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
             )
             event_filtering_action.calculate_events()
-            filter = Filter(
-                {
-                    "actions": [{"id": event_filtering_action.id}],
-                    "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
-                }
-            )
 
             with freeze_time("2020-01-04T13:01:01Z"):
-                response = trends().run(filter, self.team)
+                response = trends().run(Filter({"actions": [{"id": event_filtering_action.id}],}), self.team)
             self.assertEqual(len(response), 1)
-            self.assertEqual(response[0]["count"], 2)
+            self.assertEqual(response[0]["count"], 3)
+
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response_with_email_filter = trends().run(
+                    Filter(
+                        {
+                            "actions": [{"id": event_filtering_action.id}],
+                            "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+                        }
+                    ),
+                    self.team,
+                )
+            self.assertEqual(len(response_with_email_filter), 1)
+            self.assertEqual(response_with_email_filter[0]["count"], 2)
 
         def test_dau_filtering(self):
             sign_up_action, person = self._create_events()
@@ -1742,35 +1749,67 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         def _create_multiple_people(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person1", timestamp="2020-01-01T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person1",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"order": "1"},
             )
 
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person2", timestamp="2020-01-01T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"order": "1"},
             )
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person2", timestamp="2020-01-02T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={"order": "2"},
             )
             # same day
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person2", timestamp="2020-01-02T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={"order": "2"},
             )
 
             person3 = person_factory(team_id=self.team.pk, distinct_ids=["person3"], properties={"name": "person3"})
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person3", timestamp="2020-01-01T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person3",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"order": "1"},
             )
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person3", timestamp="2020-01-02T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person3",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={"order": "2"},
             )
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person3", timestamp="2020-01-03T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person3",
+                timestamp="2020-01-03T12:00:00Z",
+                properties={"order": "2"},
             )
 
             person4 = person_factory(team_id=self.team.pk, distinct_ids=["person4"], properties={"name": "person4"})
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person4", timestamp="2020-01-05T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person4",
+                timestamp="2020-01-05T12:00:00Z",
+                properties={"order": "1"},
             )
 
             return (person1, person2, person3, person4)

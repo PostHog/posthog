@@ -36,7 +36,7 @@ export function RestrictedArea({ Component, minimumAccessLevel }: RestrictedArea
     }, [currentOrganization])
 
     return restrictionReason ? (
-        <Tooltip title={restrictionReason}>
+        <Tooltip title={restrictionReason} placement="topLeft">
             <span>
                 <Component isRestricted={true} restrictionReason={restrictionReason} />
             </span>

@@ -22,6 +22,7 @@ export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> 
         | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType> | null)
     ellipsis?: boolean
     span: number
+    defaultWidth?: number
     eventProperties?: string[]
     widthConstraints?: [number, number] // Override default min and max width (px). To specify no max, use Infinity.
 }
@@ -198,7 +199,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         ? column
                         : {
                               ...column,
-                              width: Math.max(columnSpanWidth * column.span, minColumnWidth),
+                              width: Math.max(column.defaultWidth || columnSpanWidth * column.span, minColumnWidth),
                           }
                 )
                 setHeaderColumns(nextColumns)
