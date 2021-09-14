@@ -55,11 +55,11 @@ jobs:
             - name: Build
               id: docker_build
               uses: docker/build-push-action@v2
+              env:
+                  SAML_DISABLED: '1'
               with:
                   push: false
                   tags: posthog/posthog:testing-no-saml
-                  env:
-                      SAML_DISABLED: '1'
 
             - name: Image digest
               run: echo ${{ steps.docker_build.outputs.digest }}
