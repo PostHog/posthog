@@ -128,9 +128,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
             if (!insightLogic.values.insight.id) {
                 actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
-            } else if (insightLogic.values.insight.filters?.insight !== values.filter.insight) {
-                insightLogic.actions.updateInsightFilters(values.filter)
             }
+            insightLogic.actions.updateInsightFilters(values.filter)
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
             if (props.dashboardItemId) {

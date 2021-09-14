@@ -65,7 +65,8 @@ export const insightLogic = kea<insightLogicType>({
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: true,
-        updateInsightFilters: (filters: any) => ({ filters }),
+        updateInsightFilters: (filters: FilterType) => ({ filters }),
+        setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
     }),
     loaders: ({ values }) => ({
         insight: {
@@ -171,6 +172,12 @@ export const insightLogic = kea<insightLogicType>({
                 setInsightMode: (_, { mode }) => mode,
             },
         ],
+        tagLoading: [
+            false,
+            {
+                setTagLoading: (_, { tagLoading }) => tagLoading,
+            },
+        ],
     },
     selectors: {
         insightName: [(s) => [s.insight], (insight) => insight.name],
@@ -254,19 +261,25 @@ export const insightLogic = kea<insightLogicType>({
         toggleControlsCollapsed: async () => {
             eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
         },
-        saveNewTag: ({ tag }) => {
+        saveNewTag: async ({ tag }, breakpoint) => {
+            actions.setTagLoading(true)
             if (values.insight.tags?.includes(tag)) {
                 errorToast(undefined, 'Oops! Your insight already has that tag.')
                 return
             }
-            actions.updateInsight({ tags: [...(values.insight.tags || []), tag] })
+            actions.setInsight({ ...values.insight, tags: [...(values.insight.tags || []), tag] })
+            await breakpoint(100)
+            actions.setTagLoading(false)
         },
         deleteTag: async ({ tag }, breakpoint) => {
             await breakpoint(100)
-            actions.updateInsight({ tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
+            actions.setInsight({ ...values.insight, tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
         saveInsight: async () => {
-            const savedInsight = await api.update(`api/insight/${values.insight.id}`, { saved: true })
+            const savedInsight = await api.update(`api/insight/${values.insight.id}`, {
+                ...values.insight,
+                saved: true,
+            })
             actions.setInsight(savedInsight)
             toast(
                 <div data-attr="success-toast">
@@ -314,6 +327,8 @@ export const insightLogic = kea<insightLogicType>({
             }
             if (hashParams.fromItem) {
                 actions.loadInsight(hashParams.fromItem)
+            } else {
+                actions.setInsightMode(ItemMode.Edit, null)
             }
         },
     }),
