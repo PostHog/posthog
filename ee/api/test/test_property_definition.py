@@ -95,7 +95,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(response.json()["detail"], "This is an Enterprise feature.")
+        self.assertContains(response.json()["detail"], "This feature is part of the premium PostHog offering.")
 
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -106,7 +106,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(response.json()["detail"], "This is an Enterprise feature.")
+        self.assertContains(response.json()["detail"], "This feature is part of the premium PostHog offering.")
 
     def test_filter_property_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

@@ -99,7 +99,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/event_definitions/{str(event.id)}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(response.json()["detail"], "This is an Enterprise feature.")
+        self.assertContains(response.json()["detail"], "This feature is part of the premium PostHog offering.")
 
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -110,4 +110,4 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             f"/api/projects/@current/event_definitions/{str(event.id)}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertEqual(response.json()["detail"], "This is an Enterprise feature.")
+        self.assertContains(response.json()["detail"], "This feature is part of the premium PostHog offering.")
