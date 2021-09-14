@@ -632,14 +632,9 @@ export class DB {
         distinctId: string
     ): Promise<ProducerRecord | void> {
         const insertResult = await client.query(
-            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING *',
+            'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id) VALUES ($1, $2, $3) RETURNING *',
             [distinctId, person.id, person.team_id]
         )
-
-        // some other thread already added this ID
-        if (insertResult.rows.length === 0) {
-            return
-        }
 
         const personDistinctIdCreated = insertResult.rows[0] as PersonDistinctId
         if (this.kafkaProducer) {
