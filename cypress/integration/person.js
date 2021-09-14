@@ -10,6 +10,24 @@ describe('Person Visualization Check', () => {
 
     it('Can access person page', () => {
         cy.get('[data-row-key="email"] > :nth-child(1)').should('contain', 'email')
+
+        cy.get('[data-row-key="email"] .anticon-copy').click()
+        cy.window()
+            .then((win) => {
+                const email = win.document.querySelector('[data-row-key="email"] .properties-table-value').textContent
+
+                return [email, win]
+            })
+            .then((arr) => {
+                arr[1].navigator.clipboard
+                    .readText()
+                    .then((copyText) => {
+                        return [arr[0], copyText]
+                    })
+                    .then((array) => {
+                        expect(array[0]).to.eq(array[1])
+                    })
+            })
     })
 
     it('Events table loads', () => {
