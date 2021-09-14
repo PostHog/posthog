@@ -1,11 +1,10 @@
 import React from 'react'
-import { Switch } from 'antd'
+import { Switch, Tooltip } from 'antd'
 import { AvailableFeature } from '~/types'
 import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
 import { sceneLogic } from '../../sceneLogic'
-import { Tooltip } from '../../../lib/components/Tooltip'
 
 export function Permissioning({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -18,8 +17,11 @@ export function Permissioning({ isRestricted }: RestrictedComponentProps): JSX.E
                 Permissioning
             </h2>
             <Tooltip
-                title="Per-project access means that organization members below Administrator level by default lack access
-                    to projects. Access to each project can then be granted individually only for members who need it."
+                title={
+                    !isRestricted
+                        ? 'Per-project access means that organization members below Administrator level by default lack access to projects. Access to each project can then be granted individually only for members who need it.'
+                        : null
+                }
                 placement="topLeft"
             >
                 <Switch
