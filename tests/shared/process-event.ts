@@ -1329,7 +1329,7 @@ export const createProcessEventTests = (
             new UUIDT().toString()
         )
 
-        const people = await hub.db.fetchPersons()
+        const people = (await hub.db.fetchPersons()).sort((p1, p2) => p2.team_id - p1.team_id)
         expect(people.length).toEqual(2)
         expect(people[1].team_id).toEqual(team.id)
         expect(people[1].properties).toEqual({})
