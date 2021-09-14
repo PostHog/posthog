@@ -1,7 +1,7 @@
 import { QueryResult } from 'pg'
 
-import { PluginConfig } from '../../../types'
-import { DB } from '../../../utils/db/db'
+import { PluginConfig } from '../../types'
+import { DB } from '../../utils/db/db'
 
 // This assumes the value stored at `key` can be cast to a Postgres numeric type
 export const postgresIncrement = async (
@@ -52,5 +52,23 @@ export const postgresGet = async (
         'SELECT * FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2 LIMIT 1',
         [pluginConfigId, key],
         'storageGet'
+    )
+}
+
+export const addPublicJobIfNotExists = async (
+    db: DB,
+    pluginId: number,
+    jobName: string,
+    jobPayloadJson: Record<string, any>
+): Promise<void> => {
+    await db.postgresQuery(
+        `
+        UPDATE posthog_plugin
+        SET public_jobs = public_jobs || $1::jsonb
+        WHERE id = $2
+        AND (SELECT (public_jobs->$3) IS NULL)
+         `,
+        [JSON.stringify({ [jobName]: jobPayloadJson }), pluginId, jobName],
+        'addPublicJobIfNotExists'
     )
 }

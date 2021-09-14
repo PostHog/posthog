@@ -2,7 +2,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { VM } from 'vm2'
 
-import { Hub, PluginConfig, PluginConfigVMResponse, PluginMetricsVmResponse } from '../../types'
+import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
 import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
@@ -15,6 +15,7 @@ import { createUtils } from './extensions/utilities'
 import { imports } from './imports'
 import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
+import { addHistoricalEventsExportCapability } from './upgrades/historical-export/export-historical-events'
 
 export class TimeoutError extends Error {
     name = 'TimeoutError'
@@ -220,6 +221,7 @@ export async function createPluginConfigVM(
 
     if (exportEventsExists) {
         upgradeExportEvents(hub, pluginConfig, vmResponse)
+        addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
     }
 
     setupMetrics(hub, pluginConfig, metrics, exportEventsExists)
