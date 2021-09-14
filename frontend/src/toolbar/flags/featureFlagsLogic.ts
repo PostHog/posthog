@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { CombinedFeatureFlagAndOverride } from '~/types'
+import { CombinedFeatureFlagAndOverrideType } from '~/types'
 import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { PostHog } from 'posthog-js'
 import { toolbarFetch } from '~/toolbar/utils'
@@ -14,7 +14,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
 
     loaders: ({ values }) => ({
         userFlags: [
-            [] as CombinedFeatureFlagAndOverride[],
+            [] as CombinedFeatureFlagAndOverrideType[],
             {
                 getUserFlags: async (_, breakpoint) => {
                     const response = await toolbarFetch('api/feature_flag/my_flags')
@@ -82,6 +82,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         currentValue,
                     }
                 })
+            },
+        ],
+        countFlagsOverridden: [
+            (s) => [s.userFlags],
+            (userFlags) => {
+                return userFlags.filter((flag) => !!flag.override).length
             },
         ],
     },

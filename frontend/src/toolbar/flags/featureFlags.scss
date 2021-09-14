@@ -1,4 +1,36 @@
+$yellow: #fdedc9;
+$gray: #fafafa;
+
 .ant-typography code {
     margin: 0;
     font-size: 100%;
+}
+
+.ant-radio-wrapper-checked {
+    background-color: #eef2ff;
+    border-radius: 4px;
+}
+
+.ant-radio-wrapper-checked > span {
+    font-weight: bold;
+}
+
+.ant-radio-wrapper {
+    padding: 8px;
+    width: 100%;
+}
+
+.variant-radio-group {
+    margin-left: 15px;
+    padding-left: 15px;
+    border-left: 2px solid $gray;
+
+    .override {
+        border-left-color: $yellow;
+    }
+}
+
+.collapsible {
+    overflow: hidden;
+    transition: all 0.3s ease-in-out;
 }

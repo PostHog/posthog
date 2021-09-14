@@ -899,17 +899,17 @@ export interface FeatureFlagType {
     rollout_percentage: number | null
 }
 
-export interface FeatureFlagOverride {
+export interface FeatureFlagOverrideType {
     id: number
     feature_flag: number
     user: number
     override_value: boolean | string
 }
 
-export interface CombinedFeatureFlagAndOverride {
+export interface CombinedFeatureFlagAndOverrideType {
     feature_flag: FeatureFlagType
     value_for_user_without_override: boolean | string
-    override: FeatureFlagOverride | null
+    override: FeatureFlagOverrideType | null
 }
 
 export interface PrevalidatedInvite {
