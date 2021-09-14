@@ -18,6 +18,7 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const HELP_URL =
     'https://posthog.com/docs/tutorials/toolbar?utm_medium=in-product&utm_source=in-product&utm_campaign=toolbar-help-button'
@@ -57,14 +58,19 @@ export function ToolbarButton(): JSX.Element {
     const { enableHeatmap, disableHeatmap } = useActions(heatmapLogic)
     const { heatmapEnabled, heatmapLoading, elementCount, showHeatmapTooltip } = useValues(heatmapLogic)
 
-    const { isAuthenticated } = useValues(toolbarLogic)
+    const { isAuthenticated, featureFlags } = useValues(toolbarLogic)
     const { authenticate, logout } = useActions(toolbarLogic)
 
     const globalMouseMove = useRef((e: MouseEvent) => {
         e
     })
 
-    const showFeatureFlags = true // TODO: Make this real
+    // Tricky: the feature flag's used here are not PostHog's normal feature flags, rather they're
+    // the feature flags of the user. The toolbar does not have access to posthog's feature flags because
+    // it uses Posthog-js-lite. As a result, this feature flag can only be turned on for posthog internal
+    // (or any other posthog customer that has a flag with the name `posthog-toolbar-feature-flags` set).
+    // (Should be removed when we want to roll this out broadly)
+    const showFeatureFlags = featureFlags[FEATURE_FLAGS.TOOLBAR_FEATURE_FLAGS]
 
     useEffect(() => {
         globalMouseMove.current = function (e: MouseEvent): void {

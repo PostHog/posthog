@@ -243,7 +243,7 @@ export const FEATURE_FLAGS = {
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
     PLUGINS_UI_JOBS: '5720-plugins-ui-jobs',
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
-    TOOLBAR_FEATURE_FLAGS: '4675-toolbar-feature-flags',
+    TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
     DEMO_BANNER_COLOR: 'demo-banner-color',
 }
 
