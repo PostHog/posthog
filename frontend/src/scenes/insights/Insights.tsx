@@ -319,26 +319,32 @@ export function Insights(): JSX.Element {
                     />
                     {insight.id && (
                         <Row style={{ marginTop: 24, alignItems: 'baseline', justifyContent: 'space-between' }}>
-                            <Col>
-                                <span>
-                                    <strong>Name</strong>
+                            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? (
+                                <Col>
+                                    <span>
+                                        <strong>Name</strong>
+                                    </span>
+                                    <div style={{ minWidth: 720 }}>
+                                        <Input
+                                            placeholder={insight.name || `Insight #${insight.id}`}
+                                            value={insight.name || ''}
+                                            size="large"
+                                            style={{ minWidth: 720, marginTop: 8 }}
+                                            onChange={(e) => setInsight({ ...insight, name: e.target.value })}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    updateInsight(insight)
+                                                }
+                                            }}
+                                            tabIndex={0}
+                                        />
+                                    </div>
+                                </Col>
+                            ) : (
+                                <span style={{ fontSize: 28, fontWeight: 600 }}>
+                                    {insight.name || `Insight #${insight.id}`}
                                 </span>
-                                <div style={{ minWidth: 720 }}>
-                                    <Input
-                                        placeholder={insight.name || `Insight #${insight.id}`}
-                                        value={insight.name || ''}
-                                        size="large"
-                                        style={{ minWidth: 720, marginTop: 8 }}
-                                        onChange={(e) => setInsight({ ...insight, name: e.target.value })}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                updateInsight(insight)
-                                            }
-                                        }}
-                                        tabIndex={0}
-                                    />
-                                </div>
-                            </Col>
+                            )}
 
                             <Col>
                                 <>
@@ -373,9 +379,11 @@ export function Insights(): JSX.Element {
                                             },
                                         }}
                                     />
-                                    <Button style={{ marginLeft: 8 }} type="primary" onClick={() => saveInsight()}>
-                                        Save
-                                    </Button>
+                                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                                        <Button style={{ marginLeft: 8 }} type="primary" onClick={() => saveInsight()}>
+                                            Save
+                                        </Button>
+                                    )}
                                 </>
                             </Col>
                         </Row>
