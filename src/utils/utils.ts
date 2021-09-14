@@ -310,6 +310,14 @@ export function castTimestampOrNow(
     } else if (typeof timestamp === 'string') {
         timestamp = DateTime.fromISO(timestamp)
     }
+
+    return castTimestampToClickhouseFormat(timestamp, timestampFormat)
+}
+
+export function castTimestampToClickhouseFormat(
+    timestamp: DateTime,
+    timestampFormat: TimestampFormat = TimestampFormat.ISO
+): string {
     timestamp = timestamp.toUTC()
     switch (timestampFormat) {
         case TimestampFormat.ClickHouseSecondPrecision:

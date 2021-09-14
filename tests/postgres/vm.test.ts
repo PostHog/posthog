@@ -1088,13 +1088,19 @@ describe('exportEvents', () => {
         expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2')
 
         // adds exportEventsWithRetry job and onEvent function
-        expect(Object.keys(vm.tasks.job)).toEqual(['exportEventsWithRetry'])
+        expect(Object.keys(vm.tasks.job)).toEqual(
+            expect.arrayContaining([
+                'exportEventsWithRetry',
+                'exportEventsFromTheBeginning',
+                'Export events from the beginning',
+            ])
+        )
         expect(Object.keys(vm.tasks.schedule)).toEqual([])
         expect(
             Object.keys(vm.methods)
                 .filter((m) => !!vm.methods[m as keyof typeof vm.methods])
                 .sort()
-        ).toEqual(['exportEvents', 'onEvent', 'teardownPlugin'])
+        ).toEqual(expect.arrayContaining(['exportEvents', 'onEvent', 'teardownPlugin', 'setupPlugin']))
     })
 
     test('retries', async () => {

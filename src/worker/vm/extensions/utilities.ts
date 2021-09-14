@@ -1,14 +1,7 @@
+import { CursorUtils, UtilsExtension } from '@posthog/plugin-scaffold'
+
 import { Hub } from '../../../types'
-import { postgresGet, postgresIncrement, postgresSetOnce } from './utils'
-
-interface CursorUtils {
-    init: (key: string, initialValue?: number) => Promise<void>
-    increment: (key: string, incrementBy?: number) => Promise<number>
-}
-
-interface UtilsExtension {
-    cursor: CursorUtils
-}
+import { postgresIncrement, postgresSetOnce } from '../utils'
 
 // These are not utils for internal use!
 // These are general utility functions passed as utils in the plugin meta
