@@ -39,25 +39,10 @@ class ExplicitTeamMembership(UUIDModel):
     def __str__(self):
         return str(self.Level(self.level))
 
-    def validate_update(
-        self, membership_being_updated: "ExplicitTeamMembership", new_level: Optional[Level] = None
-    ) -> None:
-        # Higher level takes precendence, so that organization admins have admin permissions for all projects,
-        # while project admin have admin permissions for the project despite not being an organization admin
-        my_real_level = max(self.parent_membership.level, self.level)
-        if new_level is not None:
-            if membership_being_updated.id == self.id:
-                raise exceptions.PermissionDenied("You can't change your own access level.")
-            elif new_level > my_real_level:
-                raise exceptions.PermissionDenied(
-                    "You can only change access level of others to lower or equal to your current one."
-                )
-        if membership_being_updated.id != self.id:
-            if membership_being_updated.team.organization_id != self.team.organization_id:
-                raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-            if my_real_level < ExplicitTeamMembership.Level.ADMIN:
-                raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
-            if membership_being_updated.level > my_real_level:
-                raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
+    @property
+    def effective_level(self) -> "Level":
+        """If organization level is higher than project level, then that takes precedence over explicit project level.
+        Effective poject level can't be higher than admin though (owner level isn't applicable)."""
+        return min(max(self.level, self.parent_membership.level), ExplicitTeamMembership.Level.ADMIN)
 
-    __repr__ = sane_repr("team", "user", "level")
+    __repr__ = sane_repr("team", "parent_membership", "level")

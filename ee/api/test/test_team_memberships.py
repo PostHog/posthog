@@ -1,53 +1,258 @@
-from typing import Type, cast
+from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.clickhouse.util import ClickhouseTestMixin
-from ee.models.hook import Hook
+from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 
-class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
-    def test_create_hook(self):
-        data = {"target": "https://hooks.example.com/abcd/", "event": "annotation_created"}
-        response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
-        self.assertEqual(response.status_code, 201)
-        hook: Type[Hook] = Hook.objects.first()
-        self.assertEqual(hook.team, self.team)
-        self.assertEqual(hook.target, data["target"])
-        self.assertEqual(hook.event, data["event"])
-        self.assertEqual(hook.resource_id, None)
+class TestTeamMembershipsAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.per_project_access = True
+        self.organization.save()
+
+    def test_add_member_as_org_owner_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 0)
+
+        response = self.client.post("/api/projects/@current/explicit_members/", {"user_id": new_user.id})
+        response_data = response.json()
+
         self.assertDictContainsSubset(
-            {
-                "id": hook.id,
-                "event": data["event"],
-                "target": data["target"],
-                "resource_id": None,
-                "team": self.team.id,
-            },
-            cast(dict, response.json()),
+            {"effective_level": ExplicitTeamMembership.Level.MEMBER, "level": ExplicitTeamMembership.Level.MEMBER,},
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 1)
+
+    def test_add_member_as_org_admin_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 0)
+
+        response = self.client.post("/api/projects/@current/explicit_members/", {"user_id": new_user.id})
+        response_data = response.json()
+
+        self.assertDictContainsSubset(
+            {"effective_level": ExplicitTeamMembership.Level.MEMBER, "level": ExplicitTeamMembership.Level.MEMBER,},
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 1)
+
+    def test_add_member_as_org_member_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 0)
+
+        response = self.client.post("/api/projects/@current/explicit_members/", {"user_id": new_user.id})
+        response_data = response.json()
+
+        self.assertDictEqual(
+            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 0)
+
+    def test_add_yourself_as_org_member_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.assertEqual(self.team.explicit_memberships.count(), 0)
+
+        response = self.client.post("/api/projects/@current/explicit_members/", {"user_id": self.user.id})
+        response_data = response.json()
+
+        self.assertDictEqual(
+            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 0)
+
+    def test_add_yourself_as_org_admin_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.assertEqual(self.team.explicit_memberships.count(), 0)
+
+        response = self.client.post("/api/projects/@current/explicit_members/", {"user_id": self.user.id})
+        response_data = response.json()
+
+        self.assertDictEqual(
+            self.permission_denied_response("You can't explicitly add yourself to projects."), response_data
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 0)
+
+    def test_add_member_as_org_member_and_project_member_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
         )
 
-    def test_create_hook_with_resource_id(self):
-        data = {"target": "https://hooks.example.com/abcd/", "event": "annotation_created", "resource_id": "66"}
-        response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
-        self.assertEqual(response.status_code, 201)
-        hook: Type[Hook] = Hook.objects.first()
-        self.assertEqual(hook.team, self.team)
-        self.assertEqual(hook.target, data["target"])
-        self.assertEqual(hook.event, data["event"])
-        self.assertEqual(str(hook.resource_id), data["resource_id"])
-        self.assertDictContainsSubset(
-            {
-                "id": hook.id,
-                "event": data["event"],
-                "target": data["target"],
-                "resource_id": int(data["resource_id"]),
-                "team": self.team.id,
-            },
-            cast(dict, response.json()),
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 1)
+
+        response = self.client.post("/api/projects/@current/explicit_members/", {"user_id": new_user.id})
+        response_data = response.json()
+
+        self.assertDictEqual(
+            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 1)
+
+    def test_add_member_as_org_member_but_project_admin_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
 
-    def test_delete_hook(self):
-        hook_id = "abc123"
-        Hook.objects.create(id=hook_id, user=self.user, team=self.team, resource_id=20)
-        response = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
-        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.team.explicit_memberships.count(), 1)
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        response = self.client.post("/api/projects/@current/explicit_members/", {"user_id": new_user.id})
+        response_data = response.json()
+
+        self.assertDictContainsSubset(
+            {"effective_level": ExplicitTeamMembership.Level.MEMBER, "level": ExplicitTeamMembership.Level.MEMBER,},
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(self.team.explicit_memberships.count(), 2)
+
+    def test_add_member_as_org_admin_and_project_member_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
+        )
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        response = self.client.post("/api/projects/@current/explicit_members/", {"user_id": new_user.id})
+        response_data = response.json()
+
+        self.assertDictContainsSubset(
+            {"effective_level": ExplicitTeamMembership.Level.MEMBER, "level": ExplicitTeamMembership.Level.MEMBER,},
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_add_admin_as_org_admin_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        response = self.client.post(
+            "/api/projects/@current/explicit_members/",
+            {"user_id": new_user.id, "level": ExplicitTeamMembership.Level.ADMIN},
+        )
+        response_data = response.json()
+
+        self.assertDictContainsSubset(
+            {"effective_level": ExplicitTeamMembership.Level.ADMIN, "level": ExplicitTeamMembership.Level.ADMIN,},
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_add_admin_as_project_member_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
+        )
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        response = self.client.post(
+            "/api/projects/@current/explicit_members/",
+            {"user_id": new_user.id, "level": ExplicitTeamMembership.Level.ADMIN},
+        )
+        response_data = response.json()
+
+        self.assertDictEqual(
+            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_add_admin_as_project_admin_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+        )
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        response = self.client.post(
+            "/api/projects/@current/explicit_members/",
+            {"user_id": new_user.id, "level": ExplicitTeamMembership.Level.ADMIN},
+        )
+        response_data = response.json()
+
+        self.assertDictContainsSubset(
+            {"effective_level": ExplicitTeamMembership.Level.ADMIN, "level": ExplicitTeamMembership.Level.ADMIN,},
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_add_member_to_non_current_project_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        another_team = Team.objects.create(organization=self.organization)
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        response = self.client.post(f"/api/projects/{another_team.id}/explicit_members/", {"user_id": new_user.id})
+        response_data = response.json()
+
+        self.assertDictContainsSubset(
+            {"effective_level": ExplicitTeamMembership.Level.MEMBER, "level": ExplicitTeamMembership.Level.MEMBER,},
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_add_member_to_project_in_outside_organization_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        _, new_team, new_user = User.objects.bootstrap("Acme", "mallory@acme.com", None)
+
+        response = self.client.post(f"/api/projects/{new_team.id}/explicit_members/", {"user_id": new_user.id,})
+        response_data = response.json()
+
+        self.assertDictEqual(self.not_found_response("Project not found."), response_data)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_add_member_to_nonexisten_project_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        response = self.client.post(f"/api/projects/2137/explicit_members/", {"user_id": new_user.id,})
+        response_data = response.json()
+
+        self.assertDictEqual(self.not_found_response("Project not found."), response_data)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
