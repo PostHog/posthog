@@ -36,6 +36,8 @@ $border-color: #d9d9d9;
             .feature-flag-title {
                 flex: 1;
                 margin-right: 5px;
+                font-weight: bold;
+                font-size: 13;
             }
         }
         .feature-flag-row-header.overridden {

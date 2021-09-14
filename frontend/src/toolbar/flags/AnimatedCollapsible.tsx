@@ -14,7 +14,6 @@ export function AnimatedCollapsible({
     const [height, setHeight] = useState<number | undefined>()
 
     useEffect(() => {
-        console.log(collapsed)
         if (!collapsed) {
             if (collapsibleSectionRef.current) {
                 setHeight(collapsibleSectionRef.current?.getBoundingClientRect().height)
