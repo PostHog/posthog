@@ -12,7 +12,6 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.email import is_email_available
 from posthog.models import Organization, User
 from posthog.utils import (
@@ -22,6 +21,7 @@ from posthog.utils import (
     get_celery_heartbeat,
     get_instance_realm,
     is_celery_alive,
+    is_clickhouse_enabled,
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,

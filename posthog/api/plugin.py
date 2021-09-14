@@ -109,6 +109,7 @@ class PluginSerializer(serializers.ModelSerializer):
             "organization_name",
             "capabilities",
             "metrics",
+            "public_jobs",
         ]
         read_only_fields = ["id", "latest_tag"]
 

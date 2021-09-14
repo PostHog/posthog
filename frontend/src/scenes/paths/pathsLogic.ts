@@ -47,9 +47,7 @@ interface PathResult {
 
 interface PathNode {
     target: string
-    target_id: number
     source: string
-    source_id: number
     value: number
 }
 
@@ -147,10 +145,10 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 const nodes: Record<string, any> = {}
                 for (const path of paths) {
                     if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source, id: path.source_id }
+                        nodes[path.source] = { name: path.source }
                     }
                     if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target, id: path.target_id }
+                        nodes[path.target] = { name: path.target }
                     }
                 }
 

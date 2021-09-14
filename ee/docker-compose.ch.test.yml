@@ -19,7 +19,6 @@ services:
             DEBUG: 'true'
             PRIMARY_DB: 'clickhouse'
             TEST: 'true'
-            SAML_AVAILABLE: 'true'
         depends_on:
             - db
             - redis

@@ -9,8 +9,8 @@ from django.db import connection
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.redis import get_client
+from posthog.utils import is_clickhouse_enabled
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")

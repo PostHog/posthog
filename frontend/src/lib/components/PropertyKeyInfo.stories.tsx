@@ -18,6 +18,9 @@ const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {
                 <PropertyKeyInfo {...args} value="$current_url" />
             </div>
             <div>
+                <PropertyKeyInfo {...args} value="$feature/some-feature-key" />
+            </div>
+            <div>
                 <PropertyKeyInfo {...args} value="$country" />
             </div>
             <div>
