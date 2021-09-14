@@ -36,8 +36,11 @@ jobs:
             - name: Image digest
               run: echo ${{ steps.docker_build.outputs.digest }}
     saml:
-        name: Test Docker image build (with SAML)
+        name: Test Docker image build (without SAML)
         runs-on: ubuntu-20.04
+
+        env:
+            SAML_DISABLED: '1'
 
         steps:
             - name: Checkout PR branch
@@ -54,7 +57,9 @@ jobs:
               uses: docker/build-push-action@v2
               with:
                   push: false
-                  tags: posthog/posthog:testing-saml
+                  tags: posthog/posthog:testing-no-saml
+                  env:
+                      SAML_DISABLED: '1'
 
             - name: Image digest
               run: echo ${{ steps.docker_build.outputs.digest }}
