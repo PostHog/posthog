@@ -244,7 +244,6 @@ export const FEATURE_FLAGS = {
     PLUGINS_UI_JOBS: '5720-plugins-ui-jobs',
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
     TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
-    DEMO_BANNER_COLOR: 'demo-banner-color',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
