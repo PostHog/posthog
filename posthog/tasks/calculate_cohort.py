@@ -31,9 +31,10 @@ def calculate_cohorts() -> None:
         .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
-        calculate_cohort.delay(cohort.id)
         if is_clickhouse_enabled():
             calculate_cohort_ch.delay(cohort.id)
+        else:
+            calculate_cohort.delay(cohort.id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
