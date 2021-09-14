@@ -168,14 +168,14 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string
-    href?: string
+    href?: string | null
     id?: number
     name?: string
     properties?: []
-    selector?: string
+    selector?: string | null
     tag_name?: string
-    text?: string
-    url?: string
+    text?: string | null
+    url?: string | null
     url_matching?: ActionStepUrlMatching
     isNew?: string
 }
