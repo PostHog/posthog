@@ -3,6 +3,9 @@ ENV PYTHONUNBUFFERED 1
 RUN mkdir /code
 WORKDIR /code
 
+# to remove SAML deps either SAML_DISABLED env var or saml_disabled build arg can be set
+ARG saml_disabled
+
 COPY . /code/
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -23,7 +26,7 @@ RUN apt-get update \
 RUN pip install -r requirements.txt --no-cache-dir --compile
 
 # install SAML dependencies (if available)
-RUN if [[ -z "${SAML_DISABLED}" ]] ; then \
+RUN if [[ -z "${SAML_DISABLED}" ]] && [[ -z "$saml_disabled" ]] ; then \
     apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' && \
     pip install python3-saml==1.12.0 --no-cache-dir --compile && \
     apt-get purge -y pkg-config \
