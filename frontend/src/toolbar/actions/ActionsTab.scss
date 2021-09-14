@@ -1,3 +1,7 @@
+.action-block-body {
+    margin: 8px;
+}
+
 .action-section {
     margin: 0px -20px;
     padding: 20px 20px;
@@ -38,6 +42,9 @@
 }
 
 .actions-list {
+    .actions-list-header {
+        padding: 6px 0;
+    }
     .ant-list-item {
         padding: 6px 0;
     }

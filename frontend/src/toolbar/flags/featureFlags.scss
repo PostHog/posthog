@@ -1,32 +1,69 @@
 $yellow: #fdedc9;
 $gray: #fafafa;
+$light-blue: #eef2ff;
+$border-color: #d9d9d9;
 
-.ant-typography code {
-    margin: 0;
-    font-size: 100%;
-}
+.toolbar-block {
+    .block-title-row {
+        align-items: center;
+        padding-bottom: 15px;
+        border-bottom: 1px solid $border-color;
+        margin-bottom: 5px;
 
-.ant-radio-wrapper-checked {
-    background-color: #eef2ff;
-    border-radius: 4px;
-}
+        .block-title {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 0;
+        }
+        .overridden-tag {
+            padding: 4px;
+            background-color: $yellow;
+            margin-left: 3px;
+            border-radius: 4px;
+            span {
+                font-size: 11px;
+                font-weight: bold;
+            }
+        }
+    }
+    .feature-flag-row {
+        margin-bottom: 5px;
 
-.ant-radio-wrapper-checked > span {
-    font-weight: bold;
-}
+        .feature-flag-row-header {
+            background-color: $gray;
+            padding: 10px;
+            border-radius: 4px;
+            .feature-flag-title {
+                flex: 1;
+                margin-right: 5px;
+            }
+        }
+        .feature-flag-row-header.overridden {
+            background-color: $yellow;
+        }
 
-.ant-radio-wrapper {
-    padding: 8px;
-    width: 100%;
-}
+        .variant-radio-group {
+            margin-left: 15px;
+            padding: 4px 0 4px 15px;
+            border-left: 2px solid $gray;
 
-.variant-radio-group {
-    margin-left: 15px;
-    padding-left: 15px;
-    border-left: 2px solid $gray;
+            .ant-radio-wrapper-checked {
+                background-color: $light-blue;
+                border-radius: 4px;
+            }
 
-    .override {
-        border-left-color: $yellow;
+            .ant-radio-wrapper-checked > span {
+                font-weight: bold;
+            }
+
+            .ant-radio-wrapper {
+                padding: 8px;
+                width: 100%;
+            }
+        }
+        .variant-radio-group.overridden {
+            border-left-color: $yellow;
+        }
     }
 }
 

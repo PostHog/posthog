@@ -7,25 +7,11 @@ import { Radio, Switch, Row, Typography, List } from 'antd'
 import { AnimatedCollapsible } from './AnimatedCollapsible'
 
 export function FeatureFlags(): JSX.Element {
-    const { userFlagsWithCalculatedInfo, countFlagsOverridden } = useValues(featureFlagsLogic)
+    const { userFlagsWithCalculatedInfo } = useValues(featureFlagsLogic)
     const { setOverriddenUserFlag, deleteOverriddenUserFlag } = useActions(featureFlagsLogic)
 
     return (
         <div className="toolbar-block">
-            <Row>
-                <h1 className="section-title" style={{ paddingTop: 4 }}>
-                    Feature flags
-                </h1>
-                {countFlagsOverridden > 0 ? (
-                    <div>
-                        <Typography.Text
-                            style={{ padding: 4, backgroundColor: '#FDEDC9', marginLeft: 3, borderRadius: 4 }}
-                        >
-                            {`${countFlagsOverridden} overridden`}
-                        </Typography.Text>
-                    </div>
-                ) : null}
-            </Row>
             <List
                 dataSource={userFlagsWithCalculatedInfo}
                 renderItem={({
@@ -36,15 +22,11 @@ export function FeatureFlags(): JSX.Element {
                     currentValue,
                 }) => {
                     return (
-                        <div>
+                        <div className="feature-flag-row">
                             <Row
-                                style={{
-                                    backgroundColor: override ? '#FDEDC9' : '#FAFAFA',
-                                    padding: 10,
-                                    borderRadius: 4,
-                                }}
+                                className={override ? 'feature-flag-row-header overridden' : 'feature-flag-row-header'}
                             >
-                                <Typography.Text ellipsis style={{ flex: 1 }}>
+                                <Typography.Text ellipsis className="feature-flag-title">
                                     {feature_flag.key}
                                 </Typography.Text>
                                 <Switch
@@ -64,7 +46,7 @@ export function FeatureFlags(): JSX.Element {
                             </Row>
 
                             <AnimatedCollapsible collapsed={!hasVariants || !currentValue}>
-                                <Row className={override ? 'variant-radio-group override' : 'variant-radio-group'}>
+                                <Row className={override ? 'variant-radio-group overridden' : 'variant-radio-group'}>
                                     <Radio.Group
                                         disabled={!currentValue}
                                         value={currentValue}
@@ -88,7 +70,7 @@ export function FeatureFlags(): JSX.Element {
                         </div>
                     )
                 }}
-             />
+            />
         </div>
     )
 }

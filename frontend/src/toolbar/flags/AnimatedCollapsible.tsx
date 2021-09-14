@@ -11,7 +11,7 @@ export function AnimatedCollapsible({
 }): JSX.Element {
     const collapsibleSectionRef = useRef<HTMLHeadingElement>(null)
 
-    const [height, setHeight] = useState(0)
+    const [height, setHeight] = useState<number | undefined>()
 
     useEffect(() => {
         console.log(collapsed)

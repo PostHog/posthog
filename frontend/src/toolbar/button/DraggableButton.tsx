@@ -4,13 +4,11 @@ import Draggable from 'react-draggable'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
 import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
-import { Fire } from '~/toolbar/button/icons/Fire'
-import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
-import { AimOutlined } from '@ant-design/icons'
 import { posthog } from '~/toolbar/posthog'
 import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
+import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 export function DraggableButton(): JSX.Element {
     const {
@@ -31,6 +29,7 @@ export function DraggableButton(): JSX.Element {
         hideFlags,
         saveFlagsPosition,
     } = useActions(toolbarButtonLogic)
+    const { countFlagsOverridden } = useValues(featureFlagsLogic)
 
     return (
         <>
@@ -53,7 +52,6 @@ export function DraggableButton(): JSX.Element {
             <ButtonWindow
                 name="heatmap"
                 label="Heatmap"
-                icon={<Fire engaged />}
                 visible={heatmapWindowVisible}
                 close={hideHeatmapInfo}
                 position={heatmapPosition}
@@ -67,7 +65,6 @@ export function DraggableButton(): JSX.Element {
             <ButtonWindow
                 name="actions"
                 label="Actions"
-                icon={<AimOutlined style={{ fontSize: '16px', color: '#f1aa04', marginRight: 3 }} />}
                 visible={actionsWindowVisible}
                 close={hideActionsInfo}
                 position={actionsPosition}
@@ -78,8 +75,12 @@ export function DraggableButton(): JSX.Element {
 
             <ButtonWindow
                 name="flags"
-                label="Feature Flags"
-                icon={<Flag engaged />}
+                label="Feature flags"
+                tagComponent={
+                    countFlagsOverridden > 0 ? (
+                        <span className="overridden-tag">{`${countFlagsOverridden} overridden`}</span>
+                    ) : null
+                }
                 visible={flagsVisible}
                 close={hideFlags}
                 position={flagsPosition}
