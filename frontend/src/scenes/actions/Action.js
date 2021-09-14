@@ -9,6 +9,7 @@ import { Spin } from 'antd'
 import { EventsTable } from 'scenes/events'
 import dayjs from 'dayjs'
 import { urls } from 'scenes/sceneLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const actionLogic = kea({
     key: (props) => props.id || 'new',
@@ -71,6 +72,8 @@ export function Action({ id }) {
     const { fetchEvents } = useActions(eventsTableLogic({ fixedFilters }))
     const { isComplete, action } = useValues(actionLogic({ id, onComplete: fetchEvents }))
     const { loadAction } = useActions(actionLogic({ id, onComplete: fetchEvents }))
+    const { preflight } = useValues(preflightLogic)
+    const isClickHouseEnabled = !!preflight?.is_clickhouse_enabled
 
     return (
         <div>
@@ -96,21 +99,25 @@ export function Action({ id }) {
             )}
             {isComplete && (
                 <div style={{ marginTop: 86 }}>
-                    <h2 className="subtitle">Event List</h2>
-                    <p className="text-muted">
-                        List of the events that match this action.{' '}
-                        {action && (
-                            <>
-                                This list was{' '}
-                                <b>
-                                    calculated{' '}
-                                    {action.last_calculated_at
-                                        ? dayjs(action.last_calculated_at).fromNow()
-                                        : 'a while ago'}
-                                </b>
-                            </>
-                        )}
-                    </p>
+                    {!isClickHouseEnabled ? (
+                        <>
+                            <h2 className="subtitle">Event List</h2>
+                            <p className="text-muted">
+                                List of the events that match this action.{' '}
+                                {action && (
+                                    <>
+                                        This list was{' '}
+                                        <b>
+                                            calculated{' '}
+                                            {action.last_calculated_at
+                                                ? dayjs(action.last_calculated_at).fromNow()
+                                                : 'a while ago'}
+                                        </b>
+                                    </>
+                                )}
+                            </p>{' '}
+                        </>
+                    ) : null}
                     {id && <EventsTable key={isComplete} fixedFilters={fixedFilters} filtersEnabled={false} />}
                 </div>
             )}

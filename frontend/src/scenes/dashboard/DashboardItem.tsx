@@ -9,7 +9,7 @@ import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
 import { ActionsTable } from 'scenes/trends/viz/ActionsTable'
 import { ActionsPie } from 'scenes/trends/viz/ActionsPie'
 import { Paths } from 'scenes/paths/Paths'
-import { EllipsisOutlined, SaveOutlined, EyeOutlined, MacCommandOutlined } from '@ant-design/icons'
+import { EllipsisOutlined, SaveOutlined, EyeOutlined } from '@ant-design/icons'
 import { dashboardColorNames, dashboardColors } from 'lib/colors'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
@@ -36,6 +36,8 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LinkButton } from 'lib/components/LinkButton'
+import { DiveIcon } from 'lib/components/icons'
 
 dayjs.extend(relativeTime)
 
@@ -43,7 +45,7 @@ interface Props {
     item: DashboardItemType
     dashboardId?: number
     updateItemColor?: (id: number, itemClassName: string) => void
-    setDiveDashboard?: (id: number, dashboardId: number) => void
+    setDiveDashboard?: (id: number, dashboardId: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     dashboardMode: DashboardMode | null
@@ -57,6 +59,7 @@ interface Props {
     moveDashboardItem?: (it: DashboardItemType, dashboardId: number) => void
     saveDashboardItem?: (it: DashboardItemType) => void
     duplicateDashboardItem?: (it: DashboardItemType, dashboardId?: number) => void
+    isHighlighted?: boolean
 }
 
 export type DisplayedType = ChartDisplayType | 'RetentionContainer'
@@ -171,6 +174,7 @@ export function DashboardItem({
     moveDashboardItem,
     saveDashboardItem,
     duplicateDashboardItem,
+    isHighlighted = false,
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
@@ -206,6 +210,7 @@ export function DashboardItem({
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
     const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
+    const getDashboard = (id: number): DashboardType | undefined => dashboards.find((d) => d.id === id)
 
     const longPressProps = useLongPress(setEditMode, {
         ms: 500,
@@ -229,6 +234,7 @@ export function DashboardItem({
         funnelLogic(logicProps) as Logic & BuiltLogic
     )
     const previousLoading = usePrevious(resultsLoading)
+    const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
     useEffect(() => {
@@ -279,6 +285,7 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
+            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined }}
         >
             {item.is_sample && (
                 <div className="sample-dasbhoard-overlay">
@@ -345,13 +352,31 @@ export function DashboardItem({
                                 <>
                                     {featureFlags[FEATURE_FLAGS.DIVE_DASHBOARDS] && (
                                         <>
-                                            <Link to={link}>
-                                                <EyeOutlined /> View
-                                            </Link>
+                                            <LinkButton
+                                                to={link}
+                                                icon={<EyeOutlined />}
+                                                data-attr="dive-btn-view"
+                                                className="dive-btn dive-btn-view"
+                                            >
+                                                View
+                                            </LinkButton>
                                             {typeof item.dive_dashboard === 'number' && (
-                                                <Link to={dashboardDiveLink(item.dive_dashboard, item.id)}>
-                                                    <MacCommandOutlined /> Dive
-                                                </Link>
+                                                <Tooltip
+                                                    title={`Dive to ${diveDashboard?.name || 'connected dashboard'}`}
+                                                >
+                                                    <LinkButton
+                                                        to={dashboardDiveLink(item.dive_dashboard, item.id)}
+                                                        icon={
+                                                            <span role="img" aria-label="dive" className="anticon">
+                                                                <DiveIcon />
+                                                            </span>
+                                                        }
+                                                        data-attr="dive-btn-dive"
+                                                        className="dive-btn dive-btn-dive"
+                                                    >
+                                                        Dive
+                                                    </LinkButton>
+                                                </Tooltip>
                                             )}
                                         </>
                                     )}
@@ -398,7 +423,7 @@ export function DashboardItem({
                                                     <Menu.SubMenu
                                                         data-attr={'dashboard-item-' + index + '-dropdown-color'}
                                                         key="colors"
-                                                        title="Set Color"
+                                                        title="Set color"
                                                     >
                                                         {Object.entries(dashboardColorNames).map(
                                                             ([itemClassName, itemColor], colorIndex) => (
@@ -436,7 +461,7 @@ export function DashboardItem({
                                                     <Menu.SubMenu
                                                         data-attr={'dashboard-item-' + index + '-dive-dashboard'}
                                                         key="dive"
-                                                        title="Set Dive Dashboard"
+                                                        title={`Set dive dashboard`}
                                                     >
                                                         {otherDashboards.map((dashboard, diveIndex) => (
                                                             <Menu.Item
@@ -448,22 +473,21 @@ export function DashboardItem({
                                                                 }
                                                                 key={dashboard.id}
                                                                 onClick={() => setDiveDashboard(item.id, dashboard.id)}
+                                                                disabled={dashboard.id === item.dive_dashboard}
                                                             >
-                                                                <span
-                                                                    style={{
-                                                                        background: dashboardColors[className],
-                                                                        border: '1px solid #eee',
-                                                                        display: 'inline-block',
-                                                                        width: 13,
-                                                                        height: 13,
-                                                                        verticalAlign: 'middle',
-                                                                        marginRight: 5,
-                                                                        marginBottom: 1,
-                                                                    }}
-                                                                />
                                                                 {dashboard.name}
                                                             </Menu.Item>
                                                         ))}
+                                                        <Menu.Item
+                                                            data-attr={
+                                                                'dashboard-item-' + index + '-dive-dashboard-remove'
+                                                            }
+                                                            key="remove"
+                                                            onClick={() => setDiveDashboard(item.id, null)}
+                                                            className="text-danger"
+                                                        >
+                                                            Remove
+                                                        </Menu.Item>
                                                     </Menu.SubMenu>
                                                 )}
                                                 {duplicateDashboardItem && otherDashboards.length > 0 && (

@@ -167,7 +167,7 @@ function FormStepTwo(): JSX.Element {
     )
 }
 
-export function Signup(): JSX.Element | false {
+export function Signup(): JSX.Element | null {
     const [form] = Form.useForm()
     const { useBreakpoint } = Grid
     const { preflight } = useValues(preflightLogic)
@@ -185,77 +185,75 @@ export function Signup(): JSX.Element | false {
         }
     }
 
-    return (
-        !user && (
-            <div className="signup">
-                <Row>
-                    <Col span={24} lg={14} className="image-showcase-container" order={isSmallScreen ? 2 : undefined}>
-                        <div className="image-showcase ant-col-24 ant-col-lg-14">
-                            <div className="planet" />
-                        </div>
+    return !user ? (
+        <div className="signup">
+            <Row>
+                <Col span={24} lg={14} className="image-showcase-container" order={isSmallScreen ? 2 : undefined}>
+                    <div className="image-showcase ant-col-24 ant-col-lg-14">
+                        <div className="planet" />
+                    </div>
 
-                        <div className="showcase-content">
-                            <div className="main-logo">
-                                <a href={`https://posthog.com?${UTM_TAGS}`}>
-                                    <img src={logo} alt="" />
-                                </a>
-                            </div>
-                            <div className="inner">
-                                {preflight?.cloud ? (
-                                    <SignupSideContentCloud utm_tags={UTM_TAGS} />
-                                ) : (
-                                    <SignupSideContentHosted utm_tags={UTM_TAGS} />
-                                )}
-                            </div>
-                        </div>
-                    </Col>
-                    <Col span={24} lg={10} className="auth-main-content" order={isSmallScreen ? 1 : undefined}>
-                        <div className="main-logo mobile-logo">
+                    <div className="showcase-content">
+                        <div className="main-logo">
                             <a href={`https://posthog.com?${UTM_TAGS}`}>
                                 <img src={logo} alt="" />
                             </a>
                         </div>
                         <div className="inner">
-                            <h2 className="subtitle" style={{ justifyContent: 'center' }}>
-                                Get started
-                            </h2>
-                            {(preflight?.cloud || preflight?.initiated) && ( // For now, if you're not on Cloud, you wouldn't see
-                                // this page, but future-proofing this (with `preflight.initiated`) in case this changes.
-                                <div className="text-center" style={{ marginBottom: 32 }}>
-                                    Already have an account?{' '}
-                                    <Link to="/login" data-attr="signup-login-link">
-                                        Sign in
-                                    </Link>
-                                </div>
+                            {preflight?.cloud ? (
+                                <SignupSideContentCloud utm_tags={UTM_TAGS} />
+                            ) : (
+                                <SignupSideContentHosted utm_tags={UTM_TAGS} />
                             )}
-                            {!signupResponseLoading &&
-                                signupResponse?.errorCode &&
-                                !['email', 'password'].includes(signupResponse?.errorAttribute || '') && (
-                                    <Alert
-                                        message="Could not complete your signup. Please try again."
-                                        description={signupResponse?.errorDetail}
-                                        type="error"
-                                        showIcon
-                                        style={{ marginBottom: 16 }}
-                                    />
-                                )}
-                            <Form
-                                layout="vertical"
-                                form={form}
-                                onFinish={handleFormSubmit}
-                                requiredMark={false}
-                                initialValues={{ email: initialEmail }}
-                            >
-                                <FormStepOne />
-                                <FormStepTwo />
-                            </Form>
-                            <div style={{ marginTop: 48 }}>
-                                <SocialLoginButtons displayStyle="link" caption="Or sign up with:" />
-                            </div>
                         </div>
-                    </Col>
-                </Row>
-            </div>
-        )
-    )
+                    </div>
+                </Col>
+                <Col span={24} lg={10} className="auth-main-content" order={isSmallScreen ? 1 : undefined}>
+                    <div className="main-logo mobile-logo">
+                        <a href={`https://posthog.com?${UTM_TAGS}`}>
+                            <img src={logo} alt="" />
+                        </a>
+                    </div>
+                    <div className="inner">
+                        <h2 className="subtitle" style={{ justifyContent: 'center' }}>
+                            Get started
+                        </h2>
+                        {(preflight?.cloud || preflight?.initiated) && ( // For now, if you're not on Cloud, you wouldn't see
+                            // this page, but future-proofing this (with `preflight.initiated`) in case this changes.
+                            <div className="text-center" style={{ marginBottom: 32 }}>
+                                Already have an account?{' '}
+                                <Link to="/login" data-attr="signup-login-link">
+                                    Sign in
+                                </Link>
+                            </div>
+                        )}
+                        {!signupResponseLoading &&
+                            signupResponse?.errorCode &&
+                            !['email', 'password'].includes(signupResponse?.errorAttribute || '') && (
+                                <Alert
+                                    message="Could not complete your signup. Please try again."
+                                    description={signupResponse?.errorDetail}
+                                    type="error"
+                                    showIcon
+                                    style={{ marginBottom: 16 }}
+                                />
+                            )}
+                        <Form
+                            layout="vertical"
+                            form={form}
+                            onFinish={handleFormSubmit}
+                            requiredMark={false}
+                            initialValues={{ email: initialEmail }}
+                        >
+                            <FormStepOne />
+                            <FormStepTwo />
+                        </Form>
+                        <div style={{ marginTop: 48 }}>
+                            <SocialLoginButtons displayStyle="link" caption="Or sign up with:" />
+                        </div>
+                    </div>
+                </Col>
+            </Row>
+        </div>
+    ) : null
 }

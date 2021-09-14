@@ -117,3 +117,46 @@ User ID,
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
         self.assertFalse(response.json()["is_calculating"], False)
         self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+
+        # Only change name without updating CSV
+        response = client.patch("/api/cohort/%s/" % response.json()["id"], {"name": "test2"}, format="multipart")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
+        self.assertFalse(response.json()["is_calculating"], False)
+        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).name, "test2")
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort.delay")
+    def test_static_cohort_to_dynamic_cohort(self, patch_calculate_cohort, patch_calculate_cohort_from_list):
+        self.team.app_urls = ["http://somewebsite.com"]
+        self.team.save()
+        person = Person.objects.create(team=self.team, properties={"email": "email@example.org"})
+        person1 = Person.objects.create(team=self.team, distinct_ids=["123"])
+        Person.objects.create(team=self.team, distinct_ids=["456"])
+
+        csv = SimpleUploadedFile(
+            "example.csv",
+            str.encode(
+                """
+User ID,
+email@example.org,
+123
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post("/api/cohort/", {"name": "test", "csv": csv, "is_static": True}, format="multipart")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        self.assertFalse(response.json()["is_calculating"], False)
+        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+
+        response = self.client.patch(
+            "/api/cohort/%s/" % response.json()["id"],
+            {"is_static": False, "groups": [{"properties": [{"key": "email", "value": "email@example.org"}]}]},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(patch_calculate_cohort.call_count, 1)

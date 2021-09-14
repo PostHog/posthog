@@ -1063,10 +1063,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-0.12.9.tgz#7d1e6f07ccc5d72c657ecbf004846a4a4b241bbc"
   integrity sha512-W969xOjlMrWx3kUbRP6hKD85y+UExiYhTRrgISSy0ZorH/vhErJ69a6RPGzDdlIh1Blc6JMvwLffZg1ZPdssbA==
 
-"@posthog/plugin-server@1.5.0":
-  version "1.5.0"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.5.0.tgz#408cb88c6ae1c4dc502b2bac950600cd9abaa612"
-  integrity sha512-6fK9LXeBFJACHsoGCEA9W9U+TLcc4GrzjCZX70fe1iPyvYLKpW2YljCPb8jHVbSBseDObtFwcZEltGXRpGkzQg==
+"@posthog/plugin-server@1.6.5":
+  version "1.6.5"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-server/-/plugin-server-1.6.5.tgz#400d945287e8378b01437ad49445b88980fbbc4b"
+  integrity sha512-v5Xz+GKBUpyoQlrCndYgeVPBJvSPo9kS0YjvFeGB/9WcQ0CfhUrTayEJZJGwRHiVIjgUHQ445M/2tSva82FxLQ==
   dependencies:
     "@babel/core" "^7.13.1"
     "@babel/preset-env" "^7.13.5"
@@ -1092,6 +1092,7 @@
     graphile-worker "^0.11.1"
     hot-shots "^8.3.2"
     ioredis "^4.27.6"
+    jsonwebtoken "^8.5.1"
     kafkajs "^1.15.0"
     lru-cache "^6.0.0"
     luxon "^1.27.0"
@@ -4097,9 +4098,9 @@ tar-stream@^2.2.0:
     readable-stream "^3.1.1"
 
 tar@^6.0.2, tar@^6.1.0:
-  version "6.1.3"
-  resolved "https://registry.yarnpkg.com/tar/-/tar-6.1.3.tgz#e44b97ee7d6cc7a4c574e8b01174614538291825"
-  integrity sha512-3rUqwucgVZXTeyJyL2jqtUau8/8r54SioM1xj3AmTX3HnWQdj2AydfJ2qYYayPyIIznSplcvU9mhBb7dR2XF3w==
+  version "6.1.11"
+  resolved "https://registry.yarnpkg.com/tar/-/tar-6.1.11.tgz#6760a38f003afa1b2ffd0ffe9e9abbd0eab3d621"
+  integrity sha512-an/KZQzQUkZCkuoAA64hM92X0Urb6VpRhAFllDzz44U2mcD5scmT3zBc4VgVpkugF580+DQn8eAFSyoQt0tznA==
   dependencies:
     chownr "^2.0.0"
     fs-minipass "^2.0.0"

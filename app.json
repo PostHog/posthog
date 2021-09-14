@@ -14,9 +14,10 @@
                     "generator": "secret"
                 },
                 "DEPLOYMENT": "Heroku Review App",
-                "AUTO_LOGIN": true
+                "AUTO_LOGIN": true,
+                "SAML_DISABLED": true
             },
-            "buildpacks": [{ "url": "heroku-community/apt" }, { "url": "heroku/nodejs" }, { "url": "heroku/python" }],
+            "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
             "formation": {
                 "web": {
                     "quantity": 1
@@ -33,7 +34,7 @@
             }
         }
     },
-    "buildpacks": [{ "url": "heroku-community/apt" }, { "url": "heroku/nodejs" }, { "url": "heroku/python" }],
+    "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
     "addons": [
         "heroku-postgresql",
         {
@@ -61,6 +62,7 @@
         "SECRET_KEY": {
             "generator": "secret"
         },
-        "DEPLOYMENT": "Heroku"
+        "DEPLOYMENT": "Heroku",
+        "SAML_DISABLED": true
     }
 }

@@ -37,10 +37,7 @@ describe('Dashboard', () => {
             .then((link) => {
                 cy.wait(200)
                 cy.visit(link)
-                cy.get('[data-attr=dashboard-item-title]').should(
-                    'contain',
-                    'Installed App -> Rated App -> Rated App 5 Stars'
-                )
+                cy.get('[data-attr=dashboard-item-title]').should('contain', 'App Analytics')
             })
     })
 

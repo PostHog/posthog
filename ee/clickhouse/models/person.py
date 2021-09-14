@@ -19,9 +19,9 @@ from ee.clickhouse.sql.person import (
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
-from posthog.ee import is_clickhouse_enabled
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.utils import UUIDT
+from posthog.utils import is_clickhouse_enabled
 
 if settings.EE_AVAILABLE and is_clickhouse_enabled():
 

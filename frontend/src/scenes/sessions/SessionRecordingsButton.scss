@@ -45,6 +45,10 @@
     margin-left: 1rem;
 }
 
+.session-recordings-button__wrapper {
+    display: inline-block;
+}
+
 .session-recordings-button {
     .anticon-play-circle {
         color: $primary;

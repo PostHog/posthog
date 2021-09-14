@@ -6,6 +6,7 @@ from rest_framework import exceptions, permissions, request, response, serialize
 from rest_framework.decorators import action
 
 from posthog.api.shared import TeamBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -24,7 +25,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
             (user.organization is None)
             or (
                 user.organization.teams.exclude(is_demo=True).count() >= 1
-                and not user.organization.is_feature_available("organizations_projects")
+                and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             )
         ):
             return False

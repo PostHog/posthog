@@ -82,7 +82,7 @@ function PreflightItem({ name, status, caption, failedState }: PreflightItemInte
     )
 }
 
-function PreflightCheck(): JSX.Element {
+export function PreflightCheck(): JSX.Element {
     const { preflight, preflightLoading, preflightMode } = useValues(preflightLogic)
     const { setPreflightMode } = useActions(preflightLogic)
     const isReady =
