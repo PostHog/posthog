@@ -910,6 +910,16 @@ describe('ActionMatcher', () => {
                     selector: 'main > a[href="https://example.com/"]',
                 },
             ])
+            const actionDefinitionEmptySelectorProp: Action = await createTestAction([
+                {
+                    properties: [{ type: 'element', key: 'selector', value: '' }],
+                },
+            ])
+            const actionDefinitionCompletelyInvalidSelectorProp: Action = await createTestAction([
+                {
+                    properties: [{ type: 'element', key: 'selector', value: null as unknown as string }],
+                },
+            ])
 
             const event = createTestEvent()
             const elementsHrefProperNondirect: Element[] = [
