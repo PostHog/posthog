@@ -52,8 +52,6 @@ jobs:
             - name: Build
               id: docker_build
               uses: docker/build-push-action@v2
-              env:
-                  SAML_AVAILABLE: '1'
               with:
                   push: false
                   tags: posthog/posthog:testing-saml

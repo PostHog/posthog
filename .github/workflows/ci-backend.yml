@@ -119,6 +119,7 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
+                  SAML_DISABLED: '1'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -175,7 +176,6 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
-                  SAML_AVAILABLE: '1'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -340,6 +340,7 @@ jobs:
             - name: Run tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  SAML_DISABLED: '1'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
