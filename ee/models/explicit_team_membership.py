@@ -19,8 +19,8 @@ class ExplicitTeamMembership(UUIDModel):
         related_name="explicit_memberships",
         related_query_name="explicit_membership",
     )
-    user: models.ForeignKey = models.ForeignKey(
-        "posthog.User",
+    parent_membership: models.ForeignKey = models.ForeignKey(
+        "posthog.OrganizationMembership",
         on_delete=models.CASCADE,
         related_name="explicit_team_memberships",
         related_query_name="explicit_team_membership",
@@ -33,7 +33,7 @@ class ExplicitTeamMembership(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team_id", "user_id"], name="unique_team_membership"),
+            models.UniqueConstraint(fields=["team", "parent_membership"], name="unique_explicit_team_membership"),
         ]
 
     def __str__(self):
@@ -42,15 +42,9 @@ class ExplicitTeamMembership(UUIDModel):
     def validate_update(
         self, membership_being_updated: "ExplicitTeamMembership", new_level: Optional[Level] = None
     ) -> None:
-        from posthog.models.organization import OrganizationMembership
-
-        try:
-            my_parent_membership: OrganizationMembership = OrganizationMembership.objects.get(
-                user_id=self.user_id, organization_id=self.team.organization_id
-            )
-        except OrganizationMembership.DoesNotExist:
-            raise exceptions.ValidationError("You don't belong to the organization anymore.")
-        my_real_level = max(my_parent_membership.level, self.level)
+        # Higher level takes precendence, so that organization admins have admin permissions for all projects,
+        # while project admin have admin permissions for the project despite not being an organization admin
+        my_real_level = max(self.parent_membership.level, self.level)
         if new_level is not None:
             if membership_being_updated.id == self.id:
                 raise exceptions.PermissionDenied("You can't change your own access level.")

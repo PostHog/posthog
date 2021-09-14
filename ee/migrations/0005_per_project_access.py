@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0166_per_project_access"),
+        ("posthog", "0167_per_project_access"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("ee", "0004_enterpriseeventdefinition_enterprisepropertydefinition"),
     ]
@@ -38,18 +38,20 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "user",
+                    "parent_membership",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="explicit_team_memberships",
                         related_query_name="explicit_team_membership",
-                        to=settings.AUTH_USER_MODEL,
+                        to="posthog.organizationmembership",
                     ),
                 ),
             ],
         ),
         migrations.AddConstraint(
             model_name="explicitteammembership",
-            constraint=models.UniqueConstraint(fields=("team_id", "user_id"), name="unique_team_membership"),
+            constraint=models.UniqueConstraint(
+                fields=("team", "parent_membership"), name="unique_explicit_team_membership"
+            ),
         ),
     ]

@@ -3,39 +3,51 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
-import { membersLogicType } from './membersLogicType'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
-import { OrganizationMemberType } from '~/types'
+import { OrganizationMemberType, TeamType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
+import { teamMembersLogicType } from './teamMembersLogicType'
+import { membersLogic } from '../../organization/Settings/membersLogic'
 
-export const membersLogic = kea<membersLogicType>({
+export const teamMembersLogic = kea<teamMembersLogicType>({
+    props: {} as {
+        team: TeamType
+    },
+    key: (props) => props.team.id,
     actions: {
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
             level,
         }),
-        postRemoveMember: (memberUuid: string) => ({ memberUuid }),
     },
-    loaders: ({ values, actions }) => ({
+    loaders: ({ values }) => ({
         members: {
             __default: [],
             loadMembers: async () => {
-                return (await api.get('api/organizations/@current/members/')).results
+                return (await api.get('api/projects/@current/explicit_members/')).results
             },
             removeMember: async (member: OrganizationMemberType) => {
-                await api.delete(`api/organizations/@current/members/${member.user.id}/`)
+                await api.delete(`api/projects/@current/explicit_members/${member.user.id}/`)
                 toast(
                     <div>
                         <h1 className="text-success">
-                            <CheckCircleOutlined /> Removed <b>{member.user.first_name}</b> from organization.
+                            <CheckCircleOutlined /> Removed <b>{member.user.first_name}</b> from team.
                         </h1>
                     </div>
                 )
-                actions.postRemoveMember(member.user.uuid)
                 return values.members.filter((thisMember) => thisMember.user.id !== member.user.id)
             },
         },
+    }),
+    selectors: ({ selectors }) => ({
+        relevantMembers: [
+            () => [selectors.members, membersLogic.selectors.members],
+            // Organization admins and owner (who get project acess by default) + explicit project members
+            (explicitTeamMembers, organizationMembers) =>
+                organizationMembers
+                    .filter(({ level }) => level >= OrganizationMembershipLevel.Admin)
+                    .concat(explicitTeamMembers.filter(({ level }) => level < OrganizationMembershipLevel.Admin)),
+        ],
     }),
     listeners: ({ actions }) => ({
         changeMemberAccessLevel: async ({
@@ -59,11 +71,6 @@ export const membersLogic = kea<membersLogicType>({
                 organizationLogic.actions.loadCurrentOrganization()
             }
             actions.loadMembers()
-        },
-        postRemoveMember: async ({ memberUuid }) => {
-            if (memberUuid === userLogic.values.user?.uuid) {
-                location.reload()
-            }
         },
     }),
     events: ({ actions }) => ({

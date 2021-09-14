@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
-import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
+import { OrganizationMemberType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -25,12 +25,11 @@ const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filte
 ) as OrganizationMembershipLevel[]
 
 function isMembershipLevelChangeDisallowed(
-    currentOrganization: OrganizationType | null,
+    currentMembershipLevel: OrganizationMembershipLevel | null,
     currentUser: UserType,
     memberChanged: OrganizationMemberType,
     newLevelOrAllowedLevels: OrganizationMembershipLevel | OrganizationMembershipLevel[]
 ): false | string {
-    const currentMembershipLevel = currentOrganization?.membership_level
     if (memberChanged.user.uuid === currentUser.uuid) {
         return "You can't change your own access level."
     }
@@ -64,16 +63,16 @@ function isMembershipLevelChangeDisallowed(
     return false
 }
 
-function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
+export function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { changeMemberAccessLevel } = useActions(membersLogic)
 
+    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+
     if (!user) {
         return null
     }
-
-    const { level } = member
 
     function generateHandleClick(listLevel: OrganizationMembershipLevel): (event: React.MouseEvent) => void {
         return function handleClick(event: React.MouseEvent) {
@@ -102,16 +101,16 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const levelButton = (
         <Button
             data-attr="change-membership-level"
-            icon={level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
+            icon={member.level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
         >
-            {organizationMembershipLevelToName.get(level) ?? `unknown (${level})`}
+            {organizationMembershipLevelToName.get(member.level) ?? `unknown (${member.level})`}
         </Button>
     )
 
     const allowedLevels = membershipLevelIntegers.filter(
-        (listLevel) => !isMembershipLevelChangeDisallowed(currentOrganization, user, member, listLevel)
+        (listLevel) => !isMembershipLevelChangeDisallowed(myMembershipLevel, user, member, listLevel)
     )
-    const disallowedReason = isMembershipLevelChangeDisallowed(currentOrganization, user, member, allowedLevels)
+    const disallowedReason = isMembershipLevelChangeDisallowed(myMembershipLevel, user, member, allowedLevels)
 
     return disallowedReason ? (
         <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
@@ -127,7 +126,7 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
                                         <CrownFilled style={{ marginRight: '0.5rem' }} />
                                         Transfer organization ownership
                                     </>
-                                ) : listLevel > level ? (
+                                ) : listLevel > member.level ? (
                                     <>
                                         <UpOutlined style={{ marginRight: '0.5rem' }} />
                                         Upgrade to {organizationMembershipLevelToName.get(listLevel)}
@@ -190,9 +189,9 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
             {allowDeletion && (
                 <a className="text-danger" onClick={handleClick} data-attr="delete-org-membership">
                     {member.user.uuid !== user.uuid ? (
-                        <DeleteOutlined title="Remove Member" />
+                        <DeleteOutlined title="Remove from organization" />
                     ) : (
-                        <LogoutOutlined title="Leave Organization" />
+                        <LogoutOutlined title="Leave organization" />
                     )}
                 </a>
             )}
@@ -200,15 +199,20 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
     )
 }
 
-export function Members({ user }: { user: UserType }): JSX.Element {
+export interface MembersProps {
+    /** Currently logged-in user. */
+    user: UserType
+}
+
+export function Members({ user }: MembersProps): JSX.Element {
     const { members, membersLoading } = useValues(membersLogic)
 
-    const columns: ColumnsType<Record<string, any>> = [
+    const columns: ColumnsType<OrganizationMemberType> = [
         {
             dataIndex: 'user_email',
             key: 'user_email',
             render: function ProfilePictureRender(_, member) {
-                return <ProfilePicture name={member.user_first_name} email={member.user_email} />
+                return <ProfilePicture name={member.user.first_name} email={member.user.email} />
             },
             width: 32,
         },

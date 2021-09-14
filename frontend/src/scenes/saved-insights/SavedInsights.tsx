@@ -31,6 +31,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
+import { teamLogic } from '../teamLogic'
 const { TabPane } = Tabs
 
 interface InsightType {
@@ -68,7 +69,8 @@ export function SavedInsights(): JSX.Element {
     } = useValues(savedInsightsLogic)
     const { dashboards } = useValues(dashboardsModel)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
-    const { members } = useValues(membersLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { members } = useValues(membersLogic({ team: currentTeam }))
     const insightTypes: InsightType[] = [
         { type: 'All types' },
         { type: 'Trends', icon: <LineChartOutlined /> },

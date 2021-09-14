@@ -109,7 +109,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         from ee.models.explicit_team_membership import ExplicitTeamMembership
 
         allowed_team_ids = ExplicitTeamMembership.objects.filter(
-            team__organization=organization, user=self.context["request"].user,
+            team__organization=organization, parent_membership__user=self.context["request"].user,
         ).values_list("team_id", flat=True)
         return list(allowed_team_ids)
 

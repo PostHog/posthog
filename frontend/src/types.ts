@@ -11,6 +11,7 @@ import {
     COHORT_DYNAMIC,
     COHORT_STATIC,
     BinCountAuto,
+    TeamMembershipLevel,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
@@ -100,12 +101,20 @@ export interface OrganizationType extends OrganizationBasicType {
     only_allowed_team_ids: TeamType['id'][] | null
 }
 
-export interface OrganizationMemberType {
+interface BaseMemberType {
     id: string
     user: UserBasicType
-    level: OrganizationMembershipLevel
     joined_at: string
     updated_at: string
+}
+
+export interface OrganizationMemberType extends BaseMemberType {
+    level: OrganizationMembershipLevel
+}
+export interface TeamMembershipType extends BaseMemberType {
+    level: TeamMembershipLevel
+    /** Level at which the same user is at organization level. */
+    parent_level?: OrganizationMembershipLevel
 }
 
 export interface APIErrorType {

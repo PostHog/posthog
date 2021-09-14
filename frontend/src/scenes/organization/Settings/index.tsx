@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Button, Card, Input, Divider, Select, Skeleton, Switch } from 'antd'
-import { AvailableFeature, UserType } from '~/types'
+import { UserType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
 import { Members } from './Members'
@@ -11,8 +11,8 @@ import { RestrictedArea, RestrictedComponentProps } from '../../../lib/component
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
-import { sceneLogic } from '../../sceneLogic'
 import { featureFlagLogic } from '../../../lib/logic/featureFlagLogic'
+import { Permissioning } from './Permissioning'
 
 function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -111,7 +111,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
 
     return (
         <div>
-            <h2 id="name" className="subtitle">
+            <h2 id="notification-preferences" className="subtitle">
                 Notification Preferences
             </h2>
             <div>
@@ -134,54 +134,6 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
                 >
                     Email all current members when a new member joins
                 </label>
-            </div>
-        </div>
-    )
-}
-
-function Permissioning({ isRestricted }: RestrictedComponentProps): JSX.Element {
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { updateOrganization } = useActions(organizationLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
-
-    return (
-        <div>
-            <h2 id="name" className="subtitle">
-                Permissioning
-            </h2>
-            <div>
-                <Switch
-                    // @ts-expect-error - id works just fine despite not being in CompoundedComponent
-                    id="per-project-access-switch"
-                    onChange={(checked) => {
-                        guardAvailableFeature(
-                            AvailableFeature.PER_PROJECT_ACCESS,
-                            'per-project access',
-                            'Gain the ability to set permissions granularly inside the organization. Make sure the right people have access to data.',
-                            () => updateOrganization({ per_project_access: checked })
-                        )
-                    }}
-                    checked={
-                        currentOrganization?.available_features.includes(AvailableFeature.PER_PROJECT_ACCESS) &&
-                        currentOrganization?.per_project_access
-                    }
-                    loading={currentOrganizationLoading}
-                    disabled={isRestricted || !currentOrganization}
-                />
-                <label
-                    style={{
-                        marginLeft: '10px',
-                    }}
-                    htmlFor="per-project-access-switch"
-                >
-                    Per-project access
-                </label>
-                <p>
-                    Per-project access means that organization members below Administrator level by default lack access
-                    to projects.
-                    <br />
-                    Access to each project can then be granted individually only for members who need it.
-                </p>
             </div>
         </div>
     )

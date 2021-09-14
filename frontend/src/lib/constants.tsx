@@ -18,6 +18,11 @@ export enum OrganizationMembershipLevel {
     Owner = 15,
 }
 
+export enum TeamMembershipLevel {
+    Member = 1,
+    Admin = 8,
+}
+
 /** See posthog/api/organization.py for details. */
 export enum PluginsAccessLevel {
     None = 0,
