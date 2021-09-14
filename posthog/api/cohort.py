@@ -74,8 +74,10 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-            calculate_cohort.delay(cohort_id=cohort.pk)
-            calculate_cohort_ch.delay(cohort_id=cohort.pk)
+            if is_clickhouse_enabled():
+                calculate_cohort_ch.delay(cohort.id)
+            else:
+                calculate_cohort.delay(cohort.id)
 
         posthoganalytics.capture(request.user.distinct_id, "cohort created", cohort.get_analytics_metadata())
         return cohort
