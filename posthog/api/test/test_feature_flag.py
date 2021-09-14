@@ -1,8 +1,10 @@
 from unittest.mock import patch
 
-from rest_framework import status
+from rest_framework import response, status
 
+from posthog.api import feature_flag
 from posthog.models import FeatureFlag, User
+from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import APIBaseTest
 
 
@@ -348,28 +350,220 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(instance.key, "alpha-feature")
 
     @patch("posthoganalytics.capture")
-    def test_for_user(self, mock_capture):
+    def test_my_flags(self, mock_capture):
         self.client.post(
             "/api/feature_flag/",
-            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 20}]}},
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ],
+                    },
+                },
+            },
             format="json",
         )
 
-        # alpha-feature is set for "distinct_id"
-        response = self.client.get("/api/feature_flag/for_user?distinct_id=distinct_id")
+        # # alpha-feature is set for "distinct_id"
+        distinct_id_user = User.objects.create_and_join(self.organization, "distinct_id_user@posthog.com", None)
+        distinct_id_user.distinct_id = "distinct_id"
+        distinct_id_user.save()
+        self.client.force_login(distinct_id_user)
+        response = self.client.get("/api/feature_flag/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["distinct_id"], "distinct_id")
-        self.assertEqual(sorted(response.json()["flags_enabled"]), ["alpha-feature", "red_button"])
+        response_data = response.json()
+        self.assertEqual(len(response_data), 2)
+
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
+        self.assertEqual(first_flag["value_for_user_without_override"], "third-variant")
+        self.assertEqual(first_flag["override"], None)
+
+        second_flag = response_data[1]
+        self.assertEqual(second_flag["feature_flag"]["key"], "red_button")
+        self.assertEqual(second_flag["value_for_user_without_override"], True)
+        self.assertEqual(second_flag["override"], None)
 
         # alpha-feature is not set for "distinct_id_0"
-        response = self.client.get("/api/feature_flag/for_user?distinct_id=distinct_id_0")
+        distinct_id_0_user = User.objects.create_and_join(self.organization, "distinct_id_0_user@posthog.com", None)
+        distinct_id_0_user.distinct_id = "distinct_id_0"
+        distinct_id_0_user.save()
+        self.client.force_login(distinct_id_0_user)
+        response = self.client.get("/api/feature_flag/my_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["distinct_id"], "distinct_id_0")
-        self.assertEqual(sorted(response.json()["flags_enabled"]), ["red_button"])
+        response_data = response.json()
+        self.assertEqual(len(response_data), 2)
 
-        # error if no distinct_id
-        response = self.client.get("/api/feature_flag/for_user?distinct_id=")
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
+        self.assertEqual(first_flag["value_for_user_without_override"], False)
+        self.assertEqual(first_flag["override"], None)
+
+    def test_create_override(self):
+        # Boolean override value
+        feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
+        response = self.client.post(
+            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            {"feature_flag": feature_flag_instance.id, "override_value": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNotNone(
+            FeatureFlagOverride.objects.get(
+                team=self.team, user=self.user, feature_flag=feature_flag_instance, override_value=True
+            )
+        )
+
+        # String override value
+        feature_flag_instance_2 = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature-2")
+        response = self.client.post(
+            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            {"feature_flag": feature_flag_instance_2.id, "override_value": "hey-hey"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNotNone(
+            FeatureFlagOverride.objects.get(
+                team=self.team, user=self.user, feature_flag=feature_flag_instance_2, override_value="hey-hey"
+            )
+        )
+
+        response = self.client.get("/api/feature_flag/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature-2")
+        self.assertEqual(first_flag["override"]["override_value"], "hey-hey")
+
+        second_flag = response_data[1]
+        self.assertEqual(second_flag["feature_flag"]["key"], "beta-feature")
+        self.assertEqual(second_flag["override"]["override_value"], True)
+
+        third_flag = response_data[2]
+        self.assertEqual(third_flag["feature_flag"]["key"], "red_button")
+        self.assertEqual(third_flag["override"], None)
+
+    def test_update_override(self):
+        # Create an override and, and make sure the my_flags response shows it
+        feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
+        response = self.client.post(
+            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            {"feature_flag": feature_flag_instance.id, "override_value": "hey-hey"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response = self.client.get("/api/feature_flag/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature")
+        self.assertEqual(first_flag["override"]["override_value"], "hey-hey")
+
+        # Update the override, and make sure the my_flags response reflects the update
+        response = self.client.post(
+            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            {"feature_flag": feature_flag_instance.id, "override_value": "new-override"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response = self.client.get("/api/feature_flag/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature")
+        self.assertEqual(first_flag["override"]["override_value"], "new-override")
+
+        # Ensure only 1 override exists in the DB for the feature_flag/user combo
+        self.assertEqual(
+            FeatureFlagOverride.objects.filter(user=self.user, feature_flag=feature_flag_instance).count(), 1
+        )
+
+    def test_delete_override(self):
+        # Create an override and, and make sure the my_flags response shows it
+        feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
+        response = self.client.post(
+            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            {"feature_flag": feature_flag_instance.id, "override_value": "hey-hey"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response = self.client.get("/api/feature_flag/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature")
+        self.assertEqual(first_flag["override"]["override_value"], "hey-hey")
+
+        # Delete the override, and make sure the my_flags response reflects the update
+        existing_override_id = first_flag["override"]["id"]
+        response = self.client.delete(f"/api/projects/@current/feature_flag_overrides/{existing_override_id}",)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        response = self.client.get("/api/feature_flag/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        first_flag = response_data[0]
+        self.assertEqual(first_flag["feature_flag"]["key"], "beta-feature")
+        self.assertEqual(first_flag["override"], None)
+
+    def test_create_override_with_invalid_override(self):
+        feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
+        response = self.client.post(
+            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            {"feature_flag": feature_flag_instance.id, "override_value": {"key": "a dict"}},
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["type"], "validation_error")
-        self.assertEqual(response.json()["code"], "invalid_input")
-        self.assertEqual(response.json()["detail"], "Please provide a distinct_id to continue.")
+
+    def test_create_override_for_feature_flag_in_another_team(self):
+        feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
+        _, _, team_2_user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+        self.client.force_login(team_2_user)
+        response = self.client.post(
+            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            {"feature_flag": feature_flag_instance.id, "override_value": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_delete_another_users_override(self):
+        feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
+        feature_flag_override = FeatureFlagOverride.objects.create(
+            team=self.team, user=self.user, feature_flag=feature_flag_instance, override_value=True
+        )
+        feature_flag_override_id = feature_flag_override.id
+        _, _, user_2 = User.objects.bootstrap(self.organization.name, "user2@posthog.com", None)
+        self.client.force_login(user_2)
+        response = self.client.delete(f"/api/projects/@current/feature_flag_overrides/{feature_flag_override_id}",)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_standard_viewset_endpoints_are_not_available(self):
+        feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
+        feature_flag_override = FeatureFlagOverride.objects.create(
+            team=self.team, user=self.user, feature_flag=feature_flag_instance, override_value=True
+        )
+        feature_flag_override_id = feature_flag_override.id
+
+        response = self.client.put(
+            f"/api/projects/@current/feature_flag_overrides/{feature_flag_override_id}",
+            {"feature_flag": feature_flag_instance.id, "override_value": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        response = self.client.patch(
+            f"/api/projects/@current/feature_flag_overrides/{feature_flag_override_id}",
+            {"feature_flag": feature_flag_instance.id, "override_value": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        response = self.client.get(f"/api/projects/@current/feature_flag_overrides/{feature_flag_override_id}")
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        response = self.client.get(f"/api/projects/@current/feature_flag_overrides/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.post(
+            f"/api/projects/@current/feature_flag_overrides/",
+            {"feature_flag": feature_flag_instance.id, "override_value": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
