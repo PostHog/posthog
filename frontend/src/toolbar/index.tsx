@@ -30,3 +30,11 @@ initKea()
         container
     )
 }
+
+// Expose `window.getToolbarReduxState()` to make snapshots to storybook easy
+if (typeof window !== 'undefined') {
+    // Disabled in production to prevent leaking secret data, personal API keys, etc
+    if (process.env.NODE_ENV === 'development') {
+        ;(window as any).getToolbarReduxState = () => getContext().store.getState()
+    }
+}
