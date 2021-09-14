@@ -3,9 +3,8 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
-import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
-import { OrganizationMemberType, TeamType } from '~/types'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { organizationMembershipLevelToName, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipType, TeamType } from '~/types'
 import { teamMembersLogicType } from './teamMembersLogicType'
 import { membersLogic } from '../../organization/Settings/membersLogic'
 
@@ -15,18 +14,18 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
     },
     key: (props) => props.team.id,
     actions: {
-        changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
+        changeMemberAccessLevel: (member: TeamMembershipType, level: TeamMembershipLevel) => ({
             member,
             level,
         }),
     },
     loaders: ({ values }) => ({
-        members: {
+        explicitMembers: {
             __default: [],
             loadMembers: async () => {
                 return (await api.get('api/projects/@current/explicit_members/')).results
             },
-            removeMember: async (member: OrganizationMemberType) => {
+            removeMember: async (member: TeamMembershipType) => {
                 await api.delete(`api/projects/@current/explicit_members/${member.user.id}/`)
                 toast(
                     <div>
@@ -35,18 +34,24 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                         </h1>
                     </div>
                 )
-                return values.members.filter((thisMember) => thisMember.user.id !== member.user.id)
+                return values.explicitMembers.filter((thisMember) => thisMember.user.id !== member.user.id)
             },
         },
     }),
     selectors: ({ selectors }) => ({
-        relevantMembers: [
-            () => [selectors.members, membersLogic.selectors.members],
-            // Organization admins and owner (who get project acess by default) + explicit project members
-            (explicitTeamMembers, organizationMembers) =>
+        allMembers: [
+            () => [selectors.explicitMembers, membersLogic.selectors.members],
+            // Explicit project members joined with organization admins and owner (who get project access by default)
+            (explicitMembers, organizationMembers) =>
                 organizationMembers
-                    .filter(({ level }) => level >= OrganizationMembershipLevel.Admin)
-                    .concat(explicitTeamMembers.filter(({ level }) => level < OrganizationMembershipLevel.Admin)),
+                    .filter(({ level }) => level >= TeamMembershipLevel.Admin)
+                    .concat(explicitMembers.filter(({ level }) => level < TeamMembershipLevel.Admin)),
+        ],
+        allMembersLoading: [
+            () => [selectors.explicitMembersLoading, membersLogic.selectors.membersLoading],
+            // Explicit project members joined with organization admins and owner (who get project access by default)
+            (explicitMembersLoading, organizationMembersLoading) =>
+                explicitMembersLoading || organizationMembersLoading,
         ],
     }),
     listeners: ({ actions }) => ({
@@ -54,22 +59,18 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
             member,
             level,
         }: {
-            member: OrganizationMemberType
-            level: OrganizationMembershipLevel
+            member: TeamMembershipType
+            level: TeamMembershipLevel
         }) => {
-            await api.update(`api/organizations/@current/members/${member.user.id}/`, { level })
+            await api.update(`api/projects/@current/explicit_members/${member.user.id}/`, { level })
             toast(
                 <div>
                     <h1 className="text-success">
-                        <CheckCircleOutlined /> Made <b>{member.user.first_name}</b> organization{' '}
+                        <CheckCircleOutlined /> Made <b>{member.user.first_name}</b> project{' '}
                         {organizationMembershipLevelToName.get(level)}.
                     </h1>
                 </div>
             )
-            // reload organization to account for no longer being organization owner
-            if (level === OrganizationMembershipLevel.Owner) {
-                organizationLogic.actions.loadCurrentOrganization()
-            }
             actions.loadMembers()
         },
     }),

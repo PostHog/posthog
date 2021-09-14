@@ -68,7 +68,7 @@ export interface MembersProps {
 }
 
 export function TeamMembers({ user }: MembersProps): JSX.Element {
-    const { members, membersLoading } = useValues(teamMembersLogic)
+    const { allMembers, allMembersLoading } = useValues(teamMembersLogic)
 
     const columns: ColumnsType<OrganizationMemberType> = [
         {
@@ -130,12 +130,12 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
         <>
             <h2 className="subtitle">Members</h2>
             <Table
-                dataSource={members}
+                dataSource={allMembers}
                 columns={columns}
                 rowKey="membership_id"
                 pagination={false}
                 style={{ marginTop: '1rem' }}
-                loading={membersLoading}
+                loading={allMembersLoading}
                 data-attr="team-members-table"
             />
         </>
