@@ -515,7 +515,7 @@ export class ActionMatcher {
                 return false
             }
             for (const [key, value] of Object.entries(requirements.attributes)) {
-                if (attributes[key] !== value) {
+                if (attributes[`attr__${key}`] !== value) {
                     return false
                 }
             }

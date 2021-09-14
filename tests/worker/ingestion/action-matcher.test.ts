@@ -986,6 +986,26 @@ describe('ActionMatcher', () => {
     })
 
     describe('#checkElementsAgainstSelector()', () => {
+        it('handles selector with attribute', () => {
+            const elements: Element[] = [
+                { tag_name: 'h1', attr_class: ['headline'], attributes: { 'attr__data-attr': 'xyz' } },
+                { tag_name: 'div', attr_class: ['top'] },
+                { tag_name: 'div' },
+                { tag_name: 'main' },
+            ]
+
+            expect(actionMatcher.checkElementsAgainstSelector(elements, "[data-attr='xyz']")).toBeTruthy()
+            expect(actionMatcher.checkElementsAgainstSelector(elements, "h1[data-attr='xyz']")).toBeTruthy()
+            expect(actionMatcher.checkElementsAgainstSelector(elements, ".headline[data-attr='xyz']")).toBeTruthy()
+            expect(actionMatcher.checkElementsAgainstSelector(elements, "main [data-attr='xyz']")).toBeTruthy()
+            expect(actionMatcher.checkElementsAgainstSelector(elements, ".top [data-attr='xyz']")).toBeTruthy()
+
+            expect(actionMatcher.checkElementsAgainstSelector(elements, "[data-attr='foo']")).toBeFalsy()
+            expect(actionMatcher.checkElementsAgainstSelector(elements, "main[data-attr='xyz']")).toBeFalsy()
+            expect(actionMatcher.checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
+            expect(actionMatcher.checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
+        })
+
         it('handles any descendant selector', () => {
             const elements: Element[] = [
                 { tag_name: 'h1', attr_class: ['headline'] },
