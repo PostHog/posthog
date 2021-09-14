@@ -1,5 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Properties } from '@posthog/plugin-scaffold/src/types'
+import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
@@ -140,8 +141,15 @@ export class ActionMatcher {
         action: Action
     ): Promise<boolean> {
         for (const step of action.steps) {
-            if (await this.checkStep(event, elements, person, step)) {
-                return true
+            try {
+                if (await this.checkStep(event, elements, person, step)) {
+                    return true
+                }
+            } catch (error) {
+                captureException(error, {
+                    tags: { team_id: action.team_id },
+                    extra: { event, elements, person, action, step },
+                })
             }
         }
         return false
