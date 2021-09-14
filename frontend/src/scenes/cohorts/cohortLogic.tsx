@@ -65,7 +65,6 @@ export const cohortLogic = kea<cohortLogicType>({
             processCohortOnSet(props.cohort),
             {
                 setCohort: (_, { cohort }) => {
-                    console.log('cahnged', cohort)
                     return processCohortOnSet(cohort)
                 },
                 onCriteriaChange: (state, { newGroup, id }) => {
