@@ -9,6 +9,7 @@ from rest_framework.serializers import raise_errors_on_nested_writes
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
@@ -77,8 +78,9 @@ class OrganizationMemberViewSet(
 ):
     serializer_class = OrganizationMemberSerializer
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationMemberObjectPermissions]
-    queryset = OrganizationMembership.objects.exclude(user__email__endswith="@posthogbot.user")
-    lookup_field = "user_id"
+    pagination_class = None
+    queryset = OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+    lookup_field = "user__uuid"
     ordering = ["level", "-joined_at"]
 
     def get_object(self):
