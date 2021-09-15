@@ -26,7 +26,6 @@ from posthog.tasks import user_identify
 
 
 class UserSerializer(serializers.ModelSerializer):
-
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -40,6 +39,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             "date_joined",
+            "id",
             "uuid",
             "distinct_id",
             "first_name",

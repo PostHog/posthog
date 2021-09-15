@@ -33,7 +33,6 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                 return await api.get('api/projects/@current/explicit_members/')
             },
             addMember: async (user: UserType) => {
-                // @ts-expect-error
                 const newMember: ExplicitTeamMemberType = await api.create(`api/projects/@current/explicit_members/`, {
                     user_id: user.id,
                 })
@@ -100,7 +99,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
     }),
     listeners: ({ actions }) => ({
         changeUserAccessLevel: async ({ user, newLevel }) => {
-            await api.update(`api/projects/@current/explicit_members/${user.id}/`, { level: newLevel })
+            await api.update(`api/projects/@current/explicit_members/${user.uuid}/`, { level: newLevel })
             toast(
                 <div>
                     <h1 className="text-success">
