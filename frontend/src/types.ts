@@ -33,7 +33,7 @@ export interface ColumnConfig {
     active: string[] | 'DEFAULT'
 }
 
-/* Type for User objects in nested serializers (e.g. created_by) */
+/* User serialized with basic data, used as a nested serializer on other resources (e.g. as `created_by`) */
 export interface UserBasicType {
     id: number
     uuid: string
@@ -42,7 +42,7 @@ export interface UserBasicType {
     email: string
 }
 
-/** Full User model. */
+/** User fully serialized. */
 export interface UserType extends UserBasicType {
     date_joined: string
     email_opt_in: boolean

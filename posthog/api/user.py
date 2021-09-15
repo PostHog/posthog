@@ -39,7 +39,6 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             "id",
-            "date_joined",
             "uuid",
             "distinct_id",
             "first_name",
@@ -50,6 +49,7 @@ class UserSerializer(serializers.ModelSerializer):
             "has_password",
             "is_staff",
             "is_impersonated",
+            "date_joined",
             "team",
             "organization",
             "organizations",
