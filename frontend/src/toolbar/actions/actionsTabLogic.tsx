@@ -180,9 +180,9 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
             actionsLogic.actions.updateAction({ action: response })
             actions.selectAction(null)
 
-            const insightsUrl = `insights?insight=TRENDS&interval=day&actions=${JSON.stringify([
-                { type: 'actions', id: response.id, order: 0, name: response.name },
-            ])}`
+            const insightsUrl = `insights?insight=TRENDS&interval=day&actions=${encodeURIComponent(
+                JSON.stringify([{ type: 'actions', id: response.id, order: 0, name: response.name }])
+            )}`
 
             toast(
                 <>
