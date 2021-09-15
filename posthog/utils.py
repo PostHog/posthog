@@ -39,8 +39,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import push_scope
 
-from posthog.constants import AvailableFeature
-from posthog.ee import is_clickhouse_enabled
+from posthog.constants import AnalyticsDBMS, AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -555,6 +554,10 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     for idx, param in enumerate(params):
         named_params.update({f"{prepend}_arg_{idx}": param})
     return new_string, named_params
+
+
+def is_clickhouse_enabled() -> bool:
+    return settings.EE_AVAILABLE and settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE
 
 
 def get_instance_realm() -> str:

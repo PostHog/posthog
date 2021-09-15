@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Iterable, List, Tuple, cast
 
 from django.db.models.query import Prefetch
 
@@ -28,7 +28,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.queries.retention import Retention
+from posthog.queries.retention import AppearanceRow, Retention
 
 
 class ClickhouseRetention(Retention):
@@ -242,7 +242,8 @@ class ClickhouseRetention(Retention):
 
         filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
-        query_result = sync_execute(
+        # NOTE: I'm using `Any` here to avoid typing issues when trying to iterate.
+        query_result: Any = sync_execute(
             RETENTION_PEOPLE_PER_PERIOD_SQL.format(
                 returning_query=return_query_formatted,
                 filters=prop_filters,
@@ -267,15 +268,19 @@ class ClickhouseRetention(Retention):
                 **prop_filter_params,
             },
         )
-        people_dict = {}
+
+        people_appearances = [
+            AppearanceRow(person_id=row[0], appearance_count=row[1], appearances=row[2]) for row in query_result
+        ]
 
         from posthog.api.person import PersonSerializer
 
         people = get_persons_by_uuids(team_id=team.pk, uuids=[val[0] for val in query_result])
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
-        for person in people:
-            people_dict.update({str(person.uuid): PersonSerializer(person).data})
+        people_dict = {str(person.uuid): PersonSerializer(person).data for person in people}
 
-        result = self.process_people_in_period(filter, query_result, people_dict)
+        result = self.process_people_in_period(
+            filter=filter, people_appearances=people_appearances, people_dict=people_dict
+        )
         return result

@@ -35,10 +35,12 @@ jobs:
             - name: Install SAML (python3-saml) dependencies
               run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - uses: syphar/restore-virtualenv@v1
+            - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests-saml
+
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
+
             - name: Install python dependencies
               if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
               run: |
@@ -84,10 +86,12 @@ jobs:
               with:
                   python-version: ${{ matrix.python-version }}
 
-            - uses: syphar/restore-virtualenv@v1
+            - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
+
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
@@ -115,6 +119,7 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
+                  SAML_DISABLED: '1'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -142,10 +147,12 @@ jobs:
             - name: Install SAML (python3-saml) dependencies (not required for Cloud or FOSS)
               run: sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - uses: syphar/restore-virtualenv@v1
+            - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests-saml
+
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
+
             - name: Install python dependencies
               if: steps.cache-backend-tests-saml.outputs.cache-hit != 'true'
               run: |
@@ -169,7 +176,6 @@ jobs:
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
-                  SAML_AVAILABLE: '1'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -203,10 +209,12 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: syphar/restore-virtualenv@v1
+            - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
+
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
@@ -308,10 +316,12 @@ jobs:
               with:
                   python-version: 3.8
 
-            - uses: syphar/restore-virtualenv@v1
+            - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
+
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
@@ -330,6 +340,7 @@ jobs:
             - name: Run tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
+                  SAML_DISABLED: '1'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html

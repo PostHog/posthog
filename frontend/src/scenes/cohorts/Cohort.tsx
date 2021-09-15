@@ -70,7 +70,7 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
         },
     ]
 
-    const COHORT_TYPE_DROPDOWN = (
+    const cohortTypeDropdown = (): JSX.Element => (
         <DropdownSelector
             options={COHORT_TYPE_OPTIONS}
             disabled={cohort.id !== 'new'}
@@ -92,10 +92,10 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                 </Col>
                 <Col md={10}>
                     {cohort.id === 'new' ? (
-                        COHORT_TYPE_DROPDOWN
+                        cohortTypeDropdown()
                     ) : (
                         <Tooltip title="Create a new cohort to use a different type of cohort.">
-                            <div>{COHORT_TYPE_DROPDOWN}</div>
+                            <div>{cohortTypeDropdown()}</div>
                         </Tooltip>
                     )}
                 </Col>

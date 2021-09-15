@@ -209,19 +209,6 @@ WHERE team_id = %(team_id)s
     GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
 )
 
-GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.id
-FROM ({latest_person_sql}) AS p
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
-WHERE team_id = %(team_id)s
-  AND pdi.distinct_id = %(distinct_id)s
-  {distinct_query}
-""".format(
-    latest_person_sql=GET_LATEST_PERSON_SQL,
-    distinct_query="{distinct_query}",
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
-
 INSERT_PERSON_SQL = """
 INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0
 """

@@ -42,11 +42,7 @@ export function Person(): JSX.Element {
         <Menu>
             {person?.distinct_ids.map((distinct_id: string) => (
                 <Menu.Item key={distinct_id}>
-                    <CopyToClipboardInline
-                        explicitValue={distinct_id}
-                        tooltipMessage=""
-                        iconStyle={{ color: 'var(--primary)' }}
-                    >
+                    <CopyToClipboardInline explicitValue={distinct_id} iconStyle={{ color: 'var(--primary)' }}>
                         {midEllipsis(distinct_id, 32)}
                     </CopyToClipboardInline>
                 </Menu.Item>
@@ -102,8 +98,9 @@ export function Person(): JSX.Element {
                                     <div style={{ display: 'flex' }}>
                                         <CopyToClipboardInline
                                             explicitValue={person.distinct_ids[0]}
-                                            tooltipMessage=""
+                                            tooltipMessage={null}
                                             iconStyle={{ color: 'var(--primary)' }}
+                                            style={{ justifyContent: 'flex-end' }}
                                         >
                                             {midEllipsis(person.distinct_ids[0], 20)}
                                         </CopyToClipboardInline>

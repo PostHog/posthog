@@ -71,7 +71,6 @@ PERSISTED_FEATURE_FLAGS = []
 if env_feature_flags != "0" and env_feature_flags.lower() != "false":
     PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
         # Add hard-coded feature flags for static releases here
-        "4267-taxonomic-property-filter",
     ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
@@ -142,6 +141,7 @@ TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
 
 if IS_BEHIND_PROXY:
     USE_X_FORWARDED_HOST = True
+    USE_X_FORWARDED_PORT = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
     if not TRUST_ALL_PROXIES and not TRUSTED_PROXIES:

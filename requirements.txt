@@ -112,7 +112,7 @@ importlib-metadata==1.6.0
 git+git://github.com/PostHog/infi.clickhouse_orm@f6f4838a75513773696737c9ac37a164af9be632
     # via -r requirements.in
 iso8601==0.1.12
-    # via infi.clickhouse-orm
+    # via infi-clickhouse-orm
 kafka-helper==0.2
     # via -r requirements.in
 kafka-python==2.0.1
@@ -164,7 +164,7 @@ pytz==2021.1
     #   celery
     #   clickhouse-driver
     #   django
-    #   infi.clickhouse-orm
+    #   infi-clickhouse-orm
     #   tzlocal
 redis==3.4.1
     # via
@@ -179,7 +179,7 @@ requests==2.25.1
     # via
     #   -r requirements.in
     #   django-rest-hooks
-    #   infi.clickhouse-orm
+    #   infi-clickhouse-orm
     #   posthoganalytics
     #   requests-oauthlib
     #   social-auth-core

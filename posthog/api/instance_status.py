@@ -9,7 +9,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.models import Element, Event, SessionRecordingEvent
@@ -23,6 +22,7 @@ from posthog.utils import (
     get_redis_queue_depth,
     get_table_approx_count,
     get_table_size,
+    is_clickhouse_enabled,
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,

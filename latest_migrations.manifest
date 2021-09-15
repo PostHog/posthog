@@ -3,7 +3,7 @@ auth: 0012_alter_user_first_name_max_length
 axes: 0006_remove_accesslog_trusted
 contenttypes: 0002_remove_content_type_name
 ee: 0004_enterpriseeventdefinition_enterprisepropertydefinition
-posthog: 0165_dashboarditem_dive_dashboard
+posthog: 0167_feature_flag_override
 rest_hooks: 0002_swappable_hook_model
 sessions: 0001_initial
 social_django: 0010_uid_db_index

@@ -1,12 +1,16 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
     <head>
         {% include "head.html" %}
     </head>
     <body>
         {% include "overlays.html" %}
         <script>
-            if (typeof Object.entries === 'undefined' || typeof Object.fromEntries === 'undefined' || typeof Array.prototype.flatMap === 'undefined') {
+            if (
+                typeof Object.entries === 'undefined' ||
+                typeof Object.fromEntries === 'undefined' ||
+                typeof Array.prototype.flatMap === 'undefined'
+            ) {
                 var div = document.createElement('div')
                 div.style.color = '#fef6f6'
                 div.style.background = '#920c0c'

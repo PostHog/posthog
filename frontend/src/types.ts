@@ -547,8 +547,17 @@ export interface PluginType {
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    public_jobs?: Record<string, JobSpec>
 }
 
+export interface JobPayloadFieldOptions {
+    type: 'string' | 'boolean' | 'json' | 'number'
+    required?: boolean
+}
+
+export interface JobSpec {
+    payload?: Record<string, JobPayloadFieldOptions>
+}
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -651,6 +660,8 @@ export enum FunnelVizType {
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
+export type BreakdownKeyType = string | number | (string | number)[] | null
+
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
@@ -661,7 +672,7 @@ export interface FilterType {
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
-    breakdown?: string | number | number[] | null
+    breakdown?: BreakdownKeyType
     breakdown_value?: string | number
     shown_as?: ShownAsType
     session?: string
@@ -796,7 +807,7 @@ export interface FunnelStep {
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: string | number | number[]
+    breakdown?: BreakdownKeyType
     breakdown_value?: string | number
 }
 
