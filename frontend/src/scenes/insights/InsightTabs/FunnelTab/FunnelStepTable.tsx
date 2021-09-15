@@ -10,9 +10,12 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { formatDisplayPercentage, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { humanFriendlyDuration } from 'lib/utils'
-import { FlattenedFunnelStep } from '~/types'
-import { getBreakpoint } from 'lib/utils/responsiveUtils'
+import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
+
+import './FunnelStepTable.scss'
+import { TableProps } from 'antd'
+import { RenderedCell } from 'rc-table/lib/interface'
 
 interface FunnelStepTableProps {
     layout?: FunnelLayout // Not yet implemented
@@ -32,184 +35,491 @@ function isBreakdownChildType(
     return ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
 }
 
+const renderSubColumnTitle = (title: string): JSX.Element => <span className="sub-column-title">{title}</span>
+
+const renderColumnTitle = (title: string): JSX.Element => <span className="column-title">{title}</span>
+
+const EmptyValue = <span className="text-muted-alt">-</span>
+
 export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
-    const { stepsWithCount, flattenedSteps, filters, steps, visibilityMap } = useValues(funnelLogic)
+    const {
+        stepsWithCount,
+        flattenedSteps,
+        filters,
+        steps,
+        visibilityMap,
+        barGraphLayout,
+        flattenedStepsByBreakdown,
+    } = useValues(funnelLogic)
     const { openPersonsModal, toggleBreakdownVisibility, setVisibilityById } = useActions(funnelLogic)
     const { cohorts } = useValues(cohortsModel)
-    const tableScrollBreakpoint = getBreakpoint('lg')
-    const columns: ColumnsType<FlattenedFunnelStep> = []
+    const isVertical = barGraphLayout === FunnelLayout.vertical
 
-    const EmptyValue = <span className="text-muted-alt">-</span>
+    console.log('flattened breakdown', flattenedStepsByBreakdown)
+    console.log('flattenedSteps', flattenedSteps)
 
-    columns.push({
-        title: '',
-        render: function RenderSeriesGlyph({}, step: FlattenedFunnelStep): JSX.Element | null {
-            if (step.breakdownIndex === undefined) {
-                // Not a breakdown value; show a step-order glyph
-                return <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
+    const renderGraphAndHeader = (
+        breakdown: FlattenedFunnelStepByBreakdown,
+        rowIndex: number,
+        colIndex: number,
+        defaultElement: JSX.Element,
+        headerElement: JSX.Element
+    ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
+        console.log('breakdown', breakdown)
+        if (rowIndex === 0) {
+            // Empty cell
+            if (colIndex === 0) {
+                return {
+                    children: <>Empty</>,
+                    props: {
+                        colSpan: 3,
+                    },
+                }
             }
-            return null
-        },
-        fixed: 'left',
-        width: 20,
-        align: 'center',
-    })
+            // First base step
+            if (colIndex === 3) {
+                return {
+                    children: <>Graph 0</>,
+                    props: {
+                        colSpan: 2,
+                    },
+                }
+            }
+            // Subsequent steps
+            if ((colIndex + 1) % 5 === 0) {
+                const stepIndex = Math.floor((colIndex + 1) / 5)
+                return {
+                    children: <>Graph {stepIndex}</>,
+                    props: {
+                        colSpan: 5,
+                    },
+                }
+            }
+            return {
+                props: {
+                    colSpan: 0,
+                },
+            }
+        }
+        if (rowIndex === 1) {
+            return headerElement
+        }
+        return defaultElement
+    }
 
-    if (!!filters.breakdown) {
-        columns.push({
-            title: '',
-            render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
-                // Breakdown parent
-                if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {
-                    return (
+    function getColumns(
+        layout: FunnelLayout
+    ): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
+        if (layout === FunnelLayout.vertical) {
+            const _columns: ColumnsType<FlattenedFunnelStepByBreakdown> = []
+
+            _columns.push({
+                render: function RenderCheckbox({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                    if (!filters.breakdown) {
+                        return null
+                    }
+                    const breakdownIndices = Array.from(Array(flattenedStepsByBreakdown.length).keys()) ?? []
+                    const checked = !!breakdownIndices?.every((i) => visibilityMap[`0-${i}`])
+
+                    return renderGraphAndHeader(
+                        breakdown,
+                        rowIndex,
+                        0,
                         <PHCheckbox
-                            checked={!!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])}
-                            indeterminate={step.nestedRowKeys?.some((rowKey) => visibilityMap[rowKey])}
+                            checked={visibilityMap[`0-${breakdown.breakdownIndex}`]} // assume visible status from first step's visibility
+                            onChange={() => toggleBreakdownVisibility(breakdown.breakdownIndex as number)}
+                        />,
+                        <PHCheckbox
+                            checked={checked}
+                            indeterminate={breakdownIndices?.some((i) => visibilityMap[`0-${i}`])}
                             onChange={() => {
                                 // either toggle all data on or off
-                                const currentState = !!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])
-                                setVisibilityById(
-                                    Object.fromEntries(
-                                        (
-                                            flattenedSteps?.filter((s) => s.breakdownIndex !== undefined) ?? []
-                                        ).map(({ rowKey }) => [rowKey, !currentState])
-                                    )
-                                )
+                                setVisibilityById(Object.fromEntries(breakdownIndices.map((i) => [`0-${i}`, !checked])))
                             }}
                         />
                     )
+                },
+                fixed: 'left',
+                width: 20,
+                align: 'center',
+            })
+
+            _columns.push({
+                render: function RenderLabel({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                    const color = getSeriesColor(breakdown?.breakdownIndex) || 'var(--text-default)'
+
+                    return renderGraphAndHeader(
+                        breakdown,
+                        rowIndex,
+                        1,
+                        <InsightLabel
+                            seriesColor={color}
+                            fallbackName={formatBreakdownLabel(breakdown.breakdown, cohorts)}
+                            hasMultipleSeries={steps.length > 1}
+                            breakdownValue={breakdown.breakdown_value}
+                            hideBreakdown
+                            iconSize={IconSize.Small}
+                            iconStyle={{ marginRight: 12 }}
+                            allowWrap
+                        />,
+                        renderColumnTitle('Breakdown')
+                    )
+                },
+                fixed: 'left',
+                width: 150,
+            })
+
+            _columns.push({
+                render: function RenderCompletionRate({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                    return renderGraphAndHeader(
+                        breakdown,
+                        rowIndex,
+                        2,
+                        <span>{formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0)}%</span>,
+                        renderSubColumnTitle('Comp. rate')
+                    )
+                },
+                fixed: 'left',
+                width: 120,
+                align: 'right',
+                className: 'dividing-column',
+            })
+
+            // Add columns per step
+
+            // 0 1 2 3 4 5 6 7 8 9 10 11
+            // x x x x x
+
+            steps.forEach((step, stepIndex) => {
+                _columns.push({
+                    render: function RenderCompleted({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                        return renderGraphAndHeader(
+                            breakdown,
+                            rowIndex,
+                            step.order === 0 ? 3 : (stepIndex - 1) * 5 + 5,
+                            breakdown.steps?.[step.order]?.count != undefined ? (
+                                <ValueInspectorButton
+                                    onClick={() =>
+                                        openPersonsModal(
+                                            step,
+                                            step.order + 1,
+                                            breakdown.breakdown === 'baseline' ? undefined : breakdown.breakdown_value
+                                        )
+                                    }
+                                >
+                                    {breakdown.steps?.[step.order].count}
+                                </ValueInspectorButton>
+                            ) : (
+                                EmptyValue
+                            ),
+                            renderSubColumnTitle('Completed')
+                        )
+                    },
+                    width: 80,
+                    align: 'right',
+                })
+
+                _columns.push({
+                    render: function RenderConversion({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                        return renderGraphAndHeader(
+                            breakdown,
+                            rowIndex,
+                            step.order === 0 ? 4 : (stepIndex - 1) * 5 + 6,
+                            breakdown.steps?.[step.order]?.conversionRates.fromBasisStep != undefined ? (
+                                <span>
+                                    {formatDisplayPercentage(
+                                        breakdown.steps?.[step.order]?.conversionRates.fromBasisStep
+                                    )}
+                                    %
+                                </span>
+                            ) : (
+                                EmptyValue
+                            ),
+                            renderSubColumnTitle('Rate')
+                        )
+                    },
+                    width: 80,
+                    align: 'right',
+                    className: step.order === 0 ? 'dividing-column' : undefined,
+                })
+
+                if (step.order !== 0) {
+                    _columns.push({
+                        render: function RenderDropoff({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                            return renderGraphAndHeader(
+                                breakdown,
+                                rowIndex,
+                                (stepIndex - 1) * 5 + 7,
+                                breakdown.steps?.[step.order]?.droppedOffFromPrevious != undefined ? (
+                                    <ValueInspectorButton
+                                        onClick={() =>
+                                            openPersonsModal(
+                                                step,
+                                                -(step.order + 1),
+                                                breakdown.breakdown === 'baseline'
+                                                    ? undefined
+                                                    : breakdown.breakdown_value
+                                            )
+                                        }
+                                    >
+                                        {breakdown.steps?.[step.order]?.droppedOffFromPrevious}
+                                    </ValueInspectorButton>
+                                ) : (
+                                    EmptyValue
+                                ),
+                                renderSubColumnTitle('Dropped')
+                            )
+                        },
+                        width: 80,
+                        align: 'right',
+                    })
+
+                    _columns.push({
+                        render: function RenderDropoffRate({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                            return renderGraphAndHeader(
+                                breakdown,
+                                rowIndex,
+                                (stepIndex - 1) * 5 + 8,
+                                breakdown.steps?.[step.order]?.conversionRates.fromPrevious != undefined ? (
+                                    <span>
+                                        {formatDisplayPercentage(
+                                            1 - breakdown.steps?.[step.order]?.conversionRates.fromPrevious
+                                        )}
+                                        %
+                                    </span>
+                                ) : (
+                                    EmptyValue
+                                ),
+                                renderSubColumnTitle('Rate')
+                            )
+                        },
+                        width: 80,
+                        align: 'right',
+                    })
+
+                    _columns.push({
+                        render: function RenderAverageTime({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
+                            return renderGraphAndHeader(
+                                breakdown,
+                                rowIndex,
+                                (stepIndex - 1) * 5 + 9,
+                                breakdown.steps?.[step.order]?.average_conversion_time != undefined ? (
+                                    <span>
+                                        {humanFriendlyDuration(
+                                            breakdown.steps?.[step.order]?.average_conversion_time,
+                                            2
+                                        )}
+                                    </span>
+                                ) : (
+                                    EmptyValue
+                                ),
+                                renderSubColumnTitle('Avg. time')
+                            )
+                        },
+                        width: 80,
+                        align: 'right',
+                        className: 'dividing-column',
+                    })
                 }
-                // Breakdown child
-                return (
-                    <PHCheckbox
-                        checked={visibilityMap[step.rowKey]}
-                        onChange={() => toggleBreakdownVisibility(step.breakdownIndex as number)}
-                    />
-                )
+            })
+
+            return _columns
+        }
+
+        // If steps are horizontal, render table with flattened steps
+
+        const _columns: ColumnsType<FlattenedFunnelStep> = []
+        _columns.push({
+            title: '',
+            render: function RenderSeriesGlyph({}, step: FlattenedFunnelStep): JSX.Element | null {
+                if (step.breakdownIndex === undefined) {
+                    // Not a breakdown value; show a step-order glyph
+                    return <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
+                }
+                return null
             },
             fixed: 'left',
             width: 20,
             align: 'center',
         })
+
+        if (!!filters.breakdown) {
+            _columns.push({
+                title: '',
+                render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
+                    // Breakdown parent
+                    if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {
+                        return (
+                            <PHCheckbox
+                                checked={!!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])}
+                                indeterminate={step.nestedRowKeys?.some((rowKey) => visibilityMap[rowKey])}
+                                onChange={() => {
+                                    // either toggle all data on or off
+                                    const currentState = !!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])
+                                    setVisibilityById(
+                                        Object.fromEntries(
+                                            (
+                                                flattenedSteps?.filter((s) => s.breakdownIndex !== undefined) ?? []
+                                            ).map(({ rowKey }) => [rowKey, !currentState])
+                                        )
+                                    )
+                                }}
+                            />
+                        )
+                    }
+                    // Breakdown child
+                    return (
+                        <PHCheckbox
+                            checked={visibilityMap[step.rowKey]}
+                            onChange={() => toggleBreakdownVisibility(step.breakdownIndex as number)}
+                        />
+                    )
+                },
+                fixed: 'left',
+                width: 20,
+                align: 'center',
+            })
+        }
+
+        _columns.push({
+            title: 'Step',
+            render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
+                const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
+                const color = getStepColor(step, !!filters.breakdown)
+                return (
+                    <InsightLabel
+                        seriesColor={color}
+                        fallbackName={
+                            isBreakdownChild && isBreakdownChildType(step.breakdown)
+                                ? formatBreakdownLabel(step.breakdown, cohorts)
+                                : step.name
+                        }
+                        hasMultipleSeries={steps.length > 1}
+                        breakdownValue={
+                            step.breakdown === ''
+                                ? 'None'
+                                : isBreakdownChildType(step.breakdown)
+                                ? step.breakdown
+                                : undefined
+                        }
+                        hideBreakdown
+                        iconSize={IconSize.Small}
+                        iconStyle={{ marginRight: 12 }}
+                        hideIcon={!isBreakdownChild}
+                        allowWrap
+                    />
+                )
+            },
+            fixed: 'left',
+            width: 120,
+        })
+
+        _columns.push({
+            title: 'Completed',
+            render: function RenderCompleted({}, step: FlattenedFunnelStep): JSX.Element {
+                return (
+                    <ValueInspectorButton
+                        onClick={() =>
+                            openPersonsModal(
+                                step,
+                                step.order + 1,
+                                step.isBreakdownParent ? undefined : step.breakdown_value
+                            )
+                        }
+                    >
+                        {step.count}
+                    </ValueInspectorButton>
+                )
+            },
+            width: 80,
+            align: 'center',
+        })
+
+        _columns.push({
+            title: 'Conversion',
+            render: function RenderConversion({}, step: FlattenedFunnelStep): JSX.Element | null {
+                return step.order === 0 ? (
+                    EmptyValue
+                ) : (
+                    <span>{formatDisplayPercentage(step.conversionRates.total)}%</span>
+                )
+            },
+            width: 80,
+            align: 'center',
+        })
+
+        _columns.push({
+            title: 'Dropped off',
+            render: function RenderDropoff({}, step: FlattenedFunnelStep): JSX.Element | null {
+                return step.order === 0 ? (
+                    EmptyValue
+                ) : (
+                    <ValueInspectorButton
+                        onClick={() =>
+                            openPersonsModal(
+                                step,
+                                -(step.order + 1),
+                                step.isBreakdownParent ? undefined : step.breakdown_value
+                            )
+                        }
+                    >
+                        {step.droppedOffFromPrevious}
+                    </ValueInspectorButton>
+                )
+            },
+            width: 80,
+            align: 'center',
+        })
+
+        _columns.push({
+            title: 'From previous step',
+            render: function RenderDropoffFromPrevious({}, step: FlattenedFunnelStep): JSX.Element | null {
+                return step.order === 0 ? (
+                    EmptyValue
+                ) : (
+                    <span>{formatDisplayPercentage(1 - step.conversionRates.fromPrevious)}%</span>
+                )
+            },
+            width: 80,
+            align: 'center',
+        })
+
+        _columns.push({
+            title: 'Average time',
+            render: function RenderAverageTime({}, step: FlattenedFunnelStep): JSX.Element {
+                return step.average_conversion_time ? (
+                    <span>{humanFriendlyDuration(step.average_conversion_time, 2)}</span>
+                ) : (
+                    EmptyValue
+                )
+            },
+            width: 100,
+            align: 'center',
+        })
+
+        return _columns
     }
 
-    columns.push({
-        title: 'Step',
-        render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
-            const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
-            const color = getStepColor(step, !!filters.breakdown)
-            return (
-                <InsightLabel
-                    seriesColor={color}
-                    fallbackName={
-                        isBreakdownChild && isBreakdownChildType(step.breakdown)
-                            ? formatBreakdownLabel(step.breakdown, cohorts)
-                            : step.name
-                    }
-                    hasMultipleSeries={steps.length > 1}
-                    breakdownValue={
-                        step.breakdown === ''
-                            ? 'None'
-                            : isBreakdownChildType(step.breakdown)
-                            ? step.breakdown
-                            : undefined
-                    }
-                    hideBreakdown
-                    iconSize={IconSize.Small}
-                    iconStyle={{ marginRight: 12 }}
-                    hideIcon={!isBreakdownChild}
-                    allowWrap
-                />
-            )
-        },
-        fixed: 'left',
-        width: 120,
-    })
+    // If the bars are vertical, use table as legend #5733
+    const columns = getColumns(barGraphLayout)
+    const tableData: TableProps<any /* TODO: Type this */> = isVertical
+        ? {
+              dataSource: flattenedStepsByBreakdown,
+              columns,
+              showHeader: false,
+              rowClassName: (_, index) => (index === 1 ? 'header-row' : ''),
+          }
+        : {
+              dataSource: flattenedSteps,
+              columns,
+          }
 
-    columns.push({
-        title: 'Completed',
-        render: function RenderCompleted({}, step: FlattenedFunnelStep): JSX.Element {
-            return (
-                <ValueInspectorButton
-                    onClick={() =>
-                        openPersonsModal(
-                            step,
-                            step.order + 1,
-                            step.isBreakdownParent ? undefined : step.breakdown_value
-                        )
-                    }
-                >
-                    {step.count}
-                </ValueInspectorButton>
-            )
-        },
-        width: 80,
-        align: 'center',
-    })
-
-    columns.push({
-        title: 'Conversion',
-        render: function RenderConversion({}, step: FlattenedFunnelStep): JSX.Element | null {
-            return step.order === 0 ? EmptyValue : <span>{formatDisplayPercentage(step.conversionRates.total)}%</span>
-        },
-        width: 80,
-        align: 'center',
-    })
-
-    columns.push({
-        title: 'Dropped off',
-        render: function RenderDropoff({}, step: FlattenedFunnelStep): JSX.Element | null {
-            return step.order === 0 ? (
-                EmptyValue
-            ) : (
-                <ValueInspectorButton
-                    onClick={() =>
-                        openPersonsModal(
-                            step,
-                            -(step.order + 1),
-                            step.isBreakdownParent ? undefined : step.breakdown_value
-                        )
-                    }
-                >
-                    {step.droppedOffFromPrevious}
-                </ValueInspectorButton>
-            )
-        },
-        width: 80,
-        align: 'center',
-    })
-
-    columns.push({
-        title: 'From previous step',
-        render: function RenderDropoffFromPrevious({}, step: FlattenedFunnelStep): JSX.Element | null {
-            return step.order === 0 ? (
-                EmptyValue
-            ) : (
-                <span>{formatDisplayPercentage(1 - step.conversionRates.fromPrevious)}%</span>
-            )
-        },
-        width: 80,
-        align: 'center',
-    })
-
-    columns.push({
-        title: 'Average time',
-        render: function RenderAverageTime({}, step: FlattenedFunnelStep): JSX.Element {
-            return step.average_conversion_time ? (
-                <span>{humanFriendlyDuration(step.average_conversion_time, 2)}</span>
-            ) : (
-                EmptyValue
-            )
-        },
-        width: 80,
-        align: 'center',
-    })
+    console.log('TABLE DATA', tableData)
 
     return stepsWithCount.length > 1 ? (
         <Table
-            dataSource={flattenedSteps}
-            columns={columns}
-            scroll={{ x: `${tableScrollBreakpoint}px` }}
+            {...tableData}
+            scroll={{ x: 'max-content' }}
             size="small"
             rowKey="rowKey"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}

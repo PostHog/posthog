@@ -26,6 +26,7 @@ import {
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelStepRangeEntityFilter,
+    FlattenedFunnelStepByBreakdown,
 } from '~/types'
 import { FunnelLayout, BinCountAuto } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -535,9 +536,11 @@ export const funnelLogic = kea<funnelLogicType>({
                         conversionRates: {
                             ...conversionRates,
                             fromBasisStep:
-                                stepReference === FunnelStepReference.total
-                                    ? conversionRates.total
-                                    : conversionRates.fromPrevious,
+                                i > 0
+                                    ? stepReference === FunnelStepReference.total
+                                        ? conversionRates.total
+                                        : conversionRates.fromPrevious
+                                    : conversionRates.total,
                         },
                     }
                 })
@@ -578,6 +581,57 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 })
                 return flattenedSteps
+            },
+        ],
+        flattenedStepsByBreakdown: [
+            () => [selectors.stepsWithConversionMetrics],
+            (steps): FlattenedFunnelStepByBreakdown[] => {
+                console.log('STEPS WITH CONVERSION', steps)
+
+                // Initialize with two rows for rendering graph and header
+                const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
+                    { rowKey: 'graph' },
+                    { rowKey: 'table-header' },
+                ]
+
+                if (steps.length > 0) {
+                    const baseStep = steps[0]
+                    const lastStep = steps[steps.length - 1]
+                    // Baseline - total step to step metrics
+                    flattenedStepsByBreakdown.push({
+                        rowKey: 'baseline',
+                        isBaseline: true,
+                        breakdown: 'Baseline',
+                        breakdown_value: 'Baseline',
+                        breakdownIndex: 0,
+                        steps: steps.map((s) => Object.assign({}, s, { nested_breakdown: undefined })),
+                        conversionRates: {
+                            total: (lastStep?.count ?? 0) / (baseStep?.count ?? 1),
+                        },
+                    })
+                    // Per Breakdown
+                    if (baseStep.nested_breakdown?.length) {
+                        baseStep.nested_breakdown.forEach((breakdownStep, i) => {
+                            const stepsInBreakdown = steps
+                                .filter((s) => !!s?.nested_breakdown?.[i])
+                                .map((s) => s.nested_breakdown?.[i] as FunnelStepWithConversionMetrics)
+                            flattenedStepsByBreakdown.push({
+                                rowKey: breakdownStep.breakdown_value ?? i + 1,
+                                isBaseline: false,
+                                breakdown: (breakdownStep.breakdown as string | number) || 'Other',
+                                breakdown_value: breakdownStep.breakdown_value || 'Other',
+                                breakdownIndex: i + 1,
+                                steps: stepsInBreakdown,
+                                conversionRates: {
+                                    total:
+                                        (stepsInBreakdown[stepsInBreakdown.length - 1]?.count ?? 0) /
+                                        (stepsInBreakdown[0]?.count ?? 1),
+                                },
+                            })
+                        })
+                    }
+                }
+                return flattenedStepsByBreakdown
             },
         ],
         numericBinCount: [

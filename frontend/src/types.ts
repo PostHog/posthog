@@ -882,6 +882,18 @@ export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
     breakdownIndex?: number
 }
 
+export interface FlattenedFunnelStepByBreakdown {
+    rowKey: number | string
+    isBaseline?: boolean
+    breakdown?: string | number
+    breakdown_value?: string | number
+    breakdownIndex?: number
+    conversionRates?: {
+        total: number
+    }
+    steps?: FunnelStepWithConversionMetrics[]
+}
+
 export interface ChartParams {
     dashboardItemId?: number
     color?: string

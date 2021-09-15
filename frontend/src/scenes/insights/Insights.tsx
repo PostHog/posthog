@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Card, Col, Input, Row } from 'antd'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ } from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ, FunnelLayout } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -401,7 +401,9 @@ export function Insights(): JSX.Element {
                             {preflight?.is_clickhouse_enabled &&
                                 activeView === ViewType.FUNNELS &&
                                 !showErrorMessage &&
-                                allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}
+                                allFilters.funnel_viz_type === FunnelVizType.Steps &&
+                                allFilters.layout === FunnelLayout.horizontal && <FunnelStepTable /> // Don't render table below if bars are vertical. Rendering table handled by FunnelBarGraph
+                            }
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&
                                     allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
