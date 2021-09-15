@@ -18,7 +18,7 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { BreakdownType, FunnelVizType } from '~/types'
+import { FunnelVizType } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
@@ -199,19 +199,17 @@ export function FunnelTab(): JSX.Element {
                             {filters.breakdown_type === 'cohort' && filters.breakdown ? (
                                 <BreakdownFilter
                                     filters={filters}
-                                    onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                    onChange={(breakdown, breakdown_type): void =>
                                         setFilters({ breakdown, breakdown_type })
                                     }
-                                    buttonExtraProps={{ type: 'link' }}
                                 />
                             ) : (
                                 <Row align="middle">
                                     <BreakdownFilter
                                         filters={filters}
-                                        onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                        onChange={(breakdown, breakdown_type): void =>
                                             setFilters({ breakdown, breakdown_type })
                                         }
-                                        buttonExtraProps={{ type: 'link' }}
                                     />
                                     {filters.breakdown && (
                                         <CloseButton
