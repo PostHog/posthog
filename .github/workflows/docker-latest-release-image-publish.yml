@@ -1,11 +1,10 @@
-# Generates the `posthog/posthog:release-[version]` Docker image and pushes to Docker Hub
-# when a branch that matches `release-[version]` is pushed. Image can be used for break the release sessions.
-name: Docker image for release
+# Generates the `posthog/posthog:latest-release` Docker image and pushes to Docker Hub
+name: Docker latest-release image
 
 on:
     push:
-        branches:
-            - 'release-*.*'
+        tags:
+            - '*.**'
 
 jobs:
     build-release-push:
@@ -14,9 +13,6 @@ jobs:
         steps:
             - name: Checkout default branch
               uses: actions/checkout@v2
-
-            - name: Get branch name
-              run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
 
             - name: Update git SHA
               run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
@@ -43,7 +39,7 @@ jobs:
               with:
                   context: .
                   push: true
-                  tags: posthog/posthog:${{ env.BRANCH_NAME  }}
+                  tags: posthog/posthog:latest-release
 
             - name: Image digest
               if: github.repository == 'PostHog/posthog'
