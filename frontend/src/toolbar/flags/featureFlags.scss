@@ -1,36 +1,9 @@
-$yellow: #fdedc9;
-$gray: #fafafa;
-$light-blue: #eef2ff;
-$border-color: #d9d9d9;
-
 .toolbar-block {
-    .block-title-row {
-        align-items: center;
-        padding-bottom: 15px;
-        border-bottom: 1px solid $border-color;
-        margin-bottom: 5px;
-
-        .block-title {
-            font-size: 14px;
-            font-weight: bold;
-            margin-bottom: 0;
-        }
-        .overridden-tag {
-            padding: 4px;
-            background-color: $yellow;
-            margin-left: 3px;
-            border-radius: 4px;
-            span {
-                font-size: 11px;
-                font-weight: bold;
-            }
-        }
-    }
     .feature-flag-row {
         margin-bottom: 5px;
 
         .feature-flag-row-header {
-            background-color: $gray;
+            background-color: #fafafa;
             padding: 10px;
             border-radius: 4px;
             .feature-flag-title {
@@ -41,16 +14,16 @@ $border-color: #d9d9d9;
             }
         }
         .feature-flag-row-header.overridden {
-            background-color: $yellow;
+            background-color: #fdedc9;
         }
 
         .variant-radio-group {
             margin-left: 15px;
             padding: 4px 0 4px 15px;
-            border-left: 2px solid $gray;
+            border-left: 2px solid #fafafa;
 
             .ant-radio-wrapper-checked {
-                background-color: $light-blue;
+                background-color: #eef2ff;
                 border-radius: 4px;
             }
 
@@ -64,7 +37,7 @@ $border-color: #d9d9d9;
             }
         }
         .variant-radio-group.overridden {
-            border-left-color: $yellow;
+            border-left-color: #fdedc9;
         }
     }
 }
