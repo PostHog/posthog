@@ -17,4 +17,103 @@
 
 .dividing-column {
     border-right: 1px solid $border;
+
+    &.axis-labels-column {
+        z-index: 2;
+    }
+
+    &.no-border-bottom {
+        border-bottom: none;
+    }
+}
+
+.funnel-step-title-row {
+    .funnel-step-title {
+        display: flex;
+        flex-direction: row;
+        justify-content: flex-start;
+        align-items: center;
+
+        .funnel-step-glyph {
+            color: $text_muted;
+            margin-right: 16px;
+            padding: 2px 4px;
+            border: 1px solid $border_light;
+            background-color: white;
+            border-radius: $radius;
+        }
+
+        .funnel-step-name {
+            @extend .text-ellipsis;
+            font-weight: bold;
+        }
+    }
+}
+
+.funnel-bar-wrapper.breakdown.vertical {
+    height: 400px;
+    width: 300px;
+    background-color: transparent;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: row;
+
+    .breakdown-bar-group {
+        display: flex;
+        justify-content: flex-start;
+        align-items: flex-end;
+        flex-direction: row;
+        height: 320px;
+        width: 200px;
+        position: relative;
+        z-index: 1;
+    }
+
+    .funnel-bar-empty-space {
+        width: 50px;
+        height: 100%;
+    }
+
+    .funnel-bar-axis {
+        position: absolute;
+        height: 320px;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: flex-end;
+        z-index: 0;
+        left: 0;
+
+        &.label {
+            .axis-tick-line {
+                width: 12px;
+            }
+        }
+
+        .axis-tick-line {
+            width: 100%;
+            border: 1px dashed $border;
+        }
+    }
+
+    &.axis-wrapper {
+        justify-content: flex-end;
+
+        .axis {
+            height: 332px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: flex-end;
+
+            .axis-tick {
+                font-size: 12px;
+                margin-right: 10px;
+                color: $text_muted_alt;
+            }
+        }
+    }
 }

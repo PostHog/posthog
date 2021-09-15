@@ -357,6 +357,7 @@ export function Insights(): JSX.Element {
                             >
                                 <div>
                                     <Row
+                                        className="insights-graph-header"
                                         align="top"
                                         justify="space-between"
                                         style={{
@@ -398,11 +399,14 @@ export function Insights(): JSX.Element {
                                 areFiltersValid &&
                                 activeView === ViewType.FUNNELS &&
                                 allFilters.display === FUNNEL_VIZ && <People />}
-                            {preflight?.is_clickhouse_enabled &&
-                                activeView === ViewType.FUNNELS &&
-                                !showErrorMessage &&
-                                allFilters.funnel_viz_type === FunnelVizType.Steps &&
-                                allFilters.layout === FunnelLayout.horizontal && <FunnelStepTable /> // Don't render table below if bars are vertical. Rendering table handled by FunnelBarGraph
+                            {
+                                preflight?.is_clickhouse_enabled &&
+                                    activeView === ViewType.FUNNELS &&
+                                    !showErrorMessage &&
+                                    allFilters.funnel_viz_type === FunnelVizType.Steps &&
+                                    allFilters.layout === FunnelLayout.horizontal && (
+                                        <FunnelStepTable filters={allFilters} />
+                                    ) // Don't render table below if bars are vertical. Rendering table handled by FunnelBarGraph
                             }
                             {(!allFilters.display ||
                                 (allFilters.display !== ACTIONS_TABLE &&

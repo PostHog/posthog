@@ -1,5 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
+import { TableProps } from 'antd'
 import { FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
@@ -10,102 +11,37 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { formatDisplayPercentage, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { humanFriendlyDuration } from 'lib/utils'
-import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
+import { ChartParams, FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
-
+import {
+    EmptyValue,
+    getStepColor,
+    isBreakdownChildType,
+    renderColumnTitle,
+    renderGraphAndHeader,
+    renderSubColumnTitle,
+} from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import './FunnelStepTable.scss'
-import { TableProps } from 'antd'
-import { RenderedCell } from 'rc-table/lib/interface'
 
-interface FunnelStepTableProps {
-    layout?: FunnelLayout // Not yet implemented
-}
-
-function getColor(step: FlattenedFunnelStep, fallbackColor: string, isBreakdown?: boolean): string {
-    return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order) || fallbackColor
-}
-
-function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {
-    return getColor(step, 'var(--text-default)', isBreakdown)
-}
-
-function isBreakdownChildType(
-    stepBreakdown: FlattenedFunnelStep['breakdown']
-): stepBreakdown is string | number | undefined {
-    return ['string', 'number', 'undefined'].includes(typeof stepBreakdown)
-}
-
-const renderSubColumnTitle = (title: string): JSX.Element => <span className="sub-column-title">{title}</span>
-
-const renderColumnTitle = (title: string): JSX.Element => <span className="column-title">{title}</span>
-
-const EmptyValue = <span className="text-muted-alt">-</span>
-
-export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
+export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element | null {
+    const logic = funnelLogic({ dashboardItemId, _filters })
     const {
         stepsWithCount,
         flattenedSteps,
         filters,
         steps,
+        visibleStepsWithConversionMetrics,
         visibilityMap,
         barGraphLayout,
         flattenedStepsByBreakdown,
-    } = useValues(funnelLogic)
-    const { openPersonsModal, toggleBreakdownVisibility, setVisibilityById } = useActions(funnelLogic)
+    } = useValues(logic)
+    const { openPersonsModal, toggleBreakdownVisibility, setVisibilityById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
     const isVertical = barGraphLayout === FunnelLayout.vertical
 
     console.log('flattened breakdown', flattenedStepsByBreakdown)
     console.log('flattenedSteps', flattenedSteps)
-
-    const renderGraphAndHeader = (
-        breakdown: FlattenedFunnelStepByBreakdown,
-        rowIndex: number,
-        colIndex: number,
-        defaultElement: JSX.Element,
-        headerElement: JSX.Element
-    ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
-        console.log('breakdown', breakdown)
-        if (rowIndex === 0) {
-            // Empty cell
-            if (colIndex === 0) {
-                return {
-                    children: <>Empty</>,
-                    props: {
-                        colSpan: 3,
-                    },
-                }
-            }
-            // First base step
-            if (colIndex === 3) {
-                return {
-                    children: <>Graph 0</>,
-                    props: {
-                        colSpan: 2,
-                    },
-                }
-            }
-            // Subsequent steps
-            if ((colIndex + 1) % 5 === 0) {
-                const stepIndex = Math.floor((colIndex + 1) / 5)
-                return {
-                    children: <>Graph {stepIndex}</>,
-                    props: {
-                        colSpan: 5,
-                    },
-                }
-            }
-            return {
-                props: {
-                    colSpan: 0,
-                },
-            }
-        }
-        if (rowIndex === 1) {
-            return headerElement
-        }
-        return defaultElement
-    }
+    console.log('visibility map', visibilityMap)
 
     function getColumns(
         layout: FunnelLayout
@@ -122,7 +58,6 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                     const checked = !!breakdownIndices?.every((i) => visibilityMap[`0-${i}`])
 
                     return renderGraphAndHeader(
-                        breakdown,
                         rowIndex,
                         0,
                         <PHCheckbox
@@ -136,7 +71,10 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                                 // either toggle all data on or off
                                 setVisibilityById(Object.fromEntries(breakdownIndices.map((i) => [`0-${i}`, !checked])))
                             }}
-                        />
+                        />,
+                        undefined,
+                        undefined,
+                        dashboardItemId
                     )
                 },
                 fixed: 'left',
@@ -149,12 +87,11 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                     const color = getSeriesColor(breakdown?.breakdownIndex) || 'var(--text-default)'
 
                     return renderGraphAndHeader(
-                        breakdown,
                         rowIndex,
                         1,
                         <InsightLabel
                             seriesColor={color}
-                            fallbackName={formatBreakdownLabel(breakdown.breakdown, cohorts)}
+                            fallbackName={formatBreakdownLabel(breakdown.breakdown_value, cohorts)}
                             hasMultipleSeries={steps.length > 1}
                             breakdownValue={breakdown.breakdown_value}
                             hideBreakdown
@@ -162,7 +99,10 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                             iconStyle={{ marginRight: 12 }}
                             allowWrap
                         />,
-                        renderColumnTitle('Breakdown')
+                        renderColumnTitle('Breakdown'),
+                        undefined,
+                        undefined,
+                        dashboardItemId
                     )
                 },
                 fixed: 'left',
@@ -172,11 +112,13 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
             _columns.push({
                 render: function RenderCompletionRate({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
                     return renderGraphAndHeader(
-                        breakdown,
                         rowIndex,
                         2,
                         <span>{formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0)}%</span>,
-                        renderSubColumnTitle('Comp. rate')
+                        renderSubColumnTitle('Comp. rate'),
+                        undefined,
+                        undefined,
+                        dashboardItemId
                     )
                 },
                 fixed: 'left',
@@ -187,14 +129,10 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
 
             // Add columns per step
 
-            // 0 1 2 3 4 5 6 7 8 9 10 11
-            // x x x x x
-
-            steps.forEach((step, stepIndex) => {
+            visibleStepsWithConversionMetrics.forEach((step, stepIndex) => {
                 _columns.push({
                     render: function RenderCompleted({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
                         return renderGraphAndHeader(
-                            breakdown,
                             rowIndex,
                             step.order === 0 ? 3 : (stepIndex - 1) * 5 + 5,
                             breakdown.steps?.[step.order]?.count != undefined ? (
@@ -212,7 +150,10 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                             ) : (
                                 EmptyValue
                             ),
-                            renderSubColumnTitle('Completed')
+                            renderSubColumnTitle('Completed'),
+                            visibleStepsWithConversionMetrics,
+                            step,
+                            dashboardItemId
                         )
                     },
                     width: 80,
@@ -222,7 +163,6 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                 _columns.push({
                     render: function RenderConversion({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
                         return renderGraphAndHeader(
-                            breakdown,
                             rowIndex,
                             step.order === 0 ? 4 : (stepIndex - 1) * 5 + 6,
                             breakdown.steps?.[step.order]?.conversionRates.fromBasisStep != undefined ? (
@@ -235,7 +175,10 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                             ) : (
                                 EmptyValue
                             ),
-                            renderSubColumnTitle('Rate')
+                            renderSubColumnTitle('Rate'),
+                            visibleStepsWithConversionMetrics,
+                            step,
+                            dashboardItemId
                         )
                     },
                     width: 80,
@@ -247,7 +190,6 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                     _columns.push({
                         render: function RenderDropoff({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
                             return renderGraphAndHeader(
-                                breakdown,
                                 rowIndex,
                                 (stepIndex - 1) * 5 + 7,
                                 breakdown.steps?.[step.order]?.droppedOffFromPrevious != undefined ? (
@@ -267,7 +209,10 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                                 ) : (
                                     EmptyValue
                                 ),
-                                renderSubColumnTitle('Dropped')
+                                renderSubColumnTitle('Dropped'),
+                                visibleStepsWithConversionMetrics,
+                                step,
+                                dashboardItemId
                             )
                         },
                         width: 80,
@@ -277,7 +222,6 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                     _columns.push({
                         render: function RenderDropoffRate({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
                             return renderGraphAndHeader(
-                                breakdown,
                                 rowIndex,
                                 (stepIndex - 1) * 5 + 8,
                                 breakdown.steps?.[step.order]?.conversionRates.fromPrevious != undefined ? (
@@ -290,7 +234,10 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                                 ) : (
                                     EmptyValue
                                 ),
-                                renderSubColumnTitle('Rate')
+                                renderSubColumnTitle('Rate'),
+                                visibleStepsWithConversionMetrics,
+                                step,
+                                dashboardItemId
                             )
                         },
                         width: 80,
@@ -300,7 +247,6 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                     _columns.push({
                         render: function RenderAverageTime({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
                             return renderGraphAndHeader(
-                                breakdown,
                                 rowIndex,
                                 (stepIndex - 1) * 5 + 9,
                                 breakdown.steps?.[step.order]?.average_conversion_time != undefined ? (
@@ -313,7 +259,10 @@ export function FunnelStepTable({}: FunnelStepTableProps): JSX.Element | null {
                                 ) : (
                                     EmptyValue
                                 ),
-                                renderSubColumnTitle('Avg. time')
+                                renderSubColumnTitle('Avg. time'),
+                                visibleStepsWithConversionMetrics,
+                                step,
+                                dashboardItemId
                             )
                         },
                         width: 80,

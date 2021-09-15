@@ -15,7 +15,6 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { FunnelLayout } from 'lib/constants'
 import {
-    createPopoverMetrics,
     formatDisplayPercentage,
     getBreakdownMaxIndex,
     getReferenceStep,
@@ -70,126 +69,66 @@ interface BreakdownBarGroupProps {
     currentStep: FunnelStepWithConversionMetrics
     basisStep: FunnelStepWithConversionMetrics
     previousStep: FunnelStepWithConversionMetrics
-    layout: FunnelLayout
-    disableInteraction?: boolean
-    onBarClick?: (breakdown: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>) => void
-    breakdownSum?: number
-    breakdownMaxIndex?: number
 }
 
-function BreakdownBarGroup({
+export function BreakdownVerticalBarGroup({
     currentStep,
     basisStep,
     previousStep,
-    layout,
-    disableInteraction = false,
-    onBarClick = () => {},
-    breakdownMaxIndex,
-    breakdownSum,
 }: BreakdownBarGroupProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const [, height] = useSize(ref)
     const barWidth = `calc(${100 / (currentStep?.nested_breakdown?.length ?? 1)}% - 2px)`
-    const isHorizontal = layout === FunnelLayout.horizontal
 
-    // Horizontal bars have stacked breakdowns that reuse <Bar/>
-    // vertical bars have vertical breakdown bars and are dealt with separately
+    console.log('CURRENT STEP', currentStep)
 
     return (
-        <div
-            className="breakdown-bar-group"
-            ref={ref}
-            style={{
-                display: 'flex',
-                justifyContent: 'flex-start',
-                alignItems: 'flex-end',
-                flexDirection: 'row',
-                width: '100%',
-                height: '100%',
-            }}
-        >
-            {isHorizontal ? (
-                <>
-                    {currentStep.nested_breakdown?.map((breakdown, index) => {
-                        const barSizePercentage = breakdown.count / basisStep.count
-                        return (
-                            <Bar
-                                key={`${breakdown.action_id}-${currentStep.breakdown_value}-${index}`}
-                                isBreakdown={true}
-                                breakdownIndex={index}
-                                breakdownMaxIndex={breakdownMaxIndex}
-                                breakdownSumPercentage={
-                                    index === breakdownMaxIndex && breakdownSum
-                                        ? breakdownSum / basisStep.count
-                                        : undefined
-                                }
-                                percentage={barSizePercentage}
-                                name={breakdown.name}
-                                onBarClick={() => onBarClick(breakdown)}
-                                disabled={disableInteraction}
-                                layout={layout}
-                                popoverTitle={
-                                    <div style={{ wordWrap: 'break-word' }}>
-                                        <PropertyKeyInfo value={currentStep.name} />
-                                        {' • '}
-                                        {breakdown.breakdown || 'None'}
-                                    </div>
-                                }
-                                popoverMetrics={createPopoverMetrics(breakdown, currentStep.order, previousStep.order)}
-                            />
-                        )
-                    })}
-                </>
-            ) : (
-                <>
-                    {currentStep?.nested_breakdown?.map((breakdown, breakdownIndex) => {
-                        const basisBreakdownCount = basisStep?.nested_breakdown?.[breakdownIndex]?.count ?? 1
-                        const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
-                        const previousBarHeight =
-                            (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) /
-                            basisBreakdownCount
-                        const color = getSeriesColor(breakdownIndex) as string
-                        return (
+        <div className="breakdown-bar-group" ref={ref}>
+            {currentStep?.nested_breakdown?.map((breakdown, breakdownIndex) => {
+                const basisBreakdownCount = basisStep?.nested_breakdown?.[breakdownIndex]?.count ?? 1
+                const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
+                const previousBarHeight =
+                    (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
+                const color = getSeriesColor(breakdownIndex) as string
+                return (
+                    <div
+                        key={breakdownIndex}
+                        className="breakdown-bar-column"
+                        style={{
+                            display: 'block',
+                            height: '100%',
+                            width: barWidth,
+                            margin: '0 1px',
+                        }}
+                    >
+                        {currentStep.order > 0 && (
                             <div
-                                key={breakdownIndex}
-                                className="breakdown-bar-column"
+                                className="breakdown-previous-bar"
                                 style={{
-                                    display: 'block',
-                                    height: '100%',
+                                    position: 'absolute',
+                                    bottom: 0,
+                                    height: previousBarHeight,
+                                    opacity: 0.1,
+                                    backgroundColor: color,
+                                    borderRadius: 3,
                                     width: barWidth,
-                                    margin: '0 1px',
                                 }}
-                            >
-                                {currentStep.order > 0 && (
-                                    <div
-                                        className="breakdown-previous-bar"
-                                        style={{
-                                            position: 'absolute',
-                                            bottom: 0,
-                                            height: previousBarHeight,
-                                            opacity: 0.1,
-                                            backgroundColor: color,
-                                            borderRadius: 3,
-                                            width: barWidth,
-                                        }}
-                                    />
-                                )}
-                                <div
-                                    className="breakdown-current-bar"
-                                    style={{
-                                        position: 'absolute',
-                                        bottom: 0,
-                                        height: currentBarHeight,
-                                        backgroundColor: color,
-                                        borderRadius: 3,
-                                        width: barWidth,
-                                    }}
-                                />
-                            </div>
-                        )
-                    })}
-                </>
-            )}
+                            />
+                        )}
+                        <div
+                            className="breakdown-current-bar"
+                            style={{
+                                position: 'absolute',
+                                bottom: 0,
+                                height: currentBarHeight,
+                                backgroundColor: color,
+                                borderRadius: 3,
+                                width: barWidth,
+                            }}
+                        />
+                    </div>
+                )
+            })}
         </div>
     )
 }
@@ -441,8 +380,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
     // If the layout is vertical, we render bars using the table as a legend. See FunnelStepTable
 
     if (layout === FunnelLayout.vertical) {
-        console.log('render step table', layout)
-        return <FunnelStepTable />
+        return <FunnelStepTable dashboardItemId={dashboardItemId} filters={filters} />
     }
 
     return (
@@ -496,18 +434,85 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                             <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })}>
                                 {isBreakdown ? (
                                     <>
-                                        <BreakdownBarGroup
-                                            currentStep={step}
-                                            basisStep={basisStep}
-                                            previousStep={previousStep}
-                                            layout={layout}
-                                            disableInteraction={!!dashboardItemId}
-                                            breakdownMaxIndex={breakdownMaxIndex}
-                                            breakdownSum={breakdownSum}
-                                            onBarClick={(breakdown) =>
-                                                openPersonsModal(step, stepIndex + 1, breakdown.breakdown_value)
-                                            }
-                                        />
+                                        {step?.nested_breakdown?.map((breakdown, index) => {
+                                            const barSizePercentage = breakdown.count / basisStep.count
+                                            return (
+                                                <Bar
+                                                    key={`${breakdown.action_id}-${step.breakdown_value}-${index}`}
+                                                    isBreakdown={true}
+                                                    breakdownIndex={index}
+                                                    breakdownMaxIndex={breakdownMaxIndex}
+                                                    breakdownSumPercentage={
+                                                        index === breakdownMaxIndex && breakdownSum
+                                                            ? breakdownSum / basisStep.count
+                                                            : undefined
+                                                    }
+                                                    percentage={barSizePercentage}
+                                                    name={breakdown.name}
+                                                    onBarClick={() =>
+                                                        openPersonsModal(step, stepIndex + 1, breakdown.breakdown_value)
+                                                    }
+                                                    disabled={!!dashboardItemId}
+                                                    layout={layout}
+                                                    popoverTitle={
+                                                        <div style={{ wordWrap: 'break-word' }}>
+                                                            <PropertyKeyInfo value={step.name} />
+                                                            {' • '}
+                                                            {breakdown.breakdown || 'None'}
+                                                        </div>
+                                                    }
+                                                    popoverMetrics={[
+                                                        {
+                                                            title: 'Completed step',
+                                                            value: breakdown.count,
+                                                        },
+                                                        {
+                                                            title: 'Conversion rate (total)',
+                                                            value:
+                                                                formatDisplayPercentage(
+                                                                    breakdown.conversionRates.total
+                                                                ) + '%',
+                                                        },
+                                                        {
+                                                            title: `Conversion rate (from step ${humanizeOrder(
+                                                                previousStep.order
+                                                            )})`,
+                                                            value:
+                                                                formatDisplayPercentage(
+                                                                    breakdown.conversionRates.fromPrevious
+                                                                ) + '%',
+                                                            visible: step.order !== 0,
+                                                        },
+                                                        {
+                                                            title: 'Dropped off',
+                                                            value: breakdown.droppedOffFromPrevious,
+                                                            visible:
+                                                                step.order !== 0 &&
+                                                                breakdown.droppedOffFromPrevious > 0,
+                                                        },
+                                                        {
+                                                            title: `Dropoff rate (from step ${humanizeOrder(
+                                                                previousStep.order
+                                                            )})`,
+                                                            value:
+                                                                formatDisplayPercentage(
+                                                                    1 - breakdown.conversionRates.fromPrevious
+                                                                ) + '%',
+                                                            visible:
+                                                                step.order !== 0 &&
+                                                                breakdown.droppedOffFromPrevious > 0,
+                                                        },
+                                                        {
+                                                            title: 'Average time on step',
+                                                            value: humanFriendlyDuration(
+                                                                breakdown.average_conversion_time
+                                                            ),
+                                                            visible: !!breakdown.average_conversion_time,
+                                                        },
+                                                    ]}
+                                                />
+                                            )
+                                        })}
                                         <div
                                             className="funnel-bar-empty-space"
                                             onClick={() =>

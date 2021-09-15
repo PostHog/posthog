@@ -547,13 +547,16 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         visibleStepsWithConversionMetrics: [
-            () => [selectors.stepsWithConversionMetrics, selectors.visibilityMap],
-            (steps, visibilityMap) => {
-                return steps.map((step) => ({
+            () => [selectors.stepsWithConversionMetrics, selectors.visibilityMap, selectors.flattenedStepsByBreakdown],
+            (steps, visibilityMap, flattenedStepsByBreakdown) => {
+                const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
+                console.log('STEPSFILTER', steps, baseLineSteps)
+                return steps.map((step, stepIndex) => ({
                     ...step,
-                    nested_breakdown: step?.nested_breakdown?.filter(
-                        (_, breakdownIndex: number) => visibilityMap[`${step.order}-${breakdownIndex}`]
-                    ),
+                    nested_breakdown: (!!baseLineSteps?.steps
+                        ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
+                        : step?.nested_breakdown
+                    )?.filter((_, breakdownIndex: number) => visibilityMap[`${step.order}-${breakdownIndex}`]),
                 }))
             },
         ],
@@ -590,6 +593,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
                 // Initialize with two rows for rendering graph and header
                 const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
+                    { rowKey: 'steps-meta' },
                     { rowKey: 'graph' },
                     { rowKey: 'table-header' },
                 ]
@@ -597,18 +601,22 @@ export const funnelLogic = kea<funnelLogicType>({
                 if (steps.length > 0) {
                     const baseStep = steps[0]
                     const lastStep = steps[steps.length - 1]
-                    // Baseline - total step to step metrics
-                    flattenedStepsByBreakdown.push({
-                        rowKey: 'baseline',
-                        isBaseline: true,
-                        breakdown: 'Baseline',
-                        breakdown_value: 'Baseline',
-                        breakdownIndex: 0,
-                        steps: steps.map((s) => Object.assign({}, s, { nested_breakdown: undefined })),
-                        conversionRates: {
-                            total: (lastStep?.count ?? 0) / (baseStep?.count ?? 1),
-                        },
-                    })
+                    // Baseline - total step to step metrics, only add if more than 1 breakdown
+                    if (steps.length > 1) {
+                        flattenedStepsByBreakdown.push({
+                            rowKey: 'baseline',
+                            isBaseline: true,
+                            breakdown: (baseStep.breakdown as string) ?? 'baseline',
+                            breakdown_value: 'Baseline',
+                            breakdownIndex: 0,
+                            steps: steps.map((s) =>
+                                Object.assign({}, s, { nested_breakdown: undefined, breakdown_value: 'Baseline' })
+                            ),
+                            conversionRates: {
+                                total: (lastStep?.count ?? 0) / (baseStep?.count ?? 1),
+                            },
+                        })
+                    }
                     // Per Breakdown
                     if (baseStep.nested_breakdown?.length) {
                         baseStep.nested_breakdown.forEach((breakdownStep, i) => {
@@ -669,9 +677,12 @@ export const funnelLogic = kea<funnelLogicType>({
             // set visibility of first five breakdowns for each step
             if (!!values.filters.breakdown) {
                 values.steps?.forEach((step) => {
-                    step?.nested_breakdown?.slice(0, 5).forEach((_, i) => {
-                        actions.setVisibilityById({ [`${step.order}-${i}`]: true })
-                    })
+                    values.flattenedStepsByBreakdown
+                        ?.filter((s) => !!s.breakdown)
+                        ?.slice(0, 5)
+                        .forEach((_, i) => {
+                            actions.setVisibilityById({ [`${step.order}-${i}`]: true })
+                        })
                 })
             }
 
