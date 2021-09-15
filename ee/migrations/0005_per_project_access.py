@@ -10,7 +10,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0167_per_project_access"),
+        ("posthog", "0168_per_project_access"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("ee", "0004_enterpriseeventdefinition_enterprisepropertydefinition"),
     ]

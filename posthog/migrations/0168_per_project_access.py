@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0166_plugin_public_jobs"),
+        ("posthog", "0167_feature_flag_override"),
     ]
 
     operations = [
