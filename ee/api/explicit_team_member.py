@@ -1,4 +1,4 @@
-from typing import Any, Dict, cast
+from typing import Any, Dict, Optional, cast
 
 from django.db.utils import IntegrityError
 from django.shortcuts import get_object_or_404
@@ -13,7 +13,9 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 
-def get_ephemeral_requesting_team_membership(team: Team, user: User) -> ExplicitTeamMembership:
+def get_ephemeral_requesting_team_membership(team: Team, user: User) -> Optional[ExplicitTeamMembership]:
+    """Return an ExplicitTeamMembership instance only for permission checking.
+    None if the user has no explicit membership and organization access is to low for implicit membership."""
     requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.get(
         organization_id=team.organization_id, user=user
     )
@@ -23,6 +25,9 @@ def get_ephemeral_requesting_team_membership(team: Team, user: User) -> Explicit
         ).get(team=team, parent_membership=requesting_parent_membership)
     except ExplicitTeamMembership.DoesNotExist:
         # If there's no explicit team membership, we instantiate an ephemeral one just for validation
+        if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
+            # Only organizations admins and above get implicit project membership
+            return None
         return ExplicitTeamMembership(
             team=team, parent_membership=requesting_parent_membership, level=requesting_parent_membership.level
         )
@@ -45,6 +50,8 @@ class TeamMemberObjectPermissions(BasePermission):
             requesting_team_membership = get_ephemeral_requesting_team_membership(team, cast(User, request.user))
         except OrganizationMembership.DoesNotExist:
             return True  # This will be handled as a 404 too
+        if requesting_team_membership is None:
+            return False
         minimum_level = (
             ExplicitTeamMembership.Level.MEMBER
             if request.method in SAFE_METHODS
@@ -99,6 +106,8 @@ class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
             raise exceptions.NotFound("Project not found.")
         new_level = attrs.get("level")
 
+        if requesting_membership is None:
+            raise exceptions.PermissionDenied("You have no access to this project.")
         if attrs["user_id"] == requesting_user.id:
             raise exceptions.PermissionDenied("You can't explicitly add yourself to projects.")
         if new_level is not None and new_level > requesting_membership.effective_level:
@@ -136,6 +145,8 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
             raise exceptions.NotFound("Project not found.")
         new_level = attrs.get("level")
 
+        if requesting_membership is None:
+            raise exceptions.PermissionDenied("You have no access to this project.")
         if new_level is not None and new_level > requesting_membership.effective_level:
             raise exceptions.PermissionDenied("You can only set access level to lower or equal to your current one.")
         if membership_being_accessed.parent_membership.user_id != requesting_membership.parent_membership.user_id:
