@@ -118,7 +118,7 @@
         .dashboard-item-header .dashboard-item-title a {
             color: white;
         }
-        .dashboard-item-header .dashboard-item-settings .anticon {
+        .dashboard-item-header .dashboard-item-settings *:not(a) .anticon {
             color: rgba(255, 255, 255, 0.8);
             background: var(--item-darker);
             &:hover {
