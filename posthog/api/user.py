@@ -26,7 +26,6 @@ from posthog.tasks import user_identify
 
 
 class UserSerializer(serializers.ModelSerializer):
-
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -39,6 +38,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
+            "id",
             "date_joined",
             "uuid",
             "distinct_id",
@@ -60,6 +60,10 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
         ]
         extra_kwargs = {
+            "id": {"read_only": True},
+            "uuid": {"read_only": True},
+            "distinct_id": {"read_only": True},
+            "email": {"read_only": True},
             "date_joined": {"read_only": True},
             "is_staff": {"read_only": True},
             "password": {"write_only": True},

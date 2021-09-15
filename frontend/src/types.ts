@@ -33,15 +33,21 @@ export interface ColumnConfig {
     active: string[] | 'DEFAULT'
 }
 
-export interface UserType {
+/* Type for User objects in nested serializers (e.g. created_by) */
+export interface UserBasicType {
+    id: number
     uuid: string
-    date_joined: string
+    distinct_id: string
     first_name: string
     email: string
+}
+
+/** Full User model. */
+export interface UserType extends UserBasicType {
+    date_joined: string
     email_opt_in: boolean
     events_column_config: ColumnConfig
     anonymize_data: boolean
-    distinct_id: string
     toolbar_mode: 'disabled' | 'toolbar'
     has_password: boolean
     is_staff: boolean
@@ -51,15 +57,6 @@ export interface UserType {
     organizations: OrganizationBasicType[]
     realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
     posthog_version?: string
-}
-
-/* Type for User objects in nested serializers (e.g. created_by) */
-export interface UserBasicType {
-    id: number
-    uuid: string
-    distinct_id: string
-    first_name: string
-    email: string
 }
 
 export interface PluginAccess {
