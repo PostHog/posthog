@@ -35,9 +35,6 @@ class OrganizationMemberObjectPermissions(BasePermission):
 
 
 class OrganizationMemberSerializer(serializers.ModelSerializer):
-    user_first_name = serializers.CharField(source="user.first_name", read_only=True)
-    user_email = serializers.CharField(source="user.email", read_only=True)
-    membership_id = serializers.CharField(source="id", read_only=True)
     user = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -45,15 +42,11 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "user",
-            "membership_id",  # TODO: DEPRECATED in favor of `id` (for consistency)
-            "user_id",  # TODO: DEPRECATED in favor of `user`
-            "user_first_name",  # TODO: DEPRECATED in favor of `user`
-            "user_email",  # TODO: DEPRECATED in favor of `user`
             "level",
             "joined_at",
             "updated_at",
         ]
-        read_only_fields = ["user_id", "joined_at", "updated_at"]
+        read_only_fields = ["id", "joined_at", "updated_at"]
 
     def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
