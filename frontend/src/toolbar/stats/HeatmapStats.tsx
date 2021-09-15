@@ -12,7 +12,7 @@ export function HeatmapStats(): JSX.Element {
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
     return (
-        <div>
+        <div style={{ margin: 8 }}>
             {heatmapEnabled ? (
                 <>
                     <div style={{ marginTop: 0, marginBottom: 10 }}>

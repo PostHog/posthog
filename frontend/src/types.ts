@@ -204,6 +204,7 @@ export type EditorProps = {
     distinctId?: string
     userEmail?: boolean
     dataAttributes?: string[]
+    featureFlags?: Record<string, string | boolean>
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
@@ -923,6 +924,19 @@ export interface FeatureFlagType {
     created_at: string
     is_simple_flag: boolean
     rollout_percentage: number | null
+}
+
+export interface FeatureFlagOverrideType {
+    id: number
+    feature_flag: number
+    user: number
+    override_value: boolean | string
+}
+
+export interface CombinedFeatureFlagAndOverrideType {
+    feature_flag: FeatureFlagType
+    value_for_user_without_override: boolean | string
+    override: FeatureFlagOverrideType | null
 }
 
 export interface PrevalidatedInvite {

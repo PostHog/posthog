@@ -242,6 +242,7 @@ export const FEATURE_FLAGS = {
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
     PLUGINS_UI_JOBS: '5720-plugins-ui-jobs',
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
+    TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
