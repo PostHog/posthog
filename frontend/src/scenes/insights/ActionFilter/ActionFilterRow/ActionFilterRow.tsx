@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Col, Row, Select } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -12,7 +12,6 @@ import {
     PropertyFilterValue,
     SelectOption,
 } from '~/types'
-import { ActionFilterDropdown } from './ActionFilterDropdown'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EVENT_MATH_TYPE, FEATURE_FLAGS, MATHS, PROPERTY_MATH_TYPE } from 'lib/constants'
 import { CloseSquareOutlined, DeleteOutlined, DownOutlined, FilterOutlined } from '@ant-design/icons'
@@ -113,7 +112,6 @@ export function ActionFilterRow({
     disabled = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
-    const node = useRef<HTMLElement>(null)
     const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
@@ -124,7 +122,6 @@ export function ActionFilterRow({
         setEntityFilterVisibility,
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -182,7 +179,7 @@ export function ActionFilterRow({
 
     const prefix = typeof customRowPrefix === 'function' ? customRowPrefix({ filter, index, onClose }) : customRowPrefix
 
-    const filterElement = featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] ? (
+    const filterElement = (
         <Popup
             overlay={
                 <TaxonomicFilter
@@ -226,32 +223,6 @@ export function ActionFilterRow({
                 </Button>
             )}
         </Popup>
-    ) : (
-        <>
-            <Button
-                data-attr={'trend-element-subject-' + index}
-                ref={node}
-                onClick={onClick}
-                block={fullWidth}
-                style={{
-                    maxWidth: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                }}
-            >
-                <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                    <PropertyKeyInfo value={name || 'Select action'} />
-                </span>
-                <DownOutlined style={{ fontSize: 10 }} />
-            </Button>
-            <ActionFilterDropdown
-                open={dropDownCondition}
-                logic={logic}
-                openButtonRef={node}
-                onClose={() => selectFilter(null)}
-            />
-        </>
     )
 
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix

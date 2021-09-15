@@ -660,6 +660,8 @@ export enum FunnelVizType {
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
+export type BreakdownKeyType = string | number | (string | number)[] | null
+
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
@@ -670,7 +672,7 @@ export interface FilterType {
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
-    breakdown?: string | number | (string | number)[] | null
+    breakdown?: BreakdownKeyType
     breakdown_value?: string | number
     shown_as?: ShownAsType
     session?: string
@@ -805,7 +807,7 @@ export interface FunnelStep {
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: string | number | number[]
+    breakdown?: BreakdownKeyType
     breakdown_value?: string | number
 }
 
