@@ -94,7 +94,7 @@ class ClickhouseEventsViewSet(EventViewSet):
             limit = 100
 
         if is_csv_request:
-            limit = max(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
+            limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
 
         team = self.team
         filter = Filter(request=request)
