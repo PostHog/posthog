@@ -243,6 +243,7 @@ export const FEATURE_FLAGS = {
     PLUGINS_UI_JOBS: '5720-plugins-ui-jobs',
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
     SPLIT_PERSON: '5898-split-persons',
+    TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
