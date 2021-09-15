@@ -85,12 +85,16 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         is_csv_request = self.request.accepted_renderer.format == "csv"
-        if is_csv_request:
-            limit = self.CSV_EXPORT_LIMIT
-        elif self.request.GET.get("limit", None):
+
+        if self.request.GET.get("limit", None):
             limit = int(self.request.GET.get("limit"))  # type: ignore
+        elif is_csv_request:
+            limit = self.CSV_EXPORT_DEFAULT_LIMIT
         else:
             limit = 100
+
+        if is_csv_request:
+            limit = max(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
 
         team = self.team
         filter = Filter(request=request)
@@ -106,7 +110,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         ).data
 
         next_url: Optional[str] = None
-        if not is_csv_request and len(query_result) > 100:
+        if not is_csv_request and len(query_result) > limit:
             path = request.get_full_path()
             reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
             next_url = request.build_absolute_uri(
@@ -114,7 +118,7 @@ class ClickhouseEventsViewSet(EventViewSet):
                     path,
                     "&" if "?" in path else "?",
                     "after" if reverse else "before",
-                    query_result[99][3].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    query_result[limit - 1][3].strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                 )
             )
 
