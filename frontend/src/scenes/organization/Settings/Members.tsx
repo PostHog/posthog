@@ -258,7 +258,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             <Table
                 dataSource={members}
                 columns={columns}
-                rowKey="membership_id"
+                rowKey="id"
                 pagination={false}
                 style={{ marginTop: '1rem' }}
                 loading={membersLoading}

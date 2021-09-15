@@ -17,9 +17,6 @@ class TestOrganizationMembersAPI(APIBaseTest):
         self.assertEqual(response_data[0]["user"]["uuid"], str(instance.user.uuid))
         self.assertEqual(response_data[0]["user"]["first_name"], instance.user.first_name)
 
-        # Backwards compatibility
-        self.assertEqual(response_data[0]["id"], response_data[0]["membership_id"])
-
     def test_cant_list_members_for_an_alien_organization(self):
         org = Organization.objects.create(name="Alien Org")
         user = User.objects.create(email="another_user@posthog.com")
