@@ -1,6 +1,10 @@
 .toolbar-block {
+    .ant-list {
+        padding-top: 5px;
+    }
     .feature-flag-row {
         margin-bottom: 5px;
+        padding: 0 8px 0 8px;
 
         .feature-flag-row-header {
             background-color: #fafafa;
