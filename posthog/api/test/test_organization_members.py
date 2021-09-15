@@ -75,7 +75,6 @@ class TestOrganizationMembersAPI(APIBaseTest):
             response_data,
             {
                 "id": str(updated_membership.id),
-                "membership_id": str(updated_membership.id),
                 "user": {
                     "id": user.id,
                     "uuid": str(user.uuid),
@@ -83,9 +82,6 @@ class TestOrganizationMembersAPI(APIBaseTest):
                     "first_name": user.first_name,
                     "email": user.email,
                 },
-                "user_id": user.id,
-                "user_first_name": user.first_name,
-                "user_email": user.email,
                 "level": OrganizationMembership.Level.ADMIN.value,
             },
         )
