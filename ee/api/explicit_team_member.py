@@ -64,7 +64,7 @@ class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(source="parent_membership.user", read_only=True)
     parent_level = serializers.IntegerField(source="parent_membership.level", read_only=True)
 
-    user_id = serializers.IntegerField(required=True, write_only=True)
+    user_uuid = serializers.UUIDField(required=True, write_only=True)
 
     class Meta:
         model = ExplicitTeamMembership
@@ -76,18 +76,18 @@ class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
             "joined_at",
             "updated_at",
             "user",
-            "user_id",
+            "user_uuid",
             "effective_level",
         ]
         read_only_fields = ["id", "parent_membership_id", "joined_at", "updated_at", "user", "effective_level"]
 
     def create(self, validated_data):
         team: Team = self.context["team"]
-        user_id = validated_data.pop("user_id")
+        user_uuid = validated_data.pop("user_uuid")
         validated_data["team"] = team
         try:
             requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.get(
-                organization_id=team.organization_id, user_id=user_id
+                organization_id=team.organization_id, user__uuid=user_uuid
             )
         except OrganizationMembership.DoesNotExist:
             raise exceptions.PermissionDenied("You both need to belong to the same organization.")
@@ -98,7 +98,7 @@ class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError("This user likely already is an explicit member of the project.")
 
     def validate(self, attrs):
-        requesting_user = self.context["request"].user
+        requesting_user: User = self.context["request"].user
         try:
             requesting_membership = get_ephemeral_requesting_team_membership(self.context["team"], requesting_user)
         except OrganizationMembership.DoesNotExist:
@@ -108,7 +108,7 @@ class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
 
         if requesting_membership is None:
             raise exceptions.PermissionDenied("You have no access to this project.")
-        if attrs["user_id"] == requesting_user.id:
+        if attrs["user_uuid"] == requesting_user.uuid:
             raise exceptions.PermissionDenied("You can't explicitly add yourself to projects.")
         if new_level is not None and new_level > requesting_membership.effective_level:
             raise exceptions.PermissionDenied("You can only set access level to lower or equal to your current one.")
@@ -167,7 +167,7 @@ class ExplicitTeamMemberViewSet(
     permission_classes = [IsAuthenticated, TeamMemberObjectPermissions]
     pagination_class = None
     queryset = ExplicitTeamMembership.objects.select_related("team", "parent_membership", "parent_membership__user")
-    lookup_field = "parent_membership__user_id"
+    lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
 
     def get_serializer_class(self):
