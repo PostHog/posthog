@@ -159,9 +159,7 @@ class TestUserAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "user updated",
-            properties={
-                "updated_attrs": ["anonymize_data", "email", "email_opt_in", "events_column_config", "first_name"],
-            },
+            properties={"updated_attrs": ["anonymize_data", "email_opt_in", "events_column_config", "first_name"],},
         )
 
     @patch("posthoganalytics.capture")
