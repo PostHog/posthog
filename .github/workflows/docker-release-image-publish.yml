@@ -1,13 +1,13 @@
 name: Docker
 
 on:
-    push:
+    pull_request:
         branches:
             - 'release-*'
 
 jobs:
     build-release-push:
-        name: Build Docker images and push them
+        name: Build & push Docker release image
         runs-on: ubuntu-20.04
         steps:
             - name: Checkout default branch
@@ -38,7 +38,7 @@ jobs:
               with:
                   context: .
                   push: true
-                  tags: posthog/posthog:${GITHUB_REF##*/}
+                  tags: posthog/posthog:${{ github.head_ref }}
 
             - name: Image digest
               if: github.repository == 'PostHog/posthog'
