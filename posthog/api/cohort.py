@@ -25,6 +25,7 @@ from posthog.queries.stickiness import (
     stickiness_process_entity_type,
 )
 from posthog.tasks.calculate_cohort import calculate_cohort, calculate_cohort_ch, calculate_cohort_from_list
+from posthog.utils import is_clickhouse_enabled
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -73,8 +74,10 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-            calculate_cohort.delay(cohort_id=cohort.pk)
-            calculate_cohort_ch.delay(cohort_id=cohort.pk)
+            if is_clickhouse_enabled():
+                calculate_cohort_ch.delay(cohort.id)
+            else:
+                calculate_cohort.delay(cohort.id)
 
         posthoganalytics.capture(request.user.distinct_id, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -141,8 +144,10 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                calculate_cohort.delay(cohort_id=cohort.pk)
-                calculate_cohort_ch.delay(cohort_id=cohort.pk)
+                if is_clickhouse_enabled():
+                    calculate_cohort_ch.delay(cohort.id)
+                else:
+                    calculate_cohort.delay(cohort.id)
 
         posthoganalytics.capture(
             request.user.distinct_id,
