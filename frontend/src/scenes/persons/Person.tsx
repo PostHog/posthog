@@ -26,6 +26,8 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { PersonsTabType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SplitPerson } from './SplitPerson'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 dayjs.extend(relativeTime)
 
 const { TabPane } = Tabs
@@ -37,6 +39,8 @@ export function Person(): JSX.Element {
 
     const { person, personLoading, deletedPersonLoading, hasNewKeys, activeTab } = useValues(personsLogic)
     const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const ids = (
         <Menu>
@@ -124,7 +128,7 @@ export function Person(): JSX.Element {
                                         <MergeCellsOutlined /> Merge person
                                     </a>
                                 </div>
-                                {person.distinct_ids.length > 1 && (
+                                {featureFlags[FEATURE_FLAGS.SPLIT_PERSON] && person.distinct_ids.length > 1 && (
                                     <div className="text-center mt">
                                         <a onClick={() => setSplitModalOpen(true)} data-attr="merge-person-button">
                                             <SplitCellsOutlined /> Split IDs into multiple people
