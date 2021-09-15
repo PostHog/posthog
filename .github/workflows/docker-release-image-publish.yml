@@ -1,7 +1,7 @@
-name: Docker
+name: Docker Release Image
 
 on:
-    pull_request:
+    push:
         branches:
             - 'release-*'
 
@@ -12,6 +12,9 @@ jobs:
         steps:
             - name: Checkout default branch
               uses: actions/checkout@v2
+
+            - name: Get branch name
+              run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
 
             - name: Update git SHA
               run: echo "GIT_SHA = '${GITHUB_SHA}'" > posthog/gitsha.py
@@ -38,7 +41,7 @@ jobs:
               with:
                   context: .
                   push: true
-                  tags: posthog/posthog:${{ github.head_ref }}
+                  tags: posthog/posthog:${{ env.BRANCH_NAME  }}
 
             - name: Image digest
               if: github.repository == 'PostHog/posthog'
