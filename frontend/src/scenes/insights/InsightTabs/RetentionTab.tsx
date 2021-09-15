@@ -9,7 +9,7 @@ import {
     retentionOptionDescriptions,
     defaultFilters,
 } from 'scenes/retention/retentionTableLogic'
-import { Select, Row, Col, Skeleton } from 'antd'
+import { Select, Row, Col } from 'antd'
 
 import { FilterType, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
@@ -25,7 +25,7 @@ import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
-    const { filters, filtersLoading, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
+    const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic({ dashboardItemId: null })
     )
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
@@ -154,14 +154,8 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     <GlobalFiltersTitle unit="actions/events" />
-                    {filtersLoading ? (
-                        <Skeleton active paragraph={{ rows: 1 }} />
-                    ) : (
-                        <>
-                            <PropertyFilters pageKey="insight-retention" />
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
-                        </>
-                    )}
+                    <PropertyFilters pageKey="insight-retention" />
+                    <TestAccountFilter filters={filters} onChange={setFilters} />
                 </Col>
             </Row>
         </div>
