@@ -124,7 +124,7 @@ class TestUserAPI(APIBaseTest):
             "/api/users/@me/",
             {
                 "first_name": "Cooper",
-                "email": "updated@posthog.com",
+                "email": "updated@posthog.com",  # should be ignored (until we explicitly add email changing to the app)
                 "anonymize_data": True,
                 "email_opt_in": False,
                 "events_column_config": {"active": ["column_1", "column_2"]},
@@ -141,7 +141,7 @@ class TestUserAPI(APIBaseTest):
 
         self.assertNotEqual(response_data["uuid"], 1)
         self.assertEqual(response_data["first_name"], "Cooper")
-        self.assertEqual(response_data["email"], "updated@posthog.com")
+        self.assertEqual(response_data["email"], "old@posthog.com")
         self.assertEqual(response_data["anonymize_data"], True)
         self.assertEqual(response_data["email_opt_in"], False)
         self.assertEqual(response_data["events_column_config"], {"active": ["column_1", "column_2"]})
