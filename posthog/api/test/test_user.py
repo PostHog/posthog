@@ -153,7 +153,7 @@ class TestUserAPI(APIBaseTest):
         self.assertNotEqual(user.pk, 1)
         self.assertNotEqual(user.uuid, 1)
         self.assertEqual(user.first_name, "Cooper")
-        self.assertEqual(user.email, "updated@posthog.com")
+        self.assertEqual(user.email, "old@posthog.com")
         self.assertEqual(user.anonymize_data, True)
 
         mock_capture.assert_called_once_with(
