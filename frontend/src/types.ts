@@ -670,7 +670,7 @@ export interface FilterType {
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
-    breakdown?: string | number | number[] | null
+    breakdown?: string | number | (string | number)[] | null
     breakdown_value?: string | number
     shown_as?: ShownAsType
     session?: string
