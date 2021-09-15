@@ -62,7 +62,6 @@ export const renderGraphAndHeader = (
     colIndex: number,
     defaultElement: JSX.Element,
     headerElement: JSX.Element,
-    // steps?: FunnelStepWithConversionMetrics[],
     step?: FunnelStepWithConversionMetrics,
     dashboardItemId?: number
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {

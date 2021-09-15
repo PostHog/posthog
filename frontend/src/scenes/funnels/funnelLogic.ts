@@ -642,6 +642,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 return flattenedStepsByBreakdown
             },
         ],
+        flattenedBreakdowns: [
+            () => [selectors.flattenedStepsByBreakdown],
+            (breakdowns): FlattenedFunnelStepByBreakdown[] => {
+                return breakdowns.filter((b) => b.breakdown)
+            },
+        ],
         numericBinCount: [
             () => [selectors.binCount, selectors.timeConversionBins],
             (binCount, bins): number => {

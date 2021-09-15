@@ -34,6 +34,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
         visibilityMap,
         barGraphLayout,
         flattenedStepsByBreakdown,
+        flattenedBreakdowns,
     } = useValues(logic)
     const { openPersonsModal, toggleBreakdownVisibility, setVisibilityById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
@@ -54,7 +55,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                     if (!filters.breakdown) {
                         return null
                     }
-                    const breakdownIndices = Array.from(Array(flattenedStepsByBreakdown.length).keys()) ?? []
+                    const breakdownIndices = Array.from(Array(flattenedBreakdowns.length).keys()) ?? []
                     const checked = !!breakdownIndices?.every((i) => visibilityMap[`0-${i}`])
 
                     return renderGraphAndHeader(
@@ -72,7 +73,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 setVisibilityById(Object.fromEntries(breakdownIndices.map((i) => [`0-${i}`, !checked])))
                             }}
                         />,
-                        undefined,
                         undefined,
                         dashboardItemId
                     )
@@ -101,7 +101,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         />,
                         renderColumnTitle('Breakdown'),
                         undefined,
-                        undefined,
                         dashboardItemId
                     )
                 },
@@ -116,7 +115,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         2,
                         <span>{formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0)}%</span>,
                         renderSubColumnTitle('Comp. rate'),
-                        undefined,
                         undefined,
                         dashboardItemId
                     )
@@ -151,7 +149,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 EmptyValue
                             ),
                             renderSubColumnTitle('Completed'),
-                            visibleStepsWithConversionMetrics,
                             step,
                             dashboardItemId
                         )
@@ -176,7 +173,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 EmptyValue
                             ),
                             renderSubColumnTitle('Rate'),
-                            visibleStepsWithConversionMetrics,
                             step,
                             dashboardItemId
                         )
@@ -210,7 +206,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                     EmptyValue
                                 ),
                                 renderSubColumnTitle('Dropped'),
-                                visibleStepsWithConversionMetrics,
                                 step,
                                 dashboardItemId
                             )
@@ -235,7 +230,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                     EmptyValue
                                 ),
                                 renderSubColumnTitle('Rate'),
-                                visibleStepsWithConversionMetrics,
                                 step,
                                 dashboardItemId
                             )
@@ -260,7 +254,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                     EmptyValue
                                 ),
                                 renderSubColumnTitle('Avg. time'),
-                                visibleStepsWithConversionMetrics,
                                 step,
                                 dashboardItemId
                             )
