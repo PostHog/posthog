@@ -1,64 +1,88 @@
 import React from 'react'
-import { Table, Modal } from 'antd'
+import { Table, Button, Dropdown, Menu, Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
 import { teamMembersLogic } from './teamMembersLogic'
-import { DeleteOutlined, ExclamationCircleOutlined, LogoutOutlined } from '@ant-design/icons'
+import { DownOutlined, CrownFilled, UpOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationMembershipLevel } from 'lib/constants'
-import { OrganizationMemberType, TeamType, UserType } from '~/types'
+import { OrganizationMembershipLevel, organizationMembershipLevelToName, TeamMembershipLevel } from 'lib/constants'
+import { TeamType, UserType, FusedTeamMemberType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { teamLogic } from '../../teamLogic'
+import { isMembershipLevelChangeDisallowed } from '../../organization/Settings/Members'
 
-function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
+const membershipLevelIntegers = Object.values(TeamMembershipLevel).filter(
+    (value) => typeof value === 'number'
+) as TeamMembershipLevel[]
+
+export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { removeMember } = useActions(teamMembersLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { changeUserAccessLevel } = useActions(teamMembersLogic)
+
+    const myMembershipLevel = currentTeam ? currentTeam.effective_membership_level : null
 
     if (!user) {
         return null
     }
 
-    const currentMembershipLevel = currentOrganization?.membership_level ?? -1
-
-    function handleClick(): void {
-        if (!user) {
-            throw Error
+    function generateHandleClick(listLevel: TeamMembershipLevel): (event: React.MouseEvent) => void {
+        return function handleClick(event: React.MouseEvent) {
+            event.preventDefault()
+            changeUserAccessLevel(member.user, listLevel)
         }
-        Modal.confirm({
-            title: `${member.user.uuid == user.uuid ? 'Leave' : `Remove ${member.user.first_name} from`} organization ${
-                user.organization?.name
-            }?`,
-            icon: <ExclamationCircleOutlined />,
-            okText: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
-            okType: 'danger',
-            cancelText: 'Cancel',
-            onOk() {
-                removeMember(member)
-            },
-        })
     }
 
-    const allowDeletion =
-        // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
-        ((currentMembershipLevel >= OrganizationMembershipLevel.Admin && member.level <= currentMembershipLevel) ||
-            member.user.uuid === user.uuid) &&
-        // unless that user is the organization's owner, in which case they can't leave
-        member.level !== OrganizationMembershipLevel.Owner
+    const isImplicit = member.organization_level >= OrganizationMembershipLevel.Admin
+    const levelName = organizationMembershipLevelToName.get(member.level) ?? `unknown (${member.level})`
 
-    return (
-        <div>
-            {allowDeletion && (
-                <a className="text-danger" onClick={handleClick} data-attr="delete-org-membership">
-                    {member.user.uuid !== user.uuid ? (
-                        <DeleteOutlined title="Remove from organization" />
-                    ) : (
-                        <LogoutOutlined title="Leave organization" />
-                    )}
-                </a>
-            )}
-        </div>
+    const levelButton = (
+        <Button
+            data-attr="change-membership-level"
+            icon={member.level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
+            // Org admins have implicit access anyway, so it doesn't make sense to edit them
+            disabled={isImplicit}
+        >
+            {levelName}
+        </Button>
+    )
+
+    const allowedLevels = membershipLevelIntegers.filter(
+        (listLevel) => !isMembershipLevelChangeDisallowed(myMembershipLevel, user, member, listLevel)
+    )
+    const disallowedReason = isImplicit
+        ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
+        : isMembershipLevelChangeDisallowed(myMembershipLevel, user, member, allowedLevels)
+
+    return disallowedReason ? (
+        <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
+    ) : (
+        <Dropdown
+            overlay={
+                <Menu>
+                    {allowedLevels.map((listLevel) => (
+                        <Menu.Item key={`${member.user.uuid}-level-${listLevel}`}>
+                            <a href="#" onClick={generateHandleClick(listLevel)} data-test-level={listLevel}>
+                                {listLevel > member.level ? (
+                                    <>
+                                        <UpOutlined style={{ marginRight: '0.5rem' }} />
+                                        Upgrade to {organizationMembershipLevelToName.get(listLevel)}
+                                    </>
+                                ) : (
+                                    <>
+                                        <DownOutlined style={{ marginRight: '0.5rem' }} />
+                                        Downgrade to {organizationMembershipLevelToName.get(listLevel)}
+                                    </>
+                                )}
+                            </a>
+                        </Menu.Item>
+                    ))}
+                </Menu>
+            }
+        >
+            {levelButton}
+        </Dropdown>
     )
 }
 
@@ -70,10 +94,9 @@ export interface MembersProps {
 export function TeamMembers({ user }: MembersProps): JSX.Element {
     const { allMembers, allMembersLoading } = useValues(teamMembersLogic)
 
-    const columns: ColumnsType<OrganizationMemberType> = [
+    const columns: ColumnsType<FusedTeamMemberType> = [
         {
-            dataIndex: 'user_email',
-            key: 'user_email',
+            key: 'user_profile_picture',
             render: function ProfilePictureRender(_, member) {
                 return <ProfilePicture name={member.user.first_name} email={member.user.email} />
             },
@@ -81,30 +104,24 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
         },
         {
             title: 'Name',
-            dataIndex: 'user_first_name',
             key: 'user_first_name',
-            render: (firstName: string, member: Record<string, any>) =>
-                member.user_id == user.uuid ? `${firstName} (me)` : firstName,
-            sorter: (a, b) =>
-                (a as OrganizationMemberType).user.first_name.localeCompare(
-                    (b as OrganizationMemberType).user.first_name
-                ),
+            render: (_, member) =>
+                member.user.uuid == user.uuid ? `${member.user.first_name} (me)` : member.user.first_name,
+            sorter: (a, b) => a.user.first_name.localeCompare(b.user.first_name),
         },
         {
             title: 'Email',
-            dataIndex: 'user_email',
             key: 'user_email',
-            sorter: (a, b) =>
-                (a as OrganizationMemberType).user.email.localeCompare((b as OrganizationMemberType).user.email),
+            render: (_, member) => member.user.email,
+            sorter: (a, b) => a.user.email.localeCompare(b.user.email),
         },
         {
             title: 'Level',
-            dataIndex: 'level',
             key: 'level',
-            render: function LevelRender() {
-                return 'foo'
+            render: function LevelRender(_, member) {
+                return LevelComponent(member)
             },
-            sorter: (a, b) => (a as OrganizationMemberType).level - (b as OrganizationMemberType).level,
+            sorter: (a, b) => a.level - b.level,
             defaultSortOrder: 'descend',
         },
         {
@@ -112,18 +129,16 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
             dataIndex: 'joined_at',
             key: 'joined_at',
             render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
-            sorter: (a, b) =>
-                (a as OrganizationMemberType).joined_at.localeCompare((b as OrganizationMemberType).joined_at),
+            sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
             defaultSortOrder: 'ascend',
         },
-        {
-            dataIndex: 'actions',
+        /*{
             key: 'actions',
             align: 'center',
             render: function ActionsRender(_, member) {
-                return ActionsComponent(member as OrganizationMemberType)
+                return ActionsComponent(member)
             },
-        },
+        },*/
     ]
 
     return (
@@ -132,7 +147,7 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
             <Table
                 dataSource={allMembers}
                 columns={columns}
-                rowKey="membership_id"
+                rowKey="id"
                 pagination={false}
                 style={{ marginTop: '1rem' }}
                 loading={allMembersLoading}

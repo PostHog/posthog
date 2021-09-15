@@ -3,8 +3,15 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
-import { organizationMembershipLevelToName, TeamMembershipLevel } from 'lib/constants'
-import { TeamMembershipType, TeamType } from '~/types'
+import { OrganizationMembershipLevel, organizationMembershipLevelToName, TeamMembershipLevel } from 'lib/constants'
+import {
+    ExplicitTeamMemberType,
+    FusedTeamMemberType,
+    OrganizationMemberType,
+    TeamType,
+    UserBasicType,
+    UserType,
+} from '~/types'
 import { teamMembersLogicType } from './teamMembersLogicType'
 import { membersLogic } from '../../organization/Settings/membersLogic'
 
@@ -14,23 +21,37 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
     },
     key: (props) => props.team.id,
     actions: {
-        changeMemberAccessLevel: (member: TeamMembershipType, level: TeamMembershipLevel) => ({
-            member,
-            level,
+        changeUserAccessLevel: (user: UserBasicType, newLevel: TeamMembershipLevel) => ({
+            user,
+            newLevel,
         }),
     },
     loaders: ({ values }) => ({
         explicitMembers: {
-            __default: [],
+            __default: [] as ExplicitTeamMemberType[],
             loadMembers: async () => {
-                return (await api.get('api/projects/@current/explicit_members/')).results
+                return await api.get('api/projects/@current/explicit_members/')
             },
-            removeMember: async (member: TeamMembershipType) => {
+            addMember: async (user: UserType) => {
+                // @ts-expect-error
+                const newMember: ExplicitTeamMemberType = await api.create(`api/projects/@current/explicit_members/`, {
+                    user_id: user.id,
+                })
+                toast(
+                    <div>
+                        <h1 className="text-success">
+                            <CheckCircleOutlined /> Removed <b>{user.first_name}</b> from project.
+                        </h1>
+                    </div>
+                )
+                return [...values.explicitMembers, newMember]
+            },
+            removeMember: async (member: ExplicitTeamMemberType) => {
                 await api.delete(`api/projects/@current/explicit_members/${member.user.id}/`)
                 toast(
                     <div>
                         <h1 className="text-success">
-                            <CheckCircleOutlined /> Removed <b>{member.user.first_name}</b> from team.
+                            <CheckCircleOutlined /> Removed <b>{member.user.first_name}</b> from project.
                         </h1>
                     </div>
                 )
@@ -42,10 +63,33 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
         allMembers: [
             () => [selectors.explicitMembers, membersLogic.selectors.members],
             // Explicit project members joined with organization admins and owner (who get project access by default)
-            (explicitMembers, organizationMembers) =>
+            (
+                explicitMembers: ExplicitTeamMemberType[],
+                organizationMembers: OrganizationMemberType[]
+            ): FusedTeamMemberType[] =>
                 organizationMembers
-                    .filter(({ level }) => level >= TeamMembershipLevel.Admin)
-                    .concat(explicitMembers.filter(({ level }) => level < TeamMembershipLevel.Admin)),
+                    .filter(({ level }) => level >= OrganizationMembershipLevel.Admin)
+                    .map(
+                        (member) =>
+                            ({
+                                ...member,
+                                explicit_team_level: null,
+                                organization_level: member.level,
+                            } as FusedTeamMemberType)
+                    )
+                    .concat(
+                        explicitMembers
+                            .filter(({ parent_level }) => parent_level < OrganizationMembershipLevel.Admin)
+                            .map(
+                                (member) =>
+                                    ({
+                                        ...member,
+                                        level: member.effective_level,
+                                        explicit_team_level: member.level,
+                                        organization_level: member.parent_level,
+                                    } as FusedTeamMemberType)
+                            )
+                    ),
         ],
         allMembersLoading: [
             () => [selectors.explicitMembersLoading, membersLogic.selectors.membersLoading],
@@ -55,19 +99,13 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
         ],
     }),
     listeners: ({ actions }) => ({
-        changeMemberAccessLevel: async ({
-            member,
-            level,
-        }: {
-            member: TeamMembershipType
-            level: TeamMembershipLevel
-        }) => {
-            await api.update(`api/projects/@current/explicit_members/${member.user.id}/`, { level })
+        changeUserAccessLevel: async ({ user, newLevel }) => {
+            await api.update(`api/projects/@current/explicit_members/${user.id}/`, { level: newLevel })
             toast(
                 <div>
                     <h1 className="text-success">
-                        <CheckCircleOutlined /> Made <b>{member.user.first_name}</b> project{' '}
-                        {organizationMembershipLevelToName.get(level)}.
+                        <CheckCircleOutlined /> Made <b>{user.first_name}</b> project{' '}
+                        {organizationMembershipLevelToName.get(newLevel)}.
                     </h1>
                 </div>
             )

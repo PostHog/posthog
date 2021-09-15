@@ -109,12 +109,30 @@ interface BaseMemberType {
 }
 
 export interface OrganizationMemberType extends BaseMemberType {
+    /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
 }
-export interface TeamMembershipType extends BaseMemberType {
+
+export interface ExplicitTeamMemberType extends BaseMemberType {
+    /** Level at which the user explicitly is in the project. */
     level: TeamMembershipLevel
-    /** Level at which the same user is at organization level. */
-    parent_level?: OrganizationMembershipLevel
+    /** Level at which the user is in the organization. */
+    parent_level: OrganizationMembershipLevel
+    /** Effective level of the user within the project, which may be higher than parent level, but not lower. */
+    effective_level: OrganizationMembershipLevel
+}
+
+/**
+ * While OrganizationMemberType and ExplicitTeamMemberType refer to actual Django models,
+ * this interface is only used in the frontend for fusing the data from these models together.
+ */
+export interface FusedTeamMemberType extends BaseMemberType {
+    /** Level at which the user explicitly is in the project (unset if membership is implicit). */
+    explicit_team_level: TeamMembershipLevel | null
+    /** Level at which the user is in the organization. */
+    organization_level: OrganizationMembershipLevel
+    /** Effective level of the user within the project. */
+    level: OrganizationMembershipLevel
 }
 
 export interface APIErrorType {
@@ -156,6 +174,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_retention_period_days: number | null
     test_account_filters: AnyPropertyFilter[]
     data_attributes: string[]
+    effective_membership_level: OrganizationMembershipLevel
 }
 
 export interface ActionType {

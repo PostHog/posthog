@@ -39,7 +39,7 @@ class ExplicitTeamMembership(UUIDModel):
     @property
     def effective_level(self) -> "Level":
         """If organization level is higher than project level, then that takes precedence over explicit project level.
-        Effective poject level can't be higher than admin though (owner level isn't applicable)."""
-        return min(max(self.level, self.parent_membership.level), ExplicitTeamMembership.Level.ADMIN)
+        """
+        return max(self.level, self.parent_membership.level)
 
     __repr__ = sane_repr("team", "parent_membership", "level")

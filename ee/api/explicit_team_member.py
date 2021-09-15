@@ -55,6 +55,8 @@ class TeamMemberObjectPermissions(BasePermission):
 
 class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(source="parent_membership.user", read_only=True)
+    parent_level = serializers.IntegerField(source="parent_membership.level", read_only=True)
+
     user_id = serializers.IntegerField(required=True, write_only=True)
 
     class Meta:
@@ -62,6 +64,7 @@ class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "level",
+            "parent_level",
             "parent_membership_id",
             "joined_at",
             "updated_at",
@@ -105,10 +108,20 @@ class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
 
 class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(source="parent_membership.user", read_only=True)
+    parent_level = serializers.IntegerField(source="parent_membership.level", read_only=True)
 
     class Meta:
         model = ExplicitTeamMembership
-        fields = ["id", "level", "parent_membership_id", "joined_at", "updated_at", "user", "effective_level"]
+        fields = [
+            "id",
+            "level",
+            "parent_level",
+            "parent_membership_id",
+            "joined_at",
+            "updated_at",
+            "user",
+            "effective_level",
+        ]
         read_only_fields = ["id", "joined_at", "parent_membership_id", "updated_at", "effective_level"]
 
     def validate(self, attrs):

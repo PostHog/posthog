@@ -12,30 +12,35 @@ import {
     CrownFilled,
 } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
-import { OrganizationMemberType, UserType } from '~/types'
+import { OrganizationMembershipLevel, organizationMembershipLevelToName, TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMemberType, ExplicitTeamMemberType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 
+export type EitherMembershipLevel = OrganizationMembershipLevel | TeamMembershipLevel
+export type EitherMemberType = OrganizationMemberType | ExplicitTeamMemberType
+
 const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'
 ) as OrganizationMembershipLevel[]
 
-function isMembershipLevelChangeDisallowed(
+export function isMembershipLevelChangeDisallowed(
     currentMembershipLevel: OrganizationMembershipLevel | null,
     currentUser: UserType,
-    memberChanged: OrganizationMemberType,
-    newLevelOrAllowedLevels: OrganizationMembershipLevel | OrganizationMembershipLevel[]
+    memberToBeUpdated: EitherMemberType,
+    newLevelOrAllowedLevels: EitherMembershipLevel | EitherMembershipLevel[]
 ): false | string {
-    if (memberChanged.user.uuid === currentUser.uuid) {
+    if (memberToBeUpdated.user.uuid === currentUser.uuid) {
         return "You can't change your own access level."
     }
     if (!currentMembershipLevel) {
         return 'Your membership level is unknown.'
     }
+    const effectiveLevelToBeUpdated =
+        (memberToBeUpdated as ExplicitTeamMemberType).effective_level ?? memberToBeUpdated.level
     if (Array.isArray(newLevelOrAllowedLevels)) {
         if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
             return false
@@ -44,7 +49,7 @@ function isMembershipLevelChangeDisallowed(
             return "You don't have permission to change this member's access level."
         }
     } else {
-        if (newLevelOrAllowedLevels === memberChanged.level) {
+        if (newLevelOrAllowedLevels === effectiveLevelToBeUpdated) {
             return "It doesn't make sense to set the same level as before."
         }
         if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
@@ -57,7 +62,7 @@ function isMembershipLevelChangeDisallowed(
     if (currentMembershipLevel < OrganizationMembershipLevel.Admin) {
         return "You don't have permission to change access levels."
     }
-    if (currentMembershipLevel < memberChanged.level) {
+    if (currentMembershipLevel < effectiveLevelToBeUpdated) {
         return 'You can only change access level of members with level lower or equal to you.'
     }
     return false
