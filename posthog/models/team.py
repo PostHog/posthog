@@ -4,18 +4,19 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.dispatch.dispatcher import receiver
 
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
-from posthog.models.organization import OrganizationMembership
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
 from .utils import UUIDClassicModel, generate_random_token_project, sane_repr
 
 if TYPE_CHECKING:
+    from posthog.models.organization import OrganizationMembership
     from posthog.models.user import User
 
 TEAM_CACHE: Dict[str, "Team"] = {}
@@ -128,9 +129,11 @@ class Team(UUIDClassicModel):
 
     objects: TeamManager = TeamManager()
 
-    def get_effective_membership_level(self, user: "User") -> Optional[OrganizationMembership.Level]:
-        parent_membership: OrganizationMembership = OrganizationMembership.objects.only("id", "level").get(
-            organization_id=self.organization_id, user=user
+    def get_effective_membership_level(self, user: "User") -> Optional["OrganizationMembership.Level"]:
+        from posthog.models.organization import OrganizationMembership
+
+        parent_membership: "OrganizationMembership" = user.organization_memberships.only("id", "level").get(
+            organization_id=self.organization_id
         )
         if settings.EE_AVAILABLE is None or not self.organization.per_project_access:
             # Per-project access not available
@@ -141,7 +144,7 @@ class Team(UUIDClassicModel):
                 .get(team=self)
                 .effective_level
             )
-        except models.Model.DoesNotExist:
+        except ObjectDoesNotExist:
             if parent_membership.level < OrganizationMembership.Level.ADMIN:
                 # Only organization admins and above get implicit project membership
                 return None
