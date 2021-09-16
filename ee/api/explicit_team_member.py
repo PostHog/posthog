@@ -60,7 +60,7 @@ class TeamMemberObjectPermissions(BasePermission):
         return requesting_team_membership.effective_level >= minimum_level
 
 
-class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
+class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(source="parent_membership.user", read_only=True)
     parent_level = serializers.IntegerField(source="parent_membership.level", read_only=True)
 
@@ -99,65 +99,34 @@ class ExplicitTeamMemberAdditionSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         requesting_user: User = self.context["request"].user
+        membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
         try:
             requesting_membership = get_ephemeral_requesting_team_membership(self.context["team"], requesting_user)
         except OrganizationMembership.DoesNotExist:
-            # User does not belong to the project's organization, so we spoof a 404 for enhanced security
+            # Requesting user does not belong to the project's organization, so we spoof a 404 for enhanced security
             raise exceptions.NotFound("Project not found.")
         new_level = attrs.get("level")
 
         if requesting_membership is None:
             raise exceptions.PermissionDenied("You have no access to this project.")
-        if attrs["user_uuid"] == requesting_user.uuid:
+        if attrs.get("user_uuid") == requesting_user.uuid:
+            # Create-only check
             raise exceptions.PermissionDenied("You can't explicitly add yourself to projects.")
         if new_level is not None and new_level > requesting_membership.effective_level:
             raise exceptions.PermissionDenied("You can only set access level to lower or equal to your current one.")
-        return attrs
+        if membership_being_accessed is not None:
+            # Update-only checks
+            if membership_being_accessed.parent_membership.user_id != requesting_membership.parent_membership.user_id:
+                # Requesting user updating someone else
+                if membership_being_accessed.team.organization_id != requesting_membership.team.organization_id:
+                    raise exceptions.PermissionDenied("You both need to belong to the same organization.")
+                if membership_being_accessed.level > requesting_membership.effective_level:
+                    raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
+            else:
+                # Requesting user updating themselves
+                if new_level is not None:
+                    raise exceptions.PermissionDenied("You can't set your own access level.")
 
-
-class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
-    user = UserBasicSerializer(source="parent_membership.user", read_only=True)
-    parent_level = serializers.IntegerField(source="parent_membership.level", read_only=True)
-
-    class Meta:
-        model = ExplicitTeamMembership
-        fields = [
-            "id",
-            "level",
-            "parent_level",
-            "parent_membership_id",
-            "joined_at",
-            "updated_at",
-            "user",
-            "effective_level",
-        ]
-        read_only_fields = ["id", "joined_at", "parent_membership_id", "updated_at", "effective_level"]
-
-    def validate(self, attrs):
-        # We know membership_being_accessed exists since this serializer is specifically not used for creates
-        membership_being_accessed = cast(ExplicitTeamMembership, self.instance)
-        try:
-            requesting_membership = get_ephemeral_requesting_team_membership(
-                self.context["team"], self.context["request"].user
-            )
-        except OrganizationMembership.DoesNotExist:
-            # User does not belong to the project's organization, so we spoof a 404 for enhanced security
-            raise exceptions.NotFound("Project not found.")
-        new_level = attrs.get("level")
-
-        if requesting_membership is None:
-            raise exceptions.PermissionDenied("You have no access to this project.")
-        if new_level is not None and new_level > requesting_membership.effective_level:
-            raise exceptions.PermissionDenied("You can only set access level to lower or equal to your current one.")
-        if membership_being_accessed.parent_membership.user_id != requesting_membership.parent_membership.user_id:
-            # Updating someone else
-            if membership_being_accessed.team.organization_id != requesting_membership.team.organization_id:
-                raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-            if membership_being_accessed.level > requesting_membership.effective_level:
-                raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
-        else:
-            if new_level is not None:
-                raise exceptions.PermissionDenied("You can't set your own access level.")
         return attrs
 
 
@@ -171,8 +140,6 @@ class ExplicitTeamMemberViewSet(
     ordering = ["level", "-joined_at"]
 
     def get_serializer_class(self):
-        if self.request.method == "POST":
-            return ExplicitTeamMemberAdditionSerializer
         return ExplicitTeamMemberSerializer
 
     def get_serializer_context(self) -> Dict[str, Any]:
