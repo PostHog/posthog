@@ -4,6 +4,7 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogicType } from './toolbarButtonLogicType'
+import { posthog } from '~/toolbar/posthog'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     actions: () => ({
@@ -11,11 +12,14 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         hideHeatmapInfo: true,
         showActionsInfo: true,
         hideActionsInfo: true,
+        showFlags: true,
+        hideFlags: true,
         setExtensionPercentage: (percentage: number) => ({ percentage }),
         saveDragPosition: (x: number, y: number) => ({ x, y }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
         saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
         saveActionsPosition: (x: number, y: number) => ({ x, y }),
+        saveFlagsPosition: (x: number, y: number) => ({ x, y }),
     }),
 
     windowValues: () => ({
@@ -40,6 +44,13 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
                 hideActionsInfo: () => false,
                 [actionsTabLogic.actionTypes.showButtonActions]: () => false,
                 [actionsTabLogic.actionTypes.hideButtonActions]: () => false,
+            },
+        ],
+        flagsVisible: [
+            false,
+            {
+                showFlags: () => true,
+                hideFlags: () => false,
             },
         ],
         extensionPercentage: [
@@ -71,6 +82,12 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             },
             {
                 saveActionsPosition: (_, { x, y }) => ({ x, y }),
+            },
+        ],
+        flagsPosition: [
+            { x: 140, y: 100 } as { x: number; y: number },
+            {
+                saveFlagsPosition: (_, { x, y }) => ({ x, y }),
             },
         ],
     }),
@@ -142,10 +159,22 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
             (s) => [s.actionsInfoVisible, actionsTabLogic.selectors.buttonActionsVisible],
             (actionsInfoVisible, buttonActionsVisible) => actionsInfoVisible && buttonActionsVisible,
         ],
+        featureFlagsExtensionPercentage: [
+            (s) => [s.flagsVisible, s.extensionPercentage],
+            (flagsVisible, extensionPercentage) =>
+                flagsVisible ? Math.max(extensionPercentage, 0.53) : extensionPercentage,
+        ],
     },
+
     listeners: ({ actions, values }) => ({
         hideActionsInfo: () => {
             actionsTabLogic.actions.selectAction(null)
+        },
+        showFlags: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: true })
+        },
+        hideFlags: () => {
+            posthog.capture('toolbar mode triggered', { mode: 'flags', enabled: false })
         },
         saveDragPosition: ({ x, y }) => {
             const { windowWidth, windowHeight } = values

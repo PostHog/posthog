@@ -50,6 +50,19 @@ class Person(models.Model):
 
             capture_internal(event, self.distinct_ids[-1], None, None, now, now, self.team.id)
 
+    def split_person(self, main_distinct_id: str):
+        with transaction.atomic():
+            distinct_ids = Person.objects.get(pk=self.pk).distinct_ids
+            if not main_distinct_id:
+                self.properties = {}
+                self.save()
+                main_distinct_id = distinct_ids[0]
+
+            PersonDistinctId.objects.filter(person=self).exclude(distinct_id=main_distinct_id).delete()
+            for distinct_id in distinct_ids:
+                if not distinct_id == main_distinct_id:
+                    Person.objects.create(team_id=self.team_id, distinct_ids=[distinct_id])
+
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)

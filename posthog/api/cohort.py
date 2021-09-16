@@ -130,7 +130,7 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         deleted_state = validated_data.get("deleted", None)
 
-        is_deletion_change = deleted_state is not None
+        is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             cohort.deleted = deleted_state
 
