@@ -19,7 +19,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 getUserFlags: async (_, breakpoint) => {
                     const response = await toolbarFetch('api/feature_flag/my_flags')
                     breakpoint()
-                    if (response.status === 403) {
+                    if (!response.ok) {
                         return []
                     }
                     const results = await response.json()
@@ -35,7 +35,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         }
                     )
                     breakpoint()
-                    if (response.status === 403) {
+                    if (!response.ok) {
                         return []
                     }
                     const results = await response.json()
@@ -53,7 +53,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         'DELETE'
                     )
                     breakpoint()
-                    if (response.status === 403) {
+                    if (!response.ok) {
                         return []
                     }
                     ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
