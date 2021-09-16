@@ -109,7 +109,6 @@ export const cohortLogic = kea<cohortLogicType>({
 
             for (const [itemKey, value] of Object.entries(cohort as CohortType)) {
                 if (itemKey === 'groups') {
-                    debugger
                     if (cohort.is_static) {
                         if (!cohort.csv && isNewCohort) {
                             actions.setSubmitted(true)
