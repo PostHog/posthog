@@ -556,7 +556,12 @@ export const funnelLogic = kea<funnelLogicType>({
                     nested_breakdown: (!!baseLineSteps?.steps
                         ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
                         : step?.nested_breakdown
-                    )?.filter((_, breakdownIndex: number) => visibilityMap[`${step.order}-${breakdownIndex}`]),
+                    )
+                        ?.map((b, breakdownIndex) => ({
+                            ...b,
+                            order: breakdownIndex,
+                        }))
+                        ?.filter((b) => visibilityMap[`${step.order}-${b.order}`]),
                 }))
             },
         ],

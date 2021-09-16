@@ -89,7 +89,9 @@ export function BreakdownVerticalBarGroup({
                 const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
                 const previousBarHeight =
                     (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
-                const color = getSeriesColor(breakdownIndex) as string
+                const color = getSeriesColor(breakdown.order) as string
+                console.log('BBREAKDOWN', currentStep, breakdown, color)
+
                 return (
                     <div
                         key={breakdownIndex}

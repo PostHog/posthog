@@ -56,6 +56,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         return null
                     }
                     const breakdownIndices = Array.from(Array(flattenedBreakdowns.length).keys()) ?? []
+                    const stepIndices = Array.from(Array(visibleStepsWithConversionMetrics.length).keys()) ?? []
                     const checked = !!breakdownIndices?.every((i) => visibilityMap[`0-${i}`])
 
                     return renderGraphAndHeader(
@@ -70,7 +71,13 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             indeterminate={breakdownIndices?.some((i) => visibilityMap[`0-${i}`])}
                             onChange={() => {
                                 // either toggle all data on or off
-                                setVisibilityById(Object.fromEntries(breakdownIndices.map((i) => [`0-${i}`, !checked])))
+                                setVisibilityById(
+                                    Object.fromEntries(
+                                        stepIndices.flatMap((s_i) =>
+                                            breakdownIndices.map((b_i) => [`${s_i}-${b_i}`, !checked])
+                                        )
+                                    )
+                                )
                             }}
                         />,
                         undefined,
