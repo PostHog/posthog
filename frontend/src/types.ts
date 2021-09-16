@@ -708,6 +708,7 @@ export interface FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
+    visibility_map?: Record<string, any> // used to toggle visibility of breakdowns with legend
 }
 
 export interface SystemStatusSubrows {

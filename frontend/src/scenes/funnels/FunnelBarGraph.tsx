@@ -463,7 +463,7 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                         step.nested_breakdown?.reduce((sum, item) => sum + item.count, 0)) ||
                     0
 
-                const isBreakdown = Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length
+                const isBreakdown = Array.isArray(step.nested_breakdown) && step.nested_breakdown?.length !== undefined
 
                 return (
                     <section key={step.order} className="funnel-step">
