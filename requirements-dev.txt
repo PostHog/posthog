@@ -6,8 +6,10 @@
 #
 appdirs==1.4.4
     # via black
-asgiref==3.3.1
-    # via django
+asgiref==3.3.2
+    # via
+    #   -c requirements.txt
+    #   django
 attrs==19.3.0
     # via
     #   black
@@ -15,10 +17,14 @@ attrs==19.3.0
     #   pytest
 black==19.10b0
     # via -r requirements-dev.in
-certifi==2020.12.5
-    # via requests
-chardet==4.0.0
-    # via requests
+certifi==2019.11.28
+    # via
+    #   -c requirements.txt
+    #   requests
+chardet==3.0.4
+    # via
+    #   -c requirements.txt
+    #   requests
 click==7.1.1
     # via
     #   black
@@ -33,15 +39,12 @@ django-stubs==1.8.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
-django==3.1.12
+django==3.2.5
     # via
-    #   -r requirements-dev.in
+    #   -c requirements.txt
     #   django-stubs
     #   django-stubs-ext
-    #   djangorestframework
 djangorestframework-stubs==1.4.0
-    # via -r requirements-dev.in
-djangorestframework==3.12.2
     # via -r requirements-dev.in
 fakeredis==1.4.5
     # via -r requirements-dev.in
@@ -69,8 +72,10 @@ flake8==3.9.2
     #   flake8-print
 freezegun==0.3.15
     # via -r requirements-dev.in
-idna==2.10
-    # via requests
+idna==2.8
+    # via
+    #   -c requirements.txt
+    #   requests
 iniconfig==1.1.1
     # via pytest
 isort==5.2.2
@@ -123,19 +128,27 @@ pytest==6.2.2
     #   pytest-django
     #   pytest-mock
 python-dateutil==2.8.1
-    # via freezegun
+    # via
+    #   -c requirements.txt
+    #   freezegun
 pytz==2021.1
-    # via django
-redis==3.5.3
-    # via fakeredis
+    # via
+    #   -c requirements.txt
+    #   django
+redis==3.4.1
+    # via
+    #   -c requirements.txt
+    #   fakeredis
 regex==2020.6.8
     # via black
 requests==2.25.1
     # via
+    #   -c requirements.txt
     #   coreapi
     #   djangorestframework-stubs
 six==1.14.0
     # via
+    #   -c requirements.txt
     #   fakeredis
     #   flake8-print
     #   freezegun
@@ -143,8 +156,10 @@ six==1.14.0
     #   python-dateutil
 sortedcontainers==2.3.0
     # via fakeredis
-sqlparse==0.3.1
-    # via django
+sqlparse==0.3.0
+    # via
+    #   -c requirements.txt
+    #   django
 toml==0.10.1
     # via
     #   black
@@ -161,7 +176,9 @@ typing-extensions==3.7.4.2
 uritemplate==3.0.1
     # via coreapi
 urllib3==1.26.5
-    # via requests
+    # via
+    #   -c requirements.txt
+    #   requests
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip
