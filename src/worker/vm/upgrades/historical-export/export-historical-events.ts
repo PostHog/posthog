@@ -120,6 +120,17 @@ export function addHistoricalEventsExportCapability(
             fetchEventsError = error
         }
 
+        const incrementTimestampCursor = events.length === 0
+
+        await meta.jobs
+            .exportEventsFromTheBeginning({
+                timestampCursor,
+                incrementTimestampCursor,
+                retriesPerformedSoFar: 0,
+                intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
+            })
+            .runNow()
+
         let exportEventsError: Error | unknown | null = null
 
         if (!fetchEventsError) {
@@ -160,18 +171,7 @@ export function addHistoricalEventsExportCapability(
             ).toISOString()}.`
         )
 
-        const incrementTimestampCursor = events.length === 0
-
         incrementMetric('events_exported', events.length)
-
-        await meta.jobs
-            .exportEventsFromTheBeginning({
-                timestampCursor,
-                incrementTimestampCursor,
-                retriesPerformedSoFar: 0,
-                intraIntervalOffset: intraIntervalOffset + EVENTS_PER_RUN,
-            })
-            .runNow()
     }
 
     tasks.job['exportEventsFromTheBeginning'] = {
