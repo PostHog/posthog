@@ -83,7 +83,9 @@ class Funnel(BaseQuery):
                 # not after `ON pdi.distinct_id = posthog_event.distinct_id`
                 r'FROM "posthog_event"( [A-Z][0-9])?',
                 r"FROM posthog_event\1 JOIN posthog_persondistinctid pdi "
-                r"ON pdi.distinct_id = posthog_event.distinct_id",
+                #  NOTE: here we are joining on the unique identifier of the
+                #  persondistinctid table, i.e. (team_id, distinct_id)
+                r"ON pdi.distinct_id = posthog_event.distinct_id AND pdi.team_id = posthog_event.team_id",
                 event_string,
             )
             query = sql.SQL(event_string)
@@ -106,7 +108,7 @@ class Funnel(BaseQuery):
 
     def _build_query(self, within_time: Optional[str] = None):
         """Build query using lateral joins using a combination of Django generated SQL
-           and sql built using psycopg2
+        and sql built using psycopg2
         """
         query_bodies = self._gen_lateral_bodies(within_time=within_time)
 
@@ -290,7 +292,7 @@ class Funnel(BaseQuery):
         Builds and runs a query to get all persons that have been in the funnel
         steps defined by `self._filter.entities`. For example, entities may be
         defined as:
-            
+
             1. event with event name "user signed up"
             2. event with event name "user looked at report"
 
