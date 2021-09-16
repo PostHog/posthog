@@ -11,6 +11,8 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import React from 'react'
 import { Link } from 'lib/components/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
@@ -289,7 +291,9 @@ export const insightLogic = kea<insightLogicType>({
             )
         },
         updateInsightFilters: async ({ filters }) => {
-            api.update(`api/insight/${values.insight.id}`, { filters })
+            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]) {
+                api.update(`api/insight/${values.insight.id}`, { filters })
+            }
         },
     }),
     actionToUrl: ({ actions, values }) => ({

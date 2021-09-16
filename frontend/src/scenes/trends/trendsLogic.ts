@@ -340,8 +340,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     ...values.filters,
                     insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
                 })
+            } else {
+                insightLogic.actions.updateInsightFilters(values.filters)
             }
-            insightLogic.actions.updateInsightFilters(values.filters)
 
             let indexedResults
             if (values.filters.insight !== ViewType.LIFECYCLE) {
