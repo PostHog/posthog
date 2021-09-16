@@ -42,7 +42,7 @@ describe('infiniteListLogic verbose version', () => {
     it('setting search query filters events', async () => {
         expectLogic(logic, () => logic.actions.setSearchQuery('event'))
             .toDispatch(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
-            .toMatchValues({ searchQuery: 'event', remoteItems: { results: Array(56) } })
+            .toMatchValues({ searchQuery: 'event', remoteItems: { results: Array(3) } })
     })
 
     describe('index', async () => {
