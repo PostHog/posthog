@@ -34,13 +34,13 @@ describe('infiniteListLogic verbose version', () => {
     })
 
     it('calls loadRemoteItems on mount', () => {
-        expectLogic(logic)
+        await expectLogic(logic)
             .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
             .toMatchValues({ remoteItems: { results: expect.arrayContaining([{ name: expect.any(String) }]) } })
     })
 
     it('setting search query filters events', async () => {
-        expectLogic(logic, () => logic.actions.setSearchQuery('event'))
+        await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
             .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
             .toMatchValues({ searchQuery: 'event', remoteItems: { results: Array(3) } })
     })
