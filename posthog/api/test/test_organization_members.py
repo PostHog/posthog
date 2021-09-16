@@ -11,7 +11,7 @@ class TestOrganizationMembersAPI(APIBaseTest):
         response = self.client.get("/api/organizations/@current/members/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        response_data = response.json()
+        response_data = response.json()["results"]
         self.assertEqual(len(response_data), self.organization.members.count())
         instance = OrganizationMembership.objects.get(id=response_data[0]["id"])
         self.assertEqual(response_data[0]["user"]["uuid"], str(instance.user.uuid))
