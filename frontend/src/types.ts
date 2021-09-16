@@ -95,7 +95,6 @@ export interface OrganizationType extends OrganizationBasicType {
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
     membership_level: OrganizationMembershipLevel | null
-    only_allowed_team_ids: TeamType['id'][] | null
 }
 
 interface BaseMemberType {
@@ -161,6 +160,8 @@ export interface TeamBasicType {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
+    /** Effective access level of the user in this specific team. Null if user has no access. */
+    effective_membership_level: OrganizationMembershipLevel | null
 }
 
 export interface TeamType extends TeamBasicType {
@@ -171,7 +172,6 @@ export interface TeamType extends TeamBasicType {
     session_recording_retention_period_days: number | null
     test_account_filters: AnyPropertyFilter[]
     data_attributes: string[]
-    effective_membership_level: OrganizationMembershipLevel
 }
 
 export interface ActionType {

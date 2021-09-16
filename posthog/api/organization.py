@@ -59,7 +59,6 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField()
-    only_allowed_team_ids = serializers.SerializerMethodField()
     setup = (
         serializers.SerializerMethodField()
     )  # Information related to the current state of the onboarding/setup process
@@ -81,7 +80,6 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "available_features",
             "domain_whitelist",
             "is_member_join_email_enabled",
-            "only_allowed_team_ids",
             "per_project_access",
         ]
         read_only_fields = [
@@ -101,17 +99,6 @@ class OrganizationSerializer(serializers.ModelSerializer):
             organization=organization, user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
-
-    def get_only_allowed_team_ids(self, organization: Organization) -> Optional[List[int]]:
-        if not settings.EE_AVAILABLE or not organization.per_project_access:
-            return None  # All projects are allowed if Per-project access is disabled or unavailable
-        # If Per-project access is enabled, we need to check which projects the current user is a member of
-        from ee.models.explicit_team_membership import ExplicitTeamMembership
-
-        allowed_team_ids = ExplicitTeamMembership.objects.filter(
-            team__organization=organization, parent_membership__user=self.context["request"].user,
-        ).values_list("team_id", flat=True)
-        return list(allowed_team_ids)
 
     def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
         if not instance.is_onboarding_active:

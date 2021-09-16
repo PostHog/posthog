@@ -72,25 +72,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "effective_membership_level",
         )
 
-    def get_effective_membership_level(self, team: Team) -> Optional[int]:
-        requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.only("id", "level").get(
-            organization_id=team.organization_id, user=self.context["request"].user
-        )
-        if not settings.EE_AVAILABLE:
-            # Per-project access not available
-            return requesting_parent_membership.level
-        from ee.api.explicit_team_member import ExplicitTeamMembership
-
-        try:
-            team_membership = ExplicitTeamMembership.objects.only("level").get(
-                team=team, parent_membership=requesting_parent_membership
-            )
-            return max(requesting_parent_membership.level, team_membership.level)
-        except ExplicitTeamMembership.DoesNotExist:
-            if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
-                # Only organizations admins and above get implicit project membership
-                return None
-            return requesting_parent_membership.level
+    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+        return team.get_effective_membership_level(self.context["request"].user)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
@@ -105,7 +88,7 @@ class TeamSerializer(serializers.ModelSerializer):
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     serializer_class = TeamSerializer
-    queryset = Team.objects.all()
+    queryset = Team.objects.all().select_related("organization")
     permission_classes = [
         permissions.IsAuthenticated,
         ProjectMembershipNecessaryPermissions,

@@ -40,7 +40,6 @@ import { Environments, FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from '../../scenes/teamLogic'
-import { organizationLogic } from '../../scenes/organizationLogic'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -55,14 +54,12 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
 }
 
 function ProjectRow({ team }: { team: TeamBasicType }): JSX.Element {
-    const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(userLogic)
     const { push } = router.actions
 
     const isCurrent = team.id === currentTeam?.id
-    const isRestricted =
-        !!currentOrganization?.only_allowed_team_ids && !currentOrganization.only_allowed_team_ids.includes(team.id)
+    const isRestricted = !!team.effective_membership_level
 
     return (
         <button
@@ -122,7 +119,6 @@ export function TopNavigation(): JSX.Element {
         projectModalShown,
         organizationModalShown,
     } = useValues(navigationLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -259,8 +255,7 @@ export function TopNavigation(): JSX.Element {
                         .sort((teamA, teamB) =>
                             teamA.id === currentTeam?.id
                                 ? -2
-                                : currentOrganization?.only_allowed_team_ids &&
-                                  !currentOrganization.only_allowed_team_ids.includes(teamA.id)
+                                : teamA.effective_membership_level
                                 ? 2
                                 : teamA.name.localeCompare(teamB.name)
                         )

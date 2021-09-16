@@ -1,17 +1,22 @@
 import re
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pytz
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.dispatch.dispatcher import receiver
 
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.models.organization import OrganizationMembership
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
 from .utils import UUIDClassicModel, generate_random_token_project, sane_repr
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 TEAM_CACHE: Dict[str, "Team"] = {}
 
@@ -122,6 +127,25 @@ class Team(UUIDClassicModel):
     event_properties_numerical: models.JSONField = models.JSONField(default=list)
 
     objects: TeamManager = TeamManager()
+
+    def get_effective_membership_level(self, user: "User") -> Optional[OrganizationMembership.Level]:
+        parent_membership: OrganizationMembership = OrganizationMembership.objects.only("id", "level").get(
+            organization_id=self.organization_id, user=user
+        )
+        if settings.EE_AVAILABLE is None or not self.organization.per_project_access:
+            # Per-project access not available
+            return parent_membership.level
+        try:
+            return (
+                parent_membership.explicit_team_memberships.only("parent_membership", "level")
+                .get(team=self)
+                .effective_level
+            )
+        except models.Model.DoesNotExist:
+            if parent_membership.level < OrganizationMembership.Level.ADMIN:
+                # Only organization admins and above get implicit project membership
+                return None
+            return parent_membership.level
 
     def __str__(self):
         if self.name:
