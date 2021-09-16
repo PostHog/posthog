@@ -227,7 +227,10 @@ export function SavedInsights(): JSX.Element {
                                 </Menu>
                             }
                         >
-                            <EllipsisOutlined className="insight-dropdown-actions" />
+                            <EllipsisOutlined
+                                style={{ color: 'var(--primary)' }}
+                                className="insight-dropdown-actions"
+                            />
                         </Dropdown>
                     </Row>
                 )
@@ -240,7 +243,7 @@ export function SavedInsights(): JSX.Element {
         { type: 'Funnels', description: 'Visualize completion and dropoff between events' },
         { type: 'Sessions', description: 'Understand how users are spending their time in your product' },
         { type: 'Retention', description: 'Visualize how many users return on subsequent days after a session' },
-        { type: 'User Paths', description: 'Understand how traffic is flowing through your product' },
+        { type: 'Paths', description: 'Understand how traffic is flowing through your product' },
         { type: 'Stickiness', description: 'See how many days users performed an action within a timeframe' },
         { type: 'Lifecycle', description: 'See new, resurrected, returning, and dormant users' },
     ]

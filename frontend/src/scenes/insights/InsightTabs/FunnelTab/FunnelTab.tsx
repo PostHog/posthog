@@ -7,7 +7,7 @@ import { Button, Col, Row } from 'antd'
 import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
-import { InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepOrderPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepOrderPicker'
@@ -27,7 +27,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic)
+    const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
@@ -35,7 +35,6 @@ export function FunnelTab(): JSX.Element {
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
     const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
 
-    const showModal = (): void => setSavingModal(true)
     const closeModal = (): void => setSavingModal(false)
     const onSubmit = (input: string): void => {
         saveFunnelInsight(input)
@@ -106,13 +105,6 @@ export function FunnelTab(): JSX.Element {
                                 <>
                                     <hr />
                                     <Row style={{ justifyContent: 'flex-end' }}>
-                                        {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
-                                            <div style={{ flexGrow: 1 }}>
-                                                <Button type="default" onClick={showModal} icon={<SaveOutlined />}>
-                                                    Save
-                                                </Button>
-                                            </div>
-                                        )}
                                         {!isStepsEmpty && (
                                             <Button
                                                 type="link"

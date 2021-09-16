@@ -175,7 +175,7 @@ export function Insights(): JSX.Element {
 
     return (
         <>
-            {insightMode === ItemMode.View ? (
+            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
                 <>
                     <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
                         <span style={{ fontSize: 28, fontWeight: 600 }}>
