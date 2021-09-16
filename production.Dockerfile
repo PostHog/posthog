@@ -8,12 +8,13 @@ ARG saml_disabled
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# install SAML dependencies (unless disabled)
+# install SAML dependencies (unless disabled)   
 RUN if [[ -z "${SAML_DISABLED}" ]] && [[ -z "$saml_disabled" ]] ; then \
     apt-get update \
     && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
     && pip install python3-saml==1.12.0 --no-cache-dir --compile \
     && apt-get purge -y pkg-config \
+    && rm -rf /var/lib/apt/lists/* \
     ; fi
 
 # install base dependencies, including node & yarn; remove unneeded build deps
