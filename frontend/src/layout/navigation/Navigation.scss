@@ -347,7 +347,7 @@
 .navigation-top-dropdown-overlay {
     @extend %mixin-elevated;
     position: fixed;
-    border-radius: $button_radius;
+    border-radius: $radius;
     border: 1px solid var(--border);
     background-color: $bg_light;
     z-index: $z_top_navigation + 3 !important;
@@ -393,7 +393,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: $button_radius;
+            border-radius: $radius;
             color: $primary;
             &:hover {
                 background-color: $border;

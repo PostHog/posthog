@@ -15,10 +15,12 @@ import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
-import { PluginAboutButton } from '../plugin/PluginCard'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/components/Tooltip'
+import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 function EnabledDisabledSwitch({
     value,
@@ -58,6 +60,8 @@ export function PluginDrawer(): JSX.Element {
         generateApiKeysIfNeeded,
         patchPlugin,
     } = useActions(pluginsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const [form] = Form.useForm()
 
     const [invisibleFields, setInvisibleFields] = useState<string[]>([])
@@ -136,7 +140,7 @@ export function PluginDrawer(): JSX.Element {
                 forceRender={true}
                 visible={!!editingPlugin}
                 onClose={() => editPlugin(null)}
-                width="min(90vw, 420px)"
+                width="min(90vw, 500px)"
                 title={editingPlugin?.name}
                 data-attr="plugin-drawer"
                 footer={
@@ -238,7 +242,11 @@ export function PluginDrawer(): JSX.Element {
                                         ) : editingPlugin.plugin_type === 'source' ? (
                                             <SourcePluginTag />
                                         ) : null}
-                                        {editingPlugin.url && <PluginAboutButton url={editingPlugin.url} />}
+                                        {editingPlugin.url && (
+                                            <a href={editingPlugin.url}>
+                                                <i>⤷ Learn more</i>
+                                            </a>
+                                        )}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
                                         <Form.Item
@@ -294,6 +302,13 @@ export function PluginDrawer(): JSX.Element {
                                 </>
                             ) : null}
 
+                            {featureFlags[FEATURE_FLAGS.PLUGINS_UI_JOBS] && editingPlugin.pluginConfig.id ? (
+                                <PluginJobOptions
+                                    plugin={editingPlugin}
+                                    pluginConfigId={editingPlugin.pluginConfig.id}
+                                />
+                            ) : null}
+
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration
                             </h3>
@@ -316,7 +331,10 @@ export function PluginDrawer(): JSX.Element {
                                             }
                                             extra={
                                                 fieldConfig.hint && (
-                                                    <Markdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                    <small>
+                                                        <div style={{ height: 2 }} />
+                                                        <Markdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                    </small>
                                                 )
                                             }
                                             name={fieldConfig.key}

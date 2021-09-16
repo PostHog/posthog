@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathOptionsToLabels, pathOptionsToProperty, pathsLogic } from 'scenes/paths/pathsLogic'
-import { Col, Row, Select, Skeleton } from 'antd'
+import { Col, Row, Select } from 'antd'
 import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -12,7 +12,7 @@ import { GlobalFiltersTitle } from '../common'
 
 export function PathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
-    const { filter, filtersLoading } = useValues(pathsLogic({ dashboardItemId: null }))
+    const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
 
     const screens = useBreakpoint()
@@ -65,14 +65,8 @@ export function PathTab(): JSX.Element {
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                 <GlobalFiltersTitle unit="actions/events" />
-                {filtersLoading ? (
-                    <Skeleton active paragraph={{ rows: 1 }} />
-                ) : (
-                    <>
-                        <PropertyFilters pageKey="insight-path" />
-                        <TestAccountFilter filters={filter} onChange={setFilter} />
-                    </>
-                )}
+                <PropertyFilters pageKey="insight-path" />
+                <TestAccountFilter filters={filter} onChange={setFilter} />
             </Col>
         </Row>
     )

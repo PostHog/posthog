@@ -1,8 +1,9 @@
 import hashlib
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
+from django.contrib.auth.models import AnonymousUser
 from django.db import models
-from django.db.models.expressions import ExpressionWrapper, RawSQL
+from django.db.models.expressions import ExpressionWrapper, RawSQL, Subquery
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from django.utils import timezone
@@ -10,10 +11,11 @@ from sentry_sdk.api import capture_exception
 
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.queries.base import properties_to_Q
 
 from .filters import Filter
-from .person import Person
+from .person import Person, PersonDistinctId
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
@@ -75,6 +77,25 @@ class FeatureFlag(models.Model):
                     {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
                 ]
             }
+
+
+class FeatureFlagOverride(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "feature_flag", "team"], name="unique feature flag for a user/team combo"
+            )
+        ]
+
+    feature_flag: models.ForeignKey = models.ForeignKey("FeatureFlag", on_delete=models.CASCADE)
+    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
+    override_value: models.JSONField = models.JSONField()
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    def get_analytics_metadata(self) -> Dict:
+        return {
+            "override_value_type": type(self.override_value).__name__,
+        }
 
 
 class FeatureFlagMatcher:
@@ -163,24 +184,8 @@ class FeatureFlagMatcher:
         return self.get_hash(salt="variant")
 
 
-# Return a list of all standard + multivariate flags with truthy values
-def get_active_feature_flags(team: Team, distinct_id: str) -> List[str]:
-    flags_enabled = []
-    feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
-        "id", "team_id", "filters", "key", "rollout_percentage",
-    )
-    for feature_flag in feature_flags:
-        try:
-            # distinct_id will always be a string, but data can have non-string values ("Any")
-            if feature_flag.distinct_id_matches(distinct_id):
-                flags_enabled.append(feature_flag.key)
-        except Exception as err:
-            capture_exception(err)
-    return flags_enabled
-
-
 # Return a Dict with all active flags and their values
-def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Union[bool, str, None]]:
+def get_active_feature_flags(team: Team, distinct_id: str) -> Dict[str, Union[bool, str, None]]:
     flags_enabled: Dict[str, Union[bool, str, None]] = {}
     feature_flags = FeatureFlag.objects.filter(team=team, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage",
@@ -199,3 +204,28 @@ def get_active_feature_flags_v2(team: Team, distinct_id: str) -> Dict[str, Union
         except Exception as err:
             capture_exception(err)
     return flags_enabled
+
+
+# Return feature flags with per-user overrides
+def get_overridden_feature_flags(team: Team, distinct_id: str,) -> Dict[str, Union[bool, str, None]]:
+    feature_flags = get_active_feature_flags(team, distinct_id)
+
+    # Get a user's feature flag overrides from any distinct_id (not just the canonical one)
+    person = PersonDistinctId.objects.filter(distinct_id=distinct_id, team=team).values_list("person_id")[:1]
+    distinct_ids = PersonDistinctId.objects.filter(person_id__in=Subquery(person)).values_list("distinct_id")
+    user_id = User.objects.filter(distinct_id__in=Subquery(distinct_ids))[:1].values_list("id")
+    feature_flag_overrides = FeatureFlagOverride.objects.filter(
+        user_id__in=Subquery(user_id), team=team
+    ).select_related("feature_flag")
+    feature_flag_overrides = feature_flag_overrides.only("override_value", "feature_flag__key")
+
+    for feature_flag_override in feature_flag_overrides:
+        key = feature_flag_override.feature_flag.key
+        value = feature_flag_override.override_value
+        if value is False:
+            if key in feature_flags:
+                del feature_flags[key]
+        else:
+            feature_flags[key] = value
+
+    return feature_flags

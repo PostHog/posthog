@@ -1,5 +1,17 @@
 # Changelog
 
+
+### 1.28.0 - Wednesday 15 September 2021
+
+-   Significantly revamped performance. When running on OSS Clickhouse, we now automatically create during weekends columns for event and person properties to speed up queries. This can speed up your slower queries 2-25x.
+-   Advanced engagement cohorts. Create automatic user cohorts based on actions performed by users in the last N days (e.g. to identify power users).
+-   SAML support. Users with an Enterprise license can now enable SAML authentication and user provisioning.
+-   Advanced funnel building. More features to build more detailed funnel views, such as custom step ordering, event exclusions, among others.
+-   300+ improvements & fixes across the app
+-   **❗️Breaking Change**. The previously deprecated `/api/user/` endpoint has **been removed.** See https://posthog.com/docs/api/user for details on how to update.
+-   **❗️Breaking Change**. Support for Python 3.7 is dropped in this version. Please use Python 3.8 or Python 3.9
+
+
 ### 1.27.0 - Monday 26 July 2021
 
 -   New Funnels Experience.

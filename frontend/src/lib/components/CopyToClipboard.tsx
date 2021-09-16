@@ -9,9 +9,10 @@ interface InlineProps extends HTMLProps<HTMLSpanElement> {
     explicitValue?: string
     description?: string
     isValueSensitive?: boolean
-    tooltipMessage?: string
+    tooltipMessage?: string | null
     iconStyle?: Record<string, string | number>
     iconPosition?: 'end' | 'start'
+    style?: React.CSSProperties
 }
 
 interface InputProps {
@@ -29,6 +30,7 @@ export function CopyToClipboardInline({
     tooltipMessage = 'Click to copy',
     iconStyle = {},
     iconPosition = 'end',
+    style,
     ...props
 }: InlineProps): JSX.Element {
     return (
@@ -39,9 +41,9 @@ export function CopyToClipboardInline({
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'flex-end',
                     flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
                     flexWrap: iconPosition === 'end' ? 'wrap' : 'wrap-reverse',
+                    ...style,
                 }}
                 onClick={() => {
                     copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
