@@ -9,7 +9,9 @@ import { personsModalLogicType } from './personsModalLogicType'
 import { parsePeopleParams, TrendPeople } from './trendsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { cohortLogic } from 'scenes/cohorts/cohortLogic'
+import { cohortsModel } from '~/models/cohortsModel'
+import { toast } from 'react-toastify'
+import React from 'react'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -209,29 +211,38 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                 return null
             },
         },
-    }),
-    listeners: ({ actions, values }) => ({
-        saveCohortWithFilters: ({ cohortName, filters }) => {
-            if (values.people) {
+        savedCohort: {
+            saveCohortWithFilters: async ({ cohortName, filters }) => {
+                if (!values.people) {
+                    errorToast(undefined, "We couldn't create your cohort:")
+                    return
+                }
                 const { label, action, day, breakdown_value } = values.people
                 const filterParams = parsePeopleParams(
                     { label, action, date_from: day, date_to: day, breakdown_value },
                     filters
                 )
+
                 const cohortParams = {
                     is_static: true,
                     name: cohortName,
                 }
-                cohortLogic({
-                    cohort: {
-                        id: 'personsModalNew',
-                        groups: [],
-                    },
-                }).actions.saveCohort(cohortParams, filterParams)
-            } else {
-                errorToast(undefined, "We couldn't create your cohort:")
-            }
+
+                const cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortParams)
+                cohortsModel.actions.createCohort(cohort)
+                toast.success(
+                    <div data-attr="success-toast">
+                        <h1>Cohort saved successfully!</h1>
+                        <p>Please wait up to a few minutes for the cohort to be calculated.</p>
+                    </div>,
+                    {
+                        toastId: `cohort-saved-${cohort.id}`,
+                    }
+                )
+            },
         },
+    }),
+    listeners: ({ actions }) => ({
         setPersonsModalFilters: async ({ searchTerm, people, filters }) => {
             const { label, action, day, breakdown_value, funnelStep } = people
             const date_from = day

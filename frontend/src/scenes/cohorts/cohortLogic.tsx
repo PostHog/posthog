@@ -104,12 +104,13 @@ export const cohortLogic = kea<cohortLogicType>({
     listeners: ({ actions, values, key }) => ({
         saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
             let cohort = { ...values.cohort, ...cohortParams } as CohortType
+            const isNewCohort = typeof cohort.id !== 'number'
             const cohortFormData = new FormData()
 
             for (const [itemKey, value] of Object.entries(cohort as CohortType)) {
                 if (itemKey === 'groups') {
                     if (cohort.is_static) {
-                        if (!cohort.csv && cohort.id === 'new') {
+                        if (!cohort.csv && isNewCohort) {
                             actions.setSubmitted(true)
                             return
                         }
@@ -137,13 +138,15 @@ export const cohortLogic = kea<cohortLogicType>({
                         // If we have a static cohort uploaded by CSV we don't need to send groups
                         cohortFormData.append(itemKey, '[]')
                     }
+                } else if (itemKey === 'id' && isNewCohort) {
+                    // skip sending ids like "new" to api.create
                 } else {
                     cohortFormData.append(itemKey, value)
                 }
             }
 
             try {
-                if (cohort.id !== 'new') {
+                if (!isNewCohort) {
                     cohort = await api.update(
                         'api/cohort/' + cohort.id + (filterParams ? '?' + filterParams : ''),
                         cohortFormData
@@ -165,6 +168,7 @@ export const cohortLogic = kea<cohortLogicType>({
                 )
                 return
             }
+            breakpoint()
 
             actions.setSubmitted(false)
             cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run

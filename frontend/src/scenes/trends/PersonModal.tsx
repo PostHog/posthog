@@ -30,6 +30,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
         searchTerm,
         isInitialLoad,
         clickhouseFeaturesEnabled,
+        savedCohortLoading,
     } = useValues(personsModalLogic)
     const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
         personsModalLogic
@@ -99,6 +100,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                                 onClick={onSaveCohort}
                                 icon={<UsergroupAddOutlined />}
                                 data-attr="person-modal-save-as-cohort"
+                                loading={savedCohortLoading}
                             >
                                 Save as cohort
                             </Button>
