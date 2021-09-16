@@ -1,3 +1,4 @@
+import { Tooltip } from 'lib/components/Tooltip'
 import React from 'react'
 import { PluginTypeWithConfig } from '../../types'
 import { PluginJobConfiguration } from './PluginJobConfiguration'
@@ -17,7 +18,7 @@ export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsPro
     return (
         <>
             <h3 className="l3" style={{ marginTop: 32 }}>
-                Jobs
+                Jobs (Beta)
             </h3>
 
             {capabilities.jobs.map((jobName) => {
@@ -26,7 +27,13 @@ export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsPro
                 }
                 return (
                     <div key={jobName}>
-                        <i>{jobName}</i>
+                        {jobName === 'Export events from the beginning' ? (
+                            <Tooltip title="Run this plugin on all historical events ingested until now">
+                                <i>Export events from the beginning</i>
+                            </Tooltip>
+                        ) : (
+                            <i>{jobName}</i>
+                        )}
                         <PluginJobConfiguration
                             jobName={jobName}
                             jobSpec={public_jobs[jobName]}
