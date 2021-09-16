@@ -3,11 +3,7 @@ import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { InfoCircleOutlined } from '@ant-design/icons'
-import {
-    retentionTableLogic,
-    dateOptions,
-    retentionOptionDescriptions,
-} from 'scenes/retention/retentionTableLogic'
+import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col } from 'antd'
 
 import { FilterType, RetentionType } from '~/types'
