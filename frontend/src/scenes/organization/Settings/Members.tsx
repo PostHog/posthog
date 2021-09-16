@@ -203,41 +203,35 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
 export function Members({ user }: { user: UserType }): JSX.Element {
     const { members, membersLoading } = useValues(membersLogic)
 
-    const columns: ColumnsType<Record<string, any>> = [
+    const columns: ColumnsType<OrganizationMemberType> = [
         {
-            dataIndex: 'user_email',
-            key: 'user_email',
+            key: 'user_profile_picture',
             render: function ProfilePictureRender(_, member) {
-                return <ProfilePicture name={member.user_first_name} email={member.user_email} />
+                return <ProfilePicture name={member.user.first_name} email={member.user.email} />
             },
             width: 32,
         },
         {
             title: 'Name',
-            dataIndex: 'user_first_name',
             key: 'user_first_name',
-            render: (firstName: string, member: Record<string, any>) =>
-                member.user_id == user.uuid ? `${firstName} (me)` : firstName,
-            sorter: (a, b) =>
-                (a as OrganizationMemberType).user.first_name.localeCompare(
-                    (b as OrganizationMemberType).user.first_name
-                ),
+            render: (_, member) =>
+                member.user.uuid == user.uuid ? `${member.user.first_name} (me)` : member.user.first_name,
+            sorter: (a, b) => a.user.first_name.localeCompare(b.user.first_name),
         },
         {
             title: 'Email',
-            dataIndex: 'user_email',
             key: 'user_email',
-            sorter: (a, b) =>
-                (a as OrganizationMemberType).user.email.localeCompare((b as OrganizationMemberType).user.email),
+            render: (_, member) => member.user.email,
+            sorter: (a, b) => a.user.email.localeCompare(b.user.email),
         },
         {
             title: 'Level',
             dataIndex: 'level',
             key: 'level',
             render: function LevelRender(_, member) {
-                return LevelComponent(member as OrganizationMemberType)
+                return LevelComponent(member)
             },
-            sorter: (a, b) => (a as OrganizationMemberType).level - (b as OrganizationMemberType).level,
+            sorter: (a, b) => a.level - b.level,
             defaultSortOrder: 'descend',
         },
         {
@@ -245,8 +239,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             dataIndex: 'joined_at',
             key: 'joined_at',
             render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
-            sorter: (a, b) =>
-                (a as OrganizationMemberType).joined_at.localeCompare((b as OrganizationMemberType).joined_at),
+            sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
             defaultSortOrder: 'ascend',
         },
         {
@@ -254,7 +247,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             key: 'actions',
             align: 'center',
             render: function ActionsRender(_, member) {
-                return ActionsComponent(member as OrganizationMemberType)
+                return ActionsComponent(member)
             },
         },
     ]
@@ -265,7 +258,7 @@ export function Members({ user }: { user: UserType }): JSX.Element {
             <Table
                 dataSource={members}
                 columns={columns}
-                rowKey="membership_id"
+                rowKey="id"
                 pagination={false}
                 style={{ marginTop: '1rem' }}
                 loading={membersLoading}

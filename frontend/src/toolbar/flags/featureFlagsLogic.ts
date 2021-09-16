@@ -10,6 +10,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         getUserFlags: true,
         setOverriddenUserFlag: (flagId: number, overrideValue: string | boolean) => ({ flagId, overrideValue }),
         deleteOverriddenUserFlag: (overrideId: number) => ({ overrideId }),
+        setShowLocalFeatureFlagWarning: (showWarning: boolean) => ({ showWarning }),
     },
 
     loaders: ({ values }) => ({
@@ -19,7 +20,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 getUserFlags: async (_, breakpoint) => {
                     const response = await toolbarFetch('api/feature_flag/my_flags')
                     breakpoint()
-                    if (response.status === 403) {
+                    if (!response.ok) {
                         return []
                     }
                     const results = await response.json()
@@ -35,12 +36,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         }
                     )
                     breakpoint()
-                    if (response.status === 403) {
+                    if (!response.ok) {
                         return []
                     }
                     const results = await response.json()
-                    ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
 
+                    ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
                     return [...values.userFlags].map((userFlag) =>
                         userFlag.feature_flag.id === results.feature_flag
                             ? { ...userFlag, override: results }
@@ -53,11 +54,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         'DELETE'
                     )
                     breakpoint()
-                    if (response.status === 403) {
+                    if (!response.ok) {
                         return []
                     }
-                    ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
 
+                    ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
                     return [...values.userFlags].map((userFlag) =>
                         userFlag?.override?.id === overrideId ? { ...userFlag, override: null } : userFlag
                     )
@@ -65,7 +66,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
         ],
     }),
-
+    reducers: {
+        showLocalFeatureFlagWarning: [
+            false,
+            {
+                setShowLocalFeatureFlagWarning: (_, { showWarning }) => showWarning,
+            },
+        ],
+    },
     selectors: {
         userFlagsWithCalculatedInfo: [
             (s) => [s.userFlags],
@@ -97,6 +105,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             ;(window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
                 toolbarLogic.actions.updateFeatureFlags(variants)
             })
+            const locallyOverrideFeatureFlags = (window['posthog'] as PostHog).get_property('$override_feature_flags')
+            if (locallyOverrideFeatureFlags) {
+                actions.setShowLocalFeatureFlagWarning(true)
+            }
         },
     }),
 })

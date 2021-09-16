@@ -1,5 +1,7 @@
 from enum import Enum
 
+INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
+
 
 class AvailableFeature(str, Enum):
     ZAPIER = "zapier"
