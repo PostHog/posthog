@@ -67,11 +67,10 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     if (isLegend) {
         columns.push({
             title: '',
-            render: function RenderCheckbox({}, item: IndexedTrendResult, index: number) {
-                // legend will always be on insight page where the background is white
+            render: function RenderCheckbox({}, item: IndexedTrendResult) {
                 return (
                     <PHCheckbox
-                        color={colorList[index]}
+                        color={colorList[item.id]}
                         checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={isSingleEntity}
@@ -107,11 +106,11 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
 
     columns.push({
         title: 'Event or Action',
-        render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
+        render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
             return (
                 <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
                     <InsightLabel
-                        seriesColor={colorList[index]}
+                        seriesColor={colorList[item.id]}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}

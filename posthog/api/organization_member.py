@@ -9,6 +9,7 @@ from rest_framework.serializers import raise_errors_on_nested_writes
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import OrganizationMemberPermissions, extract_organization
@@ -34,9 +35,6 @@ class OrganizationMemberObjectPermissions(BasePermission):
 
 
 class OrganizationMemberSerializer(serializers.ModelSerializer):
-    user_first_name = serializers.CharField(source="user.first_name", read_only=True)
-    user_email = serializers.CharField(source="user.email", read_only=True)
-    membership_id = serializers.CharField(source="id", read_only=True)
     user = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -44,15 +42,11 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "user",
-            "membership_id",  # TODO: DEPRECATED in favor of `id` (for consistency)
-            "user_id",  # TODO: DEPRECATED in favor of `user`
-            "user_first_name",  # TODO: DEPRECATED in favor of `user`
-            "user_email",  # TODO: DEPRECATED in favor of `user`
             "level",
             "joined_at",
             "updated_at",
         ]
-        read_only_fields = ["user_id", "joined_at", "updated_at"]
+        read_only_fields = ["id", "joined_at", "updated_at"]
 
     def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
@@ -77,8 +71,8 @@ class OrganizationMemberViewSet(
 ):
     serializer_class = OrganizationMemberSerializer
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationMemberObjectPermissions]
-    queryset = OrganizationMembership.objects.exclude(user__email__endswith="@posthogbot.user")
-    lookup_field = "user_id"
+    queryset = OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+    lookup_field = "user__uuid"
     ordering = ["level", "-joined_at"]
 
     def get_object(self):
