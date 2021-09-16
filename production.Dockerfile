@@ -8,14 +8,6 @@ ARG saml_disabled
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# install base dependencies, including node & yarn
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.*' \
-    && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
-    && apt-get install -y --no-install-recommends 'nodejs=14.*' \
-    && npm install -g yarn@1 \
-    && yarn config set network-timeout 300000
-
 # install SAML dependencies (unless disabled)
 RUN if [[ -z "${SAML_DISABLED}" ]] && [[ -z "$saml_disabled" ]] ; then \
     apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' && \
@@ -23,9 +15,15 @@ RUN if [[ -z "${SAML_DISABLED}" ]] && [[ -z "$saml_disabled" ]] ; then \
     apt-get purge -y pkg-config \
     ; fi
 
-# remove build dependencies not needed at runtime
-RUN rm -rf /var/lib/apt/lists/* \
-    && apt-get purge -y git curl build-essential && apt-get autoremove -y
+# install base dependencies, including node & yarn; remove unneeded build deps
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.*' \
+    && curl -sL https://deb.nodesource.com/setup_14.x | bash - \
+    && apt-get install -y --no-install-recommends 'nodejs=14.*' \
+    && npm install -g yarn@1 \
+    && yarn config set network-timeout 300000 \
+    && apt-get purge -y git curl build-essential && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 
 # install Python dependencies (production-level only)
