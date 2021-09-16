@@ -5,7 +5,7 @@ import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { useResizeObserver } from 'lib/utils/responsiveUtils'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { ArrowBottomRightOutlined } from 'lib/components/icons'
+import { ArrowBottomRightOutlined, Infinity } from 'lib/components/icons'
 import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
@@ -14,15 +14,15 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { FunnelLayout } from 'lib/constants'
 import {
-    getReferenceStep,
-    humanizeOrder,
-    getSeriesColor,
-    getBreakdownMaxIndex,
-    getSeriesPositionName,
-    humanizeStepCount,
     formatDisplayPercentage,
+    getBreakdownMaxIndex,
+    getReferenceStep,
+    getSeriesColor,
+    getSeriesPositionName,
+    humanizeOrder,
+    humanizeStepCount,
 } from './funnelUtils'
-import { ChartParams } from '~/types'
+import { ChartParams, StepOrderValue } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 
 interface BarProps {
@@ -296,9 +296,14 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Omit<ChartParams, 'view'>): JSX.Element {
-    const logic = funnelLogic({ dashboardItemId, filters })
+export function FunnelBarGraph({
+    filters: _filters,
+    dashboardItemId,
+    color = 'white',
+}: Omit<ChartParams, 'view'>): JSX.Element {
+    const logic = funnelLogic({ dashboardItemId, filters: _filters })
     const {
+        filters,
         stepsWithConversionMetrics: steps,
         stepReference,
         barGraphLayout: layout,
@@ -328,15 +333,26 @@ export function FunnelBarGraph({ filters, dashboardItemId, color = 'white' }: Om
                     <section key={step.order} className="funnel-step">
                         <div className="funnel-series-container">
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
-                            <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
+                            {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
+                                <SeriesGlyph variant="funnel-step-glyph">
+                                    <Infinity style={{ fill: 'var(--primary_alt)', width: 14 }} />
+                                </SeriesGlyph>
+                            ) : (
+                                <SeriesGlyph variant="funnel-step-glyph">{humanizeOrder(step.order)}</SeriesGlyph>
+                            )}
                             <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>
                             <div style={{ display: 'flex', maxWidth: '100%', flexGrow: 1 }}>
                                 <div className="funnel-step-title">
-                                    <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
+                                    {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
+                                        <span>Completed {humanizeOrder(step.order)} steps</span>
+                                    ) : (
+                                        <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
+                                    )}
                                 </div>
                                 {clickhouseFeaturesEnabled &&
+                                    filters.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
                             </div>
