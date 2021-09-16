@@ -9,7 +9,9 @@ import { PostHog } from 'posthog-js'
 
 export function FeatureFlags(): JSX.Element {
     const { userFlagsWithCalculatedInfo, showLocalFeatureFlagWarning } = useValues(featureFlagsLogic)
-    const { setOverriddenUserFlag, deleteOverriddenUserFlag } = useActions(featureFlagsLogic)
+    const { setOverriddenUserFlag, deleteOverriddenUserFlag, setShowLocalFeatureFlagWarning } = useActions(
+        featureFlagsLogic
+    )
     return (
         <div className="toolbar-block">
             {showLocalFeatureFlagWarning ? (
@@ -19,17 +21,17 @@ export function FeatureFlags(): JSX.Element {
                             Warning:
                         </Typography.Text>{' '}
                         It looks like you've previously used the developer console to set local feature flags. To use
-                        feature flags in the toolbar, please{' '}
-                        <Typography.Text strong>clear them below and refresh the page.</Typography.Text>
+                        feature flags in the toolbar, please clear them below.
                     </Typography.Text>
                     <div>
                         <Button
                             type="primary"
                             onClick={() => {
                                 ;(window['posthog'] as PostHog).feature_flags.override(false)
+                                setShowLocalFeatureFlagWarning(false)
                             }}
                         >
-                            Clear Local Feature Flags
+                            Clear locally set feature flags
                         </Button>
                     </div>
                 </div>
