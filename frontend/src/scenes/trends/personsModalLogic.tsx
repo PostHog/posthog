@@ -6,7 +6,7 @@ import { errorToast, toParams } from 'lib/utils'
 import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
 import { ActionFilter, FilterType, ViewType, FunnelVizType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
-import { parsePeopleParams, TrendPeople } from './trendsLogic'
+import { getEntityFromFilters, parsePeopleParams, TrendPeople } from './trendsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -32,7 +32,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
         loadPeople: (peopleParams: PersonModalParams) => ({ peopleParams }),
         loadMorePeople: true,
         hidePeople: true,
-        saveCohortWithFilters: (cohortName: string, filters: Partial<FilterType>) => ({ cohortName, filters }),
+        saveCohortWithFilters: (cohortName: string) => ({ cohortName }),
         setPersonsModalFilters: (searchTerm: string, people: TrendPeople, filters: Partial<FilterType>) => ({
             searchTerm,
             people,
@@ -108,36 +108,21 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
         ],
-    },
-    loaders: ({ actions, values }) => ({
-        people: {
-            loadPeople: async ({ peopleParams }, breakpoint) => {
-                let people = []
-                const {
-                    label,
-                    action,
-                    filters,
-                    date_from,
-                    date_to,
-                    breakdown_value,
-                    saveOriginal,
-                    searchTerm,
-                    funnelStep,
-                } = peopleParams
-                const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
+        peopleFilterParams: [
+            (s) => [s.peopleParams],
+            (peopleParams) => {
+                if (!peopleParams) {
+                    return null
+                }
+                const { label, action, filters, date_from, date_to, breakdown_value, funnelStep } = peopleParams
 
                 if (filters.insight === ViewType.LIFECYCLE) {
-                    const filterParams = parsePeopleParams(
+                    return parsePeopleParams(
                         { label, action, target_date: date_from, lifecycle_type: breakdown_value },
                         filters
                     )
-                    people = await api.get(`api/person/lifecycle/?${filterParams}${searchTermParam}`)
                 } else if (filters.insight === ViewType.STICKINESS) {
-                    const filterParams = parsePeopleParams(
-                        { label, action, date_from, date_to, breakdown_value },
-                        filters
-                    )
-                    people = await api.get(`api/person/stickiness/?${filterParams}${searchTermParam}`)
+                    return parsePeopleParams({ label, action, date_from, date_to, breakdown_value }, filters)
                 } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
                     let params
                     if (filters.funnel_viz_type === FunnelVizType.Trends) {
@@ -149,19 +134,46 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                         params = {
                             ...filters,
                             funnel_step: funnelStep,
+                            ...getEntityFromFilters(action, filters),
                             ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
                         }
                     }
                     const cleanedParams = cleanFunnelParams(params)
-                    const funnelParams = toParams(cleanedParams)
-                    people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
+                    return toParams(cleanedParams)
                 } else {
-                    const filterParams = parsePeopleParams(
-                        { label, action, date_from, date_to, breakdown_value },
-                        filters
-                    )
-                    people = await api.get(`api/action/people/?${filterParams}${searchTermParam}`)
+                    return parsePeopleParams({ label, action, date_from, date_to, breakdown_value }, filters)
                 }
+            },
+        ],
+    },
+    loaders: ({ actions, values }) => ({
+        people: {
+            loadPeople: async ({ peopleParams }, breakpoint) => {
+                const { peopleFilterParams } = values
+                let people = []
+
+                const {
+                    label,
+                    action,
+                    filters,
+                    date_from,
+                    breakdown_value,
+                    saveOriginal,
+                    searchTerm,
+                    funnelStep,
+                } = peopleParams
+                const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
+
+                if (filters.insight === ViewType.LIFECYCLE) {
+                    people = await api.get(`api/person/lifecycle/?${peopleFilterParams}${searchTermParam}`)
+                } else if (filters.insight === ViewType.STICKINESS) {
+                    people = await api.get(`api/person/stickiness/?${peopleFilterParams}${searchTermParam}`)
+                } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
+                    people = await api.create(`api/person/funnel/?${peopleFilterParams}${searchTermParam}`)
+                } else {
+                    people = await api.get(`api/action/people/?${peopleFilterParams}${searchTermParam}`)
+                }
+
                 breakpoint()
                 const peopleResult = {
                     people: people.results[0]?.people,
@@ -173,7 +185,6 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     next: people.next,
                     funnelStep,
                 } as TrendPeople
-
                 eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!people.next)
 
                 if (saveOriginal) {
@@ -212,17 +223,13 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
             },
         },
         savedCohort: {
-            saveCohortWithFilters: async ({ cohortName, filters }) => {
+            saveCohortWithFilters: async ({ cohortName }) => {
                 if (!values.people) {
                     errorToast(undefined, "We couldn't create your cohort:")
                     return
                 }
-                const { label, action, day, breakdown_value } = values.people
-                const filterParams = parsePeopleParams(
-                    { label, action, date_from: day, date_to: day, breakdown_value },
-                    filters
-                )
 
+                const filterParams = values.peopleFilterParams
                 const cohortParams = {
                     is_static: true,
                     name: cohortName,

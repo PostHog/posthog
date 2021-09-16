@@ -34,7 +34,7 @@ export function PersonModal({ visible, view, filters }: PersonModalProps): JSX.E
             <SaveCohortModal
                 visible={cohortModalVisible}
                 onOk={(title) => {
-                    saveCohortWithFilters(title, filters)
+                    saveCohortWithFilters(title)
                     setCohortModalVisible(false)
                     reportCohortCreatedFromPersonModal(filters)
                 }}

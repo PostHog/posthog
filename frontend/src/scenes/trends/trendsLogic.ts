@@ -10,6 +10,7 @@ import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHist
 import {
     ActionFilter,
     ChartDisplayType,
+    EntityType,
     EntityTypes,
     FilterType,
     PersonType,
@@ -83,13 +84,30 @@ function filterClientSideParams(filters: Partial<FilterType>): Partial<FilterTyp
     return newFilters
 }
 
+export function getEntityFromFilters(
+    peopleAction: PeopleParamType['action'],
+    filters: Partial<FilterType>
+): {
+    entity_id?: number
+    entity_type?: EntityType
+    entity_math?: string
+} {
+    return {
+        entity_id:
+            (peopleAction !== 'session' && peopleAction.id) || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
+        entity_type:
+            (peopleAction !== 'session' && peopleAction.type) ||
+            filters?.events?.[0]?.type ||
+            filters?.actions?.[0]?.type,
+        entity_math: (peopleAction !== 'session' && peopleAction.math) || undefined,
+    }
+}
+
 export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
     const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
     const params = filterClientSideParams({
         ...filters,
-        entity_id: (action !== 'session' && action.id) || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
-        entity_type: (action !== 'session' && action.type) || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
-        entity_math: (action !== 'session' && action.math) || undefined,
+        ...getEntityFromFilters(action, filters),
         breakdown_value,
     })
 
