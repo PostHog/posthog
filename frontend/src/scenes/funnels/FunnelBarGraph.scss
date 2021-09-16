@@ -167,15 +167,6 @@ $funnel_canvas_background: #fafafa;
         display: flex;
         flex-direction: row;
 
-        &.breakdown {
-            background-color: transparent;
-
-            .breakdown-bar-group {
-                .breakdown-bar-column {
-                }
-            }
-        }
-
         .funnel-bar {
             position: relative;
             height: 100%;

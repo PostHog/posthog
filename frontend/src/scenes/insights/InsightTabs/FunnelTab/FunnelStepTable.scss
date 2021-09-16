@@ -11,12 +11,10 @@
     font-weight: 500;
 }
 
-.header-row {
-    background-color: $antd_table_background_dark;
-}
-
-.dividing-column {
-    border-right: 1px solid $border;
+.funnel-table-cell {
+    &.dividing-column {
+        border-right: 1px solid $border;
+    }
 
     &.axis-labels-column {
         z-index: 2;
@@ -24,6 +22,10 @@
 
     &.no-border-bottom {
         border-bottom: none;
+    }
+
+    &.dark-bg {
+        background-color: $antd_table_background_dark;
     }
 }
 
@@ -68,6 +70,32 @@
         width: 200px;
         position: relative;
         z-index: 1;
+
+        .breakdown-bar-column {
+            display: block;
+            height: 100%;
+            margin: 0 1px;
+        }
+
+        .breakdown-previous-bar {
+            position: absolute;
+            bottom: 0;
+            opacity: 0.1;
+            border-radius: 3px;
+        }
+
+        .breakdown-current-bar {
+            position: absolute;
+            bottom: 0;
+            border-radius: 3px;
+        }
+
+        .breakdown-label {
+            position: absolute;
+            font-weight: 600;
+            color: $text-muted;
+            text-align: center;
+        }
     }
 
     .funnel-bar-empty-space {
@@ -100,6 +128,7 @@
 
     &.axis-wrapper {
         justify-content: flex-end;
+        width: 100%;
 
         .axis {
             height: 332px;

@@ -650,6 +650,11 @@ export const funnelLogic = kea<funnelLogicType>({
         flattenedBreakdowns: [
             () => [selectors.flattenedStepsByBreakdown],
             (breakdowns): FlattenedFunnelStepByBreakdown[] => {
+                console.log(
+                    'FLATTENING',
+                    breakdowns,
+                    breakdowns.filter((b) => b.breakdown)
+                )
                 return breakdowns.filter((b) => b.breakdown)
             },
         ],
@@ -705,13 +710,10 @@ export const funnelLogic = kea<funnelLogicType>({
             }
         },
         toggleBreakdownVisibility: ({ breakdownIndex }) => {
-            // toggle breakdowns with this index for all steps
-            if (!!values.filters.breakdown) {
-                values.steps?.forEach((step) => {
-                    const key = `${step.order}-${breakdownIndex}`
-                    actions.setVisibilityById({ [key]: !values.visibilityMap[key] })
-                })
-            }
+            values.visibleStepsWithConversionMetrics?.forEach((step) => {
+                const key = `${step.order}-${breakdownIndex}`
+                actions.setVisibilityById({ [key]: !values.visibilityMap[key] })
+            })
         },
         setFilters: ({ refresh }) => {
             // No calculate button on Clickhouse, but query performance is suboptimal on psql

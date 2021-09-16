@@ -3,7 +3,7 @@ import { getReferenceStep, getSeriesColor, humanizeOrder } from 'scenes/funnels/
 import { RenderedCell } from 'rc-table/lib/interface'
 import React from 'react'
 import { BreakdownVerticalBarGroup } from 'scenes/funnels/FunnelBarGraph'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -32,18 +32,33 @@ export const EmptyValue = <span className="text-muted-alt">-</span>
 function BreakdownBarGroupWrapper({
     step,
     dashboardItemId,
+    showLabels,
 }: {
     step: FunnelStepWithConversionMetrics
     dashboardItemId?: number
+    showLabels: boolean
 }): JSX.Element {
     const logic = funnelLogic({ dashboardItemId })
-    const { stepReference, visibleStepsWithConversionMetrics: steps } = useValues(logic)
+    const { stepReference, visibleStepsWithConversionMetrics: steps, clickhouseFeaturesEnabled } = useValues(logic)
+    const { openPersonsModal } = useActions(logic)
     const basisStep = getReferenceStep(steps, stepReference, step.order)
     const previousStep = getReferenceStep(steps, FunnelStepReference.previous, step.order)
+    const isClickable = !!(clickhouseFeaturesEnabled && !dashboardItemId && openPersonsModal)
 
     return (
         <div className="funnel-bar-wrapper breakdown vertical">
-            <BreakdownVerticalBarGroup currentStep={step} basisStep={basisStep} previousStep={previousStep} />
+            <BreakdownVerticalBarGroup
+                currentStep={step}
+                basisStep={basisStep}
+                previousStep={previousStep}
+                showLabels={showLabels}
+                onBarClick={(breakdown_value) => {
+                    if (isClickable) {
+                        openPersonsModal(step, step.order + 1, breakdown_value)
+                    }
+                }}
+                isClickable={isClickable}
+            />
             <div className="funnel-bar-empty-space" />
             <div className="funnel-bar-axis">
                 <div className="axis-tick-line" />
@@ -62,9 +77,11 @@ export const renderGraphAndHeader = (
     colIndex: number,
     defaultElement: JSX.Element,
     headerElement: JSX.Element,
+    steps?: FunnelStepWithConversionMetrics[],
     step?: FunnelStepWithConversionMetrics,
     dashboardItemId?: number
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
+    console.log('ROWINDEX', rowIndex, colIndex)
     if (rowIndex === 0 || rowIndex === 1) {
         // Empty cell
         if (colIndex === 0) {
@@ -72,7 +89,7 @@ export const renderGraphAndHeader = (
                 return {
                     props: {
                         colSpan: 3,
-                        className: 'dividing-column no-border-bottom',
+                        className: 'funnel-table-cell dividing-column no-border-bottom dark-bg',
                     },
                 }
             }
@@ -99,7 +116,7 @@ export const renderGraphAndHeader = (
                 ),
                 props: {
                     colSpan: 3,
-                    className: 'dividing-column axis-labels-column',
+                    className: 'funnel-table-cell dividing-column axis-labels-column dark-bg',
                 },
             }
         }
@@ -115,7 +132,7 @@ export const renderGraphAndHeader = (
                     ),
                     props: {
                         colSpan: 2,
-                        className: 'dividing-column funnel-step-title-row',
+                        className: 'funnel-table-cell dividing-column funnel-step-title-row',
                     },
                 }
             }
@@ -124,11 +141,12 @@ export const renderGraphAndHeader = (
                     <BreakdownBarGroupWrapper
                         dashboardItemId={dashboardItemId}
                         step={step as FunnelStepWithConversionMetrics}
+                        showLabels={(steps?.length ?? 0) < 8}
                     />
                 ),
                 props: {
                     colSpan: 2,
-                    className: 'dividing-column',
+                    className: 'funnel-table-cell dividing-column dark-bg',
                 },
             }
         }
@@ -151,7 +169,7 @@ export const renderGraphAndHeader = (
                     ),
                     props: {
                         colSpan: 5,
-                        className: 'dividing-column funnel-step-title-row',
+                        className: 'funnel-table-cell dividing-column funnel-step-title-row',
                     },
                 }
             }
@@ -160,11 +178,12 @@ export const renderGraphAndHeader = (
                     <BreakdownBarGroupWrapper
                         dashboardItemId={dashboardItemId}
                         step={step as FunnelStepWithConversionMetrics}
+                        showLabels={(steps?.length ?? 0) < 8}
                     />
                 ),
                 props: {
                     colSpan: 5,
-                    className: 'dividing-column',
+                    className: 'funnel-table-cell dividing-column dark-bg',
                 },
             }
         }

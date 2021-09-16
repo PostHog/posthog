@@ -1,7 +1,7 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import useSize from '@react-hook/size'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -69,18 +69,22 @@ interface BreakdownBarGroupProps {
     currentStep: FunnelStepWithConversionMetrics
     basisStep: FunnelStepWithConversionMetrics
     previousStep: FunnelStepWithConversionMetrics
+    showLabels: boolean
+    onBarClick?: (breakdown_value: string | undefined | number) => void
+    isClickable: boolean
 }
 
 export function BreakdownVerticalBarGroup({
     currentStep,
     basisStep,
     previousStep,
+    showLabels,
+    onBarClick,
+    isClickable,
 }: BreakdownBarGroupProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const [, height] = useSize(ref)
     const barWidth = `calc(${100 / (currentStep?.nested_breakdown?.length ?? 1)}% - 2px)`
-
-    console.log('CURRENT STEP', currentStep)
 
     return (
         <div className="breakdown-bar-group" ref={ref}>
@@ -90,44 +94,99 @@ export function BreakdownVerticalBarGroup({
                 const previousBarHeight =
                     (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
                 const color = getSeriesColor(breakdown.order) as string
-                console.log('BBREAKDOWN', currentStep, breakdown, color)
+                const isBasisBreakdown = breakdown.breakdown_value === 'Baseline'
+                const popoverMetrics = [
+                    {
+                        title: 'Completed step',
+                        value: breakdown.count,
+                    },
+                    {
+                        title: 'Conversion rate (total)',
+                        value: formatDisplayPercentage(breakdown.conversionRates.total) + '%',
+                    },
+                    {
+                        title: `Conversion rate (from step ${humanizeOrder(previousStep.order)})`,
+                        value: formatDisplayPercentage(breakdown.conversionRates.fromPrevious) + '%',
+                        visible: currentStep.order !== 0,
+                    },
+                    {
+                        title: 'Dropped off',
+                        value: breakdown.droppedOffFromPrevious,
+                        visible: currentStep.order !== 0 && breakdown.droppedOffFromPrevious > 0,
+                    },
+                    {
+                        title: `Dropoff rate (from step ${humanizeOrder(previousStep.order)})`,
+                        value: formatDisplayPercentage(1 - breakdown.conversionRates.fromPrevious) + '%',
+                        visible: currentStep.order !== 0 && breakdown.droppedOffFromPrevious > 0,
+                    },
+                    {
+                        title: 'Average time on step',
+                        value: humanFriendlyDuration(breakdown.average_conversion_time),
+                        visible: !!breakdown.average_conversion_time,
+                    },
+                ]
 
                 return (
                     <div
                         key={breakdownIndex}
                         className="breakdown-bar-column"
                         style={{
-                            display: 'block',
-                            height: '100%',
                             width: barWidth,
-                            margin: '0 1px',
                         }}
                     >
                         {currentStep.order > 0 && (
                             <div
                                 className="breakdown-previous-bar"
                                 style={{
-                                    position: 'absolute',
-                                    bottom: 0,
                                     height: previousBarHeight,
-                                    opacity: 0.1,
                                     backgroundColor: color,
-                                    borderRadius: 3,
                                     width: barWidth,
                                 }}
                             />
                         )}
-                        <div
-                            className="breakdown-current-bar"
-                            style={{
-                                position: 'absolute',
-                                bottom: 0,
-                                height: currentBarHeight,
-                                backgroundColor: color,
-                                borderRadius: 3,
-                                width: barWidth,
-                            }}
-                        />
+                        <Popover
+                            trigger="hover"
+                            placement="right"
+                            content={
+                                <InsightTooltip
+                                    altTitle={
+                                        <div style={{ wordWrap: 'break-word' }}>
+                                            <PropertyKeyInfo value={currentStep.name} />
+                                            {' • '}
+                                            {(isBasisBreakdown ? 'None' : breakdown.breakdown) ?? 'None'}
+                                        </div>
+                                    }
+                                >
+                                    {popoverMetrics.map(({ title, value, visible }, index) =>
+                                        visible !== false ? <MetricRow key={index} title={title} value={value} /> : null
+                                    )}
+                                </InsightTooltip>
+                            }
+                        >
+                            <div
+                                className="breakdown-current-bar"
+                                style={{
+                                    height: currentBarHeight,
+                                    backgroundColor: color,
+                                    width: barWidth,
+                                    cursor: isClickable ? 'pointer' : undefined,
+                                }}
+                                onClick={() =>
+                                    onBarClick && onBarClick(isBasisBreakdown ? undefined : breakdown.breakdown_value)
+                                }
+                            />
+                        </Popover>
+                        {showLabels && (
+                            <div
+                                className="breakdown-label"
+                                style={{
+                                    bottom: currentBarHeight + 4,
+                                    width: barWidth,
+                                }}
+                            >
+                                {breakdown.count > 0 ? humanFriendlyNumber(breakdown.count) : ''}
+                            </div>
+                        )}
                     </div>
                 )
             })}

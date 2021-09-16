@@ -429,6 +429,11 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
+// Number to number with commas (e.g. 1234 -> 1,234)
+export function humanFriendlyNumber(d: number): string {
+    return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
