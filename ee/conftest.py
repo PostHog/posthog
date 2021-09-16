@@ -1,9 +1,7 @@
 import pytest
-from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
-from posthog.constants import AnalyticsDBMS
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -12,6 +10,7 @@ from posthog.settings import (
     CLICKHOUSE_VERIFY,
 )
 from posthog.test.base import TestMixin
+from posthog.utils import is_clickhouse_enabled
 
 
 def reset_clickhouse_tables():
@@ -54,7 +53,7 @@ def reset_clickhouse_tables():
             pass
 
 
-if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
+if is_clickhouse_enabled():
 
     @pytest.fixture(scope="package")
     def django_db_setup(django_db_setup, django_db_keepdb):
