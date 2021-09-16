@@ -1,12 +1,13 @@
 import React from 'react'
 import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
-import { Tooltip, Form, Input, Radio, InputNumber } from 'antd'
+import { Tooltip, Form, Input, Radio, InputNumber, DatePicker } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
 import MonacoEditor from '@monaco-editor/react'
 import { useValues, useActions } from 'kea'
 import { JobSpec } from '~/types'
 import { validateJsonFormItem } from 'lib/utils'
 import { interfaceJobsLogic } from './interfaceJobsLogic'
+
 interface PluginJobConfigurationProps {
     jobName: string
     jobSpec: JobSpec
@@ -25,7 +26,7 @@ export function PluginJobConfiguration({
     pluginConfigId,
     pluginId,
 }: PluginJobConfigurationProps): JSX.Element {
-    const logicProps = { jobName, pluginConfigId, pluginId }
+    const logicProps = { jobName, pluginConfigId, pluginId, jobSpecPayload: jobSpec.payload }
     const { setIsJobModalOpen, runJob, playButtonOnClick } = useActions(interfaceJobsLogic(logicProps))
     const { runJobAvailable, isJobModalOpen } = useValues(interfaceJobsLogic(logicProps))
 
@@ -108,6 +109,16 @@ export function PluginJobConfiguration({
                                                 <CloseOutlined /> False
                                             </Radio.Button>
                                         </Radio.Group>
+                                    ) : options.type === 'date' ? (
+                                        <DatePicker
+                                            popupStyle={{ zIndex: 1061 }}
+                                            allowClear
+                                            placeholder="Today"
+                                            className="retention-date-picker"
+                                            suffixIcon={null}
+                                            use12Hours
+                                            showTime
+                                        />
                                     ) : null}
                                 </Form.Item>
                             </span>
