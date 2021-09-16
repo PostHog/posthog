@@ -32,7 +32,10 @@ export const tagColors = [
     'geekblue',
 ]
 
-const getColorVar = (variable: string): string => getComputedStyle(document.body).getPropertyValue('--' + variable)
+const getColorVar = (variable: string): string =>
+    getComputedStyle(document.body)
+        .getPropertyValue('--' + variable)
+        .trim()
 
 export const darkWhites = [
     'rgba(255,255,255,0.6)',
