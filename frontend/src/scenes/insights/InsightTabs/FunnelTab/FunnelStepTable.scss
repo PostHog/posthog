@@ -27,6 +27,12 @@
     &.dark-bg {
         background-color: $antd_table_background_dark;
     }
+
+    &.breakdown-label-column {
+        .insights-label {
+            word-break: break-all;
+        }
+    }
 }
 
 .funnel-step-title-row {
@@ -93,6 +99,7 @@
         .breakdown-label {
             position: absolute;
             font-weight: 600;
+            font-size: 12px;
             color: $text-muted;
             text-align: center;
         }

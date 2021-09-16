@@ -39,10 +39,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
     const { openPersonsModal, toggleBreakdownVisibility, setVisibilityById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
     const isVertical = barGraphLayout === FunnelLayout.vertical
-
-    console.log('flattened breakdown', flattenedStepsByBreakdown)
-    console.log('flattenedSteps', flattenedSteps)
-    console.log('visibility map', visibilityMap)
+    const showLabels = (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
 
     function getColumns(
         layout: FunnelLayout
@@ -55,8 +52,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                     const breakdownIndices = Array.from(Array(flattenedBreakdowns.length).keys()) ?? []
                     const stepIndices = Array.from(Array(visibleStepsWithConversionMetrics.length).keys()) ?? []
                     const checked = !!breakdownIndices?.every((i) => visibilityMap[`0-${i}`])
-
-                    console.log('BREAKDOWN RENDER', breakdown)
 
                     return renderGraphAndHeader(
                         rowIndex,
@@ -79,7 +74,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 )
                             }}
                         />,
-                        undefined,
+                        showLabels,
                         undefined,
                         dashboardItemId
                     )
@@ -107,13 +102,14 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             allowWrap
                         />,
                         renderColumnTitle('Breakdown'),
-                        undefined,
+                        showLabels,
                         undefined,
                         dashboardItemId
                     )
                 },
                 fixed: 'left',
                 width: 150,
+                className: 'funnel-table-cell breakdown-label-column',
             })
 
             _columns.push({
@@ -123,7 +119,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         2,
                         <span>{formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0)}%</span>,
                         renderSubColumnTitle('Comp. rate'),
-                        undefined,
+                        showLabels,
                         undefined,
                         dashboardItemId
                     )
@@ -160,7 +156,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 EmptyValue
                             ),
                             renderSubColumnTitle('Completed'),
-                            visibleStepsWithConversionMetrics,
+                            showLabels,
                             step,
                             dashboardItemId
                         )
@@ -185,7 +181,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 EmptyValue
                             ),
                             renderSubColumnTitle('Rate'),
-                            visibleStepsWithConversionMetrics,
+                            showLabels,
                             step,
                             dashboardItemId
                         )
@@ -219,7 +215,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                     EmptyValue
                                 ),
                                 renderSubColumnTitle('Dropped'),
-                                visibleStepsWithConversionMetrics,
+                                showLabels,
                                 step,
                                 dashboardItemId
                             )
@@ -244,7 +240,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                     EmptyValue
                                 ),
                                 renderSubColumnTitle('Rate'),
-                                visibleStepsWithConversionMetrics,
+                                showLabels,
                                 step,
                                 dashboardItemId
                             )
@@ -269,7 +265,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                     EmptyValue
                                 ),
                                 renderSubColumnTitle('Avg. time'),
-                                visibleStepsWithConversionMetrics,
+                                showLabels,
                                 step,
                                 dashboardItemId
                             )
@@ -472,8 +468,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
               columns,
           }
 
-    console.log('TABLE DATA', tableData)
-
     return stepsWithCount.length > 1 ? (
         <Table
             {...tableData}
@@ -482,7 +476,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
             rowKey="rowKey"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
-            data-attr="funnel-steps-table"
+            data-attr={isVertical ? 'funnel-bar-graph' : 'funnel-steps-table'}
         />
     ) : null
 }

@@ -77,7 +77,7 @@ export const renderGraphAndHeader = (
     colIndex: number,
     defaultElement: JSX.Element,
     headerElement: JSX.Element,
-    steps?: FunnelStepWithConversionMetrics[],
+    showLabels: boolean,
     step?: FunnelStepWithConversionMetrics,
     dashboardItemId?: number
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
@@ -140,7 +140,7 @@ export const renderGraphAndHeader = (
                     <BreakdownBarGroupWrapper
                         dashboardItemId={dashboardItemId}
                         step={step as FunnelStepWithConversionMetrics}
-                        showLabels={(steps?.length ?? 0) < 8}
+                        showLabels={showLabels}
                     />
                 ),
                 props: {
@@ -177,7 +177,7 @@ export const renderGraphAndHeader = (
                     <BreakdownBarGroupWrapper
                         dashboardItemId={dashboardItemId}
                         step={step as FunnelStepWithConversionMetrics}
-                        showLabels={(steps?.length ?? 0) < 8}
+                        showLabels={showLabels}
                     />
                 ),
                 props: {

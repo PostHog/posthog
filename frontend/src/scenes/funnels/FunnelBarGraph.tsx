@@ -1,7 +1,7 @@
 import React, { ForwardRefRenderFunction, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import useSize from '@react-hook/size'
-import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
+import { compactNumber, humanFriendlyDuration } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Button, ButtonProps, Popover } from 'antd'
 import { ArrowRightOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -184,7 +184,7 @@ export function BreakdownVerticalBarGroup({
                                     width: barWidth,
                                 }}
                             >
-                                {breakdown.count > 0 ? humanFriendlyNumber(breakdown.count) : ''}
+                                {breakdown.count > 0 ? compactNumber(breakdown.count) : ''}
                             </div>
                         )}
                     </div>
