@@ -10,6 +10,7 @@ from posthog.settings import (
     CLICKHOUSE_VERIFY,
 )
 from posthog.test.base import TestMixin
+from posthog.utils import is_clickhouse_enabled
 
 
 def reset_clickhouse_tables():
@@ -52,34 +53,36 @@ def reset_clickhouse_tables():
             pass
 
 
-@pytest.fixture(scope="package")
-def django_db_setup(django_db_setup, django_db_keepdb):
-    database = Database(
-        CLICKHOUSE_DATABASE,
-        db_url=CLICKHOUSE_HTTP_URL,
-        username=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        verify_ssl_cert=CLICKHOUSE_VERIFY,
-    )
+if is_clickhouse_enabled():
 
-    if not django_db_keepdb:
-        try:
-            database.drop_database()
-        except:
-            pass
+    @pytest.fixture(scope="package")
+    def django_db_setup(django_db_setup, django_db_keepdb):
+        database = Database(
+            CLICKHOUSE_DATABASE,
+            db_url=CLICKHOUSE_HTTP_URL,
+            username=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            verify_ssl_cert=CLICKHOUSE_VERIFY,
+        )
 
-    if not django_db_keepdb or not database.db_exists:
-        database.create_database()
+        if not django_db_keepdb:
+            try:
+                database.drop_database()
+            except:
+                pass
 
-    reset_clickhouse_tables()
+        if not django_db_keepdb or not database.db_exists:
+            database.create_database()
 
-    yield
+        reset_clickhouse_tables()
 
-    if not django_db_keepdb:
-        try:
-            database.drop_database()
-        except:
-            pass
+        yield
+
+        if not django_db_keepdb:
+            try:
+                database.drop_database()
+            except:
+                pass
 
 
 @pytest.fixture
