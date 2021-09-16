@@ -6,6 +6,7 @@ import { mockAPIGet } from 'lib/api.mock'
 import { initKeaTestLogic } from '~/test/kea-utils'
 import { mockEventDefinitions } from '~/test/mocks'
 import { expectLogic } from '~/test/kea-utils'
+import { waitForAction } from 'kea-waitfor'
 
 jest.mock('lib/api')
 
@@ -68,8 +69,9 @@ describe('infiniteListLogic verbose version', () => {
         })
 
         it('can go up and down', async () => {
-            await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
-            expectLogic(logic).toMatchValues({ index: 0, remoteItems: expect.objectContaining({ results: Array(56) }) })
+            // await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+            await waitForAction(logic.actionTypes.loadRemoteItemsSuccess)
+            expectLogic(logic).toMatchValues({ index: 0, remoteItems: expect.objectContaining({ count: 56 }) })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 55 })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 54 })
             expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 55 })

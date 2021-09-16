@@ -101,9 +101,12 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
 
     start()
 
+    let ranActions = false
+
     function makeCallableMethods(): CallableMethods {
         return {
             toDispatchActions: (actions) => {
+                ranActions = true
                 const actionsToSearch = tryToSearchActions(actions, logic)
                 if (actionsToSearch.length > 0) {
                     throw new Error(`Could not find dispatched action: ${actionsToSearch[0]}`)
@@ -112,8 +115,9 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
             },
             toMatchValues: (values) => {
                 const { recordedActions } = testUtilsContext()
-                const actionPointer = pointerMap.get(logic) || 0
-                const currentState = recordedActions[actionPointer]?.afterState || getContext().store.getState()
+                const currentState = ranActions
+                    ? recordedActions[pointerMap.get(logic) || 0]?.afterState || getContext().store.getState()
+                    : getContext().store.getState()
                 for (const [key, value] of Object.entries(values)) {
                     const currentValue = logic.selectors[key](currentState, logic.props)
                     expect(currentValue).toEqual(value)
