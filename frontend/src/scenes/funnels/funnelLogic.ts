@@ -571,8 +571,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         flattenedStepsByBreakdown: [
-            () => [selectors.stepsWithConversionMetrics],
-            (steps): FlattenedFunnelStepByBreakdown[] => {
+            () => [selectors.stepsWithConversionMetrics, selectors.barGraphLayout],
+            (steps, layout): FlattenedFunnelStepByBreakdown[] => {
                 // Initialize with two rows for rendering graph and header
                 const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
                     { rowKey: 'steps-meta' },
@@ -583,7 +583,9 @@ export const funnelLogic = kea<funnelLogicType>({
                 if (steps.length > 0) {
                     const baseStep = steps[0]
                     const lastStep = steps[steps.length - 1]
-                    const hasBaseline = !baseStep.breakdown || (baseStep.nested_breakdown?.length ?? 0) > 1
+                    const hasBaseline =
+                        layout === FunnelLayout.vertical &&
+                        (!baseStep.breakdown || (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
                     if (hasBaseline) {
                         flattenedStepsByBreakdown.push({

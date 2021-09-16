@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { TableProps } from 'antd'
-import { FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import Table, { ColumnsType } from 'antd/lib/table'
 import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTable'
@@ -22,6 +22,7 @@ import {
     renderSubColumnTitle,
 } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import './FunnelStepTable.scss'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element | null {
     const logic = funnelLogic({ dashboardItemId, _filters })
@@ -38,13 +39,13 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
     } = useValues(logic)
     const { openPersonsModal, toggleBreakdownVisibility, setVisibilityById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
-    const isVertical = barGraphLayout === FunnelLayout.vertical
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isNewVertical =
+        featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && barGraphLayout === FunnelLayout.vertical
     const showLabels = (visibleStepsWithConversionMetrics?.[0]?.nested_breakdown?.length ?? 0) < 6
 
-    function getColumns(
-        layout: FunnelLayout
-    ): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
-        if (layout === FunnelLayout.vertical) {
+    function getColumns(): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
+        if (isNewVertical) {
             const _columns: ColumnsType<FlattenedFunnelStepByBreakdown> = []
 
             _columns.push({
@@ -297,7 +298,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
             align: 'center',
         })
 
-        if (!!filters.breakdown) {
+        if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && !!filters.breakdown) {
             _columns.push({
                 title: '',
                 render: function RenderCheckbox({}, step: FlattenedFunnelStep): JSX.Element | null {
@@ -455,8 +456,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
     }
 
     // If the bars are vertical, use table as legend #5733
-    const columns = getColumns(barGraphLayout)
-    const tableData: TableProps<any /* TODO: Type this */> = isVertical
+    const columns = getColumns()
+    const tableData: TableProps<any /* TODO: Type this */> = isNewVertical
         ? {
               dataSource: flattenedStepsByBreakdown,
               columns,
@@ -476,7 +477,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
             rowKey="rowKey"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
-            data-attr={isVertical ? 'funnel-bar-graph' : 'funnel-steps-table'}
+            data-attr={isNewVertical ? 'funnel-bar-graph' : 'funnel-steps-table'}
         />
     ) : null
 }

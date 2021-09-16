@@ -404,7 +404,8 @@ export function Insights(): JSX.Element {
                                     activeView === ViewType.FUNNELS &&
                                     !showErrorMessage &&
                                     allFilters.funnel_viz_type === FunnelVizType.Steps &&
-                                    allFilters.layout === FunnelLayout.horizontal && (
+                                    (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] ||
+                                        allFilters.layout === FunnelLayout.horizontal) && (
                                         <FunnelStepTable filters={allFilters} />
                                     ) // Don't render table below if bars are vertical. Rendering table handled by FunnelBarGraph
                             }
