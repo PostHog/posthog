@@ -211,8 +211,7 @@ def get_event_count_for_team_and_period(
         SELECT count(1) as count
         FROM events
         WHERE team_id = %(team_id)s
-        AND timestamp > %(begin)s
-        AND timestamp < %(end)s
+        AND timestamp between %(begin)s AND %(end)s
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
     )[0][0]
@@ -247,7 +246,9 @@ def get_events_count_for_team_by_client_lib(
     results = sync_execute(
         """
         SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq 
-        FROM events WHERE team_id = %(team_id)s AND timestamp >= %(begin)s AND timestamp <= %(end)s
+        FROM events
+        WHERE team_id = %(team_id)s 
+        AND timestamp between %(begin)s AND %(end)s
         GROUP BY lib
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
@@ -261,7 +262,9 @@ def get_events_count_for_team_by_event_type(
     results = sync_execute(
         """
         SELECT event, COUNT(1) as freq 
-        FROM events WHERE team_id = %(team_id)s AND timestamp >= %(begin)s AND timestamp <= %(end)s
+        FROM events
+        WHERE team_id = %(team_id)s
+        AND timestamp between %(begin)s AND %(end)s
         GROUP BY event 
     """,
         {"team_id": str(team_id), "begin": begin, "end": end},
