@@ -112,33 +112,15 @@ class Funnel(BaseQuery):
 
         ON_TRUE = "ON TRUE"
         LEFT_JOIN_LATERAL = "LEFT JOIN LATERAL"
-        QUERY_HEADER = "SELECT {people}, {fields} FROM "
         LAT_JOIN_BODY = (
             """({query}) {step} {on_true} {join}""" if len(query_bodies) > 1 else """({query}) {step} {on_true} """
         )
-        PERSON_FIELDS = [
-            [sql.Identifier("posthog_person"), sql.Identifier("uuid")],
-            [sql.Identifier("posthog_person"), sql.Identifier("created_at")],
-            [sql.Identifier("posthog_person"), sql.Identifier("team_id")],
-            [sql.Identifier("posthog_person"), sql.Identifier("properties")],
-            [sql.Identifier("posthog_person"), sql.Identifier("is_user_id")],
-        ]
-        QUERY_FOOTER = sql.SQL(
-            """
-            JOIN posthog_person ON posthog_person.id = {step0}.person_id
-            WHERE {step0}.person_id IS NOT NULL
-            GROUP BY {group_by}"""
-        )
 
-        person_fields = sql.SQL(",").join([sql.SQL(".").join(col) for col in PERSON_FIELDS])
-
-        steps = [sql.Identifier(step) for step, query in query_bodies.items()]
+        steps = [sql.Identifier(step) for step, _ in query_bodies.items()]
         select_steps = [
-            sql.Composed([sql.SQL("MIN("), step, sql.SQL("."), sql.Identifier("step_ts"), sql.SQL(") as "), step,])
-            for step in steps
+            sql.Composed([step, sql.SQL("."), sql.Identifier("step_ts"), sql.SQL(" as "), step,]) for step in steps
         ]
         lateral_joins = []
-        query = sql.SQL(QUERY_HEADER).format(fields=sql.SQL(",").join(select_steps), people=person_fields)
         i = 0
         for step, qb in query_bodies.items():
             if i > 0:
@@ -171,8 +153,29 @@ class Funnel(BaseQuery):
                 )
             lateral_joins.append(base_body)
             i += 1
-        query_footer = QUERY_FOOTER.format(step0=steps[0], group_by=person_fields)
-        query = query + sql.SQL(" ").join(lateral_joins) + query_footer
+
+        event_chain_query = sql.SQL(" ").join(lateral_joins).as_string(connection.connection)
+
+        query = f"""
+            SELECT 
+                DISTINCT ON (person.id)
+                person.uuid, 
+                person.created_at,
+                person.team_id,
+                person.properties,
+                person.is_user_id,
+                {sql.SQL(",").join(select_steps).as_string(connection.connection)}
+            FROM posthog_person person
+            JOIN posthog_persondistinctid pdi ON pdi.person_id = person.id
+            JOIN {event_chain_query}
+            -- join on person_id for the first event. 
+            -- NOTE: there is some implicit coupling here in that I am
+            -- assuming the name of the first event select is "step_0".
+            -- Maybe worth cleaning up in the future
+            ON person.id = step_0.person_id
+            WHERE person.team_id = {self._team.pk} AND person.id IS NOT NULL
+            ORDER BY person.id, step_0.step_ts ASC
+        """
         return query
 
     def _build_trends_query(self, filter: Filter) -> sql.SQL:
@@ -305,7 +308,7 @@ class Funnel(BaseQuery):
 
         with connection.cursor() as cursor:
             # Then we build a query to query for them in order
-            qstring = self._build_query(within_time=None).as_string(cursor.connection)
+            qstring = self._build_query(within_time=None)
 
             cursor.execute(qstring)
             results = namedtuplefetchall(cursor)
