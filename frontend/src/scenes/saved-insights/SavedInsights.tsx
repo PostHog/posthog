@@ -282,8 +282,8 @@ export function SavedInsights(): JSX.Element {
                     >
                         <Select.Option value={'All users'}>All users</Select.Option>
                         {members.map((member) => (
-                            <Select.Option key={member.user_id} value={member.user_id}>
-                                {member.user_first_name}
+                            <Select.Option key={member.user.id} value={member.user.id}>
+                                {member.user.first_name}
                             </Select.Option>
                         ))}
                     </Select>
