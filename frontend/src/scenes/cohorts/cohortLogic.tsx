@@ -104,27 +104,29 @@ export const cohortLogic = kea<cohortLogicType>({
     listeners: ({ actions, values, key }) => ({
         saveCohort: async ({ cohortParams, filterParams }, breakpoint) => {
             let cohort = { ...values.cohort, ...cohortParams } as CohortType
+            const isNewCohort = typeof cohort.id !== 'number'
             const cohortFormData = new FormData()
 
             for (const [itemKey, value] of Object.entries(cohort as CohortType)) {
                 if (itemKey === 'groups') {
+                    debugger
                     if (cohort.is_static) {
-                        if (!cohort.csv && cohort.id === 'new') {
+                        if (!cohort.csv && isNewCohort) {
                             actions.setSubmitted(true)
-                            return
+                            continue
                         }
                     } else {
                         for (const _group of value) {
                             if (_group.matchType === PROPERTY_MATCH_TYPE && !_group.properties?.length) {
                                 // Match group should have at least one property
                                 actions.setSubmitted(true)
-                                return
+                                continue
                             }
 
                             if (_group.matchType === ENTITY_MATCH_TYPE && !(_group.action_id || _group.event_id)) {
                                 // Match group should have an event or action set
                                 actions.setSubmitted(true)
-                                return
+                                continue
                             }
                         }
                     }
@@ -137,18 +139,19 @@ export const cohortLogic = kea<cohortLogicType>({
                         // If we have a static cohort uploaded by CSV we don't need to send groups
                         cohortFormData.append(itemKey, '[]')
                     }
+                } else if (itemKey === 'id' && isNewCohort) {
+                    // don't save "new" or "personModalNew" as ID
                 } else {
                     cohortFormData.append(itemKey, value)
                 }
             }
 
             try {
-                if (cohort.id !== 'new') {
+                if (!isNewCohort) {
                     cohort = await api.update(
                         'api/cohort/' + cohort.id + (filterParams ? '?' + filterParams : ''),
                         cohortFormData
                     )
-
                     cohortsModel.actions.updateCohort(cohort)
                 } else {
                     cohort = await api.create('api/cohort' + (filterParams ? '?' + filterParams : ''), cohortFormData)
