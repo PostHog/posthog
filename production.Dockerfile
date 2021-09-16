@@ -42,7 +42,7 @@ COPY package.json /code/.
 COPY yarn.lock /code/.
 RUN yarn --frozen-lockfile
 
-
+# steps below will change on almost every build (steps above will be cached most of the time)
 # load entire codebase & build frontend
 COPY . /code/
 RUN yarn build \
