@@ -1,4 +1,4 @@
-import { resetContext } from 'kea'
+import { KeaPlugin, resetContext } from 'kea'
 import { localStoragePlugin } from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
@@ -25,11 +25,13 @@ interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
     routerLocation?: any
+    beforePlugins?: KeaPlugin[]
 }
 
-export function initKea({ state, routerHistory, routerLocation }: InitKeaProps = {}): void {
+export function initKea({ state, routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     resetContext({
         plugins: [
+            ...(beforePlugins || []),
             localStoragePlugin,
             windowValuesPlugin({ window: window }),
             routerPlugin({ history: routerHistory, location: routerLocation }),
