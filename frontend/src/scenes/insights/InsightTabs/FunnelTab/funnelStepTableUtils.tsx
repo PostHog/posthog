@@ -81,7 +81,6 @@ export const renderGraphAndHeader = (
     step?: FunnelStepWithConversionMetrics,
     dashboardItemId?: number
 ): JSX.Element | RenderedCell<FlattenedFunnelStepByBreakdown> => {
-    console.log('ROWINDEX', rowIndex, colIndex)
     if (rowIndex === 0 || rowIndex === 1) {
         // Empty cell
         if (colIndex === 0) {

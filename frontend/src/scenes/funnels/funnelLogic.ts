@@ -550,7 +550,6 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [selectors.stepsWithConversionMetrics, selectors.visibilityMap, selectors.flattenedStepsByBreakdown],
             (steps, visibilityMap, flattenedStepsByBreakdown) => {
                 const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
-                console.log('STEPSFILTER', steps, baseLineSteps)
                 return steps.map((step, stepIndex) => ({
                     ...step,
                     nested_breakdown: (!!baseLineSteps?.steps
@@ -594,8 +593,6 @@ export const funnelLogic = kea<funnelLogicType>({
         flattenedStepsByBreakdown: [
             () => [selectors.stepsWithConversionMetrics],
             (steps): FlattenedFunnelStepByBreakdown[] => {
-                console.log('STEPS WITH CONVERSION', steps)
-
                 // Initialize with two rows for rendering graph and header
                 const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
                     { rowKey: 'steps-meta' },
@@ -650,11 +647,6 @@ export const funnelLogic = kea<funnelLogicType>({
         flattenedBreakdowns: [
             () => [selectors.flattenedStepsByBreakdown],
             (breakdowns): FlattenedFunnelStepByBreakdown[] => {
-                console.log(
-                    'FLATTENING',
-                    breakdowns,
-                    breakdowns.filter((b) => b.breakdown)
-                )
                 return breakdowns.filter((b) => b.breakdown)
             },
         ],
