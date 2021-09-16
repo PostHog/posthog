@@ -1,6 +1,5 @@
 import { infiniteListLogic } from './infiniteListLogic'
 import { BuiltLogic } from 'kea'
-import { waitForAction } from 'kea-waitfor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { mockAPIGet } from 'lib/api.mock'
@@ -34,72 +33,45 @@ describe('infiniteListLogic verbose version', () => {
         onLogic: (l) => (logic = l),
     })
 
-    describe('values', () => {
-        it('has proper defaults', () => {
-            expect(logic.values).toMatchSnapshot()
+    it('calls loadRemoteItems on mount', () => {
+        expectLogic(logic)
+            .toDispatch(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+            .toMatchValues({ remoteItems: { results: expect.arrayContaining([{ name: expect.any(String) }]) } })
+    })
+
+    it('setting search query filters events', async () => {
+        expectLogic(logic, () => logic.actions.setSearchQuery('event'))
+            .toDispatch(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+            .toMatchValues({ searchQuery: 'event', remoteItems: { results: Array(56) } })
+    })
+
+    describe('index', async () => {
+        it('is set via setIndex', async () => {
+            expectLogic(logic).toMatchValues({ index: 0 })
+            expectLogic(logic, () => logic.actions.setIndex(1)).toHaveValues({ index: 1 })
+        })
+
+        it('can go up and down', async () => {
+            expectLogic(logic).toMatchValues({ index: 0, remoteItems: Array(56) })
+            expectLogic(logic, () => logic.actions.moveUp()).toHaveValues({ index: 55 })
+            expectLogic(logic, () => logic.actions.moveUp()).toHaveValues({ index: 54 })
+            expectLogic(logic, () => logic.actions.moveDown()).toHaveValues({ index: 55 })
+            expectLogic(logic, () => logic.actions.moveDown()).toHaveValues({ index: 0 })
+            expectLogic(logic, () => logic.actions.moveDown()).toHaveValues({ index: 1 })
+            expectLogic(logic, () => logic.actions.moveUp()).toHaveValues({ index: 0 })
         })
     })
 
-    describe('loaders', () => {
-        describe('remoteItems', () => {
-            it('loads initial items on mount', async () => {
-                expect(logic.values.remoteItems.results.length).toEqual(56)
-            })
+    it('selects the selected item', async () => {
+        expectLogic(logic).toMatchValues({ selectedItem: expect.objectContaining({ name: 'event1' }) })
 
-            it('setting search query filters events', async () => {
-                logic.actions.setSearchQuery('event')
-                expect(logic.values.searchQuery).toEqual('event')
-
-                await waitForAction(logic.actions.loadRemoteItemsSuccess)
-                expect(logic.values.remoteItems.results.length).toEqual(3)
-                expect(logic.values.remoteItems).toMatchSnapshot()
-            })
-        })
-    })
-
-    describe('reducers', () => {
-        describe('index', () => {
-            it('is set via setIndex', async () => {
-                expect(logic.values.index).toEqual(0)
-                logic.actions.setIndex(1)
-                expect(logic.values.index).toEqual(1)
-            })
-
-            it('can go up and down', async () => {
-                expect(logic.values.remoteItems.results.length).toEqual(56)
-
-                logic.actions.moveUp()
-                expect(logic.values.index).toEqual(55)
-
-                logic.actions.moveUp()
-                expect(logic.values.index).toEqual(54)
-
-                logic.actions.moveDown()
-                expect(logic.values.index).toEqual(55)
-
-                logic.actions.moveDown()
-                expect(logic.values.index).toEqual(0)
-
-                logic.actions.moveDown()
-                expect(logic.values.index).toEqual(1)
-            })
-        })
-    })
-
-    describe('actions', () => {
-        describe('selectSelected', () => {
-            it('actually selects the selected', async () => {
-                expect(logic.values.selectedItem).toEqual(expect.objectContaining({ name: 'event1' }))
-
-                logic.actions.selectItem = jest.fn()
-                logic.actions.selectSelected()
-
-                expect(logic.actions.selectItem).toHaveBeenCalledWith(
-                    'events',
-                    'event1',
-                    expect.objectContaining({ name: 'event1' })
-                )
-            })
-        })
+        expectLogic(logic, () => logic.actions.selectSelected()).toDispatch([
+            logic.actionCreators.selectSelected(),
+            logic.actionCreators.selectItem(
+                TaxonomicFilterGroupType.Events,
+                'event1',
+                expect.objectContaining({ name: 'event1' })
+            ),
+        ])
     })
 })
