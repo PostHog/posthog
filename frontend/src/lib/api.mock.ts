@@ -24,3 +24,12 @@ export const mockAPIGet = (cb: (url: APIRoute) => any): void => {
         })
     })
 }
+
+export const mockAPICreate = (cb: (url: APIRoute) => any): void => {
+    beforeEach(async () => {
+        api.create.mockImplementation(async (url, data?: Record<string, any>) => {
+            // kea-router is mocked out, must `await import()` to get access to the utility
+            return cb({ ...(await import('kea-router')).combineUrl(url), data })
+        })
+    })
+}

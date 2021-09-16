@@ -173,7 +173,6 @@ export const funnelLogic = kea<funnelLogicType>({
             EMPTY_FUNNEL_RESULTS as LoadedRawFunnelResults,
             {
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
-                    await breakpoint(250)
                     if (props.cachedResults && !refresh && values.filters === props.filters) {
                         // TODO: cache timeConversionResults? how does this cachedResults work?
                         return {
