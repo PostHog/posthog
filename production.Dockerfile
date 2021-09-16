@@ -8,15 +8,6 @@ ARG saml_disabled
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# install SAML dependencies (unless disabled)   
-RUN if [[ -z "${SAML_DISABLED}" ]] && [[ -z "$saml_disabled" ]] ; then \
-    apt-get update \
-    && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
-    && pip install python3-saml==1.12.0 --no-cache-dir --compile \
-    && apt-get purge -y pkg-config \
-    && rm -rf /var/lib/apt/lists/* \
-    ; fi
-
 # install base dependencies, including node & yarn; remove unneeded build deps
 RUN apt-get update \
     && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.*' \
@@ -24,8 +15,17 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends 'nodejs=14.*' \
     && npm install -g yarn@1 \
     && yarn config set network-timeout 300000 \
-    && apt-get purge -y git curl build-essential && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
+
+
+# install SAML dependencies (unless disabled)   
+RUN if [[ -z "${SAML_DISABLED}" ]] && [[ -z "$saml_disabled" ]] ; then \
+    apt-get update \
+    && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
+    && pip install python3-saml==1.12.0 --no-cache-dir --compile \
+    && apt-get purge -y pkg-config && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* \
+    ; fi
 
 
 # install Python dependencies (production-level only)
@@ -36,6 +36,8 @@ RUN pip install -r requirements.txt --no-cache-dir --compile
 # uninstall unneeded Python dependencies
 RUN pip uninstall ipython-genutils pip wheel -y
 
+# remove build dependencies not needed at runtime
+RUN  apt-get purge -y git curl build-essential && apt-get autoremove -y
 
 # install JS (yarn) dependencies
 COPY package.json /code/.
