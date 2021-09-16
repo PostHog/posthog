@@ -5,11 +5,9 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { UserBasicType } from '~/types'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import { Owner } from '../Owner'
-import { teamLogic } from '../../teamLogic'
 
 export function DefinitionOwnerDropdown({ owner }: { owner: UserBasicType | null }): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { members } = useValues(membersLogic({ team: currentTeam }))
+    const { members } = useValues(membersLogic)
     const { changeOwner } = useActions(definitionDrawerLogic)
 
     return (
