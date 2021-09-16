@@ -10,7 +10,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         getUserFlags: true,
         setOverriddenUserFlag: (flagId: number, overrideValue: string | boolean) => ({ flagId, overrideValue }),
         deleteOverriddenUserFlag: (overrideId: number) => ({ overrideId }),
-        setShowLocalFeatureFlagWarning: (showWarning: bool) => ({ showWarning }),
+        setShowLocalFeatureFlagWarning: (showWarning: boolean) => ({ showWarning }),
     },
 
     loaders: ({ values }) => ({
@@ -105,9 +105,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             ;(window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
                 toolbarLogic.actions.updateFeatureFlags(variants)
             })
-            const locallyOverrideFeatureFlags = (window['posthog'] as PostHog).feature_flags.instance.get_property(
-                '$override_feature_flags'
-            )
+            const locallyOverrideFeatureFlags = (window['posthog'] as PostHog).get_property('$override_feature_flags')
             if (locallyOverrideFeatureFlags) {
                 actions.setShowLocalFeatureFlagWarning(true)
             }
