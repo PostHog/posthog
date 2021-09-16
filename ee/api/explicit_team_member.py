@@ -15,7 +15,7 @@ from posthog.models.user import User
 
 def get_ephemeral_requesting_team_membership(team: Team, user: User) -> Optional[ExplicitTeamMembership]:
     """Return an ExplicitTeamMembership instance only for permission checking.
-    None if the user has no explicit membership and organization access is to low for implicit membership."""
+    None returned if the user has no explicit membership and organization access is too low for implicit membership."""
     requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.get(
         organization_id=team.organization_id, user=user
     )
