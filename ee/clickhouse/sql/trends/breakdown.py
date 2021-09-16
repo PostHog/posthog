@@ -51,12 +51,12 @@ FROM (
     WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp, breakdown_value
     ORDER BY d.timestamp
-) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
+) WHERE 11111 = 11111 {parsed_date_from} {parsed_date_to}
 """
 
 
 BREAKDOWN_AGGREGATE_QUERY_SQL = """
-SELECT {aggregate_operation} as total, {breakdown_value} as breakdown_value
+SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
 FROM
 events e {event_join} {breakdown_filter}
 GROUP BY breakdown_value
@@ -66,37 +66,9 @@ BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query}
 """
 
-BREAKDOWN_PERSON_PROP_JOIN_SQL = """
-INNER JOIN (
-    SELECT *
-    from (
-        SELECT
-            id,
-            trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) as value
-        FROM ({latest_person_sql}) person WHERE team_id = %(team_id)s
-    )
-) ep
-ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
-AND breakdown_value in (%(values)s) {actions_query}
-"""
-
-NONE_BREAKDOWN_PERSON_PROP_JOIN_SQL = """
-INNER JOIN (
-    SELECT * FROM ({latest_person_sql}) ep WHERE team_id = %(team_id)s AND NOT JSONHas(properties, %(key)s)
-) ep
-ON person_id = ep.id WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
-{actions_query}
-"""
-
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
-  AND trim(BOTH '\"' FROM JSONExtractRaw(properties, %(key)s)) in (%(values)s) 
-  {actions_query}
-"""
-
-NONE_BREAKDOWN_PROP_JOIN_SQL = """
-WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
-  AND NOT JSONHas(properties, %(key)s) 
+  AND {breakdown_value_expr} in (%(values)s)
   {actions_query}
 """
 

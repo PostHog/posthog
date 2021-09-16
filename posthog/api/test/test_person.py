@@ -1,13 +1,14 @@
 import json
+import unittest
+from unittest import mock
 
-from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import Cohort, Event, Organization, Person, Team
 from posthog.test.base import APIBaseTest
 
 
-def factory_test_person(event_factory, person_factory, get_events, get_people):
+def factory_test_person(event_factory, person_factory, get_events):
     class TestPerson(APIBaseTest):
         def test_search(self) -> None:
             person_factory(
@@ -50,14 +51,15 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
 
             response = self.client.get(
-                "/api/person/?properties=%s" % json.dumps([{"key": "email", "operator": "is_set", "value": "is_set"}])
+                "/api/person/?properties=%s"
+                % json.dumps([{"key": "email", "operator": "is_set", "value": "is_set", "type": "person"}])
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
 
             response = self.client.get(
                 "/api/person/?properties=%s"
-                % json.dumps([{"key": "email", "operator": "icontains", "value": "another@gm"}])
+                % json.dumps([{"key": "email", "operator": "icontains", "value": "another@gm", "type": "person"}])
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
@@ -224,10 +226,11 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             event_factory(event="test", team=self.team, distinct_id="someone_else")
 
             response = self.client.delete(f"/api/person/{person.pk}/")
+
             self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
             self.assertEqual(response.content, b"")  # Empty response
-            self.assertEqual(len(get_people()), 0)
-            self.assertEqual(len(get_events()), 1)
+            self.assertEqual(len(Person.objects.filter(team=self.team)), 0)
+            self.assertEqual(len(get_events(team_id=self.team.pk)), 1)
 
             response = self.client.delete(f"/api/person/{person.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -243,7 +246,8 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             self.assertEqual(response.json(), response_uuid.json())
             self.assertEqual(len(response.json()["results"]), 2)
 
-        def test_merge_people(self) -> None:
+        @mock.patch("posthog.api.capture.capture_internal")
+        def test_merge_people(self, mock_capture_internal) -> None:
             # created first
             person3 = person_factory(team=self.team, distinct_ids=["3"], properties={"oh": "hello"})
             person1 = person_factory(
@@ -251,17 +255,32 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
             )
             person2 = person_factory(team=self.team, distinct_ids=["2"], properties={"random_prop": "asdf"})
 
-            response = self.client.post("/api/person/%s/merge/" % person1.pk, {"ids": [person2.pk, person3.pk]},)
-            self.assertEqual(response.status_code, 201)
-            self.assertEqual(response.json()["created_at"].replace("Z", "+00:00"), person3.created_at.isoformat())
-            self.assertEqual(response.json()["distinct_ids"], ["3", "1", "2"])
-
-            person = get_people()
-            self.assertEqual(len(person), 1)
-            self.assertEqual(
-                person[0].properties, {"$browser": "whatever", "$os": "Mac OS X", "random_prop": "asdf", "oh": "hello"}
+            self.client.post(
+                "/api/person/%s/merge/" % person1.pk, {"ids": [person2.pk, person3.pk]},
             )
-            self.assertEqual(person[0].created_at, person3.created_at)
+            mock_capture_internal.assert_has_calls(
+                [
+                    mock.call(
+                        {"event": "$create_alias", "properties": {"alias": "2"}},
+                        "1",
+                        None,
+                        None,
+                        unittest.mock.ANY,
+                        unittest.mock.ANY,
+                        self.team.id,
+                    ),
+                    mock.call(
+                        {"event": "$create_alias", "properties": {"alias": "3"}},
+                        "1",
+                        None,
+                        None,
+                        unittest.mock.ANY,
+                        unittest.mock.ANY,
+                        self.team.id,
+                    ),
+                ],
+                any_order=True,
+            )
 
         def test_return_non_anonymous_name(self) -> None:
             person_factory(
@@ -310,6 +329,6 @@ def factory_test_person(event_factory, person_factory, get_events, get_people):
 
 
 class TestPerson(
-    factory_test_person(Event.objects.create, Person.objects.create, Event.objects.all, Person.objects.all)  # type: ignore
+    factory_test_person(Event.objects.create, Person.objects.create, Event.objects.filter)  # type: ignore
 ):
     pass

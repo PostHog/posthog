@@ -77,7 +77,7 @@ class OrganizationMemberViewSet(
 ):
     serializer_class = OrganizationMemberSerializer
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions, OrganizationMemberObjectPermissions]
-    queryset = OrganizationMembership.objects.all()
+    queryset = OrganizationMembership.objects.exclude(user__email__endswith="@posthogbot.user")
     lookup_field = "user_id"
     ordering = ["level", "-joined_at"]
 

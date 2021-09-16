@@ -30,7 +30,7 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                 error: 'You must enter name',
                 success: async (name: string) => {
                     item = await api.update(`api/insight/${item.id}`, { name })
-                    toast('Succesfully renamed item')
+                    toast('Successfully renamed item')
                     actions.renameDashboardItemSuccess(item)
                 },
             })

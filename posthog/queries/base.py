@@ -41,7 +41,6 @@ def determine_compared_filter(filter) -> Filter:
 
 def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
     for entity in trend_entity:
-        days = [i for i in range(len(entity["days"]))]
         labels = [
             "{} {}".format(filter.interval if filter.interval is not None else "day", i)
             for i in range(len(entity["labels"]))
@@ -49,10 +48,9 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
         entity.update(
             {
                 "labels": labels,
-                "days": days,
+                "days": entity["days"],
                 "label": "{} - {}".format(entity["label"], label),
                 "chartLabel": "{} - {}".format(entity["label"], label),
-                "dates": entity["days"],
                 "compare": True,
             }
         )
@@ -221,7 +219,11 @@ def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -
         queryset = queryset.filter(cohort__id=request.GET["cohort"])
     if request.GET.get("properties"):
         filter = Filter(data={"properties": json.loads(request.GET["properties"])})
-        queryset = queryset.filter(properties_to_Q(filter.properties, team_id=team_id, is_person_query=True))
+        queryset = queryset.filter(
+            properties_to_Q(
+                [prop for prop in filter.properties if prop.type == "person"], team_id=team_id, is_person_query=True
+            )
+        )
 
     queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
     return queryset

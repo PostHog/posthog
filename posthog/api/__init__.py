@@ -1,7 +1,7 @@
 from rest_framework import decorators, exceptions
 
 from posthog.api.routing import DefaultRouterPlusPlus
-from posthog.ee import is_clickhouse_enabled
+from posthog.utils import is_clickhouse_enabled
 
 from . import (
     action,
@@ -55,6 +55,9 @@ project_plugins_configs_router = projects_router.register(
 )
 project_plugins_configs_router.register(
     r"logs", plugin_log_entry.PluginLogEntryViewSet, "project_plugins_config_logs", ["team_id", "plugin_config_id"]
+)
+projects_router.register(
+    r"feature_flag_overrides", feature_flag.FeatureFlagOverrideViewset, "project_feature_flag_overrides", ["team_id"]
 )
 
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")

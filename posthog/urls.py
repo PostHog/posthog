@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -7,13 +7,13 @@ from django.contrib.auth import views as auth_views
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import URLPattern, include, path, re_path
-from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.urls.base import reverse
+from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import TemplateView
-from loginas.utils import is_impersonated_session, restore_original_login
-from social_core.pipeline.partial import partial
 
 from posthog.api import (
     api_not_found,
+    authentication,
     capture,
     dashboard,
     decide,
@@ -33,21 +33,11 @@ def home(request, *args, **kwargs):
     return render_template("index.html", request)
 
 
-@csrf_protect
-def logout(request):
-    if request.user.is_authenticated:
-        request.user.temporary_token = None
-        request.user.save()
+def login(request):
+    if getattr(settings, "SAML_ENFORCED", False):
+        return redirect(f'{reverse("social:begin", kwargs={"backend": "saml"})}?idp=posthog_custom')
 
-    if is_impersonated_session(request):
-        restore_original_login(request)
-        return redirect("/")
-
-    restore_original_login(request)
-    response = auth_views.logout_then_login(request)
-    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
-
-    return response
+    return home(request)
 
 
 def authorize_and_redirect(request):
@@ -69,8 +59,11 @@ def is_input_valid(inp_type, val):
 
 
 # Try to include EE endpoints
+ee_urlpatterns: List[Any] = []
 try:
     from ee.urls import extend_api_router
+    from ee.urls import urlpatterns as ee_urlpatterns
+
 except ImportError:
     pass
 else:
@@ -89,13 +82,14 @@ urlpatterns = [
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     # admin
-    path("admin/", admin.site.urls),
     path("admin/", include("loginas.urls")),
+    path("admin/", admin.site.urls),
+    # ee
+    *ee_urlpatterns,
     # api
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
-    opt_slash_path("api/user", user.user),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -112,7 +106,7 @@ urlpatterns = [
     opt_slash_path("batch", capture.get_event),
     opt_slash_path("s", capture.get_event),  # session recordings
     # auth
-    path("logout", logout, name="login"),
+    path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path("", include("social_django.urls", namespace="social")),
     *(
@@ -131,6 +125,7 @@ urlpatterns = [
         ),
     ),
     path("accounts/", include("django.contrib.auth.urls")),
+    path("login", login),
 ]
 
 # Allow crawling on PostHog Cloud, disable for all self-hosted installations
@@ -150,7 +145,7 @@ if settings.TEST:
 
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "login"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 

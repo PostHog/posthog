@@ -1,5 +1,5 @@
 import React from 'react'
-import { Table, Modal, Button, Dropdown, Menu, Tooltip } from 'antd'
+import { Table, Modal, Button, Dropdown, Menu } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
 import {
@@ -18,6 +18,7 @@ import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'

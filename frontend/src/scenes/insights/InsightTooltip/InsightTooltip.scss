@@ -3,7 +3,7 @@
 .ph-graph-tooltip,
 .ant-popover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    font-size: 0.85rem;
+    font-size: 14px;
     overflow-x: hidden;
     z-index: $z_graph_tooltip;
     transition: all 0.4s;
@@ -11,7 +11,7 @@
 
 .ph-graph-tooltip {
     max-width: 480px;
-    padding: 8px 0;
+    padding: 8px 12px;
     border: 1px solid $border;
     border-radius: $radius;
     background: #fafafa;
@@ -20,7 +20,7 @@
 .inner-tooltip {
     &.multiple {
         header {
-            padding-bottom: 4px;
+            padding-bottom: 8px;
             border-bottom: 1px solid $border;
         }
 
@@ -30,14 +30,13 @@
             border-top: 1px solid $border;
         }
     }
+
     header {
-        padding: 0 8px;
         font-weight: bold;
         margin-bottom: $default_spacing / 2;
     }
 
     footer {
-        padding: 0 8px;
         margin-top: 0.5rem;
         font-weight: bold;
         font-size: 85%;
@@ -55,9 +54,20 @@
         position: relative;
     }
 
+    .inspect-persons-label {
+        display: flex;
+        align-items: center;
+        margin-top: 2px;
+        font-style: italic;
+        svg {
+            margin-left: 2px;
+            margin-right: 6px;
+        }
+    }
+
     ul {
         list-style-type: none;
-        padding: 0 $default_spacing;
+        padding: 0;
         margin-bottom: 0;
         max-height: 32vh;
         overflow-y: hidden; // As the element has pointer-events: none to allow proper function, scrolling is not supported anyways

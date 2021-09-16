@@ -15,6 +15,17 @@
         }
     }
 
+    .insight-history-button {
+        padding-right: 0;
+        padding-left: 0;
+        border-radius: 0;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        &.active {
+            border-bottom: 2px solid $primary;
+        }
+    }
+
     hr {
         margin: 1rem 0;
     }
@@ -165,6 +176,12 @@
         }
     }
 
+    &.action-message {
+        .illustration-main {
+            color: $primary;
+        }
+    }
+
     .insight-empty-state__wrapper {
         max-width: 600px;
 
@@ -198,22 +215,9 @@
 
 .funnel-insights-container {
     &.non-empty-state {
-        height: 300px;
+        min-height: 300px;
         position: relative;
         margin-bottom: 0;
-    }
-    &.dirty-state {
-        position: relative;
-        .dirty-label {
-            position: absolute;
-            width: 100%;
-            top: 10px;
-            z-index: 2;
-        }
-        .funnel-bar-graph {
-            z-index: 1;
-            opacity: 0.5;
-        }
     }
 }
 

@@ -1,6 +1,22 @@
 @import '~/vars';
 
 .saved-insights {
+    .insight-dropdown-actions {
+        font-size: 24px;
+        &:hover {
+            background: rgba(83, 117, 255, 0.05);
+        }
+    }
+
+    .order-by {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        &:hover {
+            color: $primary;
+        }
+    }
+
     .star-outlined {
         color: $border_dark;
     }
@@ -39,5 +55,42 @@
         span {
             padding-right: $default_spacing;
         }
+    }
+
+    .dashboard-item {
+        border: 1px solid transparent;
+        padding-bottom: 10px;
+        cursor: pointer;
+
+        .dashboard-item-container:not(.funnel) .dashboard-item-content {
+            transform: scale(0.333);
+            transform-origin: top left;
+            overflow: inherit;
+            position: inherit;
+            & > div {
+                height: 300% !important;
+                width: 300% !important;
+            }
+        }
+        .dashboard-item-header {
+            cursor: pointer !important;
+        }
+
+        .svg-funnel-js__label * {
+            font-size: 8px;
+        }
+        &:hover {
+            border-color: var(--primary);
+        }
+    }
+
+    .dashboard-item-footer {
+        bottom: 0;
+        position: absolute;
+        background: #fff;
+        padding: 0.25rem;
+        border-top: 1px solid var(--muted);
+        width: 100%;
+        font-size: 11px;
     }
 }

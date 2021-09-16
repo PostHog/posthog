@@ -1,8 +1,8 @@
-import { Tooltip } from 'antd'
 import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 import { organizationLogic } from '../../scenes/organizationLogic'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from '../constants'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface RestrictedComponentProps {
     isRestricted: boolean
@@ -36,7 +36,7 @@ export function RestrictedArea({ Component, minimumAccessLevel }: RestrictedArea
     }, [currentOrganization])
 
     return restrictionReason ? (
-        <Tooltip title={restrictionReason}>
+        <Tooltip title={restrictionReason} placement="topLeft">
             <span>
                 <Component isRestricted={true} restrictionReason={restrictionReason} />
             </span>

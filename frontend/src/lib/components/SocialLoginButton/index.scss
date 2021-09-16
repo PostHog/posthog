@@ -66,6 +66,17 @@ $gitlab: #e65328;
         }
     }
 
+    &.saml {
+        background-color: $bg_depth;
+        &:hover {
+            background-color: lighten($bg_depth, 12%);
+        }
+
+        .btn-social-icon .img {
+            background-image: url('./saml.svg');
+        }
+    }
+
     .btn-social-icon {
         background-color: white;
         border-radius: $radius;

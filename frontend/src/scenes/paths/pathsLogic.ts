@@ -7,9 +7,7 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { pathsLogicType } from './pathsLogicType'
 import { FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
@@ -46,9 +44,7 @@ interface PathResult {
 
 interface PathNode {
     target: string
-    target_id: number
     source: string
-    source_id: number
     value: number
 }
 
@@ -68,18 +64,26 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     return { paths: props.cachedResults, filter }
                 }
                 const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
-                let paths
+
                 const queryId = uuid()
+                const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+
+                let paths
                 try {
                     paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, paths.last_refresh)
+
                 return { paths: paths.result, filter }
             },
         },
@@ -138,10 +142,10 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 const nodes: Record<string, any> = {}
                 for (const path of paths) {
                     if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source, id: path.source_id }
+                        nodes[path.source] = { name: path.source }
                     }
                     if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target, id: path.target_id }
+                        nodes[path.target] = { name: path.target }
                     }
                 }
 
@@ -176,10 +180,6 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
 
                 return Object.keys(result).length === 0 ? '' : result
             },
-        ],
-        filtersLoading: [
-            () => [featureFlagLogic.selectors.featureFlags, propertyDefinitionsModel.selectors.loaded],
-            (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
         ],
     },
     actionToUrl: ({ values, props }) => ({

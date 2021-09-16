@@ -1,4 +1,4 @@
-import { Button, Input, Tooltip } from 'antd'
+import { Button, Input } from 'antd'
 import { InfoCircleOutlined, WarningOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import Table, { ColumnsType } from 'antd/lib/table'
 import Fuse from 'fuse.js'
@@ -7,7 +7,7 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import React, { useState, useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
-import { EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
+import { AvailableFeature, EventDefinition, EventOrPropType, PropertyDefinition } from '~/types'
 import './VolumeTable.scss'
 import { definitionDrawerLogic } from './definitions/definitionDrawerLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
@@ -15,6 +15,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Owner } from './Owner'
 import { VolumeTableRecordDescription } from './definitions/VolumeTableRecordDescription'
+import { Tooltip } from 'lib/components/Tooltip'
 
 type EventTableType = 'event' | 'property'
 
@@ -51,7 +52,7 @@ export function VolumeTable({
 
     const hasTaxonomyFeatures =
         featureFlags[FEATURE_FLAGS.INGESTION_TAXONOMY] &&
-        user?.organization?.available_features?.includes('ingestion_taxonomy')
+        user?.organization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY)
 
     const columns: ColumnsType<VolumeTableRecord> = [
         {
@@ -208,7 +209,7 @@ export function VolumeTable({
                 rowKey={(item) => item.eventOrProp.name}
                 size="small"
                 style={{ marginBottom: '4rem' }}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                pagination={{ pageSize: 100, hideOnSinglePage: true }}
                 onRow={(record) =>
                     hasTaxonomyFeatures && !isPosthogEvent(record.eventOrProp.name)
                         ? { onClick: () => openDrawer(type, record.eventOrProp.id), style: { cursor: 'pointer' } }

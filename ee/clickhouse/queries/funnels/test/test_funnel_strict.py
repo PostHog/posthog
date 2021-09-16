@@ -37,7 +37,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_event, _create_person)):  # type: ignore
+class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnelStrict, ClickhouseFunnelStrictPersons, _create_event, _create_action, _create_person)):  # type: ignore
 
     maxDiff = None
 
@@ -110,6 +110,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": "Chrome",
+                    "breakdown_value": "Chrome",
                 },
                 {
                     "action_id": "play movie",
@@ -121,6 +122,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": "Chrome",
+                    "breakdown_value": "Chrome",
                 },
             ],
         )
@@ -140,6 +142,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": "Safari",
+                    "breakdown_value": "Safari",
                 },
                 {
                     "action_id": "play movie",
@@ -151,6 +154,7 @@ class TestFunnelStrictStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_test_
                     "average_conversion_time": 3600,
                     "median_conversion_time": 3600,
                     "breakdown": "Safari",
+                    "breakdown_value": "Safari",
                 },
             ],
         )

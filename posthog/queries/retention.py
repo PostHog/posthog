@@ -1,4 +1,6 @@
-from typing import Any, Dict, List, Tuple, Union
+import dataclasses
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Tuple, Union
 
 from django.db import connection
 from django.db.models import Min
@@ -17,6 +19,18 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall
 from posthog.queries.base import BaseQuery, properties_to_Q
+
+
+@dataclasses.dataclass
+class AppearanceRow:
+    """
+    Container for the rows of the "Appearance count" query.
+    """
+
+    person_id: str
+    appearance_count: int
+    # This is actually the number of days from first event to the current event.
+    appearances: List[float]
 
 
 class Retention(BaseQuery):
@@ -266,8 +280,6 @@ class Retention(BaseQuery):
             **format_fields
         )
 
-        result = []
-
         from posthog.api.person import PersonSerializer
 
         with connection.cursor() as cursor:
@@ -275,24 +287,34 @@ class Retention(BaseQuery):
                 final_query, params + (100, filter.offset),
             )
             raw_results = cursor.fetchall()
-            people_dict = {}
-            for person in Person.objects.filter(team_id=team.pk, id__in=[val[0] for val in raw_results]):
-                people_dict.update({person.pk: PersonSerializer(person).data})
 
-            result = self.process_people_in_period(filter, raw_results, people_dict)
+            people_appearances = [
+                AppearanceRow(person_id=result[0], appearance_count=result[1], appearances=result[2])
+                for result in raw_results
+            ]
 
-        return result
+            people_dict = {
+                person.pk: PersonSerializer(person).data
+                for person in Person.objects.filter(
+                    team_id=team.pk, id__in=[person.person_id for person in people_appearances]
+                )
+            }
+
+            return self.process_people_in_period(filter, people_appearances, people_dict)
 
     def process_people_in_period(
-        self, filter: RetentionFilter, vals, people_dict: Dict[str, ReturnDict]
-    ) -> List[Dict[str, Any]]:
+        self, filter: RetentionFilter, people_appearances: List[AppearanceRow], people_dict: Dict[str, ReturnDict]
+    ) -> List[Dict[Literal["person", "appearances"], Any]]:
         marker_length = filter.total_intervals
-        result = []
-        for val in vals:
+        result: List[Dict[Literal["person", "appearances"], Any]] = []
+        for person in people_appearances:
             # NOTE: This try/except shouldn't be necessary but there do seem to be a handful of missing persons that can't be looked up
             try:
                 result.append(
-                    {"person": people_dict[val[0]], "appearances": appearance_to_markers(sorted(val[2]), marker_length)}
+                    {
+                        "person": people_dict[person.person_id],
+                        "appearances": appearance_to_markers(sorted(person.appearances), marker_length),
+                    }
                 )
             except Exception as e:
                 capture_exception(e)
@@ -339,8 +361,5 @@ class Retention(BaseQuery):
             raise ValidationError(f"Period {period} is unsupported.")
 
 
-def appearance_to_markers(vals: List, num_intervals: int) -> List:
-    markers = [0 for _ in range(num_intervals)]
-    for val in vals:
-        markers[int(val)] = 1
-    return markers
+def appearance_to_markers(appearance_dates: List[float], num_intervals: int) -> List[int]:
+    return [interval_number in appearance_dates for interval_number in range(num_intervals)]

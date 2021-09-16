@@ -502,6 +502,17 @@ export const keyMapping: KeyMappingInterface = {
     },
 }
 
+export function isPostHogProp(key: string): boolean {
+    /*
+    Returns whether a given property is a PostHog-defined property. If the property is custom-defined, 
+        function will return false.
+    */
+    if (Object.keys(keyMapping.event).includes(key) || Object.keys(keyMapping.element).includes(key)) {
+        return true
+    }
+    return false
+}
+
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
@@ -538,7 +549,7 @@ export function PropertyKeyDescription({ data, value }: { data: KeyMapping; valu
                 data.description
             )}
             <hr />
-            Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
+            Sent as <code style={{ padding: '2px 3px' }}>{value}</code>
         </span>
     )
 }
@@ -555,6 +566,15 @@ export function getKeyMapping(value: string | PropertyFilterValue, type: 'event'
             data.description = `${data.description} Data from the first time this user was seen.`
         }
         return data
+    } else if (value.startsWith('$feature/')) {
+        const featureFlagKey = value.replace(/^\$feature\//, '')
+        if (featureFlagKey) {
+            return {
+                label: `Feature: ${featureFlagKey}`,
+                description: `Value for the feature flag "${featureFlagKey}" when this event was sent.`,
+                examples: ['true', 'variant-1a'],
+            }
+        }
     }
     return null
 }

@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
-import { Button, Tooltip, TooltipProps } from 'antd'
+import { Button, TooltipProps } from 'antd'
 import { SaveToDashboardModal } from './SaveToDashboardModal'
 import { router } from 'kea-router'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface Props {
     item: DashboardItemAttributes

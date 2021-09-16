@@ -8,12 +8,13 @@ import posthoganalytics
 from django.db import connection
 from psycopg2 import sql
 
-from posthog.models import Event, Person, Team, User
+from posthog.models import Event, Organization, Person, Team, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
-from posthog.utils import get_instance_realm, get_machine_id, get_previous_week
+from posthog.settings import EE_AVAILABLE
+from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_week
 from posthog.version import VERSION
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "realm": get_instance_realm(),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
+        "license_keys": get_instance_licenses(),
     }
 
     report["helm"] = get_helm_info_env()
@@ -165,8 +167,10 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
         return namedtuplefetchall(cursor)
 
 
-def get_helm_info_env() -> dict:
-    try:
-        return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
-    except Exception:
-        return {}
+def get_instance_licenses() -> List[str]:
+    if EE_AVAILABLE:
+        from ee.models import License
+
+        return [license.key for license in License.objects.all()]
+    else:
+        return []

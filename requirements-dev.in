@@ -3,7 +3,7 @@
 Django==3.1.12 # freeze version to the same as in production
 djangorestframework==3.12.2 # freeze version to the same as in production
 
-flake8
+flake8>=3.8 # match minimum version to oldest Python version that PostHog currently supports
 flake8-bugbear
 flake8-colors
 flake8-commas

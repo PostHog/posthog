@@ -1,14 +1,11 @@
 import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
 import { router } from 'kea-router'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 import { propertyFilterLogicType } from './propertyFilterLogicType'
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter } from '~/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const propertyFilterLogic = kea<propertyFilterLogicType>({
     props: {} as PropertyFilterLogicProps,
@@ -108,10 +105,6 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
     }),
 
     selectors: {
-        filtersLoading: [
-            () => [featureFlagLogic.selectors.featureFlags, propertyDefinitionsModel.selectors.loaded],
-            (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
-        ],
         filledFilters: [(s) => [s.filters], (filters) => filters.filter(isValidPropertyFilter)],
     },
 

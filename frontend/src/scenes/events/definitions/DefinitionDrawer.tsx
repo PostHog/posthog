@@ -4,7 +4,7 @@ import React from 'react'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 import Title from 'antd/es/typography/Title'
 import '../VolumeTable.scss'
-import { Alert, Button, Col, Collapse, Row, Tooltip } from 'antd'
+import { Alert, Button, Col, Collapse, Row } from 'antd'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { InfoCircleOutlined } from '@ant-design/icons'
@@ -14,6 +14,7 @@ import { DefinitionOwnerDropdown } from './DefinitionOwnerDropdown'
 import { DefinitionDescription } from './DefinitionDescription'
 import { EventsTableSnippet } from './EventsTableSnippet'
 import { UsageDisabledWarning } from '../UsageDisabledWarning'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function DefinitionDrawer(): JSX.Element {
     const { drawerState, definition, tagLoading, type, eventDefinitionTags, propertyDefinitionTags } = useValues(

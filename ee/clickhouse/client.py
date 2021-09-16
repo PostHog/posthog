@@ -17,7 +17,7 @@ from sentry_sdk.api import capture_exception
 from ee.clickhouse.errors import wrap_query_error
 from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
-from posthog.constants import RDBMS
+from posthog.constants import AnalyticsDBMS
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
@@ -41,7 +41,26 @@ QUERY_TIMEOUT_THREAD = get_timer_thread("ee.clickhouse.client", SLOW_QUERY_THRES
 
 _request_information: Optional[Dict] = None
 
-if PRIMARY_DB != RDBMS.CLICKHOUSE:
+
+def make_ch_pool(**overrides) -> ChPool:
+    kwargs = {
+        "host": CLICKHOUSE_HOST,
+        "database": CLICKHOUSE_DATABASE,
+        "secure": CLICKHOUSE_SECURE,
+        "user": CLICKHOUSE_USER,
+        "password": CLICKHOUSE_PASSWORD,
+        "ca_certs": CLICKHOUSE_CA,
+        "verify": CLICKHOUSE_VERIFY,
+        "connections_min": CLICKHOUSE_CONN_POOL_MIN,
+        "connections_max": CLICKHOUSE_CONN_POOL_MAX,
+        "settings": {"mutations_sync": "1"} if TEST else {},
+        **overrides,
+    }
+
+    return ChPool(**kwargs)
+
+
+if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
 
     def async_execute(query, args=None, settings=None, with_column_types=False):
@@ -66,17 +85,7 @@ else:
             verify=CLICKHOUSE_VERIFY,
         )
 
-        ch_pool = ChPool(
-            host=CLICKHOUSE_HOST,
-            database=CLICKHOUSE_DATABASE,
-            secure=CLICKHOUSE_SECURE,
-            user=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
-            ca_certs=CLICKHOUSE_CA,
-            verify=CLICKHOUSE_VERIFY,
-            connections_min=CLICKHOUSE_CONN_POOL_MIN,
-            connections_max=CLICKHOUSE_CONN_POOL_MAX,
-        )
+        ch_pool = make_ch_pool()
 
         @async_to_sync
         async def async_execute(query, args=None, settings=None, with_column_types=False):
@@ -96,19 +105,10 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
+            settings={"mutations_sync": "1"} if TEST else {},
         )
 
-        ch_pool = ChPool(
-            host=CLICKHOUSE_HOST,
-            database=CLICKHOUSE_DATABASE,
-            secure=CLICKHOUSE_SECURE,
-            user=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
-            ca_certs=CLICKHOUSE_CA,
-            verify=CLICKHOUSE_VERIFY,
-            connections_min=CLICKHOUSE_CONN_POOL_MIN,
-            connections_max=CLICKHOUSE_CONN_POOL_MAX,
-        )
+        ch_pool = make_ch_pool()
 
         def async_execute(query, args=None, settings=None, with_column_types=False):
             return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
@@ -139,11 +139,12 @@ else:
             try:
                 result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
             except Exception as err:
+                err = wrap_query_error(err)
                 tags["failed"] = True
                 tags["reason"] = type(err).__name__
                 incr("clickhouse_sync_execution_failure", tags=tags)
 
-                raise wrap_query_error(err)
+                raise err
             finally:
                 execution_time = perf_counter() - start_time
 

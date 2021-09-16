@@ -259,13 +259,16 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        response_data.pop("last_refresh")
         self.assertEqual(
-            response.json(),
+            response_data,
             {
+                "is_cached": False,
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
-                }
+                },
             },
         )
 
@@ -307,13 +310,16 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        response_data.pop("last_refresh")
         self.assertEqual(
-            response.json(),
+            response_data,
             {
+                "is_cached": False,
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
-                }
+                },
             },
         )
 
@@ -355,13 +361,16 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        response_data.pop("last_refresh")
         self.assertEqual(
-            response.json(),
+            response_data,
             {
+                "is_cached": False,
                 "result": {
                     "bins": [[2220.0, 2], [29080.0, 0], [55940.0, 0], [82800.0, 1]],
                     "average_conversion_time": 29540.0,
-                }
+                },
             },
         )
 
@@ -399,3 +408,50 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["result"][1]["name"], "step two")
         self.assertEqual(response["result"][0]["count"], 1)
         self.assertEqual(response["result"][1]["count"], 1)
+
+    def test_funnel_invalid_exclusions(self):
+        _create_person(distinct_ids=["1"], team=self.team)
+        _create_event(team=self.team, event="step one", distinct_id="1")
+        _create_event(team=self.team, event="step x", distinct_id="1")
+        _create_event(team=self.team, event="step two", distinct_id="1")
+
+        _create_person(distinct_ids=["2"], team=self.team)
+        _create_event(team=self.team, event="step one", distinct_id="2")
+        _create_event(team=self.team, event="step two", distinct_id="2")
+
+        for exclusion_id, exclusion_from_step, exclusion_to_step, error in [
+            ("step one", 0, 1, True),
+            ("step two", 0, 1, True),
+            ("step two", 0, 2, True),
+            ("step one", 0, 2, True),
+            ("step three", 0, 2, True),
+            ("step three", 0, 1, False),
+        ]:
+            response = self.client.post(
+                "/api/insight/funnel/",
+                {
+                    "events": [
+                        {"id": "step one", "type": "events", "order": 0},
+                        {"id": "step two", "type": "events", "order": 1},
+                        {"id": "step three", "type": "events", "order": 2},
+                    ],
+                    "exclusions": [
+                        {
+                            "id": exclusion_id,
+                            "type": "events",
+                            "funnel_from_step": exclusion_from_step,
+                            "funnel_to_step": exclusion_to_step,
+                        },
+                    ],
+                    "funnel_window_days": 14,
+                    "insight": "funnels",
+                },
+            )
+
+            if error:
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    response.json(), self.validation_error_response("Exclusion event can't be the same as funnel step")
+                )
+            else:
+                self.assertEqual(response.status_code, 200)

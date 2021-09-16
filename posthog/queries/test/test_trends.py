@@ -18,7 +18,7 @@ from posthog.queries.abstract_test.test_interval import AbstractIntervalTest
 from posthog.queries.abstract_test.test_timerange import AbstractTimerangeTest
 from posthog.queries.trends import Trends, breakdown_label
 from posthog.tasks.calculate_action import calculate_action, calculate_actions_from_last_calculation
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, test_with_materialized_columns
 from posthog.utils import generate_cache_key, relative_date_parse
 
 
@@ -204,6 +204,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(daily_response[0]["aggregated_value"], 1)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        @test_with_materialized_columns(["$math_prop"])
         def test_trends_single_aggregate_math(self):
             person = person_factory(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
@@ -260,13 +261,26 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_trends_breakdown_single_aggregate_cohorts(self):
             person_1 = person_factory(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
             person_2 = person_factory(team_id=self.team.pk, distinct_ids=["John"], properties={"name": "John"})
             person_3 = person_factory(team_id=self.team.pk, distinct_ids=["Jill"], properties={"name": "Jill"})
-            cohort1 = cohort_factory(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
-            cohort2 = cohort_factory(team=self.team, name="cohort2", groups=[{"properties": {"name": "John"}}])
-            cohort3 = cohort_factory(team=self.team, name="cohort3", groups=[{"properties": {"name": "Jill"}}])
+            cohort1 = cohort_factory(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
+            cohort2 = cohort_factory(
+                team=self.team,
+                name="cohort2",
+                groups=[{"properties": [{"key": "name", "value": "John", "type": "person"}]}],
+            )
+            cohort3 = cohort_factory(
+                team=self.team,
+                name="cohort3",
+                groups=[{"properties": [{"key": "name", "value": "Jill", "type": "person"}]}],
+            )
             with freeze_time("2020-01-01 00:06:34"):
                 event_factory(
                     team=self.team,
@@ -476,6 +490,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(daily_response[0]["aggregated_value"], 2.0)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        @test_with_materialized_columns(["$math_prop", "$some_property"])
         def test_trends_breakdown_with_math_func(self):
 
             with freeze_time("2020-01-01 00:06:34"):
@@ -1248,6 +1263,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 ],
             )
 
+        @test_with_materialized_columns(["$some_property"])
         def test_property_filtering(self):
             self._create_events()
             with freeze_time("2020-01-04"):
@@ -1265,6 +1281,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 0)
 
+        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_filter_events_by_cohort(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -1279,7 +1296,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event="event_name", team=self.team, distinct_id="person_2", properties={"$browser": "Safari"},
             )
 
-            cohort = cohort_factory(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
+            cohort = cohort_factory(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
 
             response = trends().run(
                 Filter(
@@ -1492,6 +1513,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(len(response), 1)
             self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
+        @test_with_materialized_columns(["key"])
         def test_breakdown_with_filter(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
             person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -1528,6 +1550,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 response = trends().run(Filter(data={"events": [{"id": "DNE"}]}), self.team)
             self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
+        @test_with_materialized_columns(person_properties=["email", "bar"])
         def test_trends_regression_filtering_by_action_with_person_properties(self):
             person1 = person_factory(
                 team_id=self.team.pk, properties={"email": "foo@example.com", "bar": "aa"}, distinct_ids=["d1"]
@@ -1553,17 +1576,24 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 properties=[{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
             )
             event_filtering_action.calculate_events()
-            filter = Filter(
-                {
-                    "actions": [{"id": event_filtering_action.id}],
-                    "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
-                }
-            )
 
             with freeze_time("2020-01-04T13:01:01Z"):
-                response = trends().run(filter, self.team)
+                response = trends().run(Filter({"actions": [{"id": event_filtering_action.id}],}), self.team)
             self.assertEqual(len(response), 1)
-            self.assertEqual(response[0]["count"], 2)
+            self.assertEqual(response[0]["count"], 3)
+
+            with freeze_time("2020-01-04T13:01:01Z"):
+                response_with_email_filter = trends().run(
+                    Filter(
+                        {
+                            "actions": [{"id": event_filtering_action.id}],
+                            "properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+                        }
+                    ),
+                    self.team,
+                )
+            self.assertEqual(len(response_with_email_filter), 1)
+            self.assertEqual(response_with_email_filter[0]["count"], 2)
 
         def test_dau_filtering(self):
             sign_up_action, person = self._create_events()
@@ -1584,6 +1614,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(response[0]["data"][5], 2)
             self.assertEntityResponseEqual(action_response, response)
 
+        @test_with_materialized_columns(["$some_property"])
         def test_dau_with_breakdown_filtering(self):
             sign_up_action, _ = self._create_events()
             with freeze_time("2020-01-02"):
@@ -1640,30 +1671,39 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertAlmostEqual(action_response[0]["data"][-1], expected_value, delta=0.5)
             self.assertEntityResponseEqual(action_response, event_response)
 
+        @test_with_materialized_columns(["some_number"])
         def test_sum_filtering(self):
             self._test_math_property_aggregation("sum", values=[2, 3, 5.5, 7.5], expected_value=18)
 
+        @test_with_materialized_columns(["some_number"])
         def test_avg_filtering(self):
             self._test_math_property_aggregation("avg", values=[2, 3, 5.5, 7.5], expected_value=4.5)
 
+        @test_with_materialized_columns(["some_number"])
         def test_min_filtering(self):
             self._test_math_property_aggregation("min", values=[2, 3, 5.5, 7.5], expected_value=2)
 
+        @test_with_materialized_columns(["some_number"])
         def test_max_filtering(self):
             self._test_math_property_aggregation("max", values=[2, 3, 5.5, 7.5], expected_value=7.5)
 
+        @test_with_materialized_columns(["some_number"])
         def test_median_filtering(self):
             self._test_math_property_aggregation("median", values=range(101, 201), expected_value=150)
 
+        @test_with_materialized_columns(["some_number"])
         def test_p90_filtering(self):
             self._test_math_property_aggregation("p90", values=range(101, 201), expected_value=190)
 
+        @test_with_materialized_columns(["some_number"])
         def test_p95_filtering(self):
             self._test_math_property_aggregation("p95", values=range(101, 201), expected_value=195)
 
+        @test_with_materialized_columns(["some_number"])
         def test_p99_filtering(self):
             self._test_math_property_aggregation("p99", values=range(101, 201), expected_value=199)
 
+        @test_with_materialized_columns(["some_number"])
         def test_avg_filtering_non_number_resiliency(self):
             sign_up_action, person = self._create_events()
             person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
@@ -1682,6 +1722,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(action_response[0]["data"][-1], 5)
             self.assertEntityResponseEqual(action_response, event_response)
 
+        @test_with_materialized_columns(["$some_property"])
         def test_per_entity_filtering(self):
             self._create_events()
             with freeze_time("2020-01-04T13:00:01Z"):
@@ -1708,39 +1749,72 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
         def _create_multiple_people(self):
             person1 = person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"name": "person1"})
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person1", timestamp="2020-01-01T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person1",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"order": "1"},
             )
 
             person2 = person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"name": "person2"})
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person2", timestamp="2020-01-01T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"order": "1"},
             )
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person2", timestamp="2020-01-02T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={"order": "2"},
             )
             # same day
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person2", timestamp="2020-01-02T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person2",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={"order": "2"},
             )
 
             person3 = person_factory(team_id=self.team.pk, distinct_ids=["person3"], properties={"name": "person3"})
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person3", timestamp="2020-01-01T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person3",
+                timestamp="2020-01-01T12:00:00Z",
+                properties={"order": "1"},
             )
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person3", timestamp="2020-01-02T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person3",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={"order": "2"},
             )
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person3", timestamp="2020-01-03T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person3",
+                timestamp="2020-01-03T12:00:00Z",
+                properties={"order": "2"},
             )
 
             person4 = person_factory(team_id=self.team.pk, distinct_ids=["person4"], properties={"name": "person4"})
             event_factory(
-                team=self.team, event="watched movie", distinct_id="person4", timestamp="2020-01-05T12:00:00Z",
+                team=self.team,
+                event="watched movie",
+                distinct_id="person4",
+                timestamp="2020-01-05T12:00:00Z",
+                properties={"order": "1"},
             )
 
             return (person1, person2, person3, person4)
 
+        @test_with_materialized_columns(person_properties=["name"])
         def test_person_property_filtering(self):
             self._create_multiple_people()
             with freeze_time("2020-01-04"):
@@ -1780,6 +1854,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.assertEqual(event_response[0]["label"], "$pageview - all users")
             self.assertEqual(sum(event_response[0]["data"]), 1)
 
+        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_breakdown_by_cohort(self):
             person1, person2, person3, person4 = self._create_multiple_people()
             cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"name": "person1"}}])
@@ -1836,9 +1911,14 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event_response, action_response,
             )
 
+        @test_with_materialized_columns(verify_no_jsonextract=False)
         def test_interval_filtering_breakdown(self):
             self._create_events(use_time=True)
-            cohort = cohort_factory(name="cohort1", team=self.team, groups=[{"properties": {"$some_prop": "some_val"}}])
+            cohort = cohort_factory(
+                name="cohort1",
+                team=self.team,
+                groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
+            )
 
             # test minute
             with freeze_time("2020-01-02"):
@@ -1982,6 +2062,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 event_response, action_response,
             )
 
+        @test_with_materialized_columns(person_properties=["name"])
         def test_breakdown_by_person_property_pie(self):
             self._create_multiple_people()
 
@@ -2047,6 +2128,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             result = trends().run(filter_3, self.team,)
             self.assertEqual(result[0]["count"], 1)
 
+        @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_filter_test_accounts_cohorts(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
             person_factory(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
@@ -2055,8 +2137,11 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             event_factory(event="event_name", team=self.team, distinct_id="person_2")
             event_factory(event="event_name", team=self.team, distinct_id="person_2")
 
-            cohort = cohort_factory(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
-
+            cohort = cohort_factory(
+                team=self.team,
+                name="cohort1",
+                groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
+            )
             self.team.test_account_filters = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
             self.team.save()
 
@@ -2098,6 +2183,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 ],
             )
 
+        @test_with_materialized_columns(["$some_property"])
         def test_breakdown_filtering_bar_chart_by_value(self):
             self._create_events()
 

@@ -5,13 +5,7 @@ import { toParams, objectsEqual, uuid } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_TABLE,
-    FEATURE_FLAGS,
-    RETENTION_FIRST_TIME,
-    RETENTION_RECURRING,
-} from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, FilterType, ViewType } from '~/types'
 import {
@@ -21,9 +15,7 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -68,7 +60,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                     return props.cachedResults
                 }
                 const queryId = uuid()
+                const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+
                 let res
                 const urlParams = toParams({ ...values.filters, ...(refresh ? { refresh: true } : {}) })
                 try {
@@ -76,10 +71,13 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     return []
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, res.last_refresh)
+
                 return res.result
             },
         },
@@ -141,15 +139,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             (selectors) => [(selectors as any).actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
-        filtersLoading: [
-            () => [
-                featureFlagLogic.selectors.featureFlags,
-                eventDefinitionsModel.selectors.loaded,
-                propertyDefinitionsModel.selectors.loaded,
-            ],
-            (featureFlags, eventsLoaded, propertiesLoaded) =>
-                !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
-        ],
+        actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
+        actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
     },
     events: ({ actions, props }) => ({
         afterMount: () => props.dashboardItemId && actions.loadResults(),

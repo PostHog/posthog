@@ -12,7 +12,6 @@ from rest_framework import serializers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
-    DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
     DELETE_PERSON_EVENTS_BY_ID,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_SQL,
@@ -20,9 +19,9 @@ from ee.clickhouse.sql.person import (
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog import settings
-from posthog.ee import is_clickhouse_enabled
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.utils import UUIDT
+from posthog.utils import is_clickhouse_enabled
 
 if settings.EE_AVAILABLE and is_clickhouse_enabled():
 
@@ -37,7 +36,7 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
 
     @receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.pk, instance.team.pk, instance.distinct_id, str(instance.person.uuid))
+        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid))
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
@@ -45,7 +44,7 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
-        delete_person_distinct_id(instance)
+        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), sign=-1)
 
 
 def create_person(
@@ -76,8 +75,8 @@ def create_person(
     return uuid
 
 
-def create_person_distinct_id(id: int, team_id: int, distinct_id: str, person_id: str) -> None:
-    data = {"id": id, "distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
+def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, sign=1) -> None:
+    data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "sign": sign}
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
 
@@ -113,18 +112,6 @@ def delete_person(
         pass  # cannot delete if the table is distributed
 
     sync_execute(DELETE_PERSON_BY_ID, data)
-
-
-def delete_person_distinct_id(person_distinct_id: PersonDistinctId):
-    sync_execute(
-        DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
-        {
-            "id": person_distinct_id.id,
-            "distinct_id": person_distinct_id.distinct_id,
-            "person_id": person_distinct_id.person.uuid,
-            "team_id": person_distinct_id.team_id,
-        },
-    )
 
 
 class ClickhousePersonSerializer(serializers.Serializer):

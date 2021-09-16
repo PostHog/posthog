@@ -1,9 +1,9 @@
 from typing import Dict, List
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Action, Event, Person, PersonDistinctId, Team
 from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.utils import UUIDT
+from posthog.utils import is_clickhouse_enabled
 
 
 class DataGenerator:
@@ -45,9 +45,7 @@ class DataGenerator:
             for person in self.people:
                 create_person(team_id=person.team.pk, properties=person.properties, is_identified=person.is_identified)
             for pid in pids:
-                create_person_distinct_id(
-                    0, pid.team.pk, pid.distinct_id, str(pid.person.uuid)
-                )  # use dummy number for id
+                create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use dummy number for id
 
     def make_person(self, index):
         return Person(team=self.team, properties={"is_demo": True})
