@@ -10,6 +10,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_onboarding_completed
+from posthog.exceptions import EnterpriseFeatureException
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
@@ -99,6 +100,16 @@ class OrganizationSerializer(serializers.ModelSerializer):
             organization=organization, user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
+
+    def validate(self, attrs: Any) -> Any:
+        new_per_project_access = attrs.get("per_project_access")
+        if new_per_project_access:
+            instance = cast(Optional[Organization], self.instance)
+            if not instance:
+                attrs.pop("per_project_access")  # Disallow setting this field in organization creation
+            elif not instance.is_feature_available(AvailableFeature.PER_PROJECT_ACCESS):
+                raise EnterpriseFeatureException("per-project access")
+        return attrs
 
     def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
         if not instance.is_onboarding_active:

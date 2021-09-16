@@ -16,10 +16,10 @@ class RequestParsingError(Exception):
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
 
-    def __init__(self) -> None:
+    def __init__(self, feature: Optional[str] = None) -> None:
         super().__init__(
             detail=(
-                "This feature is part of the premium PostHog offering. "
+                f"{feature.capitalize() if feature else 'This feature'} is part of the premium PostHog offering. "
                 + (
                     "To use it, subscribe to PostHog Cloud with a generous free tier: https://app.posthog.com/organization/billing"
                     if settings.MULTI_TENANCY
