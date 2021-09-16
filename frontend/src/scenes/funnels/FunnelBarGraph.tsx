@@ -346,7 +346,7 @@ export function FunnelBarGraph({
                             <div style={{ display: 'flex', maxWidth: '100%', flexGrow: 1 }}>
                                 <div className="funnel-step-title">
                                     {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
-                                        <span>Completed {humanizeOrder(step.order)} step</span>
+                                        <span>Completed {humanizeOrder(step.order)} steps</span>
                                     ) : (
                                         <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
                                     )}
