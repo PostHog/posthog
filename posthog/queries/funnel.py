@@ -104,10 +104,11 @@ class Funnel(BaseQuery):
             "type": step.type,
         }
 
-    def _build_query(self, query_bodies: dict):
+    def _build_query(self, within_time: Optional[str] = None):
         """Build query using lateral joins using a combination of Django generated SQL
            and sql built using psycopg2
         """
+        query_bodies = self._gen_lateral_bodies(within_time=within_time)
 
         ON_TRUE = "ON TRUE"
         LEFT_JOIN_LATERAL = "LEFT JOIN LATERAL"
@@ -191,7 +192,7 @@ class Funnel(BaseQuery):
         ).format(
             interval=sql.Literal(filter.interval),
             particular_steps=sql.SQL(",\n").join(particular_steps),
-            steps_query=self._build_query(self._gen_lateral_bodies(within_time="'1 day'")),
+            steps_query=self._build_query(within_time="'1 day'"),
             interval_field=sql.SQL("step_0")
             if filter.interval != "week"
             else sql.SQL("(\"step_0\" + interval '1 day') AT TIME ZONE 'UTC'"),
@@ -290,7 +291,9 @@ class Funnel(BaseQuery):
             1. event with event name "user signed up"
             2. event with event name "user looked at report"
 
-        For a person to match they have to have gone through all `entities` in order.
+        For a person to match they have to have gone through all `entities` in
+        order. We also only return one such chain of entities, the earliest one
+        we find.
         """
 
         # If no steps are defined, then there's no point in querying the database
@@ -301,11 +304,8 @@ class Funnel(BaseQuery):
             return self._get_trends()
 
         with connection.cursor() as cursor:
-            # First we query build queries for the "entities"
-            entity_queries = self._gen_lateral_bodies()
-
             # Then we build a query to query for them in order
-            qstring = self._build_query(entity_queries).as_string(cursor.connection)
+            qstring = self._build_query(within_time=None).as_string(cursor.connection)
 
             cursor.execute(qstring)
             results = namedtuplefetchall(cursor)
