@@ -42,7 +42,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PersonModal } from 'scenes/trends/PersonModal'
-import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -94,13 +93,10 @@ export function Insights(): JSX.Element {
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { showingPeople } = useValues(personsModalLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
-    const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
 
     const { cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
-    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const { user } = useValues(userLogic)
     const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
@@ -191,24 +187,7 @@ export function Insights(): JSX.Element {
 
     return (
         <div className="insights-page">
-            <PersonModal
-                visible={showingPeople && !cohortModalVisible}
-                view={ViewType.FUNNELS}
-                filters={allFilters}
-                onSaveCohort={() => {
-                    setCohortModalVisible(true)
-                }}
-            />
-            <SaveCohortModal
-                visible={cohortModalVisible}
-                onOk={(title: string) => {
-                    saveCohortWithFilters(title, allFilters)
-                    setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonModal(allFilters)
-                }}
-                onCancel={() => setCohortModalVisible(false)}
-            />
-
+            <PersonModal visible={showingPeople && !cohortModalVisible} view={ViewType.FUNNELS} filters={allFilters} />
             {insightMode === ItemMode.Edit ? (
                 <Input
                     placeholder="Insight name (e.g. Weekly KPIs)"

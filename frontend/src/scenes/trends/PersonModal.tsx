@@ -14,15 +14,37 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
+import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface PersonModalProps {
     visible: boolean
     view: ViewType
     filters: Partial<FilterType>
-    onSaveCohort: () => void
 }
 
-export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
+export function PersonModal({ visible, view, filters }: PersonModalProps): JSX.Element {
+    const { cohortModalVisible } = useValues(personsModalLogic)
+    const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
+    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
+
+    return (
+        <>
+            <PersonModalDialog visible={visible} view={view} filters={filters} />
+            <SaveCohortModal
+                visible={cohortModalVisible}
+                onOk={(title) => {
+                    saveCohortWithFilters(title, filters)
+                    setCohortModalVisible(false)
+                    reportCohortCreatedFromPersonModal(filters)
+                }}
+                onCancel={() => setCohortModalVisible(false)}
+            />
+        </>
+    )
+}
+
+export function PersonModalDialog({ visible, view, filters }: PersonModalProps): JSX.Element {
     const {
         people,
         loadingMorePeople,
@@ -32,10 +54,16 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
         clickhouseFeaturesEnabled,
         savedCohortLoading,
     } = useValues(personsModalLogic)
-    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
-        personsModalLogic
-    )
+    const {
+        hidePeople,
+        loadMorePeople,
+        setFirstLoadedPeople,
+        setPersonsModalFilters,
+        setSearchTerm,
+        setCohortModalVisible,
+    } = useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
+
     const title = useMemo(
         () =>
             isInitialLoad ? (
@@ -97,7 +125,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                         )}
                         {isSaveAsCohortAvailable && (
                             <Button
-                                onClick={onSaveCohort}
+                                onClick={() => setCohortModalVisible(true)}
                                 icon={<UsergroupAddOutlined />}
                                 data-attr="person-modal-save-as-cohort"
                                 loading={savedCohortLoading}

@@ -11,13 +11,11 @@ import {
 } from 'lib/constants'
 
 import { ActionsPie, ActionsLineGraph, ActionsBarValueGraph, ActionsTable } from './viz'
-import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ViewType } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface Props {
     view: ViewType
@@ -25,14 +23,11 @@ interface Props {
 
 export function TrendInsight({ view }: Props): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
     const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(
         trendsLogic({ dashboardItemId: null, view, filters: null })
     )
     const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, view, filters: null }))
     const { showingPeople } = useValues(personsModalLogic)
-    const { saveCohortWithFilters } = useActions(personsModalLogic)
-    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||
@@ -97,23 +92,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     )}
                 </div>
             )}
-            <PersonModal
-                visible={showingPeople && !cohortModalVisible}
-                view={view}
-                filters={_filters}
-                onSaveCohort={() => {
-                    setCohortModalVisible(true)
-                }}
-            />
-            <SaveCohortModal
-                visible={cohortModalVisible}
-                onOk={(title: string) => {
-                    saveCohortWithFilters(title, _filters)
-                    setCohortModalVisible(false)
-                    reportCohortCreatedFromPersonModal(_filters)
-                }}
-                onCancel={() => setCohortModalVisible(false)}
-            />
+            <PersonModal visible={showingPeople && !cohortModalVisible} view={view} filters={_filters} />
         </>
     )
 }
