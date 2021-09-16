@@ -14,7 +14,7 @@ export interface TaxonomicBreakdownFilterProps {
     onChange: (value: string | number | (string | number)[] | null, groupType: BreakdownType | null) => void
 }
 
-export function TaxonomicBreakdownFilter({ filters, onChange }: TaxonomicBreakdownFilterProps): JSX.Element {
+export function BreakdownFilter({ filters, onChange }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdown_type } = filters
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)

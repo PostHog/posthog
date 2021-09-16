@@ -36,6 +36,9 @@
         0 2.7px 5.4px rgba(0, 0, 0, 0.125), 0 5px 10px rgba(0, 0, 0, 0.101), 0 12px 24px rgba(0, 0, 0, 0.07);
     opacity: 1;
     transition: opacity ease 0.5s;
+    background-color: rgba(255, 255, 255);
+    border-radius: 4px;
+    border: 1px solid #d9d9d9;
 
     .toolbar-block {
         max-height: 80vh;
@@ -43,12 +46,11 @@
     }
 
     .toolbar-info-window-title {
-        height: 42px;
         line-height: 26px;
-        padding-left: 15px;
         display: flex;
-        width: 100%;
         align-items: center;
+        margin: 0 8px 0 8px;
+        border-bottom: 1px solid #d9d9d9;
 
         .toolbar-info-window-draggable {
             cursor: move;
@@ -57,47 +59,33 @@
             width: 100%;
             align-items: center;
             cursor: move;
-            > svg:first-child {
-                margin-right: 9px;
-                height: 18px;
-                width: auto;
-            }
+            padding: 15px 0 15px 0;
 
             .window-label {
-                flex: 1;
+                font-size: 14px;
+                font-weight: bold;
+                margin-bottom: 0;
+                padding-left: 8px;
             }
         }
         .close-button {
             cursor: pointer;
-            width: 40px;
-            text-align: center;
-            background: rgba(255, 255, 255, 0.4);
-            line-height: 42px;
+            padding: 8px;
+            color: rgba(0, 0, 0, 0.6);
+            transition: color 0.1s ease-in-out;
             &:hover {
-                background: rgba(255, 255, 255, 0.6);
+                color: rgb(0, 0, 0);
             }
         }
     }
+}
 
-    &.heatmap-button-window {
-        border-left: 4px solid #f54d01;
-        .toolbar-block {
-            background: hsla(19, 99%, 99%, 1);
-        }
-        .toolbar-info-window-title {
-            color: hsla(19, 89%, 15%, 1);
-            background: hsla(19, 99%, 83%, 1);
-        }
-    }
-
-    &.actions-button-window {
-        border-left: 4px solid #94d674;
-        .toolbar-block {
-            background: hsla(100, 74%, 98%, 1);
-        }
-        .toolbar-info-window-title {
-            color: hsla(100, 34%, 15%, 1);
-            background: #d6ebcc;
-        }
-    }
+.overridden-tag {
+    margin-left: 5px;
+    font-size: 11px;
+    padding: 0 4px;
+    line-height: 20px;
+    background: #fdedc9;
+    border-radius: 4px;
+    font-weight: bold;
 }

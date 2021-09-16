@@ -14,7 +14,13 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
 from posthog.settings import EE_AVAILABLE
-from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_week
+from posthog.utils import (
+    get_helm_info_env,
+    get_instance_realm,
+    get_machine_id,
+    get_previous_week,
+    is_clickhouse_enabled,
+)
 from posthog.version import VERSION
 
 logger = logging.getLogger(__name__)
@@ -63,31 +69,57 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         try:
+            params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
             team_report: Dict[str, Any] = {}
-            events_considered_total = Event.objects.filter(team_id=team.id)
-            instance_usage_summary["events_count_total"] += events_considered_total.count()
-            events_considered_new_in_period = events_considered_total.filter(
-                timestamp__gte=period_start, timestamp__lte=period_end,
-            )
+            if is_clickhouse_enabled():
+                # pull events stats from clickhouse
+                from ee.clickhouse.models.event import (
+                    get_event_count_for_team,
+                    get_event_count_for_team_and_period,
+                    get_events_count_for_team_by_client_lib,
+                    get_events_count_for_team_by_event_type,
+                )
+
+                team_event_count = get_event_count_for_team(team.id)
+                instance_usage_summary["events_count_total"] += team_event_count
+                team_report["events_count_total"] = team_event_count
+                team_events_in_period_count = get_event_count_for_team_and_period(team.id, period_start, period_end)
+                team_report["events_count_new_in_period"] = team_events_in_period_count
+                instance_usage_summary["events_count_new_in_period"] += team_report["events_count_new_in_period"]
+
+                team_report["events_count_by_lib"] = get_events_count_for_team_by_client_lib(
+                    team.id, period_start, period_end
+                )
+                team_report["events_count_by_name"] = get_events_count_for_team_by_event_type(
+                    team.id, period_start, period_end
+                )
+            else:
+                # pull events stats from postgres
+                events_considered_total = Event.objects.filter(team_id=team.id)
+                instance_usage_summary["events_count_total"] += events_considered_total.count()
+                events_considered_new_in_period = events_considered_total.filter(
+                    timestamp__gte=period_start, timestamp__lte=period_end,
+                )
+
+                team_report["events_count_total"] = events_considered_total.count()
+                team_report["events_count_new_in_period"] = events_considered_new_in_period.count()
+                instance_usage_summary["events_count_new_in_period"] += team_report["events_count_new_in_period"]
+
+                team_report["events_count_by_lib"] = fetch_event_counts_by_lib(params)
+                team_report["events_count_by_name"] = fetch_events_count_by_name(params)
+
+            # pull person stats and the rest here from Postgres always
             persons_considered_total = Person.objects.filter(team_id=team.id)
             persons_considered_total_new_in_period = persons_considered_total.filter(
                 created_at__gte=period_start, created_at__lte=period_end,
             )
-            team_report["events_count_total"] = events_considered_total.count()
-            team_report["events_count_new_in_period"] = events_considered_new_in_period.count()
-            instance_usage_summary["events_count_new_in_period"] += team_report["events_count_new_in_period"]
-
             team_report["persons_count_total"] = persons_considered_total.count()
             instance_usage_summary["persons_count_total"] += team_report["persons_count_total"]
 
             team_report["persons_count_new_in_period"] = persons_considered_total_new_in_period.count()
             instance_usage_summary["persons_count_new_in_period"] += team_report["persons_count_new_in_period"]
 
-            params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
-
             team_report["persons_count_active_in_period"] = fetch_persons_count_active_in_period(params)
-            team_report["events_count_by_lib"] = fetch_event_counts_by_lib(params)
-            team_report["events_count_by_name"] = fetch_events_count_by_name(params)
 
             # Dashboards
             team_dashboards = Dashboard.objects.filter(team=team).exclude(deleted=True)

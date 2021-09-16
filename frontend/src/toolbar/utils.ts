@@ -3,6 +3,8 @@ import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ActionStepUrlMatching, ElementType } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { encodeParams } from 'kea-router'
 
 // these plus any element with cursor:pointer will be click targets
 const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
@@ -399,4 +401,36 @@ export function getHeatMapHue(count: number, maxCount: number): number {
         return 60
     }
     return 60 - (count / maxCount) * 40
+}
+
+export async function toolbarFetch(
+    url: string,
+    method: string = 'GET',
+    payload?: Record<string, any>
+): Promise<Response> {
+    const params = {
+        temporary_token: toolbarLogic.values.temporaryToken,
+    }
+    const fullUrl = `${toolbarLogic.values.apiURL}${url.startsWith('/') ? url.substring(1) : url}${encodeParams(
+        params,
+        '?'
+    )}`
+
+    const payloadData = payload
+        ? {
+              body: JSON.stringify(payload),
+              headers: {
+                  'Content-Type': 'application/json',
+              },
+          }
+        : {}
+
+    const response = await fetch(fullUrl, {
+        method,
+        ...payloadData,
+    })
+    if (response.status === 403) {
+        toolbarLogic.actions.authenticate()
+    }
+    return response
 }
