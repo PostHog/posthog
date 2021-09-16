@@ -282,6 +282,18 @@ class Funnel(BaseQuery):
         return steps
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
+        """
+        Builds and runs a query to get all persons that have been in the funnel
+        steps defined by `self._filter.entities`. For example, entities may be
+        defined as:
+            
+            1. event with event name "user signed up"
+            2. event with event name "user looked at report"
+
+        For a person to match they have to have gone through all `entities` in order.
+        """
+
+        # If no steps are defined, then there's no point in querying the database
         if len(self._filter.entities) == 0:
             return []
 
@@ -289,7 +301,12 @@ class Funnel(BaseQuery):
             return self._get_trends()
 
         with connection.cursor() as cursor:
-            qstring = self._build_query(self._gen_lateral_bodies()).as_string(cursor.connection)
+            # First we query build queries for the "entities"
+            entity_queries = self._gen_lateral_bodies()
+
+            # Then we build a query to query for them in order
+            qstring = self._build_query(entity_queries).as_string(cursor.connection)
+
             cursor.execute(qstring)
             results = namedtuplefetchall(cursor)
         return self.data_to_return(results)
