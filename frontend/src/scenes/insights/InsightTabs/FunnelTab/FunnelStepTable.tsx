@@ -8,7 +8,7 @@ import { formatBreakdownLabel } from 'scenes/insights/InsightsTable/InsightsTabl
 import { cohortsModel } from '~/models/cohortsModel'
 import { IconSize, InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { formatDisplayPercentage, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
+import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { humanFriendlyDuration } from 'lib/utils'
 import { ChartParams, FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
@@ -32,12 +32,12 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
         filters,
         steps,
         visibleStepsWithConversionMetrics,
-        visibilityMap,
+        hiddenMap,
         barGraphLayout,
         flattenedStepsByBreakdown,
         flattenedBreakdowns,
     } = useValues(logic)
-    const { openPersonsModal, toggleBreakdownVisibility, setVisibilityById } = useActions(logic)
+    const { openPersonsModal, toggleVisibilityByBreakdown, setHiddenById } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const isNewVertical =
@@ -50,26 +50,41 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
 
             _columns.push({
                 render: function RenderCheckbox({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
-                    const breakdownIndices = Array.from(Array(flattenedBreakdowns.length).keys()) ?? []
-                    const stepIndices = Array.from(Array(visibleStepsWithConversionMetrics.length).keys()) ?? []
-                    const checked = !!breakdownIndices?.every((i) => visibilityMap[`0-${i}`])
+                    const checked = !!flattenedBreakdowns?.every(
+                        (b) => !hiddenMap[getVisibilityIndex(visibleStepsWithConversionMetrics?.[0], b.breakdown_value)]
+                    )
 
                     return renderGraphAndHeader(
                         rowIndex,
                         0,
                         <PHCheckbox
-                            checked={visibilityMap[`0-${breakdown.breakdownIndex}`]} // assume visible status from first step's visibility
-                            onChange={() => toggleBreakdownVisibility(breakdown.breakdownIndex as number)}
+                            checked={
+                                !hiddenMap[
+                                    getVisibilityIndex(
+                                        visibleStepsWithConversionMetrics?.[0],
+                                        breakdown.breakdown_value
+                                    )
+                                ]
+                            } // assume visible status from first step's visibility
+                            onChange={() => toggleVisibilityByBreakdown(breakdown.breakdown_value)}
                         />,
                         <PHCheckbox
                             checked={checked}
-                            indeterminate={breakdownIndices?.some((i) => visibilityMap[`0-${i}`])}
+                            indeterminate={flattenedBreakdowns?.some(
+                                (b) =>
+                                    !hiddenMap[
+                                        getVisibilityIndex(visibleStepsWithConversionMetrics?.[0], b.breakdown_value)
+                                    ]
+                            )}
                             onChange={() => {
                                 // either toggle all data on or off
-                                setVisibilityById(
+                                setHiddenById(
                                     Object.fromEntries(
-                                        stepIndices.flatMap((s_i) =>
-                                            breakdownIndices.map((b_i) => [`${s_i}-${b_i}`, !checked])
+                                        visibleStepsWithConversionMetrics.flatMap((s) =>
+                                            flattenedBreakdowns.map((b) => [
+                                                getVisibilityIndex(s, b.breakdown_value),
+                                                !checked,
+                                            ])
                                         )
                                     )
                                 )
@@ -306,12 +321,12 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                     if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {
                         return (
                             <PHCheckbox
-                                checked={!!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])}
-                                indeterminate={step.nestedRowKeys?.some((rowKey) => visibilityMap[rowKey])}
+                                checked={!!step.nestedRowKeys?.every((rowKey) => !hiddenMap[rowKey])}
+                                indeterminate={step.nestedRowKeys?.some((rowKey) => !hiddenMap[rowKey])}
                                 onChange={() => {
                                     // either toggle all data on or off
-                                    const currentState = !!step.nestedRowKeys?.every((rowKey) => visibilityMap[rowKey])
-                                    setVisibilityById(
+                                    const currentState = !!step.nestedRowKeys?.every((rowKey) => !hiddenMap[rowKey])
+                                    setHiddenById(
                                         Object.fromEntries(
                                             (
                                                 flattenedSteps?.filter((s) => s.breakdownIndex !== undefined) ?? []
@@ -325,8 +340,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                     // Breakdown child
                     return (
                         <PHCheckbox
-                            checked={visibilityMap[step.rowKey]}
-                            onChange={() => toggleBreakdownVisibility(step.breakdownIndex as number)}
+                            checked={!hiddenMap[step.rowKey]}
+                            onChange={() => toggleVisibilityByBreakdown(step.breakdownIndex as number)}
                         />
                     )
                 },

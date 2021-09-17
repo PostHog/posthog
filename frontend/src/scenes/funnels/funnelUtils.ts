@@ -208,6 +208,18 @@ export function wait(ms = 1000): Promise<any> {
     })
 }
 
+export function cleanBreakdownValue(breakdown_value: string | number | undefined): string | number | undefined {
+    return breakdown_value === 'Baseline' ? undefined : breakdown_value
+}
+
+export function getVisibilityIndex(step: FunnelStep, key?: number | string): string {
+    if (step.type === 'actions') {
+        return `${step.type}/${step.action_id}/${step.order}`
+    } else {
+        return `${step.type}/${step.action_id}/${step.order}/${key || 'Other'}`
+    }
+}
+
 export const SECONDS_TO_POLL = 3 * 60
 
 export const EMPTY_FUNNEL_RESULTS = {
