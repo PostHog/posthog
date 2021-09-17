@@ -1590,6 +1590,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "csykes",
+      "name": "Chad Sykes",
+      "avatar_url": "https://avatars.githubusercontent.com/u/944809?v=4",
+      "profile": "https://github.com/csykes",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
