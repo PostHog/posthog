@@ -38,5 +38,5 @@ export function getReasonForAccessLevelChangeProhibition(
     if (currentMembershipLevel < memberChanged.level) {
         return 'You can only change access level of members with level lower or equal to you.'
     }
-    return false
+    return null
 }
