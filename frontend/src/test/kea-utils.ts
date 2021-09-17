@@ -1,13 +1,13 @@
 import { Action as ReduxAction } from 'redux'
 import { BuiltLogic, getContext, getPluginContext, KeaPlugin, Logic, LogicWrapper, setPluginContext } from 'kea'
 import { initKea } from '~/initKea'
-import { waitForAction } from 'kea-waitfor'
-import { objectsEqual } from 'lib/utils'
+import { waitForAction, waitForCondition } from 'kea-waitfor'
+import { delay, objectsEqual } from 'lib/utils'
 
 interface CallableMethods {
     toDispatchActions: (actions: (string | ReduxAction | ((action: ReduxAction) => boolean))[]) => CallableMethods
     toMatchValues: (values: Record<string, any>) => CallableMethods
-    then: Promise<void>
+    run: () => Promise<void>
 }
 
 interface RecordedAction {
@@ -20,6 +20,8 @@ interface PluginContext {
     recordedActions: RecordedAction[]
     pointerMap: Map<LogicWrapper | BuiltLogic, number>
 }
+
+const ASYNC_ACTION_WAIT_TIMEOUT = 3000
 
 export function initKeaTestLogic<L extends Logic = Logic>({
     logic,
@@ -60,9 +62,9 @@ function tryToSearchActions(
 ): (string | ReduxAction | ((action: ReduxAction) => boolean))[] {
     const actionsToSearch = [...actions]
     const { recordedActions, pointerMap } = testUtilsContext()
-    const actionPointer = pointerMap.get(logic) || 0
+    const actionPointer = pointerMap.get(logic) || -1
 
-    for (let i = actionPointer; i < recordedActions.length; i++) {
+    for (let i = actionPointer + 1; i < recordedActions.length; i++) {
         const actionSearch = actionsToSearch[0]
         const recordedAction = recordedActions[i]
         if (
@@ -75,13 +77,29 @@ function tryToSearchActions(
         ) {
             actionsToSearch.shift()
             if (actionsToSearch.length === 0) {
-                pointerMap.set(logic, i + 1)
+                pointerMap.set(logic, i)
                 break
             }
         }
     }
 
     return actionsToSearch
+}
+
+function expectValuesToMatch<L extends BuiltLogic | LogicWrapper>(
+    ranActions: boolean,
+    pointerMap: Map<LogicWrapper | BuiltLogic, number>,
+    logic: L,
+    values: Record<string, any>
+): void {
+    const { recordedActions } = testUtilsContext()
+    const currentState = ranActions
+        ? recordedActions[pointerMap.get(logic) || 0]?.afterState || getContext().store.getState()
+        : getContext().store.getState()
+    for (const [key, value] of Object.entries(values)) {
+        const currentValue = logic.selectors[key](currentState, logic.props)
+        expect(currentValue).toEqual(value)
+    }
 }
 
 export function expectLogic<L extends BuiltLogic | LogicWrapper>(
@@ -101,31 +119,67 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
 
     start()
 
-    let ranActions = false
+    let asyncMode = false
+    const asyncOperations: {
+        operation: 'toDispatchActions' | 'toMatchValues'
+        logic: BuiltLogic | LogicWrapper
+        payload: any
+    }[] = []
 
+    let ranActions = false
     function makeCallableMethods(): CallableMethods {
         return {
             toDispatchActions: (actions) => {
-                ranActions = true
-                const actionsToSearch = tryToSearchActions(actions, logic)
-                if (actionsToSearch.length > 0) {
-                    throw new Error(`Could not find dispatched action: ${actionsToSearch[0]}`)
+                if (asyncMode) {
+                    asyncOperations.push({ operation: 'toDispatchActions', logic, payload: actions })
+                } else {
+                    ranActions = true
+                    const actionsToSearch = tryToSearchActions(actions, logic)
+                    if (actionsToSearch.length > 0) {
+                        asyncMode = true
+                        asyncOperations.push({ operation: 'toDispatchActions', logic, payload: actionsToSearch })
+                    }
                 }
                 return makeCallableMethods()
             },
             toMatchValues: (values) => {
-                const { recordedActions } = testUtilsContext()
-                const currentState = ranActions
-                    ? recordedActions[pointerMap.get(logic) || 0]?.afterState || getContext().store.getState()
-                    : getContext().store.getState()
-                for (const [key, value] of Object.entries(values)) {
-                    const currentValue = logic.selectors[key](currentState, logic.props)
-                    expect(currentValue).toEqual(value)
+                if (asyncMode) {
+                    asyncOperations.push({ operation: 'toMatchValues', logic, payload: values })
+                } else {
+                    expectValuesToMatch(ranActions, pointerMap, logic, values)
                 }
 
                 return makeCallableMethods()
             },
-            then: Promise.resolve(),
+            run: async () => {
+                if (asyncMode) {
+                    for (const { logic: _logic, operation, payload } of asyncOperations) {
+                        if (operation === 'toDispatchActions') {
+                            ranActions = true
+                            const actions = payload as ReduxAction[]
+                            for (const action of actions) {
+                                const [notFound] = tryToSearchActions([action], _logic)
+                                if (notFound) {
+                                    await Promise.race([
+                                        delay(ASYNC_ACTION_WAIT_TIMEOUT).then(() => {
+                                            throw new Error(`Timed out waiting for action: ${notFound}`)
+                                        }),
+                                        typeof notFound === 'string'
+                                            ? waitForAction(logic.actionTypes[notFound] || notFound)
+                                            : typeof notFound === 'function'
+                                            ? waitForCondition(notFound)
+                                            : waitForCondition((a) => objectsEqual(a, notFound)),
+                                    ])
+                                }
+                            }
+                        } else if (operation === 'toMatchValues') {
+                            expectValuesToMatch(ranActions, pointerMap, logic, payload)
+                        }
+                    }
+                } else {
+                    console.log('nothing to ".then"')
+                }
+            },
         }
     }
 
