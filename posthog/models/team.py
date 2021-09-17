@@ -135,7 +135,7 @@ class Team(UUIDClassicModel):
         parent_membership: "OrganizationMembership" = user.organization_memberships.only("id", "level").get(
             organization_id=self.organization_id
         )
-        if settings.EE_AVAILABLE is None or not self.organization.per_project_access:
+        if not settings.EE_AVAILABLE or not self.organization.per_project_access:
             # Per-project access not available
             return parent_membership.level
         try:
