@@ -13,67 +13,28 @@ import {
 } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
-import { OrganizationMemberType, OrganizationType, UserType } from '~/types'
+import { OrganizationMemberType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
+import { getReasonForAccessLevelChangeProhibition } from '../../../lib/utils/permissioning'
 
 const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
     (value) => typeof value === 'number'
 ) as OrganizationMembershipLevel[]
 
-function isMembershipLevelChangeDisallowed(
-    currentOrganization: OrganizationType | null,
-    currentUser: UserType,
-    memberChanged: OrganizationMemberType,
-    newLevelOrAllowedLevels: OrganizationMembershipLevel | OrganizationMembershipLevel[]
-): false | string {
-    const currentMembershipLevel = currentOrganization?.membership_level
-    if (memberChanged.user.uuid === currentUser.uuid) {
-        return "You can't change your own access level."
-    }
-    if (!currentMembershipLevel) {
-        return 'Your membership level is unknown.'
-    }
-    if (Array.isArray(newLevelOrAllowedLevels)) {
-        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
-            return false
-        }
-        if (!newLevelOrAllowedLevels.length) {
-            return "You don't have permission to change this member's access level."
-        }
-    } else {
-        if (newLevelOrAllowedLevels === memberChanged.level) {
-            return "It doesn't make sense to set the same level as before."
-        }
-        if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
-            return false
-        }
-        if (newLevelOrAllowedLevels > currentMembershipLevel) {
-            return 'You can only change access level of others to lower or equal to your current one.'
-        }
-    }
-    if (currentMembershipLevel < OrganizationMembershipLevel.Admin) {
-        return "You don't have permission to change access levels."
-    }
-    if (currentMembershipLevel < memberChanged.level) {
-        return 'You can only change access level of members with level lower or equal to you.'
-    }
-    return false
-}
-
-function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
+export function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { changeMemberAccessLevel } = useActions(membersLogic)
 
+    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+
     if (!user) {
         return null
     }
-
-    const { level } = member
 
     function generateHandleClick(listLevel: OrganizationMembershipLevel): (event: React.MouseEvent) => void {
         return function handleClick(event: React.MouseEvent) {
@@ -102,16 +63,16 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const levelButton = (
         <Button
             data-attr="change-membership-level"
-            icon={level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
+            icon={member.level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
         >
-            {organizationMembershipLevelToName.get(level) ?? `unknown (${level})`}
+            {organizationMembershipLevelToName.get(member.level) ?? `unknown (${member.level})`}
         </Button>
     )
 
     const allowedLevels = membershipLevelIntegers.filter(
-        (listLevel) => !isMembershipLevelChangeDisallowed(currentOrganization, user, member, listLevel)
+        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
     )
-    const disallowedReason = isMembershipLevelChangeDisallowed(currentOrganization, user, member, allowedLevels)
+    const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
     return disallowedReason ? (
         <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
@@ -127,7 +88,7 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
                                         <CrownFilled style={{ marginRight: '0.5rem' }} />
                                         Transfer organization ownership
                                     </>
-                                ) : listLevel > level ? (
+                                ) : listLevel > member.level ? (
                                     <>
                                         <UpOutlined style={{ marginRight: '0.5rem' }} />
                                         Upgrade to {organizationMembershipLevelToName.get(listLevel)}
@@ -190,9 +151,9 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
             {allowDeletion && (
                 <a className="text-danger" onClick={handleClick} data-attr="delete-org-membership">
                     {member.user.uuid !== user.uuid ? (
-                        <DeleteOutlined title="Remove Member" />
+                        <DeleteOutlined title="Remove from organization" />
                     ) : (
-                        <LogoutOutlined title="Leave Organization" />
+                        <LogoutOutlined title="Leave organization" />
                     )}
                 </a>
             )}
@@ -200,7 +161,12 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
     )
 }
 
-export function Members({ user }: { user: UserType }): JSX.Element {
+export interface MembersProps {
+    /** Currently logged-in user. */
+    user: UserType
+}
+
+export function Members({ user }: MembersProps): JSX.Element {
     const { members, membersLoading } = useValues(membersLogic)
 
     const columns: ColumnsType<OrganizationMemberType> = [
