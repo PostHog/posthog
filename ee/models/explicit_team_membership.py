@@ -1,7 +1,11 @@
+from typing import TYPE_CHECKING
+
 from django.db import models
 
-from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import UUIDModel, sane_repr
+
+if TYPE_CHECKING:
+    from posthog.models.organization import OrganizationMembership
 
 
 class ExplicitTeamMembership(UUIDModel):
