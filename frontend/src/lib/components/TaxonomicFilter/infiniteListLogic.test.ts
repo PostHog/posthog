@@ -45,7 +45,7 @@ describe('infiniteListLogic verbose version', () => {
             .run()
     })
 
-    it('setting search query filters events (verbose)', async () => {
+    it('setting search query loads remote items', async () => {
         await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess']).run() // initial load
 
         await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
@@ -69,7 +69,7 @@ describe('infiniteListLogic verbose version', () => {
             .run()
     })
 
-    it('setting search query filters events (succinct)', async () => {
+    it('setting search query filters events', async () => {
         await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
             .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
             .toMatchValues({
