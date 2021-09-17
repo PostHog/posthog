@@ -10,7 +10,7 @@ import { ColumnsType } from 'antd/lib/table'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from '../../teamLogic'
-import { isMembershipLevelChangeDisallowed } from '../../organization/Settings/Members'
+import { getReasonForAccessLevelChangeProhibition } from '../../../lib/utils/permissioning'
 
 const membershipLevelIntegers = Object.values(TeamMembershipLevel).filter(
     (value) => typeof value === 'number'
@@ -49,11 +49,11 @@ export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null 
     )
 
     const allowedLevels = membershipLevelIntegers.filter(
-        (listLevel) => !isMembershipLevelChangeDisallowed(myMembershipLevel, user, member, listLevel)
+        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
     )
     const disallowedReason = isImplicit
         ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
-        : isMembershipLevelChangeDisallowed(myMembershipLevel, user, member, allowedLevels)
+        : getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
     return disallowedReason ? (
         <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
