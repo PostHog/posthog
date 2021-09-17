@@ -54,7 +54,11 @@ describe('infiniteListLogic verbose version', () => {
             })
             // works until the async part here
             .toDispatchActions(['loadRemoteItemsSuccess'])
-            .toMatchValues({ searchQuery: 'event', remoteItems: { results: Array(3) }, remoteItemsLoading: false })
+            .toMatchValues({
+                searchQuery: 'event',
+                remoteItems: { results: expect.any(Array) },
+                remoteItemsLoading: false,
+            })
             .run()
     })
 
@@ -67,17 +71,13 @@ describe('infiniteListLogic verbose version', () => {
 
     describe('index', () => {
         it('is set via setIndex', async () => {
-            await expectLogic(logic).toDispatchActions([logic.actionTypes.loadRemoteItemsSuccess]).run()
-
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']).run()
             expectLogic(logic).toMatchValues({ index: 0 })
-
             expectLogic(logic, () => logic.actions.setIndex(1)).toMatchValues({ index: 1 })
         })
 
         it('can go up and down', async () => {
-            expectLogic(logic).toDispatchActions([logic.actionTypes.loadRemoteItems])
-            await expectLogic(logic).toDispatchActions([logic.actionTypes.loadRemoteItemsSuccess]).run()
-            // await waitForAction(logic.actionTypes.loadRemoteItemsSuccess)
+            await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess']).run()
             expectLogic(logic).toMatchValues({ index: 0, remoteItems: expect.objectContaining({ count: 56 }) })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 55 })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 54 })
