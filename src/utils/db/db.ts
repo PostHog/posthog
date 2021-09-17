@@ -4,7 +4,7 @@ import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { ProducerRecord } from 'kafkajs'
+import { KafkaMessage, ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
@@ -374,12 +374,21 @@ export class DB {
     public async fetchPersons(database: Database = Database.Postgres): Promise<Person[] | ClickHousePerson[]> {
         if (database === Database.ClickHouse) {
             const query = `
-                SELECT * FROM person
+            SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
+            FROM (
+                SELECT id,
+                    team_id,
+                    max(is_identified) as is_identified,
+                    max(_timestamp) as ts,
+                    argMax(properties, _timestamp) as properties,
+                    argMin(created_at, _timestamp) as created_at,
+                    max(is_deleted) as is_del,
+                    argMax(_offset, _timestamp) as _offset
+                FROM person
                 FINAL
-                JOIN (
-                    SELECT id, max(_timestamp) as _timestamp FROM person GROUP BY team_id, id
-                ) as person_max ON person.id = person_max.id AND person._timestamp = person_max._timestamp
-                WHERE is_deleted = 0
+                GROUP BY team_id, id
+                HAVING max(is_deleted)=0
+            )            
             `
             return (await this.clickhouseQuery(query)).data.map((row) => {
                 const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest } = row
@@ -487,19 +496,29 @@ export class DB {
         return person
     }
 
-    public async updatePerson(person: Person, update: Partial<Person>): Promise<Person> {
+    public async updatePerson(person: Person, update: Partial<Person>, client: PoolClient): Promise<ProducerRecord[]>
+    public async updatePerson(person: Person, update: Partial<Person>): Promise<Person>
+    public async updatePerson(
+        person: Person,
+        update: Partial<Person>,
+        client?: PoolClient
+    ): Promise<Person | ProducerRecord[]> {
         const updatedPerson: Person = { ...person, ...update }
         const values = [...Object.values(unparsePersonPartial(update)), person.id]
-        await this.postgresQuery(
-            `UPDATE posthog_person SET ${Object.keys(update).map(
-                (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-            )} WHERE id = $${Object.values(update).length + 1}`,
-            values,
-            'updatePerson'
-        )
 
+        const queryString = `UPDATE posthog_person SET ${Object.keys(update).map(
+            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
+        )} WHERE id = $${Object.values(update).length + 1}`
+
+        if (client) {
+            await client.query(queryString, values)
+        } else {
+            await this.postgresQuery(queryString, values, 'updatePerson')
+        }
+
+        const kafkaMessages = []
         if (this.kafkaProducer) {
-            await this.kafkaProducer.queueMessage({
+            const message = {
                 topic: KAFKA_PERSON,
                 messages: [
                     {
@@ -517,10 +536,15 @@ export class DB {
                         ),
                     },
                 ],
-            })
+            }
+            if (client) {
+                kafkaMessages.push(message)
+            } else {
+                await this.kafkaProducer.queueMessage(message)
+            }
         }
 
-        return updatedPerson
+        return client ? kafkaMessages : updatedPerson
     }
 
     // Using Postgres only as a source of truth
@@ -553,12 +577,11 @@ export class DB {
         return newProperties
     }
 
-    public async deletePerson(person: Person): Promise<void> {
-        await this.postgresTransaction(async (client) => {
-            await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
-        })
+    public async deletePerson(person: Person, client: PoolClient): Promise<ProducerRecord[]> {
+        await client.query('DELETE FROM posthog_person WHERE team_id = $1 AND id = $2', [person.team_id, person.id])
+        const kafkaMessages = []
         if (this.kafkaProducer) {
-            await this.kafkaProducer.queueMessage({
+            kafkaMessages.push({
                 topic: KAFKA_PERSON,
                 messages: [
                     {
@@ -579,6 +602,7 @@ export class DB {
                 ],
             })
         }
+        return kafkaMessages
     }
 
     // PersonDistinctId
@@ -651,7 +675,7 @@ export class DB {
         }
     }
 
-    public async moveDistinctIds(source: Person, target: Person): Promise<void> {
+    public async moveDistinctIds(source: Person, target: Person): Promise<ProducerRecord[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgresQuery(
@@ -667,7 +691,7 @@ export class DB {
             )
         } catch (error) {
             if (
-                error.message.includes(
+                (error as Error).message.includes(
                     'insert or update on table "posthog_persondistinctid" violates foreign key constraint'
                 )
             ) {
@@ -689,10 +713,11 @@ export class DB {
             )
         }
 
+        const kafkaMessages = []
         if (this.kafkaProducer) {
             for (const row of movedDistinctIdResult.rows) {
                 const { id, ...usefulColumns } = row
-                await this.kafkaProducer.queueMessage({
+                kafkaMessages.push({
                     topic: KAFKA_PERSON_UNIQUE_ID,
                     messages: [
                         {
@@ -709,6 +734,7 @@ export class DB {
                 })
             }
         }
+        return kafkaMessages
     }
 
     // Cohort & CohortPeople
@@ -893,7 +919,7 @@ export class DB {
         } catch (error) {
             // Throw further if not postgres error nr "23505" == "unique_violation"
             // https://www.postgresql.org/docs/12/errcodes-appendix.html
-            if (error.code !== '23505') {
+            if ((error as any).code !== '23505') {
                 throw error
             }
         }

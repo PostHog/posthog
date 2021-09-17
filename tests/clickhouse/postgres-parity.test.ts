@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
+import { PoolClient } from 'pg'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { Database, Hub, LogLevel, PluginsServerConfig, Team, TimestampFormat } from '../../src/types'
-import { castTimestampOrNow, UUIDT } from '../../src/utils/utils'
+import { castTimestampOrNow, delay, UUIDT } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../src/worker/vm/extensions/posthog'
 import { resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -110,8 +111,7 @@ describe('postgres parity', () => {
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
-        // update JSON and boolean to true
-
+        // update properties and set is_identified to true
         await hub.db.updatePerson(person, { properties: { replacedUserProp: 'propValue' }, is_identified: true })
 
         await delayUntilEventIngested(async () =>
@@ -228,9 +228,15 @@ describe('postgres parity', () => {
     test('moveDistinctIds & deletePerson', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const person = await hub.db.createPerson(DateTime.utc(), { userProp: 'propValue' }, team.id, null, true, uuid, [
-            'distinct1',
-        ])
+        const person = await hub.db.createPerson(
+            DateTime.utc(),
+            { userProp: 'propValue' },
+            team.id,
+            null,
+            false,
+            uuid,
+            ['distinct1']
+        )
         const anotherPerson = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
@@ -244,12 +250,13 @@ describe('postgres parity', () => {
         const [postgresPerson] = await hub.db.fetchPersons(Database.Postgres)
 
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 1)
-        const clickHouseDistinctIdValues = await hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse)
-        const postgresDistinctIdValues = await hub.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
 
         // move distinct ids from person to to anotherPerson
 
-        await hub.db.moveDistinctIds(person, anotherPerson)
+        const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
+        for (const kafkaMessage of kafkaMessages) {
+            await hub.db!.kafkaProducer!.queueMessage(kafkaMessage)
+        }
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 
         // it got added
@@ -273,7 +280,10 @@ describe('postgres parity', () => {
 
         // delete person
 
-        await hub.db.deletePerson(person)
+        await hub.db.postgresTransaction(async (client) => {
+            const deletePersonMessage = await hub.db.deletePerson(person, client)
+            await hub.db!.kafkaProducer!.queueMessage(deletePersonMessage[0])
+        })
 
         // Check distinct ids
         await delayUntilEventIngested(async () =>
