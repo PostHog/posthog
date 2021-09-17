@@ -32,12 +32,10 @@ const ASYNC_ACTION_WAIT_TIMEOUT = 3000
 export function initKeaTestLogic<L extends Logic = Logic>({
     logic,
     props,
-    waitFor,
     onLogic,
 }: {
     logic: LogicWrapper<L>
     props?: LogicWrapper<L>['props']
-    waitFor?: string
     onLogic?: (l: BuiltLogic<L>) => any
 }): void {
     let builtLogic: BuiltLogic<L>
@@ -48,9 +46,6 @@ export function initKeaTestLogic<L extends Logic = Logic>({
         builtLogic = logic.build(props)
         await onLogic?.(builtLogic)
         unmount = builtLogic.mount()
-        if (waitFor) {
-            await waitForAction(builtLogic.actionTypes[waitFor])
-        }
     })
 
     afterEach(() => {

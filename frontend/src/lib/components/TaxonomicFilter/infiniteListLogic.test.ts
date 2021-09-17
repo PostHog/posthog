@@ -30,7 +30,6 @@ describe('infiniteListLogic verbose version', () => {
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Events,
         },
-        // waitFor: 'loadRemoteItemsSuccess',
         onLogic: (l) => (logic = l),
     })
 
@@ -45,8 +44,7 @@ describe('infiniteListLogic verbose version', () => {
     })
 
     it('setting search query loads remote items', async () => {
-        await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess']) // initial load
-
+        await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
         await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
             .toDispatchActions(['setSearchQuery', 'loadRemoteItems'])
             .toMatchValues({
@@ -100,7 +98,6 @@ describe('infiniteListLogic verbose version', () => {
 
     it('selects the selected item', async () => {
         expectLogic(logic).toMatchValues({ selectedItem: expect.objectContaining({ name: 'event1' }) })
-
         expectLogic(logic, () => logic.actions.selectSelected()).toDispatchActions([
             logic.actionCreators.selectSelected(),
             logic.actionCreators.selectItem(
