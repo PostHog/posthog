@@ -1,5 +1,19 @@
 import React, { useState } from 'react'
-import { Input, Button, Form, Switch, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm } from 'antd'
+import {
+    Input,
+    Button,
+    Form,
+    Switch,
+    Slider,
+    Card,
+    Row,
+    Col,
+    Collapse,
+    Radio,
+    InputNumber,
+    Popconfirm,
+    Tag,
+} from 'antd'
 import { useActions, useValues } from 'kea'
 import { SceneLoading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -321,11 +335,21 @@ export function FeatureFlag(): JSX.Element {
                                     <Radio.Group
                                         options={[
                                             {
-                                                label: 'Boolean value',
+                                                label: 'Boolean value (A/B test)',
                                                 value: false,
                                             },
                                             {
-                                                label: 'a string variant',
+                                                label: (
+                                                    <div>
+                                                        String value (Multivariate test){' '}
+                                                        <Tag
+                                                            color={'orange'}
+                                                            style={{ fontSize: 12, fontWeight: 'bold' }}
+                                                        >
+                                                            ALPHA
+                                                        </Tag>
+                                                    </div>
+                                                ),
                                                 value: true,
                                             },
                                         ]}
