@@ -160,18 +160,22 @@ export const funnelLogic = kea<funnelLogicType>({
 
                     await breakpoint(250)
 
-                    async function loadFunnelResults(): Promise<FunnelResult<FunnelStep[] | FunnelStep[][]>> {
+                    async function loadFunnelResults(): Promise<FunnelResult> {
                         try {
-                            const result = await pollFunnel<FunnelStep[] | FunnelStep[][]>({
+                            const result = await pollFunnel({
                                 ...apiParams,
                                 refresh,
-                                // Time to convert requires steps funnel api to be called for now. Remove once two api's are functionally separated
-                                funnel_viz_type:
-                                    filters.funnel_viz_type === FunnelVizType.TimeToConvert
-                                        ? FunnelVizType.Steps
-                                        : apiParams.funnel_viz_type,
                             })
-                            eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
+                            eventUsageLogic.actions.reportFunnelCalculated(
+                                eventCount,
+                                actionCount,
+                                interval,
+                                filters.funnel_viz_type,
+                                true
+                            )
+                            if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                                return cleanBinResult(result)
+                            }
                             return result
                         } catch (e) {
                             breakpoint()
@@ -179,32 +183,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                 eventCount,
                                 actionCount,
                                 interval,
-                                false,
-                                e.message
-                            )
-                            throw e
-                        }
-                    }
-
-                    async function loadBinsResults(): Promise<FunnelResult> {
-                        try {
-                            const result = await pollFunnel<FunnelsTimeConversionBins>({
-                                ...apiParams,
-                                ...(refresh ? { refresh } : {}),
-                            })
-                            eventUsageLogic.actions.reportFunnelTimeConversionCalculated(
-                                eventCount,
-                                actionCount,
-                                interval,
-                                true
-                            )
-                            return cleanBinResult(result)
-                        } catch (e) {
-                            breakpoint()
-                            eventUsageLogic.actions.reportFunnelTimeConversionCalculated(
-                                eventCount,
-                                actionCount,
-                                interval,
+                                filters.funnel_viz_type,
                                 false,
                                 e.message
                             )
@@ -220,12 +199,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
                     let resultsPackage: LoadedRawFunnelResults = { ...EMPTY_FUNNEL_RESULTS, filters }
                     try {
-                        let result
-                        if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-                            result = await loadBinsResults()
-                        } else {
-                            result = await loadFunnelResults()
-                        }
+                        const result = await loadFunnelResults()
                         breakpoint()
                         resultsPackage = { ...resultsPackage, results: result.result }
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
@@ -341,7 +315,8 @@ export const funnelLogic = kea<funnelLogicType>({
         resultsLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
         timeConversionResults: [
             (s) => [s.rawResults],
-            (rawResults): FunnelsTimeConversionBins => rawResults.results as FunnelsTimeConversionBins,
+            ({ results, filters }): FunnelsTimeConversionBins | null =>
+                filters.funnel_viz_type === FunnelVizType.TimeToConvert ? (results as FunnelsTimeConversionBins) : null,
         ],
         lastAppliedFilters: [(s) => [s.rawResults], (rawResults) => rawResults.filters],
         peopleSorted: [
@@ -465,9 +440,7 @@ export const funnelLogic = kea<funnelLogicType>({
         interval: [() => [selectors.apiParams], (apiParams) => apiParams.interval || ''],
         stepsFromResult: [
             () => [selectors.results, selectors.timeConversionResults],
-            (trendResults, timeConversionResults) => {
-                return Array.isArray(trendResults) ? trendResults : timeConversionResults?.steps ?? []
-            },
+            (trendResults, timeConversionResults) => timeConversionResults?.steps ?? trendResults ?? [],
         ],
         stepsWithNestedBreakdown: [
             () => [selectors.stepsFromResult, selectors.apiParams],
