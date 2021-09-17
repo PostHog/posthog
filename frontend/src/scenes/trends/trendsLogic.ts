@@ -335,13 +335,15 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             actions.loadResults()
         },
         loadResultsSuccess: () => {
-            if (!insightLogic.values.insight.id) {
-                insightHistoryLogic.actions.createInsight({
-                    ...values.filters,
-                    insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
-                })
-            } else {
-                insightLogic.actions.updateInsightFilters(values.filters)
+            if (!props.dashboardItemId) {
+                if (!insightLogic.values.insight.id) {
+                    insightHistoryLogic.actions.createInsight({
+                        ...values.filters,
+                        insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
+                    })
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filters)
+                }
             }
 
             let indexedResults

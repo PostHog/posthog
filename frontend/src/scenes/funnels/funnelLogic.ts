@@ -574,10 +574,12 @@ export const funnelLogic = kea<funnelLogicType>({
                     actions.loadPeople(values.stepsWithCount)
                 }
             }
-            if (!insightLogic.values.insight.id) {
-                actions.createInsight(values.filters)
-            } else {
-                insightLogic.actions.updateInsightFilters(values.filters)
+            if (!props.dashboardItemId) {
+                if (!insightLogic.values.insight.id) {
+                    actions.createInsight(values.filters)
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filters)
+                }
             }
         },
         setFilters: ({ refresh }) => {
