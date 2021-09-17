@@ -817,7 +817,7 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
     nested_breakdown?: FunnelStep[]
 }
 
-export interface FunnelResult<ResultType = FunnelStep[]> {
+export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
@@ -827,13 +827,7 @@ export interface FunnelResult<ResultType = FunnelStep[]> {
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number
-}
-
-export interface FunnelsTimeConversionResult {
-    result: FunnelsTimeConversionBins
-    last_refresh: string | null
-    is_cached: boolean
-    type: 'Funnel'
+    steps: FunnelStep[] | FunnelStep[][]
 }
 
 export interface FunnelTimeConversionMetrics {
@@ -863,8 +857,7 @@ export interface FunnelRequestParams extends FilterType {
 }
 
 export interface LoadedRawFunnelResults {
-    results: FunnelStep[] | FunnelStep[][]
-    timeConversionResults: FunnelsTimeConversionBins
+    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
     filters: Partial<FilterType>
 }
 

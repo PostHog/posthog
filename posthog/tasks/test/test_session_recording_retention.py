@@ -27,8 +27,8 @@ class TestSessionRecording(BaseTest):
 
             patched_session_recording_retention.assert_has_calls(
                 [
-                    call(team_id=team.id, time_threshold=now() - timedelta(days=5)),
-                    call(team_id=team3.id, time_threshold=now() - timedelta(days=6)),
+                    call(team_id=team.id, time_threshold=(now() - timedelta(days=5)).isoformat()),
+                    call(team_id=team3.id, time_threshold=(now() - timedelta(days=6)).isoformat()),
                 ],
                 any_order=True,
             )
@@ -45,18 +45,6 @@ class TestSessionRecording(BaseTest):
 
             self.assertEqual(SessionRecordingEvent.objects.count(), 1)
             self.assertEqual(SessionRecordingEvent.objects.last(), event_after_threshold)
-
-    def test_does_not_delete_session_near_threshold(self) -> None:
-        with freeze_time("2020-01-10"):
-            self.create_snapshot("1", threshold() - timedelta(minutes=60))
-            self.create_snapshot("1", threshold() - timedelta(minutes=50))
-            self.create_snapshot("1", threshold() - timedelta(minutes=40))
-            self.create_snapshot("1", threshold() - timedelta(minutes=30))
-            self.create_snapshot("1", threshold() - timedelta(minutes=20))
-
-            session_recording_retention(self.team.id, threshold().isoformat())
-
-            self.assertEqual(SessionRecordingEvent.objects.count(), 5)
 
     def create_snapshot(self, session_id: str, timestamp: datetime) -> SessionRecordingEvent:
         return SessionRecordingEvent.objects.create(
