@@ -86,6 +86,17 @@ export function IconInsights(): JSX.Element {
     )
 }
 
+export function IconExplore(): JSX.Element {
+    return (
+        <svg width="19" height="19" viewBox="0 0 19 19" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M19 3V5H16V8H14V5H11V3H14V0H16V3H19ZM16 17H2V3H8V1H2C0.9 1 0 1.9 0 3V17C0 18.1 0.9 19 2 19H16C17.1 19 18 18.1 18 17V11H16V17ZM12 11V15H14V11H12ZM8 15H10V7H8V15ZM6 15V9H4V15H6Z"
+                fill="white"
+            />
+        </svg>
+    )
+}
+
 export function IconEvents(): JSX.Element {
     return (
         <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -451,5 +462,16 @@ export function ArrowBottomLeftOutlined({ style }: { style?: CSSProperties }): J
         <span className="anticon anticon-wraper-arrow bottomLeft">
             <ArrowUpOutlined style={style} />
         </span>
+    )
+}
+
+export function Infinity({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 14 6" fill="none" style={style} xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M10.6817 0C9.87877 0 9.12041 0.312268 8.57952 0.85316L4.65944 4.33271C4.30256 4.68959 3.82859 4.88476 3.32115 4.88476C2.2784 4.88476 1.43082 4.04275 1.43082 3C1.43082 1.95725 2.2784 1.11524 3.32115 1.11524C3.82859 1.11524 4.30256 1.31041 4.68175 1.68959L5.31186 2.24721L6.15386 1.5L5.45126 0.881041C4.88249 0.312268 4.12412 0 3.32115 0C1.65944 0 0.309998 1.34944 0.309998 3C0.309998 4.65056 1.65944 6 3.32115 6C4.12412 6 4.88249 5.68773 5.42338 5.14684L9.34346 1.66729C9.70033 1.31041 10.1743 1.11524 10.6817 1.11524C11.7245 1.11524 12.5721 1.95725 12.5721 3C12.5721 4.04275 11.7245 4.88476 10.6817 4.88476C10.1799 4.88476 9.70033 4.68959 9.32115 4.31041L8.68546 3.74721L7.84346 4.49442L8.55163 5.11896C9.12041 5.68216 9.8732 5.99442 10.6817 5.99442C12.3435 5.99442 13.6929 4.65056 13.6929 2.99442C13.6929 1.33829 12.3435 0 10.6817 0Z"
+                fill="currentcolor"
+            />
+        </svg>
     )
 }
