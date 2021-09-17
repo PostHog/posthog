@@ -42,7 +42,7 @@ class ExplicitTeamMembership(UUIDModel):
         return str(self.Level(self.level))
 
     @property
-    def effective_level(self) -> OrganizationMembership.Level:
+    def effective_level(self) -> "OrganizationMembership.Level":
         """If organization level is higher than project level, then that takes precedence over explicit project level.
         """
         return max(self.level, self.parent_membership.level)
