@@ -1,12 +1,13 @@
 import { OrganizationMemberType, UserType } from '../../types'
 import { OrganizationMembershipLevel } from '../constants'
 
+/** If access level change is disallowed given the circumstances, returns a reason why so. Otherwise returns null. */
 export function getReasonForAccessLevelChangeProhibition(
     currentMembershipLevel: OrganizationMembershipLevel | null,
     currentUser: UserType,
     memberChanged: OrganizationMemberType,
     newLevelOrAllowedLevels: OrganizationMembershipLevel | OrganizationMembershipLevel[]
-): false | string {
+): null | string {
     if (memberChanged.user.uuid === currentUser.uuid) {
         return "You can't change your own access level."
     }
@@ -15,7 +16,7 @@ export function getReasonForAccessLevelChangeProhibition(
     }
     if (Array.isArray(newLevelOrAllowedLevels)) {
         if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
-            return false
+            return null
         }
         if (!newLevelOrAllowedLevels.length) {
             return "You don't have permission to change this member's access level."
@@ -25,7 +26,7 @@ export function getReasonForAccessLevelChangeProhibition(
             return "It doesn't make sense to set the same level as before."
         }
         if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
-            return false
+            return null
         }
         if (newLevelOrAllowedLevels > currentMembershipLevel) {
             return 'You can only change access level of others to lower or equal to your current one.'
