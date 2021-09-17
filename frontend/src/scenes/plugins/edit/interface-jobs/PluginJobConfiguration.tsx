@@ -20,12 +20,22 @@ const requiredRule = {
     message: 'Please enter a value!',
 }
 
+// keep in sync with plugin-server's export-historical-events.ts
+const HISTORICAL_EXPORT_JOB_NAME = 'Export events from the beginning'
+
 export function PluginJobConfiguration({
     jobName,
     jobSpec,
     pluginConfigId,
     pluginId,
 }: PluginJobConfigurationProps): JSX.Element {
+    if (jobName === HISTORICAL_EXPORT_JOB_NAME) {
+        jobSpec.payload = {
+            dateFrom: { type: 'date' },
+            dateTo: { type: 'date' },
+        }
+    }
+
     const logicProps = { jobName, pluginConfigId, pluginId, jobSpecPayload: jobSpec.payload }
     const { setIsJobModalOpen, runJob, playButtonOnClick } = useActions(interfaceJobsLogic(logicProps))
     const { runJobAvailable, isJobModalOpen } = useValues(interfaceJobsLogic(logicProps))

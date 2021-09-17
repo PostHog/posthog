@@ -11,7 +11,7 @@ interface PluginJobOptionsProps {
 export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsProps): JSX.Element {
     const { capabilities, public_jobs } = plugin
 
-    if (!capabilities || !capabilities.jobs || !public_jobs) {
+    if (!capabilities || !capabilities.jobs || !public_jobs || public_jobs.length === 0) {
         return <></>
     }
 
