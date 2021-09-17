@@ -10,6 +10,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Normally we do not remove old and unused fields because deleting a column causes a temporary outage
+        # on migration stemming from Django ORM explicitly selecting all columns and not yet knowing that not all
+        # still exist.
+        # This field however is a many-to-many one, meaning it's not stored as a column, but as a table.
+        # It's also not referenced anywhere in code, so removing it should have no impact on any queries at all.
         migrations.RemoveField(model_name="team", name="users",),
         migrations.AddField(
             model_name="organization", name="per_project_access", field=models.BooleanField(default=False),
