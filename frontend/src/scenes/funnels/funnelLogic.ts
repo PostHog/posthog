@@ -440,7 +440,7 @@ export const funnelLogic = kea<funnelLogicType>({
         interval: [() => [selectors.apiParams], (apiParams) => apiParams.interval || ''],
         stepsFromResult: [
             () => [selectors.results, selectors.timeConversionResults],
-            (trendResults, timeConversionResults) => timeConversionResults?.steps ?? trendResults ?? [],
+            (results, timeConversionResults) => (Array.isArray(results) ? results : timeConversionResults?.steps) ?? [],
         ],
         stepsWithNestedBreakdown: [
             () => [selectors.stepsFromResult, selectors.apiParams],
