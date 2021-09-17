@@ -148,12 +148,14 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             eventCount: number,
             actionCount: number,
             interval: string,
+            funnelVizType: string | undefined,
             success: boolean,
             error?: string
         ) => ({
             eventCount,
             actionCount,
             interval,
+            funnelVizType,
             success,
             error,
         }),
@@ -426,12 +428,13 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 instance_email_available: instanceEmailAvailable,
             })
         },
-        reportFunnelCalculated: async ({ eventCount, actionCount, interval, success, error }) => {
+        reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {
                 event_count: eventCount,
                 action_count: actionCount,
                 total_count_actions_events: eventCount + actionCount,
                 interval: interval,
+                funnel_viz_type: funnelVizType,
                 success: success,
                 error: error,
             })
