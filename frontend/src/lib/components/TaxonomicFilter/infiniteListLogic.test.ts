@@ -37,35 +37,50 @@ describe('infiniteListLogic verbose version', () => {
     it('calls loadRemoteItems on mount', async () => {
         await expectLogic(logic)
             .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
-            .toMatchValues({ remoteItems: { results: expect.arrayContaining([{ name: expect.any(String) }]) } })
+            .toMatchValues({
+                remoteItems: expect.objectContaining({
+                    results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
+                }),
+            })
             .run()
     })
 
     it('setting search query filters events (verbose)', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setSearchQuery('event')
-        })
+        await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess']).run() // initial load
+
+        await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
             .toDispatchActions([logic.actionCreators.setSearchQuery('event')])
             .toDispatchActions(['loadRemoteItems'])
             .toMatchValues({
                 searchQuery: 'event',
-                remoteItems: expect.objectContaining({ results: expect.any(Array) }),
+                remoteItems: expect.objectContaining({
+                    // old values
+                    count: 56,
+                }),
                 remoteItemsLoading: true,
             })
-            // works until the async part here
             .toDispatchActions(['loadRemoteItemsSuccess'])
             .toMatchValues({
                 searchQuery: 'event',
-                remoteItems: { results: expect.any(Array) },
+                remoteItems: expect.objectContaining({
+                    count: 3,
+                    results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
+                }),
                 remoteItemsLoading: false,
             })
             .run()
     })
 
-    it('setting search query filters events (succint)', async () => {
+    it('setting search query filters events (succinct)', async () => {
         await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
             .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
-            .toMatchValues({ searchQuery: 'event', remoteItems: expect.objectContaining({ results: Array(3) }) })
+            .toMatchValues({
+                searchQuery: 'event',
+                remoteItems: expect.objectContaining({
+                    count: 3,
+                    results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
+                }),
+            })
             .run()
     })
 

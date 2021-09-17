@@ -65,6 +65,7 @@ function tryToSearchActions(
     const actionPointer = pointerMap.get(logic) || -1
 
     for (let i = actionPointer + 1; i < recordedActions.length; i++) {
+        pointerMap.set(logic, i)
         const actionSearch = actionsToSearch[0]
         const recordedAction = recordedActions[i]
         if (
@@ -77,7 +78,6 @@ function tryToSearchActions(
         ) {
             actionsToSearch.shift()
             if (actionsToSearch.length === 0) {
-                pointerMap.set(logic, i)
                 break
             }
         }
@@ -97,6 +97,9 @@ function expectValuesToMatch<L extends BuiltLogic | LogicWrapper>(
         ? recordedActions[pointerMap.get(logic) || 0]?.afterState || getContext().store.getState()
         : getContext().store.getState()
     for (const [key, value] of Object.entries(values)) {
+        if (!(key in logic.selectors)) {
+            throw new Error(`Count not find value with key "${key}" in logic "${logic.pathString}"`)
+        }
         const currentValue = logic.selectors[key](currentState, logic.props)
         expect(currentValue).toEqual(value)
     }
@@ -170,14 +173,13 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
                                             ? waitForCondition(notFound)
                                             : waitForCondition((a) => objectsEqual(a, notFound)),
                                     ])
+                                    tryToSearchActions([action], _logic)
                                 }
                             }
                         } else if (operation === 'toMatchValues') {
                             expectValuesToMatch(ranActions, pointerMap, logic, payload)
                         }
                     }
-                } else {
-                    console.log('nothing to ".then"')
                 }
             },
         }
