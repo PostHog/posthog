@@ -1581,6 +1581,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "skabbes",
+      "name": "Steven Kabbes",
+      "avatar_url": "https://avatars.githubusercontent.com/u/592178?v=4",
+      "profile": "https://github.com/skabbes",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
