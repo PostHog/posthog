@@ -1,3 +1,5 @@
+# This Dockerfile is used for self-hosted production builds.
+# Remember to update prod.web.Dockerfile for Cloud builds as appropriate.
 FROM python:3.8-slim
 ENV PYTHONUNBUFFERED 1
 RUN mkdir /code
