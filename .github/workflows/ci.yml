@@ -103,7 +103,7 @@ jobs:
                   yarn link
 
             - name: Run the linked plugin server from under `posthog/plugins`
-              timeout-minutes: 2
+              timeout-minutes: 5
               env:
                   DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
@@ -118,8 +118,8 @@ jobs:
                   yarn start &> tmp/plugin-server.log &
                   pid=$!
 
-                  echo "⏳ Waiting 10 seconds to see if it runs"
-                  sleep 10
+                  echo "⏳ Waiting 20 seconds to see if it runs"
+                  sleep 20
 
                   echo "🤔 Checking if it's still running, as it should be"
                   if ! kill $pid > /dev/null 2>&1; then
@@ -133,7 +133,7 @@ jobs:
                   echo '🤔 Checking if it logged "All systems go"'
                   str=`cat tmp/plugin-server.log | grep "All systems go"`
                   if [ ! "$str" ];then
-                      sleep 5
+                      sleep 10
                       echo '😵 Did not find "All systems go" in plugin server log output!'
                       echo "🪵 Here's the log:"
                       echo ""
@@ -141,7 +141,7 @@ jobs:
                       exit 1
                   fi
 
-                  sleep 5
+                  sleep 10
                   echo '✅ All systems went!'
                   echo "🪵 Here's the complete log:"
                   echo ""
