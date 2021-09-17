@@ -25,6 +25,7 @@ def session_recording_retention_scheduler() -> None:
 def session_recording_retention(team_id: int, time_threshold: str) -> None:
     cursor = connection.cursor()
     try:
+        # This deletes events, but may cut sessions in half, this is by choice for performance reasons
         cursor.execute(
             "DELETE FROM posthog_sessionrecordingevent WHERE team_id = %s AND timestamp < %s", [team_id, time_threshold]
         )
@@ -37,11 +38,3 @@ def build_sessions(events: QuerySet) -> Dict[str, List[SessionRecordingEvent]]:
     for event in events:
         sessions[event.session_id].append(event)
     return sessions
-
-
-# If last event of session was within 30 minutes of threshold, it may be cut in half.
-#
-# Closely coupled with semantics in session queries
-def close_to_threshold(time_threshold: timezone.datetime, session_events: List[SessionRecordingEvent]) -> bool:
-    last_event_time = session_events[-1].timestamp
-    return (time_threshold - last_event_time) <= SESSION_CUTOFF
