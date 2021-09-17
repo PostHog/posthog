@@ -89,6 +89,8 @@ export class LazyPluginVM {
                     resolve(vm)
                 } catch (error) {
                     status.warn('⚠️', error.message)
+                    await createLogEntry(error.message, PluginLogEntryType.Error)
+                    void processError(hub, pluginConfig, error)
                     if (this.totalInitAttemptsCounter < MAX_SETUP_RETRIES) {
                         const nextRetryMs =
                             INITIALIZATION_RETRY_MULTIPLIER ** (this.totalInitAttemptsCounter - 1) *
@@ -114,7 +116,6 @@ export class LazyPluginVM {
                             PluginLogEntryType.Error
                         )
                         void disablePlugin(hub, pluginConfig.id)
-                        void processError(hub, pluginConfig, error)
                         resolve(null)
                     }
                 }
