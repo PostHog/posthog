@@ -62,8 +62,8 @@ describe('infiniteListLogic verbose version', () => {
     })
 
     describe('index', () => {
-        it('is set via setIndex', () => {
-            expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+        it('is set via setIndex', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
             expectLogic(logic).toMatchValues({ index: 0 })
             expectLogic(logic, () => logic.actions.setIndex(1)).toMatchValues({ index: 1 })
         })
