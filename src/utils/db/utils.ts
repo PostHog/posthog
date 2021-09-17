@@ -182,7 +182,7 @@ export function timeoutGuard(
     }, timeout)
 }
 
-const campaignParams = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'])
+const campaignParams = new Set(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid'])
 const initialParams = new Set([
     '$browser',
     '$browser_version',
