@@ -49,13 +49,11 @@ describe('infiniteListLogic verbose version', () => {
         await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess']).run() // initial load
 
         await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
-            .toDispatchActions([logic.actionCreators.setSearchQuery('event')])
-            .toDispatchActions(['loadRemoteItems'])
+            .toDispatchActions(['setSearchQuery', 'loadRemoteItems'])
             .toMatchValues({
                 searchQuery: 'event',
                 remoteItems: expect.objectContaining({
-                    // old values
-                    count: 56,
+                    count: 56, // old values
                 }),
                 remoteItemsLoading: true,
             })
@@ -63,7 +61,7 @@ describe('infiniteListLogic verbose version', () => {
             .toMatchValues({
                 searchQuery: 'event',
                 remoteItems: expect.objectContaining({
-                    count: 3,
+                    count: 3, // got new results
                     results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
                 }),
                 remoteItemsLoading: false,
