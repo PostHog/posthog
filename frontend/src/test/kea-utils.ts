@@ -7,7 +7,7 @@ import { delay, objectsEqual } from 'lib/utils'
 interface CallableMethods {
     toDispatchActions: (actions: (string | ReduxAction | ((action: ReduxAction) => boolean))[]) => CallableMethods
     toMatchValues: (values: Record<string, any>) => CallableMethods
-    run: () => Promise<void>
+    then: (callback?: (value: any) => void | Promise<void>) => Promise<void>
 }
 
 interface RecordedAction {
@@ -19,6 +19,12 @@ interface RecordedAction {
 interface PluginContext {
     recordedActions: RecordedAction[]
     pointerMap: Map<LogicWrapper | BuiltLogic, number>
+}
+
+interface AsyncOperation {
+    operation: 'toDispatchActions' | 'toMatchValues'
+    logic: BuiltLogic | LogicWrapper
+    payload: any
 }
 
 const ASYNC_ACTION_WAIT_TIMEOUT = 3000
@@ -111,7 +117,7 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
 ): CallableMethods {
     const { pointerMap } = testUtilsContext()
 
-    function start(): void | Promise<void> {
+    function syncInit(): void | Promise<void> {
         if (runner) {
             const response = runner(logic)
             if (response && typeof (response as any).then !== 'undefined') {
@@ -120,16 +126,41 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
         }
     }
 
-    start()
+    const initPromise = syncInit()
 
-    let asyncMode = false
-    const asyncOperations: {
-        operation: 'toDispatchActions' | 'toMatchValues'
-        logic: BuiltLogic | LogicWrapper
-        payload: any
-    }[] = []
-
+    // we are in async mode if the runner function returned a promise
+    let asyncMode = !!initPromise
     let ranActions = false
+
+    const asyncOperations: AsyncOperation[] = []
+
+    async function runAsyncCode(): Promise<void> {
+        for (const { logic: _logic, operation, payload } of asyncOperations) {
+            if (operation === 'toDispatchActions') {
+                ranActions = true
+                const actions = payload as ReduxAction[]
+                for (const action of actions) {
+                    const [notFound] = tryToSearchActions([action], _logic)
+                    if (notFound) {
+                        await Promise.race([
+                            delay(ASYNC_ACTION_WAIT_TIMEOUT).then(() => {
+                                throw new Error(`Timed out waiting for action: ${notFound}`)
+                            }),
+                            typeof notFound === 'string'
+                                ? waitForAction(logic.actionTypes[notFound] || notFound)
+                                : typeof notFound === 'function'
+                                ? waitForCondition(notFound)
+                                : waitForCondition((a) => objectsEqual(a, notFound)),
+                        ])
+                        tryToSearchActions([action], _logic)
+                    }
+                }
+            } else if (operation === 'toMatchValues') {
+                expectValuesToMatch(ranActions, pointerMap, logic, payload)
+            }
+        }
+    }
+
     function makeCallableMethods(): CallableMethods {
         return {
             toDispatchActions: (actions) => {
@@ -151,36 +182,13 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
                 } else {
                     expectValuesToMatch(ranActions, pointerMap, logic, values)
                 }
-
                 return makeCallableMethods()
             },
-            run: async () => {
+            then: async (callback) => {
                 if (asyncMode) {
-                    for (const { logic: _logic, operation, payload } of asyncOperations) {
-                        if (operation === 'toDispatchActions') {
-                            ranActions = true
-                            const actions = payload as ReduxAction[]
-                            for (const action of actions) {
-                                const [notFound] = tryToSearchActions([action], _logic)
-                                if (notFound) {
-                                    await Promise.race([
-                                        delay(ASYNC_ACTION_WAIT_TIMEOUT).then(() => {
-                                            throw new Error(`Timed out waiting for action: ${notFound}`)
-                                        }),
-                                        typeof notFound === 'string'
-                                            ? waitForAction(logic.actionTypes[notFound] || notFound)
-                                            : typeof notFound === 'function'
-                                            ? waitForCondition(notFound)
-                                            : waitForCondition((a) => objectsEqual(a, notFound)),
-                                    ])
-                                    tryToSearchActions([action], _logic)
-                                }
-                            }
-                        } else if (operation === 'toMatchValues') {
-                            expectValuesToMatch(ranActions, pointerMap, logic, payload)
-                        }
-                    }
+                    await runAsyncCode()
                 }
+                await callback?.(null)
             },
         }
     }

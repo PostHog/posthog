@@ -42,11 +42,10 @@ describe('infiniteListLogic verbose version', () => {
                     results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
                 }),
             })
-            .run()
     })
 
     it('setting search query loads remote items', async () => {
-        await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess']).run() // initial load
+        await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess']) // initial load
 
         await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
             .toDispatchActions(['setSearchQuery', 'loadRemoteItems'])
@@ -66,7 +65,6 @@ describe('infiniteListLogic verbose version', () => {
                 }),
                 remoteItemsLoading: false,
             })
-            .run()
     })
 
     it('setting search query filters events', async () => {
@@ -79,18 +77,17 @@ describe('infiniteListLogic verbose version', () => {
                     results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
                 }),
             })
-            .run()
     })
 
     describe('index', () => {
         it('is set via setIndex', async () => {
-            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']).run()
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
             expectLogic(logic).toMatchValues({ index: 0 })
             expectLogic(logic, () => logic.actions.setIndex(1)).toMatchValues({ index: 1 })
         })
 
         it('can go up and down', async () => {
-            await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess']).run()
+            await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
             expectLogic(logic).toMatchValues({ index: 0, remoteItems: expect.objectContaining({ count: 56 }) })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 55 })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 54 })
