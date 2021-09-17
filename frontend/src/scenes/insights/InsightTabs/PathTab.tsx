@@ -7,18 +7,13 @@ import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { BaseTabProps } from '../Insights'
-import { InsightTitle } from './InsightTitle'
-import { InsightActionBar } from './InsightActionBar'
 import { PathType } from '~/types'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { GlobalFiltersTitle } from '../common'
 
-export function PathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
+export function PathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
-    const { filledFilters: properties } = useValues(propertyFilterLogic({ pageKey: 'insight-path' }))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
@@ -26,15 +21,6 @@ export function PathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
-                <InsightTitle
-                    actionBar={
-                        <InsightActionBar
-                            filters={{ ...filter, properties }}
-                            annotations={annotationsToCreate}
-                            insight="PATHS"
-                        />
-                    }
-                />
                 <Row gutter={8} align="middle" className="mt">
                     <Col>Showing paths from</Col>
                     <Col>
