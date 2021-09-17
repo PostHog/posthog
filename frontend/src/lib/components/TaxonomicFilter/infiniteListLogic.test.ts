@@ -43,14 +43,29 @@ describe('infiniteListLogic verbose version', () => {
             })
     })
 
+    it('setting search query filters events', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearchQuery('event')
+        })
+            .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+            .toMatchValues({
+                searchQuery: 'event',
+                remoteItems: expect.objectContaining({
+                    count: 3,
+                    results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
+                }),
+            })
+    })
+
     it('setting search query loads remote items', async () => {
-        await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
-        await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
+        await expectLogic(logic, () => {
+            logic.actions.setSearchQuery('event')
+        })
             .toDispatchActions(['setSearchQuery', 'loadRemoteItems'])
             .toMatchValues({
                 searchQuery: 'event',
                 remoteItems: expect.objectContaining({
-                    count: 56, // old values
+                    count: 56, // old values, didn't get success action yet
                 }),
                 remoteItemsLoading: true,
             })
@@ -65,27 +80,15 @@ describe('infiniteListLogic verbose version', () => {
             })
     })
 
-    it('setting search query filters events', async () => {
-        await expectLogic(logic, () => logic.actions.setSearchQuery('event'))
-            .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
-            .toMatchValues({
-                searchQuery: 'event',
-                remoteItems: expect.objectContaining({
-                    count: 3,
-                    results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
-                }),
-            })
-    })
-
     describe('index', () => {
         it('is set via setIndex', async () => {
-            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
             expectLogic(logic).toMatchValues({ index: 0 })
             expectLogic(logic, () => logic.actions.setIndex(1)).toMatchValues({ index: 1 })
         })
 
         it('can go up and down', async () => {
-            await expectLogic(logic).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
             expectLogic(logic).toMatchValues({ index: 0, remoteItems: expect.objectContaining({ count: 56 }) })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 55 })
             expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 54 })
