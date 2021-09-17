@@ -14,12 +14,14 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
         self, filter: Filter, team: Team, funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
     ) -> None:
         super().__init__(filter, team)
+        self._funnel_order_class = funnel_order_class
         self.funnel_order = funnel_order_class(filter, team)
 
     def _format_results(self, results: list) -> dict:
         return {
             "bins": [(bin_from_seconds, person_count) for bin_from_seconds, person_count, _ in results],
             "average_conversion_time": results[0][2],
+            "steps": self._funnel_order_class(team=self._team, filter=self._filter).run(),
         }
 
     def get_query(self) -> str:

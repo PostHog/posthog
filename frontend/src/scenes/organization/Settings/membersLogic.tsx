@@ -15,16 +15,16 @@ export const membersLogic = kea<membersLogicType>({
             member,
             level,
         }),
-        postRemoveMember: (memberUuid: string) => ({ memberUuid }),
+        postRemoveMember: (userUuid: string) => ({ userUuid }),
     },
     loaders: ({ values, actions }) => ({
         members: {
-            __default: [],
+            __default: [] as OrganizationMemberType[],
             loadMembers: async () => {
-                return (await api.get('api/organizations/@current/members/')).results
+                return (await api.get('api/organizations/@current/members/?limit=200')).results
             },
             removeMember: async (member: OrganizationMemberType) => {
-                await api.delete(`api/organizations/@current/members/${member.user.id}/`)
+                await api.delete(`api/organizations/@current/members/${member.user.uuid}/`)
                 toast(
                     <div>
                         <h1 className="text-success">
@@ -38,14 +38,8 @@ export const membersLogic = kea<membersLogicType>({
         },
     }),
     listeners: ({ actions }) => ({
-        changeMemberAccessLevel: async ({
-            member,
-            level,
-        }: {
-            member: OrganizationMemberType
-            level: OrganizationMembershipLevel
-        }) => {
-            await api.update(`api/organizations/@current/members/${member.user.id}/`, { level })
+        changeMemberAccessLevel: async ({ member, level }) => {
+            await api.update(`api/organizations/@current/members/${member.user.uuid}/`, { level })
             toast(
                 <div>
                     <h1 className="text-success">
@@ -60,8 +54,8 @@ export const membersLogic = kea<membersLogicType>({
             }
             actions.loadMembers()
         },
-        postRemoveMember: async ({ memberUuid }) => {
-            if (memberUuid === userLogic.values.user?.uuid) {
+        postRemoveMember: async ({ userUuid }) => {
+            if (userUuid === userLogic.values.user?.uuid) {
                 location.reload()
             }
         },

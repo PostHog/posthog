@@ -123,6 +123,7 @@ export const eventsTableLogic = kea({
         newEvents: [
             [],
             {
+                setProperties: () => [],
                 pollEventsSuccess: (_, { events }) => events,
                 prependNewEvents: () => [],
             },
