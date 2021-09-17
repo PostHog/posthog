@@ -246,6 +246,19 @@ class TestTeamMembershipsAPI(APILicensedTest):
         self.assertDictEqual(self.not_found_response("Project not found."), response_data)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_add_member_to_project_that_is_not_organization_member_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        _, new_team, new_user = User.objects.bootstrap("Acme", "mallory@acme.com", None)
+
+        response = self.client.post(f"/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid,})
+        response_data = response.json()
+
+        self.assertDictEqual(
+            self.permission_denied_response("You both need to belong to the same organization."), response_data
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_add_member_to_nonexistent_project_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -299,6 +312,23 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         self.assertDictEqual(
             self.permission_denied_response("You don't have sufficient permissions in this project."), response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_demote_yourself_as_org_member_and_project_admin_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/explicit_members/{self.user.uuid}", {"level": ExplicitTeamMembership.Level.MEMBER}
+        )
+        response_data = response.json()
+
+        self.assertDictEqual(
+            self.permission_denied_response("You can't set your own access level."), response_data,
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
