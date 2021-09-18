@@ -123,7 +123,11 @@ export interface ExplicitTeamMemberType extends BaseMemberType {
  * this interface is only used in the frontend for fusing the data from these models together.
  */
 export interface FusedTeamMemberType extends BaseMemberType {
-    /** Level at which the user explicitly is in the project (unset if membership is implicit). */
+    /**
+     * Level at which the user explicitly is in the project.
+     * Null if membership is implicit (in case of the list of permitted members)
+     * or if there's no membership at all (in case of the list of addable members).
+     */
     explicit_team_level: TeamMembershipLevel | null
     /** Level at which the user is in the organization. */
     organization_level: OrganizationMembershipLevel

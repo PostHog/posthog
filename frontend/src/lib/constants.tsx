@@ -31,12 +31,6 @@ export enum PluginsAccessLevel {
     Root = 9,
 }
 
-export const organizationMembershipLevelToName = new Map<number, string>([
-    [OrganizationMembershipLevel.Member, 'member'],
-    [OrganizationMembershipLevel.Admin, 'administrator'],
-    [OrganizationMembershipLevel.Owner, 'owner'],
-])
-
 export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.DashboardItem, 'dashboard item'],
     [AnnotationScope.Project, 'project'],

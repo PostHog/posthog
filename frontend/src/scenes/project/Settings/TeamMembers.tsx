@@ -4,17 +4,19 @@ import { useValues, useActions } from 'kea'
 import { teamMembersLogic } from './teamMembersLogic'
 import { DownOutlined, CrownFilled, UpOutlined } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationMembershipLevel, organizationMembershipLevelToName, TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { TeamType, UserType, FusedTeamMemberType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from '../../teamLogic'
-import { getReasonForAccessLevelChangeProhibition } from '../../../lib/utils/permissioning'
-
-const membershipLevelIntegers = Object.values(TeamMembershipLevel).filter(
-    (value) => typeof value === 'number'
-) as TeamMembershipLevel[]
+import {
+    getReasonForAccessLevelChangeProhibition,
+    membershipLevelToName,
+    teamMembershipLevelIntegers,
+} from '../../../lib/utils/permissioning'
+import { AddMembersModalWithButton } from './AddMembersModal'
+import { RestrictedArea, RestrictionScope } from '../../../lib/components/RestrictedArea'
 
 export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -35,7 +37,7 @@ export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null 
     }
 
     const isImplicit = member.organization_level >= OrganizationMembershipLevel.Admin
-    const levelName = organizationMembershipLevelToName.get(member.level) ?? `unknown (${member.level})`
+    const levelName = membershipLevelToName.get(member.level) ?? `unknown (${member.level})`
 
     const levelButton = (
         <Button
@@ -48,7 +50,7 @@ export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null 
         </Button>
     )
 
-    const allowedLevels = membershipLevelIntegers.filter(
+    const allowedLevels = teamMembershipLevelIntegers.filter(
         (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
     )
     const disallowedReason = isImplicit
@@ -67,12 +69,12 @@ export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null 
                                 {listLevel > member.level ? (
                                     <>
                                         <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                        Upgrade to {organizationMembershipLevelToName.get(listLevel)}
+                                        Upgrade to project {membershipLevelToName.get(listLevel)}
                                     </>
                                 ) : (
                                     <>
                                         <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                        Downgrade to {organizationMembershipLevelToName.get(listLevel)}
+                                        Downgrade to project {membershipLevelToName.get(listLevel)}
                                     </>
                                 )}
                             </a>
@@ -140,10 +142,16 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
             },
         },*/
     ]
-
     return (
         <>
-            <h2 className="subtitle">Members</h2>
+            <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
+                Members
+                <RestrictedArea
+                    Component={AddMembersModalWithButton}
+                    minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                    scope={RestrictionScope.Project}
+                />
+            </h2>
             <Table
                 dataSource={allMembers}
                 columns={columns}
