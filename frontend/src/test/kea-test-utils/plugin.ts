@@ -7,7 +7,11 @@ export function testUtilsContext(): PluginContext {
 }
 
 export function resetTestUtilsContext(): void {
-    setPluginContext('testUtils', { recordedActions: [], pointerMap: new Map() } as PluginContext)
+    setPluginContext('testUtils', {
+        recordedActions: [],
+        pointerMap: new Map(),
+        ranActions: new Map(),
+    } as PluginContext)
 }
 
 export const testUtilsPlugin: () => KeaPlugin = () => ({
