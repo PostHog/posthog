@@ -1,7 +1,7 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
-import { AsyncOperation, ExpectLogicMethods } from '~/test/kea-test-utils/types'
+import { AsyncOperation } from '~/test/kea-test-utils/types'
 import { testUtilsContext } from '~/test/kea-test-utils/plugin'
-import { functions } from './functions'
+import { ExpectLogicMethods, functions } from './functions'
 
 export function expectLogic<L extends BuiltLogic | LogicWrapper>(
     logic: L,
@@ -27,7 +27,7 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
 
     function makeExpectLogicMethods(): ExpectLogicMethods {
         const response: Partial<ExpectLogicMethods> = {
-            then: async (callback) => {
+            then: async (callback: any) => {
                 if (asyncMode) {
                     for (const { logic: asyncLogic, operation, payload } of asyncOperations) {
                         if (operation in functions) {

@@ -3,12 +3,6 @@ import { BuiltLogic, LogicWrapper } from 'kea'
 
 export type ActionToDispatch = string | ReduxAction | ((action: ReduxAction) => boolean)
 
-export interface ExpectLogicMethods {
-    toDispatchActions: (actions: ActionToDispatch[]) => ExpectLogicMethods
-    toMatchValues: (values: Record<string, any>) => ExpectLogicMethods
-    then: (callback?: (value: any) => void | Promise<void>) => Promise<void>
-}
-
 export interface RecordedAction {
     action: ReduxAction
     beforeState: Record<string, any>
