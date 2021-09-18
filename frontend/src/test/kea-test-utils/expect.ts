@@ -1,20 +1,7 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
 import { AsyncOperation, ExpectLogicMethods } from '~/test/kea-test-utils/types'
-import { toDispatchActions } from '~/test/kea-test-utils/functions'
-import { toMatchValues } from '~/test/kea-test-utils/functions/toMatchValues'
 import { testUtilsContext } from '~/test/kea-test-utils/plugin'
-
-async function runAsyncCode(asyncOperations: AsyncOperation[]): Promise<void> {
-    for (const { logic, operation, payload } of asyncOperations) {
-        if (operation === 'toDispatchActions') {
-            toDispatchActions?.common?.(logic, payload)
-            await toDispatchActions.async?.(logic, payload)
-        } else if (operation === 'toMatchValues') {
-            toMatchValues.common?.(logic, payload)
-            await toMatchValues.async?.(logic, payload)
-        }
-    }
-}
+import { functions } from './functions'
 
 export function expectLogic<L extends BuiltLogic | LogicWrapper>(
     logic: L,
@@ -39,40 +26,40 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
     const asyncOperations: AsyncOperation[] = []
 
     function makeExpectLogicMethods(): ExpectLogicMethods {
-        return {
-            toDispatchActions: (actions) => {
-                if (asyncMode) {
-                    asyncOperations.push({ operation: 'toDispatchActions', logic, payload: actions })
-                } else {
-                    toDispatchActions?.common?.(logic, actions)
-                    const response = toDispatchActions?.sync?.(logic, actions)
-                    if (response) {
-                        asyncMode = true
-                        asyncOperations.push(...response)
-                    }
-                }
-                return makeExpectLogicMethods()
-            },
-            toMatchValues: (values) => {
-                if (asyncMode) {
-                    asyncOperations.push({ operation: 'toMatchValues', logic, payload: values })
-                } else {
-                    toMatchValues?.common?.(logic, values)
-                    const response = toMatchValues?.sync?.(logic, values)
-                    if (response) {
-                        asyncMode = true
-                        asyncOperations.push(...response)
-                    }
-                }
-                return makeExpectLogicMethods()
-            },
+        const response: Partial<ExpectLogicMethods> = {
             then: async (callback) => {
                 if (asyncMode) {
-                    await runAsyncCode(asyncOperations)
+                    for (const { logic: asyncLogic, operation, payload } of asyncOperations) {
+                        if (operation in functions) {
+                            const { common, async } = await functions[operation as keyof typeof functions]
+                            common?.(asyncLogic, payload)
+                            await async?.(asyncLogic, payload)
+                        } else {
+                            throw new Error(`Running invalid async function "${operation}"`)
+                        }
+                    }
                 }
                 await callback?.(null)
             },
         }
+
+        for (const [functionKey, { sync, common }] of Object.entries(functions)) {
+            response[functionKey as keyof typeof functions] = (payload: any) => {
+                if (asyncMode) {
+                    asyncOperations.push({ operation: functionKey, logic, payload })
+                } else {
+                    common?.(logic, payload)
+                    const syncResponse = sync?.(logic, payload)
+                    if (syncResponse) {
+                        asyncMode = true
+                        asyncOperations.push(...syncResponse)
+                    }
+                }
+                return makeExpectLogicMethods()
+            }
+        }
+
+        return response as ExpectLogicMethods
     }
 
     return makeExpectLogicMethods()

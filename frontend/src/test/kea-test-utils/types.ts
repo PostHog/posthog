@@ -22,7 +22,7 @@ export interface PluginContext {
 }
 
 export interface AsyncOperation {
-    operation: 'toDispatchActions' | 'toMatchValues'
+    operation: string
     logic: BuiltLogic | LogicWrapper
     payload: any
 }
