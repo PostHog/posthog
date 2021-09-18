@@ -8,7 +8,7 @@ import { mockEventDefinitions } from '~/test/mocks'
 
 jest.mock('lib/api')
 
-describe('infiniteListLogic verbose version', () => {
+describe('infiniteListLogic', () => {
     let logic: BuiltLogic<infiniteListLogicType>
 
     mockAPIGet(async ({ pathname, searchParams }) => {
