@@ -3,9 +3,8 @@ import { BuiltLogic } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { mockAPIGet } from 'lib/api.mock'
-import { initKeaTestLogic } from '~/test/kea-utils'
+import { initKeaTestLogic, expectLogic } from '~/test/kea-test-utils'
 import { mockEventDefinitions } from '~/test/mocks'
-import { expectLogic } from '~/test/kea-utils'
 
 jest.mock('lib/api')
 
