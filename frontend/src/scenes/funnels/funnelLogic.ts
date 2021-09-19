@@ -136,7 +136,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
-        logic: [insightLogic],
+        logic: [insightLogic, eventUsageLogic],
     },
 
     loaders: ({ props, values }) => ({
