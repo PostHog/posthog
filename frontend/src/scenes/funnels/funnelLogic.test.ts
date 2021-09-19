@@ -1,7 +1,7 @@
 import { BuiltLogic } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { funnelLogicType } from './funnelLogicType'
-import { mockAPI } from 'lib/api.mock'
+import { api, mockAPI } from 'lib/api.mock'
 import { expectLogic, testUtilsPlugin } from '~/test/kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { initKea } from '~/initKea'
@@ -9,6 +9,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 
 jest.mock('lib/api')
 
@@ -27,6 +29,8 @@ describe('funnelLogic', () => {
             }
         } else if (pathname === '_preflight/') {
             return { is_clickhouse_enabled: true }
+        } else if (pathname === 'api/users/@me/') {
+            return {}
         } else {
             debugger
             throw new Error()
@@ -35,6 +39,14 @@ describe('funnelLogic', () => {
 
     beforeEach(() => {
         initKea({ beforePlugins: [testUtilsPlugin] })
+        posthog.init('no token', {
+            api_host: 'borked',
+            test: true,
+            opt_out_capturing_by_default: true,
+            loaded: (p) => {
+                p.opt_out_capturing()
+            },
+        })
         logic = funnelLogic({
             filters: {
                 actions: [{ id: '$pageview', order: 0 }],
@@ -105,8 +117,12 @@ describe('funnelLogic', () => {
     })
 
     it("Load results, don't send breakdown if old visualisation is shown", async () => {
+        // must add this for some reason
+        featureFlagLogic.mount()
+
         // wait for clickhouse features to be enabled, otherwise this won't auto-reload
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+
         await expectLogic(logic, () => {
             logic.actions.setFilters({
                 actions: [
@@ -116,12 +132,24 @@ describe('funnelLogic', () => {
                 breakdown: '$active_feature_flags',
             })
         })
-            .toFinishListeners()
-            .printActions()
-            .toDispatchActions(['setFilters', 'loadResults', 'loadResultsSuccess'])
+            .toDispatchActions(['setFilters'])
+            .toMatchValues({
+                apiParams: expect.objectContaining({
+                    breakdown: undefined,
+                    breakdown_type: undefined,
+                }),
+            })
+            .toDispatchActions(['loadResults', 'loadResultsSuccess'])
 
-        // expect(api.create.mock.calls[0][1]).toMatchObject(
-        //     {"actions": [{"id": "$pageview", "order": 0}], "funnel_window_days": 14, "insight": "FUNNELS", "interval": "day"}
-        // )
+        expect(api.create.mock.calls[0][1]).toMatchObject({
+            actions: [
+                { id: '$pageview', order: 0 },
+                { id: '$pageview', order: 1 },
+            ],
+            breakdown: undefined,
+            breakdown_type: undefined,
+            insight: 'FUNNELS',
+            interval: 'day',
+        })
     })
 })
