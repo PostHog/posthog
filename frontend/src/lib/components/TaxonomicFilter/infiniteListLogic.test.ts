@@ -2,7 +2,7 @@ import { infiniteListLogic } from './infiniteListLogic'
 import { BuiltLogic } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
-import { mockAPIGet } from 'lib/api.mock'
+import { mockAPI } from 'lib/api.mock'
 import { initKeaTestLogic, expectLogic } from '~/test/kea-test-utils'
 import { mockEventDefinitions } from '~/test/mocks'
 
@@ -11,7 +11,7 @@ jest.mock('lib/api')
 describe('infiniteListLogic', () => {
     let logic: BuiltLogic<infiniteListLogicType>
 
-    mockAPIGet(async ({ pathname, searchParams }) => {
+    mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === 'api/projects/@current/event_definitions') {
             const results = searchParams.search
                 ? mockEventDefinitions.filter((e) => e.name.includes(searchParams.search))
