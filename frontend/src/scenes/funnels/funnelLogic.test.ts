@@ -42,14 +42,21 @@ describe('funnelLogic', () => {
         posthog.init('no token', {
             api_host: 'borked',
             test: true,
+            autocapture: false,
+            disable_session_recording: true,
+            advanced_disable_decide: true,
             opt_out_capturing_by_default: true,
             loaded: (p) => {
                 p.opt_out_capturing()
             },
         })
+
         logic = funnelLogic({
             filters: {
-                actions: [{ id: '$pageview', order: 0 }],
+                actions: [
+                    { id: '$pageview', order: 0 },
+                    { id: '$pageview', order: 1 },
+                ],
             },
         })
         logic.mount()
@@ -78,27 +85,42 @@ describe('funnelLogic', () => {
             })
         })
 
-        it('loads all funnels on load', async () => {
-            // starts with empty filters
-            await expectLogic(logic).toMatchValues({
-                rawResults: {
-                    filters: {},
-                    results: [],
-                    timeConversionResults: { average_conversion_time: 0, bins: [] },
-                },
-            })
-            // wait for things to quiet down
-            await expectLogic(logic).toFinishAllListeners()
-            // has the props filter, and a mocked API response
-            await expectLogic(logic).toMatchValues({
-                rawResults: {
-                    filters: {
-                        actions: [{ id: '$pageview', order: 0 }],
+        it('sets filters in rawResults after load if valid', async () => {
+            await expectLogic(logic)
+                .toMatchValues({
+                    rawResults: {
+                        filters: {},
+                        results: [],
+                        timeConversionResults: { average_conversion_time: 0, bins: [] },
                     },
-                    results: [],
-                    timeConversionResults: { average_conversion_time: 0, bins: [] },
-                },
-            })
+                    filters: {
+                        actions: [
+                            { id: '$pageview', order: 0 },
+                            { id: '$pageview', order: 1 },
+                        ],
+                    },
+                    areFiltersValid: true,
+                })
+                .toDispatchActions(['loadResultsSuccess'])
+                .toMatchValues({
+                    rawResults: {
+                        filters: {
+                            actions: [
+                                { id: '$pageview', order: 0 },
+                                { id: '$pageview', order: 1 },
+                            ],
+                        },
+                        results: [],
+                        timeConversionResults: { average_conversion_time: 0, bins: [] },
+                    },
+                    filters: {
+                        actions: [
+                            { id: '$pageview', order: 0 },
+                            { id: '$pageview', order: 1 },
+                        ],
+                    },
+                    areFiltersValid: true,
+                })
         })
     })
 
@@ -119,15 +141,17 @@ describe('funnelLogic', () => {
     it("Load results, don't send breakdown if old visualisation is shown", async () => {
         // must add this for some reason
         featureFlagLogic.mount()
+        await expectLogic(featureFlagLogic).toFinishAllListeners()
 
         // wait for clickhouse features to be enabled, otherwise this won't auto-reload
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-
+        await expectLogic(logic).toFinishAllListeners()
         await expectLogic(logic, () => {
             logic.actions.setFilters({
                 actions: [
                     { id: '$pageview', order: 0 },
                     { id: '$pageview', order: 1 },
+                    { id: '$pageview', order: 2 },
                 ],
                 breakdown: '$active_feature_flags',
             })
@@ -141,10 +165,11 @@ describe('funnelLogic', () => {
             })
             .toDispatchActions(['loadResults', 'loadResultsSuccess'])
 
-        expect(api.create.mock.calls[0][1]).toMatchObject({
+        expect(api.create.mock.calls[api.create.mock.calls.length - 1][1]).toMatchObject({
             actions: [
                 { id: '$pageview', order: 0 },
                 { id: '$pageview', order: 1 },
+                { id: '$pageview', order: 2 },
             ],
             breakdown: undefined,
             breakdown_type: undefined,
