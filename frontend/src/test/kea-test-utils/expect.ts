@@ -7,8 +7,12 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
     logic: L,
     runner?: (logic: L) => void | Promise<void>
 ): ExpectLogicMethods {
-    const { ranActions } = testUtilsContext()
+    const { ranActions, pointerMap } = testUtilsContext()
     ranActions.delete(logic)
+
+    if (runner && ranActions.size > 0) {
+        pointerMap.set(logic, ranActions.size - 1)
+    }
 
     function syncInit(): void | Promise<void> {
         if (runner) {
