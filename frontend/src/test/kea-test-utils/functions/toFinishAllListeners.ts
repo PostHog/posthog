@@ -1,5 +1,5 @@
 import { ExpectFunction } from '~/test/kea-test-utils'
-import { BuiltLogic, getPluginContext } from 'kea'
+import { BuiltLogic, getPluginContext, isBreakpoint } from 'kea'
 import { delay } from 'lib/utils'
 
 export const LISTENER_FINISH_WAIT_TIMEOUT = 3000
@@ -27,7 +27,11 @@ export const toFinishAllListeners: ExpectFunction<number> = {
                     throw new Error(`Timed out waiting for all listeners.`)
                 }),
                 Promise.all(promises),
-            ])
+            ]).catch((e) => {
+                if (!isBreakpoint(e)) {
+                    throw e
+                }
+            })
         }
     },
 }

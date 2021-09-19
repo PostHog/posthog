@@ -1,5 +1,5 @@
 import { ExpectFunction } from '~/test/kea-test-utils'
-import { BuiltLogic, getPluginContext } from 'kea'
+import { BuiltLogic, getPluginContext, isBreakpoint } from 'kea'
 import { delay } from 'lib/utils'
 import { LISTENER_FINISH_WAIT_TIMEOUT } from '~/test/kea-test-utils/functions/toFinishAllListeners'
 
@@ -27,7 +27,11 @@ export const toFinishListeners: ExpectFunction<number> = {
                     console.error(`Still running ${count} listener${count === 1 ? '' : 's'}:\n${logicNames.join('\n')}`)
                     throw new Error(`Timed out waiting for listeners in "${logic.pathString}".`)
                 }),
-                Promise.all(promises),
+                Promise.all(promises).catch((e) => {
+                    if (!isBreakpoint(e)) {
+                        throw e
+                    }
+                }),
             ])
         }
     },
