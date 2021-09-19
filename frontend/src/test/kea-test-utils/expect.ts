@@ -44,7 +44,7 @@ export function expectLogic<L extends BuiltLogic | LogicWrapper>(
         }
 
         for (const [functionKey, { sync, common }] of Object.entries(functions)) {
-            response[functionKey as keyof typeof functions] = (payload: any) => {
+            response[functionKey as keyof Omit<ExpectLogicMethods, 'then'>] = (payload: any) => {
                 if (asyncMode) {
                     asyncOperations.push({ operation: functionKey, logic, payload })
                 } else {
