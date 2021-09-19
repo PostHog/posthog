@@ -585,8 +585,9 @@ export const funnelLogic = kea<funnelLogicType>({
             // No calculate button on Clickhouse, but query performance is suboptimal on psql
             const { clickhouseFeaturesEnabled } = values
             // If user started from empty state (<2 steps) and added a new step
-            const shouldRefresh =
-                values.filters?.events?.length === 2 && values.lastAppliedFilters?.events?.length === 1
+            const filterLength = (filters: Partial<FilterType>): number =>
+                (filters?.events?.length || 0) + (filters?.actions?.length || 0)
+            const shouldRefresh = filterLength(values.filters) === 2 && filterLength(values.lastAppliedFilters) === 1
             // If layout is the only thing that changes
             const onlyLayoutChanged = equal(
                 Object.assign({}, values.filters, { layout: undefined }),
