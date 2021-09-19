@@ -141,14 +141,16 @@ describe('funnelLogic', () => {
     it("Load results, don't send breakdown if old visualisation is shown", async () => {
         // must add this for some reason
         featureFlagLogic.mount()
-        await expectLogic(featureFlagLogic).toFinishAllListeners()
+        await expectLogic(featureFlagLogic).toDispatchActions(['setFeatureFlags']).toFinishListeners()
 
         // wait for clickhouse features to be enabled, otherwise this won't auto-reload
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic).toFinishListeners()
         await expectLogic(logic, () => {
             logic.actions.setFilters({
-                actions: [
+                actions: [],
+                events: [
                     { id: '$pageview', order: 0 },
                     { id: '$pageview', order: 1 },
                     { id: '$pageview', order: 2 },
@@ -159,6 +161,7 @@ describe('funnelLogic', () => {
             .toDispatchActions(['setFilters'])
             .toMatchValues({
                 apiParams: expect.objectContaining({
+                    actions: [],
                     breakdown: undefined,
                     breakdown_type: undefined,
                 }),
@@ -166,7 +169,8 @@ describe('funnelLogic', () => {
             .toDispatchActions(['loadResults', 'loadResultsSuccess'])
 
         expect(api.create.mock.calls[api.create.mock.calls.length - 1][1]).toMatchObject({
-            actions: [
+            actions: [],
+            events: [
                 { id: '$pageview', order: 0 },
                 { id: '$pageview', order: 1 },
                 { id: '$pageview', order: 2 },
