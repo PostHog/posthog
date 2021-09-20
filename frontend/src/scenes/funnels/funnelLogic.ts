@@ -172,6 +172,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                         ? FunnelVizType.Steps
                                         : apiParams.funnel_viz_type,
                             })
+                            breakpoint()
                             eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
                             return result
                         } catch (e) {
