@@ -86,9 +86,6 @@ class Paths(BaseQuery):
 
         sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
 
-        if event == "$autocapture":
-            sessions_sql = self._add_elements(query_string=sessions_sql)
-
         events_notated = "\
         SELECT *, CASE WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL THEN 1 ELSE 0 END AS new_session\
         FROM ({}) AS inner_sessions\
