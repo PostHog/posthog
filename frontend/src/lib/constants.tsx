@@ -244,6 +244,7 @@ export const FEATURE_FLAGS = {
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
     SPLIT_PERSON: '5898-split-persons',
     TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
+    REMOVE_SESSIONS: 'remove-sessions',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
