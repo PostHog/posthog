@@ -33,6 +33,8 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+
 const { TabPane } = Tabs
 
 interface InsightType {
@@ -362,81 +364,87 @@ export function SavedInsights(): JSX.Element {
                     </div>
                 </Row>
             )}
-            {layoutView === LayoutView.List ? (
-                <Table
-                    loading={insightsLoading}
-                    columns={columns}
-                    dataSource={insights.results}
-                    pagination={false}
-                    rowKey="id"
-                    footer={() => (
-                        <Row className="footer-pagination">
-                            <span className="text-muted-alt">
-                                {insights.count > 0 &&
-                                    `Showing ${paginationCount()} - ${
-                                        nextResult ? offset : count
-                                    } of ${count} insights`}
-                            </span>
-                            <LeftOutlined
-                                style={{ paddingRight: 16 }}
-                                className={`${!previousResult ? 'paginate-disabled' : ''}`}
-                                onClick={() => {
-                                    previousResult && loadPaginatedInsights(previousResult)
-                                }}
-                            />
-                            <RightOutlined
-                                className={`${!nextResult ? 'paginate-disabled' : ''}`}
-                                onClick={() => {
-                                    nextResult && loadPaginatedInsights(nextResult)
-                                }}
-                            />
+            {insights.count < 1 ? (
+                <SavedInsightsEmptyState />
+            ) : (
+                <>
+                    {layoutView === LayoutView.List ? (
+                        <Table
+                            loading={insightsLoading}
+                            columns={columns}
+                            dataSource={insights.results}
+                            pagination={false}
+                            rowKey="id"
+                            footer={() => (
+                                <Row className="footer-pagination">
+                                    <span className="text-muted-alt">
+                                        {insights.count > 0 &&
+                                            `Showing ${paginationCount()} - ${
+                                                nextResult ? offset : count
+                                            } of ${count} insights`}
+                                    </span>
+                                    <LeftOutlined
+                                        style={{ paddingRight: 16 }}
+                                        className={`${!previousResult ? 'paginate-disabled' : ''}`}
+                                        onClick={() => {
+                                            previousResult && loadPaginatedInsights(previousResult)
+                                        }}
+                                    />
+                                    <RightOutlined
+                                        className={`${!nextResult ? 'paginate-disabled' : ''}`}
+                                        onClick={() => {
+                                            nextResult && loadPaginatedInsights(nextResult)
+                                        }}
+                                    />
+                                </Row>
+                            )}
+                        />
+                    ) : (
+                        <Row gutter={[16, 16]}>
+                            {insights &&
+                                insights.results.map((insight: DashboardItemType, index: number) => (
+                                    <Col
+                                        xs={24}
+                                        sm={12}
+                                        md={insights.results.length > 1 ? 8 : 12}
+                                        key={insight.id}
+                                        style={{ height: 270 }}
+                                    >
+                                        <DashboardItem
+                                            item={{ ...insight, color: null }}
+                                            key={insight.id + '_user'}
+                                            loadDashboardItems={() => {
+                                                loadInsights()
+                                            }}
+                                            dashboardMode={null}
+                                            onClick={() => {
+                                                const _type: DisplayedType =
+                                                    insight.filters.insight === ViewType.RETENTION
+                                                        ? 'RetentionContainer'
+                                                        : insight.filters.display
+                                                window.open(displayMap[_type].link(insight))
+                                            }}
+                                            preventLoading={true}
+                                            index={index}
+                                            isOnEditMode={false}
+                                            footer={
+                                                <div className="dashboard-item-footer">
+                                                    {
+                                                        <>
+                                                            Saved {dayjs(insight.created_at).fromNow()} by{' '}
+                                                            {insight.created_by?.first_name ||
+                                                                insight.created_by?.email ||
+                                                                'unknown'}
+                                                        </>
+                                                    }
+                                                </div>
+                                            }
+                                        />
+                                    </Col>
+                                ))}
                         </Row>
                     )}
-                />
-            ) : (
-                <Row gutter={[16, 16]}>
-                    {insights &&
-                        insights.results.map((insight: DashboardItemType, index: number) => (
-                            <Col
-                                xs={24}
-                                sm={12}
-                                md={insights.results.length > 1 ? 8 : 12}
-                                key={insight.id}
-                                style={{ height: 270 }}
-                            >
-                                <DashboardItem
-                                    item={{ ...insight, color: null }}
-                                    key={insight.id + '_user'}
-                                    loadDashboardItems={() => {
-                                        loadInsights()
-                                    }}
-                                    dashboardMode={null}
-                                    onClick={() => {
-                                        const _type: DisplayedType =
-                                            insight.filters.insight === ViewType.RETENTION
-                                                ? 'RetentionContainer'
-                                                : insight.filters.display
-                                        window.open(displayMap[_type].link(insight))
-                                    }}
-                                    preventLoading={true}
-                                    index={index}
-                                    isOnEditMode={false}
-                                    footer={
-                                        <div className="dashboard-item-footer">
-                                            {
-                                                <>
-                                                    Saved {dayjs(insight.created_at).fromNow()} by{' '}
-                                                    {insight.created_by?.first_name ||
-                                                        insight.created_by?.email ||
-                                                        'unknown'}
-                                                </>
-                                            }
-                                        </div>
-                                    }
-                                />
-                            </Col>
-                        ))}
-                </Row>
+                </>
             )}
         </div>
     )
