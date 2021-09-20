@@ -15,7 +15,7 @@ describe('funnelLogic', () => {
     let logic: BuiltLogic<funnelLogicType>
 
     mockAPI(async ({ pathname }) => {
-        if (pathname === 'api/insight/') {
+        if (pathname.startsWith('api/insight')) {
             return { results: [], next: null }
         } else if (pathname === 'api/insight/funnel/') {
             return {
@@ -29,6 +29,7 @@ describe('funnelLogic', () => {
         } else if (pathname === 'api/users/@me/') {
             return {}
         } else {
+            console.error(`Unmocked fetch to: ${pathname}`)
             debugger
             throw new Error()
         }
