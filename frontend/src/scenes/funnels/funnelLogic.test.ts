@@ -15,15 +15,15 @@ describe('funnelLogic', () => {
     let logic: BuiltLogic<funnelLogicType>
 
     mockAPI(async ({ pathname }) => {
-        if (pathname.startsWith('api/insight')) {
-            return { results: [], next: null }
-        } else if (pathname === 'api/insight/funnel/') {
+        if (pathname === 'api/insight/funnel/') {
             return {
                 is_cached: true,
                 last_refresh: '2021-09-16T13:41:41.297295Z',
                 result: [],
                 type: 'Funnel',
             }
+        } else if (pathname.startsWith('api/insight')) {
+            return { results: [], next: null }
         } else if (pathname === '_preflight/') {
             return { is_clickhouse_enabled: true }
         } else if (pathname === 'api/users/@me/') {
@@ -114,6 +114,10 @@ describe('funnelLogic', () => {
         beforeEach(async () => await expectLogic(logic).toFinishAllListeners())
 
         it('sets it properly', () => {
+            // insightLogic gets called via insightHistoryLogic to createInsights (and save the insights)
+            // but it's not automatically mounted. TODO: what to do?
+            insightLogic.mount()
+
             expectLogic(logic, () => {
                 logic.actions.setFilters({ actions: [] })
             }).toMatchValues({ areFiltersValid: false })
