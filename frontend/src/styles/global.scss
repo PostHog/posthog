@@ -87,7 +87,7 @@ Font weights: only `normal` (400) or `bold` (700) should be used.
     font-size: 28px;
     line-height: 34px;
     margin-top: 0.5em;
-    font-weight: 700;
+    font-weight: bold;
 }
 
 .page-caption {
@@ -106,7 +106,7 @@ Font weights: only `normal` (400) or `bold` (700) should be used.
     margin-top: 12px;
     font-size: 22px;
     line-height: 26px;
-    font-weight: 700;
+    font-weight: bold;
 
     &.highlighted {
         padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
@@ -116,18 +116,18 @@ Font weights: only `normal` (400) or `bold` (700) should be used.
 .l3 {
     /* Level 3 title (ideally H3) */
     font-size: 16px;
-    font-weight: 700;
+    font-weight: bold;
     line-height: 19px;
 }
 
 .l4 {
     font-size: 14px;
-    font-weight: 700;
+    font-weight: bold;
 }
 
 .l5 {
     font-size: 13px;
-    font-weight: 700;
+    font-weight: bold;
 }
 
 .text-right {
