@@ -2,15 +2,12 @@ import { BuiltLogic } from 'kea'
 import { funnelLogic } from './funnelLogic'
 import { funnelLogicType } from './funnelLogicType'
 import { api, mockAPI } from 'lib/api.mock'
-import { expectLogic, testUtilsPlugin } from '~/test/kea-test-utils'
+import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { initKea } from '~/initKea'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import posthog from 'posthog-js'
 
 jest.mock('lib/api')
 
@@ -37,29 +34,17 @@ describe('funnelLogic', () => {
         }
     })
 
-    beforeEach(() => {
-        initKea({ beforePlugins: [testUtilsPlugin] })
-        posthog.init('no token', {
-            api_host: 'borked',
-            test: true,
-            autocapture: false,
-            disable_session_recording: true,
-            advanced_disable_decide: true,
-            opt_out_capturing_by_default: true,
-            loaded: (p) => {
-                p.opt_out_capturing()
-            },
-        })
-
-        logic = funnelLogic({
+    initKeaTestLogic({
+        logic: funnelLogic,
+        props: {
             filters: {
                 actions: [
                     { id: '$pageview', order: 0 },
                     { id: '$pageview', order: 1 },
                 ],
             },
-        })
-        logic.mount()
+        },
+        onLogic: (l) => (logic = l),
     })
 
     describe('core assumptions', () => {
@@ -125,7 +110,7 @@ describe('funnelLogic', () => {
     })
 
     describe('areFiltersValid', () => {
-        beforeEach(() => expectLogic(logic).toFinishAllListeners())
+        beforeEach(async () => await expectLogic(logic).toFinishAllListeners())
 
         it('sets it properly', () => {
             expectLogic(logic, () => {
@@ -135,18 +120,25 @@ describe('funnelLogic', () => {
             expectLogic(logic, () => {
                 logic.actions.setFilters({})
             }).toMatchValues({ areFiltersValid: false })
+
+            expectLogic(logic, () => {
+                logic.actions.setFilters({ actions: [{}, {}] })
+            }).toMatchValues({ areFiltersValid: true })
+
+            expectLogic(logic, () => {
+                logic.actions.setFilters({ events: [{}, {}] })
+            }).toMatchValues({ areFiltersValid: true })
+
+            expectLogic(logic, () => {
+                logic.actions.setFilters({ events: [{}], actions: [{ from: 'previous areFiltersValid test' }] })
+            }).toMatchValues({ areFiltersValid: true })
         })
     })
 
     it("Load results, don't send breakdown if old visualisation is shown", async () => {
-        // must add this for some reason
-        featureFlagLogic.mount()
-        await expectLogic(featureFlagLogic).toDispatchActions(['setFeatureFlags']).toFinishListeners()
-
-        // wait for clickhouse features to be enabled, otherwise this won't auto-reload
+        // wait for clickhouse features to be enabled, otherwise this won't call "loadResults"
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
 
-        await expectLogic(logic).toFinishListeners()
         await expectLogic(logic, () => {
             logic.actions.setFilters({
                 actions: [],
@@ -158,27 +150,34 @@ describe('funnelLogic', () => {
                 breakdown: '$active_feature_flags',
             })
         })
-            .toDispatchActions(['setFilters'])
+            .toDispatchActions(['setFilters', 'loadResults', 'loadResultsSuccess'])
             .toMatchValues({
                 apiParams: expect.objectContaining({
                     actions: [],
+                    events: [
+                        { id: '$pageview', order: 0 },
+                        { id: '$pageview', order: 1 },
+                        { id: '$pageview', order: 2 },
+                    ],
                     breakdown: undefined,
                     breakdown_type: undefined,
                 }),
             })
-            .toDispatchActions(['loadResults', 'loadResultsSuccess'])
 
-        expect(api.create.mock.calls[api.create.mock.calls.length - 1][1]).toMatchObject({
-            actions: [],
-            events: [
-                { id: '$pageview', order: 0 },
-                { id: '$pageview', order: 1 },
-                { id: '$pageview', order: 2 },
-            ],
-            breakdown: undefined,
-            breakdown_type: undefined,
-            insight: 'FUNNELS',
-            interval: 'day',
-        })
+        expect(api.create).toBeCalledWith(
+            'api/insight/funnel/?',
+            expect.objectContaining({
+                actions: [],
+                events: [
+                    { id: '$pageview', order: 0 },
+                    { id: '$pageview', order: 1 },
+                    { id: '$pageview', order: 2 },
+                ],
+                breakdown: undefined,
+                breakdown_type: undefined,
+                insight: 'FUNNELS',
+                interval: 'day',
+            })
+        )
     })
 })
