@@ -4,12 +4,12 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
-from ee.clickhouse.models.person import create_person_distinct_id
 from posthog.models import Event, Organization, Person, Plugin, Team
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import UUIDT
 from posthog.tasks.status_report import status_report
 from posthog.test.base import APIBaseTest
+from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
 
@@ -92,7 +92,8 @@ class TestStatusReport(APIBaseTest):
 
             # Check event totals are updated
             self.assertEqual(
-                updated_team_report["events_count_total"], team_report["events_count_total"] + 2,
+                updated_team_report["events_count_total"],
+                team_report["events_count_total"] + 2,
             )
             self.assertEqual(
                 updated_instance_usage_summary["events_count_total"],  # type: ignore
@@ -138,7 +139,13 @@ class TestStatusReport(APIBaseTest):
         self.assertEqual(report["plugins_installed"], {"Installed but not enabled": 1, "Installed and enabled": 1})
         self.assertEqual(report["plugins_enabled"], {"Installed and enabled": 1})
 
+    # CH only
     def test_status_report_duplicate_distinct_ids(self) -> None:
+        if not is_clickhouse_enabled():
+            pass
+
+        from ee.clickhouse.models.person import create_person_distinct_id
+
         create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
         create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
         create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
