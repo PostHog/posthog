@@ -3,6 +3,7 @@ from unittest.case import skip
 from uuid import UUID, uuid4
 
 import pytest
+import sqlparse
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -34,6 +35,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
     def _run_query(self, filter: Filter) -> List:
         query, params = parse_prop_clauses(filter.properties, self.team.pk, allow_denormalized_props=True)
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        print("FINAL QUERY", sqlparse.format(final_query, reindent=True))
         return sync_execute(final_query, {**params, "team_id": self.team.pk})
 
     def test_prop_person(self):
@@ -50,6 +52,37 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(data={"properties": [{"key": "email", "value": "test@posthog.com", "type": "person"}],})
         self.assertEqual(len(self._run_query(filter)), 1)
+
+    def test_or_property(self):
+        _create_person(
+            distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"email": "another@posthog.com"}
+        )
+
+        _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
+
+        _create_person(distinct_ids=["another_one"], team_id=self.team.pk, properties={"email": "123@posthog.com"})
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val1"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val2"},
+        )
+
+        _create_event(
+            event="$pageview", team=self.team, distinct_id="another_one", properties={"attr": "some_val3"},
+        )
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {"key": "attr", "value": "some_val1", "type": "event"},
+                    {"key": "attr", "value": "some_val2", "type": "event"},
+                ],
+            }
+        )
+        print("results", self._run_query(filter))
 
     def test_prop_event(self):
         _create_event(
