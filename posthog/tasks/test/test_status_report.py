@@ -92,8 +92,7 @@ class TestStatusReport(APIBaseTest):
 
             # Check event totals are updated
             self.assertEqual(
-                updated_team_report["events_count_total"],
-                team_report["events_count_total"] + 2,
+                updated_team_report["events_count_total"], team_report["events_count_total"] + 2,
             )
             self.assertEqual(
                 updated_instance_usage_summary["events_count_total"],  # type: ignore
