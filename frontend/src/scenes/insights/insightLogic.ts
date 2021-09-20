@@ -10,6 +10,8 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
@@ -193,7 +195,8 @@ export const insightLogic = kea<insightLogicType>({
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard))
             actions.setNotFirstLoad()
 
-            await breakpoint(10000)
+            // tests will wait for all breakpoints to finish
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard), 10)
         },
         startQuery: () => {
@@ -241,7 +244,7 @@ export const insightLogic = kea<insightLogicType>({
                 const duration = new Date().getTime() - values.queryStartTimes[queryId]
                 const tags = {
                     insight: values.activeView,
-                    scene: sceneLogic.values.scene,
+                    scene: IS_TEST_MODE ? 'circular load if sceneLogic no loaded first' : sceneLogic.values.scene,
                     success: !exception,
                     ...exception,
                 }
