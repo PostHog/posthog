@@ -9,6 +9,7 @@ Font weights: only `normal` (400) or `bold` (700) should be used.
 // Global components
 @import 'react-toastify/dist/ReactToastify';
 @import '~/vars';
+@import 'fonts';
 
 :root {
     --primary: #{$primary};
@@ -53,6 +54,12 @@ Font weights: only `normal` (400) or `bold` (700) should be used.
     --lifecycle-returning-hover: #{darken($lifecycle_returning, 20%)};
     --lifecycle-resurrecting-hover: #{darken($lifecycle_resurrecting, 20%)};
     --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
+}
+
+html,
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
 }
 
 // Text styles
