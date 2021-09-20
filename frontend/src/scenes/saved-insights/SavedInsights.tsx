@@ -21,6 +21,7 @@ import {
     CalendarOutlined,
     ArrowDownOutlined,
     MenuOutlined,
+    CaretDownFilled,
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -31,11 +32,17 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
+import { PageHeader } from 'lib/components/PageHeader'
 const { TabPane } = Tabs
 
 interface InsightType {
     type: string
     icon?: JSX.Element
+}
+
+export interface InsightItem {
+    type: string
+    description: string
 }
 
 export function SavedInsights(): JSX.Element {
@@ -54,6 +61,7 @@ export function SavedInsights(): JSX.Element {
         setDates,
         orderByUpdatedAt,
         orderByCreator,
+        addGraph,
     } = useActions(savedInsightsLogic)
     const {
         insights,
@@ -219,7 +227,10 @@ export function SavedInsights(): JSX.Element {
                                 </Menu>
                             }
                         >
-                            <EllipsisOutlined className="insight-dropdown-actions" />
+                            <EllipsisOutlined
+                                style={{ color: 'var(--primary)' }}
+                                className="insight-dropdown-actions"
+                            />
                         </Dropdown>
                     </Row>
                 )
@@ -227,8 +238,49 @@ export function SavedInsights(): JSX.Element {
         },
     ]
 
+    const menuItems: InsightItem[] = [
+        { type: 'Trends', description: 'Visualize how actions or events are varying over time' },
+        { type: 'Funnels', description: 'Visualize completion and dropoff between events' },
+        { type: 'Sessions', description: 'Understand how users are spending their time in your product' },
+        { type: 'Retention', description: 'Visualize how many users return on subsequent days after a session' },
+        { type: 'Paths', description: 'Understand how traffic is flowing through your product' },
+        { type: 'Stickiness', description: 'See how many days users performed an action within a timeframe' },
+        { type: 'Lifecycle', description: 'See new, resurrected, returning, and dormant users' },
+    ]
+
     return (
         <div className="saved-insights">
+            <Row style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <PageHeader style={{ marginTop: 0 }} title={'Insights'} />
+                <Dropdown
+                    overlay={
+                        <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
+                            {menuItems.map((menuItem: InsightItem) => (
+                                <Menu.Item
+                                    onClick={() => {
+                                        addGraph(menuItem.type)
+                                    }}
+                                    style={{ margin: 8 }}
+                                    key={menuItem.type}
+                                >
+                                    <Col>
+                                        <span style={{ fontWeight: 600 }}>{menuItem.type}</span>
+                                        <p className="text-muted" style={{ whiteSpace: 'break-spaces' }}>
+                                            {menuItem.description}
+                                        </p>
+                                    </Col>
+                                </Menu.Item>
+                            ))}
+                        </Menu>
+                    }
+                    trigger={['click']}
+                >
+                    <a className="new-insight-dropdown-btn" onClick={(e) => e.preventDefault()}>
+                        New Insight <CaretDownFilled style={{ paddingLeft: 12 }} />
+                    </a>
+                </Dropdown>
+            </Row>
+
             <Tabs defaultActiveKey="1" style={{ borderColor: '#D9D9D9' }} onChange={(tab) => setTab(tab)}>
                 <TabPane tab="All Insights" key={SavedInsightsTabs.All} />
                 <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
@@ -282,8 +334,8 @@ export function SavedInsights(): JSX.Element {
                     >
                         <Select.Option value={'All users'}>All users</Select.Option>
                         {members.map((member) => (
-                            <Select.Option key={member.user_id} value={member.user_id}>
-                                {member.user_first_name}
+                            <Select.Option key={member.user.id} value={member.user.id}>
+                                {member.user.first_name}
                             </Select.Option>
                         ))}
                     </Select>

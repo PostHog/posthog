@@ -190,7 +190,11 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             actions.clearPeople()
             insightLogic.actions.setAllFilters(values.filters)
             if (!props.dashboardItemId) {
-                actions.createInsight(values.filters)
+                if (!insightLogic.values.insight.id) {
+                    actions.createInsight(values.filters)
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filters)
+                }
             }
         },
         loadMorePeople: async () => {
