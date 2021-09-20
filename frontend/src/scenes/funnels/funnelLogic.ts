@@ -439,8 +439,16 @@ export const funnelLogic = kea<funnelLogicType>({
         actionCount: [() => [selectors.apiParams], (apiParams) => apiParams.actions?.length || 0],
         interval: [() => [selectors.apiParams], (apiParams) => apiParams.interval || ''],
         stepsFromResult: [
-            () => [selectors.results, selectors.timeConversionResults],
-            (results, timeConversionResults) => (Array.isArray(results) ? results : timeConversionResults?.steps) ?? [],
+            () => [selectors.filters, selectors.results, selectors.timeConversionResults],
+            (filters, results, timeConversionResults) => {
+                // In time to convert view, results is an object with shape FunnelsTimeConversionBins = {..., steps: FunnelStep[]}
+                // on the other hand, steps and trends results are arrays in the shape of FunnelStep[] | FunnelStep[][]
+                return (
+                    (filters.funnel_viz_type === FunnelVizType.TimeToConvert
+                        ? timeConversionResults?.steps
+                        : results) ?? []
+                )
+            },
         ],
         stepsWithNestedBreakdown: [
             () => [selectors.stepsFromResult, selectors.apiParams],
