@@ -34,7 +34,7 @@ export function initKeaTestLogic<L extends Logic = Logic>({
         ;(history as any).pushState = history.push
         ;(history as any).replaceState = history.replace
         initKea({ beforePlugins: [testUtilsPlugin], routerLocation: history.location, routerHistory: history })
-        builtLogic = logic.build(props)
+        builtLogic = logic.build({ ...props })
         await onLogic?.(builtLogic)
         unmount = builtLogic.mount()
     })
