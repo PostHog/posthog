@@ -101,7 +101,7 @@ export function Insights(): JSX.Element {
     })
 
     return (
-        <>
+        <div className="insights-page">
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
                 <>
                     <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
@@ -143,12 +143,12 @@ export function Insights(): JSX.Element {
                     <div className="mb" style={{ marginTop: 8 }} data-attr="insight-tags">
                         <ObjectTags tags={insight.tags || []} staticOnly />
                     </div>
-                    <Col span={24} xl={verticalLayout ? 16 : undefined}>
+                    <Col span={24}>
                         <InsightContainer loadResults={loadResults} resultsLoading={resultsLoading} />
                     </Col>
                 </>
             ) : (
-                <div className="insights-page">
+                <>
                     <PersonModal
                         visible={showingPeople && !cohortModalVisible}
                         view={ViewType.FUNNELS}
@@ -345,8 +345,8 @@ export function Insights(): JSX.Element {
                         )}
                     </Row>
                     <NPSPrompt />
-                </div>
+                </>
             )}
-        </>
+        </div>
     )
 }
