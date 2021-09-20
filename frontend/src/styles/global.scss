@@ -56,12 +56,6 @@ Font weights: only `normal` (400) or `bold` (700) should be used.
     --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
 }
 
-html,
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
-        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-}
-
 // Text styles
 .text-default {
     color: $text_default;
@@ -94,8 +88,6 @@ body {
     line-height: 34px;
     margin-top: 0.5em;
     font-weight: 700;
-    color: $text_default;
-    font-family: $gosha_sans;
 }
 
 .page-caption {
