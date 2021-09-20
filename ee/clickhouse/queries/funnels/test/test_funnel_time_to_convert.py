@@ -244,7 +244,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             Filter(data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2,}), self.team, ClickhouseFunnel
         )
         results_steps_specified = funnel_trends_steps_specified.run()
-        results_steps_specified.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
 
         self.assertEqual(results, results_steps_specified)
 
