@@ -83,7 +83,6 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
 
     // Empty states that can coexist with the graph (e.g. Loading)
     const CoexistingEmptyState = (() => {
-        console.log('LOADING', isLoading || resultsLoading)
         if (isLoading || resultsLoading) {
             return <Loading />
         }
