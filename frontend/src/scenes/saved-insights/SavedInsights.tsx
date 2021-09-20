@@ -251,7 +251,7 @@ export function SavedInsights(): JSX.Element {
     return (
         <div className="saved-insights">
             <Row style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <PageHeader style={{ marginTop: 0 }} title={'Insights'} />
+                <PageHeader title={'Insights'} />
                 <Dropdown
                     overlay={
                         <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>

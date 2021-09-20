@@ -106,7 +106,7 @@ export function Insights(): JSX.Element {
                 <>
                     <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
                         <span style={{ fontSize: 28, fontWeight: 600 }}>
-                            {insight.name || `Insight #${insight.id}`}
+                            {insight.name || `Insight #${insight.id ?? '...'}`}
                         </span>
                         <div>
                             <SaveToDashboard
@@ -167,75 +167,96 @@ export function Insights(): JSX.Element {
                         onCancel={() => setCohortModalVisible(false)}
                     />
                     {insight.id && (
-                        <Row style={{ marginTop: 24, alignItems: 'baseline', justifyContent: 'space-between' }}>
-                            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? (
-                                <Col>
-                                    <span>
-                                        <strong>Name</strong>
+                        <>
+                            <Row
+                                align="middle"
+                                style={{ marginTop: 24, justifyContent: 'space-between' }}
+                                className="mb-05"
+                            >
+                                {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? (
+                                    <Col>
+                                        <span style={{ fontSize: 28, fontWeight: 600 }}>
+                                            {insight.saved ? 'Edit' : 'Create'} Insight
+                                        </span>
+                                    </Col>
+                                ) : (
+                                    <span style={{ fontSize: 28, fontWeight: 600 }}>
+                                        {insight.name || `Insight #${insight.id}`}
                                     </span>
-                                    <div style={{ minWidth: 720 }}>
-                                        <Input
-                                            placeholder={insight.name || `Insight #${insight.id}`}
-                                            value={insight.name || ''}
-                                            size="large"
-                                            style={{ minWidth: 720, marginTop: 8 }}
-                                            onChange={(e) => setInsight({ ...insight, name: e.target.value })}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    updateInsight(insight)
-                                                }
-                                            }}
-                                            tabIndex={0}
-                                        />
-                                    </div>
-                                </Col>
-                            ) : (
-                                <span style={{ fontSize: 28, fontWeight: 600 }}>
-                                    {insight.name || `Insight #${insight.id}`}
-                                </span>
-                            )}
+                                )}
 
-                            <Col>
-                                <>
-                                    <Popconfirm
-                                        title="Are you sure? This will clear all filters and any progress will be lost."
-                                        onConfirm={() => {
-                                            window.scrollTo({ top: 0 })
-                                            push(`/insights?insight=${insight?.filters?.insight}`)
-                                            reportInsightsTabReset()
-                                        }}
-                                    >
-                                        <Tooltip placement="top" title="Reset all filters">
-                                            <Button type="link" className="btn-reset">
-                                                {'Reset'}
+                                <Col>
+                                    <>
+                                        <Popconfirm
+                                            title="Are you sure? This will clear all filters and any progress will be lost."
+                                            onConfirm={() => {
+                                                window.scrollTo({ top: 0 })
+                                                push(`/insights?insight=${insight?.filters?.insight}`)
+                                                reportInsightsTabReset()
+                                            }}
+                                        >
+                                            <Tooltip placement="top" title="Reset all filters">
+                                                <Button type="link" className="btn-reset">
+                                                    {'Reset'}
+                                                </Button>
+                                            </Tooltip>
+                                        </Popconfirm>
+                                        <SaveToDashboard
+                                            displayComponent={
+                                                <Button style={{ color: 'var(--primary)' }} className="btn-save">
+                                                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                                                        ? 'Save & add to dashboard'
+                                                        : 'Add to dashboard'}
+                                                </Button>
+                                            }
+                                            tooltipOptions={{
+                                                placement: 'bottom',
+                                                title: 'Save to dashboard',
+                                            }}
+                                            item={{
+                                                entity: {
+                                                    filters: insight.filters || allFilters,
+                                                    annotations: annotationsToCreate,
+                                                },
+                                            }}
+                                        />
+                                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                                            <Button
+                                                style={{ marginLeft: 8 }}
+                                                type="primary"
+                                                onClick={() => saveInsight()}
+                                            >
+                                                Save
                                             </Button>
-                                        </Tooltip>
-                                    </Popconfirm>
-                                    <SaveToDashboard
-                                        displayComponent={
-                                            <Button style={{ color: 'var(--primary)' }} className="btn-save">
-                                                Add to dashboard
-                                            </Button>
-                                        }
-                                        tooltipOptions={{
-                                            placement: 'bottom',
-                                            title: 'Save to dashboard',
-                                        }}
-                                        item={{
-                                            entity: {
-                                                filters: insight.filters || allFilters,
-                                                annotations: annotationsToCreate,
-                                            },
-                                        }}
-                                    />
-                                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
-                                        <Button style={{ marginLeft: 8 }} type="primary" onClick={() => saveInsight()}>
-                                            Save
-                                        </Button>
-                                    )}
-                                </>
-                            </Col>
-                        </Row>
+                                        )}
+                                    </>
+                                </Col>
+                            </Row>
+                            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                                <Row>
+                                    <Col className="mt-05 mb-05">
+                                        <span>
+                                            <strong>Name</strong>
+                                        </span>
+                                        <div style={{ minWidth: 720 }}>
+                                            <Input
+                                                placeholder={insight.name || `Insight #${insight.id}`}
+                                                value={insight.name || ''}
+                                                size="large"
+                                                style={{ minWidth: 720, marginTop: 8 }}
+                                                onChange={(e) => setInsight({ ...insight, name: e.target.value })}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        updateInsight(insight)
+                                                    }
+                                                }}
+                                                tabIndex={0}
+                                            />
+                                        </div>
+                                    </Col>
+                                </Row>
+                            )}
+                        </>
                     )}
 
                     {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
