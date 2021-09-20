@@ -53,9 +53,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         eventFilter,
         columnConfig,
         columnConfigSaving,
+        automaticLoadEnabled,
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter } = useActions(logic)
+    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } = useActions(
+        logic
+    )
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
@@ -298,6 +301,10 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 defaultColumns={defaultColumns.map((e) => e.key || '')}
                 onColumnUpdate={setColumnConfig}
                 saving={columnConfigSaving}
+                automaticLoading={{
+                    toggle: toggleAutomaticLoad,
+                    enabled: automaticLoadEnabled,
+                }}
                 mainActionComponent={
                     <>
                         <div style={{ width: '20%' }}>

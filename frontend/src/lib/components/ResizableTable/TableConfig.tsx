@@ -1,4 +1,4 @@
-import { Button, Card, Col, Input, Row } from 'antd'
+import { Button, Card, Col, Input, Row, Switch } from 'antd'
 import React, { useEffect, useState } from 'react'
 import { DownloadOutlined, SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
@@ -12,6 +12,11 @@ import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
 import { Tooltip } from 'lib/components/Tooltip'
 
+interface AutomaticLoading {
+    toggle: (enabled: boolean) => void
+    enabled: boolean
+}
+
 interface TableConfigInterface {
     exportUrl?: string
     selectedColumns?: string[] // Allows column visibility customization
@@ -21,6 +26,7 @@ interface TableConfigInterface {
     onColumnUpdate?: (selectedColumns: string[]) => void
     saving?: boolean // Whether the saving routine is in process (i.e. loading indicators should be shown)
     mainActionComponent?: JSX.Element
+    automaticLoading: AutomaticLoading
 }
 
 export function TableConfig({
@@ -29,6 +35,7 @@ export function TableConfig({
     availableColumns,
     onColumnUpdate,
     mainActionComponent,
+    automaticLoading,
     ...props
 }: TableConfigInterface): JSX.Element {
     const { state } = useValues(tableConfigLogic)
@@ -57,6 +64,9 @@ export function TableConfig({
                             )}
                         </>
                     )}
+                    <Tooltip title="Toggle on to automatically load new events" placement="left">
+                        <Switch checked={automaticLoading.enabled} onChange={automaticLoading.toggle} />
+                    </Tooltip>
                     {exportUrl && (
                         <Tooltip title="Export up to 100,000 latest events." placement="left">
                             <Button icon={<DownloadOutlined />} href={exportUrl} />

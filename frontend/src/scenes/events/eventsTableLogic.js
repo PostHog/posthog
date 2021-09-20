@@ -63,6 +63,7 @@ export const eventsTableLogic = kea({
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
         setDelayedLoading: true,
         setEventFilter: (event) => ({ event }),
+        toggleAutomaticLoad: (automaticLoadEnabled) => ({ automaticLoadEnabled }),
     }),
 
     reducers: () => ({
@@ -151,6 +152,12 @@ export const eventsTableLogic = kea({
             false,
             {
                 setColumnConfigSaving: (_, { saving }) => saving,
+            },
+        ],
+        automaticLoadEnabled: [
+            false,
+            {
+                toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
     }),
@@ -284,7 +291,7 @@ export const eventsTableLogic = kea({
 
             breakpoint()
 
-            if (props.live) {
+            if (values.automaticLoadEnabled || props.live) {
                 actions.prependNewEvents(events.results)
             } else {
                 actions.pollEventsSuccess(events.results)
