@@ -1,4 +1,4 @@
-import { Button, Col, Dropdown, Input, Menu, Row, Select, Table, Tabs } from 'antd'
+import { Col, Dropdown, Input, Menu, Row, Select, Table, Tabs, Radio } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
@@ -347,20 +347,20 @@ export function SavedInsights(): JSX.Element {
                 <Row className="list-or-card-layout">
                     Showing {paginationCount()} - {nextResult ? offset : count} of {count} insights
                     <div>
-                        <Button
-                            type={layoutView === LayoutView.List ? 'primary' : 'default'}
-                            onClick={() => setLayoutView(LayoutView.List)}
+                        <Radio.Group
+                            onChange={(e) => setLayoutView(e.target.value)}
+                            value={layoutView}
+                            buttonStyle="solid"
                         >
-                            <UnorderedListOutlined />
-                            List
-                        </Button>
-                        <Button
-                            type={layoutView === LayoutView.Card ? 'primary' : 'default'}
-                            onClick={() => setLayoutView(LayoutView.Card)}
-                        >
-                            <AppstoreFilled />
-                            Card
-                        </Button>
+                            <Radio.Button value={LayoutView.List}>
+                                <UnorderedListOutlined className="mr-05" />
+                                List
+                            </Radio.Button>
+                            <Radio.Button value={LayoutView.Card}>
+                                <AppstoreFilled className="mr-05" />
+                                Card
+                            </Radio.Button>
+                        </Radio.Group>
                     </div>
                 </Row>
             )}
