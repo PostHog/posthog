@@ -261,7 +261,6 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
         response_data.pop("last_refresh")
-        response_data["result"].pop("steps", None)  # steps are already tested in ClickhouseFunnelTrends
         self.assertEqual(
             response_data,
             {
@@ -313,7 +312,6 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
         response_data.pop("last_refresh")
-        response_data["result"].pop("steps", None)  # steps are already tested in ClickhouseFunnelTrends
         self.assertEqual(
             response_data,
             {
@@ -365,7 +363,6 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
         response_data.pop("last_refresh")
-        response_data["result"].pop("steps", None)  # steps are already tested in ClickhouseFunnelTrends
         self.assertEqual(
             response_data,
             {

@@ -66,7 +66,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
         self.assertEqual(
             results,
             {
@@ -175,7 +174,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
         results = funnel_trends.run()
 
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
         # 7 bins, autoscaled to work best with minimum time to convert and maximum time to convert at hand
         self.assertEqual(
             results,
@@ -227,8 +225,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
         results = funnel_trends.run()
-
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
 
         self.assertEqual(
             results,
@@ -291,7 +287,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnelUnordered)
         results = funnel_trends.run()
 
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
         self.assertEqual(
             results,
@@ -353,7 +348,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnelStrict)
         results = funnel_trends.run()
 
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
         self.assertEqual(
             results,
