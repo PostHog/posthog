@@ -92,7 +92,8 @@ class TestStatusReport(APIBaseTest):
 
             # Check event totals are updated
             self.assertEqual(
-                updated_team_report["events_count_total"], team_report["events_count_total"] + 2,
+                updated_team_report["events_count_total"],
+                team_report["events_count_total"] + 2,
             )
             self.assertEqual(
                 updated_instance_usage_summary["events_count_total"],  # type: ignore
@@ -147,12 +148,15 @@ class TestStatusReport(APIBaseTest):
             create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
             create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
             create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
+            create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
 
             report = status_report(dry_run=True).get("teams")[self.team.id]  # type: ignore
 
-            today = now().isoformat().split("T")[0]
+            duplicate_ids_report = report["duplicate_distinct_ids"]
 
-            self.assertEqual(report["duplicate_distinct_ids"], {"total": 2, f"{today}": 2})
+            expected_result = {"total_distinct_ids_with_duplicates": 2, "total_extra_distinct_id_rows": 3}
+
+            self.assertEqual(duplicate_ids_report, expected_result)
 
     @staticmethod
     def create_person(distinct_id: str, team: Team) -> None:

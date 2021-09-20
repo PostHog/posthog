@@ -117,9 +117,9 @@ def delete_person(
 def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
     query_result = sync_execute(
         """
-        SELECT startdate, count(*)
+        SELECT count(1) as ids_with_duplicates, minus(sum(count), ids_with_duplicates) as extra_rows
         FROM (
-            SELECT distinct_id, count(*) as count, toDate(min(timestamp)) as startdate
+            SELECT distinct_id, count(*) as count
             FROM (
                 SELECT person_id, distinct_id, max(_timestamp) as timestamp
                 FROM person_distinct_id
@@ -130,16 +130,15 @@ def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
             GROUP BY distinct_id
             HAVING count > 1
         )
-        GROUP BY startdate
         """,
         {"team_id": str(team_id)},
     )
-    result = {}
-    total_duplicates = 0
-    for row in query_result:
-        total_duplicates += row[1]
-        result[row[0].isoformat()] = row[1]
-    result["total"] = total_duplicates
+    # total_distinct_ids_with_duplicates = how many distinct IDs point to more than one person
+    # total_extra_distinct_id_rows = number of undeleted distinct ID rows that we shouldn't have
+    result = {
+        "total_distinct_ids_with_duplicates": query_result[0][0],
+        "total_extra_distinct_id_rows": query_result[0][1],
+    }
     return result
 
 
