@@ -257,6 +257,8 @@ def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, pr
         if selectors:
             combination_conditions = []
             for idx, query in enumerate(selectors):
+                if not query:  # Skip empty selectors
+                    continue
                 selector = Selector(query, escape_slashes=False)
                 key = f"{prepend}_{idx}_selector_regex"
                 params[key] = build_selector_regex(selector)
