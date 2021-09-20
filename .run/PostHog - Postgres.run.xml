@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="PostHog Postgres" type="Python.DjangoServer" factoryName="Django server">
+  <configuration default="false" name="PostHog - Postgres" type="Python.DjangoServer" factoryName="Django server">
     <module name="posthog" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />

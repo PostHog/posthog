@@ -1,14 +1,13 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Plugin Server DEV ClickHouse" type="js.build_tools.npm">
-    <package-json value="$PROJECT_DIR$/../plugin-server/package.json" />
+  <configuration default="false" name="Plugin Server - ClickHouse" type="js.build_tools.npm">
+    <package-json value="$PROJECT_DIR$/plugins/package.json" />
     <command value="run" />
     <scripts>
-      <script value="start:dev" />
+      <script value="start" />
     </scripts>
     <node-interpreter value="project" />
-    <package-manager value="yarn" />
     <envs>
-      <env name="WORKER_CONCURRENCY" value="1" />
+      <env name="WORKER_CONCURRENCY" value="2" />
       <env name="DATABASE_URL" value="postgres://localhost/posthog" />
       <env name="PRIMARY_DB" value="clickhouse" />
       <env name="KAFKA_ENABLED" value="true" />
