@@ -33,6 +33,16 @@ interface Props {
     resultsLoading: boolean
 }
 
+const VIEW_MAP = {
+    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+    [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
+    [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
+    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+    [`${ViewType.RETENTION}`]: <RetentionContainer />,
+    [`${ViewType.PATHS}`]: <Paths />,
+}
+
 export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const {
@@ -79,6 +89,54 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
         return null
     })()
 
+    function renderTable(): JSX.Element | null {
+        if (
+            !preflight?.is_clickhouse_enabled &&
+            !showErrorMessage &&
+            !showTimeoutMessage &&
+            areFiltersValid &&
+            activeView === ViewType.FUNNELS &&
+            allFilters.display === FUNNEL_VIZ
+        ) {
+            return <People />
+        }
+
+        if (
+            preflight?.is_clickhouse_enabled &&
+            activeView === ViewType.FUNNELS &&
+            !showErrorMessage &&
+            !showTimeoutMessage &&
+            areFiltersValid &&
+            allFilters.funnel_viz_type === FunnelVizType.Steps
+        ) {
+            return <FunnelStepTable />
+        }
+        if (
+            (!allFilters.display ||
+                (allFilters.display !== ACTIONS_TABLE && allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
+            (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS)
+        ) {
+            /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
+    Exclusions:
+        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+        2. Bar value chart. Because this view displays data in completely different dimensions.
+    */
+            return (
+                <Card style={{ marginTop: 8 }}>
+                    <BindLogic
+                        logic={trendsLogic}
+                        props={{ dashboardItemId: null, view: activeView, filters: allFilters }}
+                    >
+                        <h3 className="l3">Details table</h3>
+                        <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
+                    </BindLogic>
+                </Card>
+            )
+        }
+
+        return null
+    }
+
     return (
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
@@ -112,48 +170,11 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                     </Row>
                     {!BlockingEmptyState && CoexistingEmptyState}
                     <div style={{ display: 'block' }}>
-                        {!!BlockingEmptyState
-                            ? BlockingEmptyState
-                            : {
-                                  [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                  [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-                                  [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-                                  [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                  [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                  [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                  [`${ViewType.PATHS}`]: <Paths />,
-                              }[activeView]}
+                        {!!BlockingEmptyState ? BlockingEmptyState : VIEW_MAP[activeView]}
                     </div>
                 </div>
             </Card>
-            {!preflight?.is_clickhouse_enabled &&
-                !showErrorMessage &&
-                !showTimeoutMessage &&
-                areFiltersValid &&
-                activeView === ViewType.FUNNELS &&
-                allFilters.display === FUNNEL_VIZ && <People />}
-            {preflight?.is_clickhouse_enabled &&
-                activeView === ViewType.FUNNELS &&
-                !showErrorMessage &&
-                allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}
-            {(!allFilters.display ||
-                (allFilters.display !== ACTIONS_TABLE && allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
-                (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
-                    /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
-    Exclusions:
-        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-        2. Bar value chart. Because this view displays data in completely different dimensions.
-    */
-                    <Card style={{ marginTop: 8 }}>
-                        <BindLogic
-                            logic={trendsLogic}
-                            props={{ dashboardItemId: null, view: activeView, filters: allFilters }}
-                        >
-                            <h3 className="l3">Details table</h3>
-                            <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
-                        </BindLogic>
-                    </Card>
-                )}
+            {renderTable()}
         </>
     )
 }
