@@ -252,6 +252,21 @@ export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
     )
 }
 
+const SAVED_INSIGHTS_COPY = {
+    [`${SavedInsightsTabs.All}`]: {
+        title: 'There are no insights for this project',
+        description: 'Once you create an insight, it will show up here.',
+    },
+    [`${SavedInsightsTabs.Yours}`]: {
+        title: "You haven't created insights for this project",
+        description: 'Once you create an insight, it will show up here.',
+    },
+    [`${SavedInsightsTabs.Favorites}`]: {
+        title: 'There are no favorited insights for this project',
+        description: 'Once you favorite an insight, it will show up here.',
+    },
+}
+
 export function SavedInsightsEmptyState(): JSX.Element {
     const { addGraph } = useActions(savedInsightsLogic)
     const { tab } = useValues(savedInsightsLogic)
@@ -262,24 +277,8 @@ export function SavedInsightsEmptyState(): JSX.Element {
                 <div className="illustration-main">
                     <TrendUp />
                 </div>
-                <h2 className="empty-state__title">
-                    {
-                        {
-                            [`${SavedInsightsTabs.All}`]: 'There are no insights for this project',
-                            [`${SavedInsightsTabs.Yours}`]: "You haven't created insights for this project",
-                            [`${SavedInsightsTabs.Favorites}`]: 'There are no favorited insights for this project',
-                        }[tab]
-                    }
-                </h2>
-                <p className="empty-state__description">
-                    {
-                        {
-                            [`${SavedInsightsTabs.All}`]: 'Once you create an insight, it will show up here.',
-                            [`${SavedInsightsTabs.Yours}`]: 'Once you create an insight, it will show up here.',
-                            [`${SavedInsightsTabs.Favorites}`]: 'Once you favorite an insight, it will show up here.',
-                        }[tab]
-                    }
-                </p>
+                <h2 className="empty-state__title">{SAVED_INSIGHTS_COPY[tab].title}</h2>
+                <p className="empty-state__description">{SAVED_INSIGHTS_COPY[tab].description}</p>
                 {tab !== SavedInsightsTabs.Favorites && (
                     <Button
                         size="large"
