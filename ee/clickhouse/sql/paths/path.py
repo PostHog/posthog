@@ -137,20 +137,6 @@ PATHS_QUERY_FINAL = """
 
 
 PATH_ARRAY_QUERY = """
-SELECT if(target_event LIKE %(autocapture_match)s, concat(arrayElement(splitByString('autocapture:', assumeNotNull(source_event)), 1), final_source_element), source_event) final_source_event,
-       if(target_event LIKE %(autocapture_match)s, concat(arrayElement(splitByString('autocapture:', assumeNotNull(target_event)), 1), final_target_element), target_event) final_target_event,
-       event_count,
-       average_conversion_time,
-       if(target_event LIKE %(autocapture_match)s, arrayElement(splitByString('autocapture:', assumeNotNull(source_event)), 2), NULL) source_event_elements_chain,
-       concat('<', extract(source_event_elements_chain, '^(.*?)[.|:]'), '> ', extract(source_event_elements_chain, 'text="(.*?)"')) final_source_element,
-       if(target_event LIKE %(autocapture_match)s, arrayElement(splitByString('autocapture:', assumeNotNull(target_event)), 2), NULL) target_event_elements_chain,
-       concat('<', extract(target_event_elements_chain, '^(.*?)[.|:]'), '> ', extract(target_event_elements_chain, 'text="(.*?)"')) final_target_element
-FROM (
-    SELECT last_path_key as source_event,
-       path_key as target_event,
-       COUNT(*) AS event_count,
-       avg(conversion_time) AS average_conversion_time
-  FROM (
         SELECT person_id,
                path,
                conversion_time,
@@ -193,14 +179,5 @@ FROM (
                 {boundary_event_filter}
                 ORDER BY person_id, session_index, event_in_session_index
                )
-       )
- WHERE source_event IS NOT NULL
- GROUP BY source_event,
-          target_event
- ORDER BY event_count DESC,
-          source_event,
-          target_event
- LIMIT 20
-)
 
 """
