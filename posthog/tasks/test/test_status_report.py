@@ -1,11 +1,14 @@
+import datetime
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
+from ee.clickhouse.models.person import create_person_distinct_id
 from posthog.models import Event, Organization, Person, Plugin, Team
 from posthog.models.plugin import PluginConfig
+from posthog.models.utils import UUIDT
 from posthog.tasks.status_report import status_report
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
@@ -90,7 +93,8 @@ class TestStatusReport(APIBaseTest):
 
             # Check event totals are updated
             self.assertEqual(
-                updated_team_report["events_count_total"], team_report["events_count_total"] + 2,
+                updated_team_report["events_count_total"],
+                team_report["events_count_total"] + 2,
             )
             self.assertEqual(
                 updated_instance_usage_summary["events_count_total"],  # type: ignore
@@ -135,6 +139,18 @@ class TestStatusReport(APIBaseTest):
 
         self.assertEqual(report["plugins_installed"], {"Installed but not enabled": 1, "Installed and enabled": 1})
         self.assertEqual(report["plugins_enabled"], {"Installed and enabled": 1})
+
+    def test_status_report_duplicate_distinct_ids(self) -> None:
+        create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
+        create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
+        create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
+        create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
+
+        report = status_report(dry_run=True).get("teams")[self.team.id]
+
+        today = datetime.datetime.now().isoformat().split("T")[0]
+
+        self.assertEqual(report["duplicate_distinct_ids"], {"total": 2, f"{today}": 2})
 
     @staticmethod
     def create_person(distinct_id: str, team: Team) -> None:

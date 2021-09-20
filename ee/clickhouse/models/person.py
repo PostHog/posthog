@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from uuid import UUID
 
 from django.db.models.query import QuerySet
@@ -111,6 +111,36 @@ def delete_person(
         pass  # cannot delete if the table is distributed
 
     sync_execute(DELETE_PERSON_BY_ID, data)
+
+
+# counts duplicate distinct IDs in clickhouse for a team broken down by day
+def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
+    query_result = sync_execute(
+        """
+        SELECT startdate, count(*)
+        FROM (
+            SELECT distinct_id, count(*) as count, toDate(min(timestamp)) as startdate
+            FROM (
+                SELECT person_id, distinct_id, max(_timestamp) as timestamp
+                FROM person_distinct_id
+                WHERE team_id = %(team_id)s
+                GROUP BY person_id, distinct_id, team_id
+                HAVING max(is_deleted) = 0
+            )
+            GROUP BY distinct_id
+            HAVING count > 1
+        )
+        GROUP BY startdate
+        """,
+        {"team_id": str(team_id)},
+    )
+    result = {}
+    total_duplicates = 0
+    for row in query_result:
+        total_duplicates += row[1]
+        result[row[0].isoformat()] = row[1]
+    result["total"] = total_duplicates
+    return result
 
 
 class ClickhousePersonSerializer(serializers.Serializer):

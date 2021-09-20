@@ -8,6 +8,7 @@ import posthoganalytics
 from django.db import connection
 from psycopg2 import sql
 
+from ee.clickhouse.models.person import count_duplicate_distinct_ids_for_team
 from posthog.models import Event, Organization, Person, Team, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -93,12 +94,15 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
                 team_report["events_count_by_name"] = get_events_count_for_team_by_event_type(
                     team.id, period_start, period_end
                 )
+
+                team_report["duplicate_distinct_ids"] = count_duplicate_distinct_ids_for_team(team.id)
             else:
                 # pull events stats from postgres
                 events_considered_total = Event.objects.filter(team_id=team.id)
                 instance_usage_summary["events_count_total"] += events_considered_total.count()
                 events_considered_new_in_period = events_considered_total.filter(
-                    timestamp__gte=period_start, timestamp__lte=period_end,
+                    timestamp__gte=period_start,
+                    timestamp__lte=period_end,
                 )
 
                 team_report["events_count_total"] = events_considered_total.count()
@@ -111,7 +115,8 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             # pull person stats and the rest here from Postgres always
             persons_considered_total = Person.objects.filter(team_id=team.id)
             persons_considered_total_new_in_period = persons_considered_total.filter(
-                created_at__gte=period_start, created_at__lte=period_end,
+                created_at__gte=period_start,
+                created_at__lte=period_end,
             )
             team_report["persons_count_total"] = persons_considered_total.count()
             instance_usage_summary["persons_count_total"] += team_report["persons_count_total"]
