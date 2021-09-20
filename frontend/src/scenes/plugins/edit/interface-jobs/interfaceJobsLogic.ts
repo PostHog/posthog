@@ -60,7 +60,11 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
 
             for (const [fieldKey, fieldValue] of Object.entries(formValues)) {
                 if (props.jobSpecPayload?.[fieldKey].type === 'date') {
-                    formValues[fieldKey] = (fieldValue as moment.Moment).toISOString()
+                    if (!!formValues[fieldKey]) {
+                        formValues[fieldKey] = (fieldValue as moment.Moment).toISOString()
+                    } else {
+                        formValues[fieldKey] = null
+                    }
                 }
             }
             try {

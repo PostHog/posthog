@@ -27,7 +27,6 @@ class ClickhousePaths:
             "events": [],  # purely a speed optimization, don't need this for filtering
             "event_in_session_limit": self._filter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT,
             "session_time_threshold": SESSION_TIME_THRESHOLD_DEFAULT,
-            "autocapture_match": "%autocapture:%",
         }
         self._funnel_filter = funnel_filter
 
@@ -35,7 +34,6 @@ class ClickhousePaths:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
 
         # TODO: don't allow including $pageview and excluding $pageview at the same time
-        # TODO: Filter on specific autocapture / page URLs
 
     def run(self, *args, **kwargs):
 
