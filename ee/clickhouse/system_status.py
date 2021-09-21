@@ -12,6 +12,7 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from ee.clickhouse.client import make_ch_pool, sync_execute
+from ee.clickhouse.models.event import get_event_count
 from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_STABLE_HOST, CLICKHOUSE_USER
 
 SLOW_THRESHOLD_MS = 10000
@@ -29,6 +30,8 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
 
     if not alive:
         return
+
+    yield {"key": "clickhouse_event_count", "metric": "Events in ClickHouse", "value": get_event_count()}
 
     disk_status = sync_execute(
         "SELECT formatReadableSize(total_space), formatReadableSize(free_space) FROM system.disks"
