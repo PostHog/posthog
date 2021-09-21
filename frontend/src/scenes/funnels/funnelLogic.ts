@@ -152,11 +152,8 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     if (
                         !refresh &&
                         (props.cachedResults || props.preventLoading) &&
-                        equal(cleanFunnelParams(values.filters, true), cleanFunnelParams(props.filters || {}, true)) &&
-                        // TODO: escape hatch for now: timeConversionResults needs two queries
-                        filters.funnel_viz_type !== FunnelVizType.TimeToConvert
+                        equal(cleanFunnelParams(values.filters, true), cleanFunnelParams(props.filters || {}, true))
                     ) {
-                        // debugger
                         return {
                             results: props.cachedResults,
                             filters,
