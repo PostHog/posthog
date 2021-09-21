@@ -2,6 +2,7 @@ from typing import Any, Dict, Literal, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.util import get_trunc_func_ch
 from posthog.constants import PAGEVIEW_EVENT, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
 from posthog.models import Entity
 from posthog.models.action import Action
@@ -11,14 +12,21 @@ from posthog.models.filters.retention_filter import RetentionFilter
 class RetentionEventsQuery(ClickhouseEventQuery):
     _filter: RetentionFilter
     _event_query_type: Literal["returning", "target"]
+    _trunc_func: str
 
     def __init__(self, event_query_type: Literal["returning", "target"], *args, **kwargs):
         self._event_query_type = event_query_type
         super().__init__(*args, **kwargs)
 
+        self._trunc_func = get_trunc_func_ch(self._filter.period)
+
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
-            f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
+            (
+                f"DISTINCT {self._trunc_func}({self.EVENT_TABLE_ALIAS}.timestamp) AS event_date"
+                if self._event_query_type == "target"
+                else f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
+            )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
             + f", {self.EVENT_TABLE_ALIAS}.uuid AS uuid"
             + f", {self.EVENT_TABLE_ALIAS}.event AS event"
@@ -73,7 +81,7 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             ),
             f"{self._event_query_type}_end_date": (
                 (self._filter.date_from + self._filter.period_increment)
-                if self._filter.display == TRENDS_LINEAR
+                if self._filter.display == TRENDS_LINEAR and self._event_query_type == "target"
                 else self._filter.date_to
             ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")),
         }

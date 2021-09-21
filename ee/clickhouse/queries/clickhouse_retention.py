@@ -53,7 +53,7 @@ class ClickhouseRetention(Retention):
 
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
 
-        reference_event_sql = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
+        reference_event_sql = REFERENCE_EVENT_UNIQUE_SQL.format(
             target_query=target_query_formatted,
             filters=prop_filters,
             trunc_func=trunc_func,
@@ -68,13 +68,16 @@ class ClickhouseRetention(Retention):
         returning_event_query, returning_event_params = RetentionEventsQuery(
             filter=filter, team_id=team.pk, event_query_type="returning"
         ).get_query()
+        target_event_query, target_event_params = RetentionEventsQuery(
+            filter=filter, team_id=team.pk, event_query_type="target"
+        ).get_query()
 
         result = sync_execute(
             RETENTION_SQL.format(
-                returning_event_queyr=returning_event_query,
+                returning_event_query=returning_event_query,
                 filters=prop_filters,
                 trunc_func=trunc_func,
-                reference_event_sql=reference_event_sql,
+                target_event_query=reference_event_sql if is_first_time_retention else target_event_query,
                 GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {
@@ -85,22 +88,16 @@ class ClickhouseRetention(Retention):
                 "end_date": date_to.strftime(
                     "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
                 ),
-                "reference_start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_end_date": (
-                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
-                ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
                 **prop_filter_params,
-                **target_params,
                 **returning_event_params,
+                **target_event_params,
                 "period": period,
             },
         )
 
         initial_interval_result = sync_execute(
             INITIAL_INTERVAL_SQL.format(
-                reference_event_sql=reference_event_sql,
+                reference_event_sql=reference_event_sql if is_first_time_retention else target_event_query,
                 trunc_func=trunc_func,
                 GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
@@ -119,7 +116,7 @@ class ClickhouseRetention(Retention):
                     (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
                 ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
                 **prop_filter_params,
-                **target_params,
+                **target_event_params,
                 **returning_params,
                 "period": period,
             },
