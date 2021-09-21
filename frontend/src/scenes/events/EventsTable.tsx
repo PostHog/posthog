@@ -2,9 +2,9 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import dayjs from 'dayjs'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { ExportOutlined } from '@ant-design/icons'
+import { DownloadOutlined, ExportOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { Button, Spin } from 'antd'
+import { Button, Col, Row, Spin } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { eventToName, toParams } from 'lib/utils'
@@ -14,17 +14,17 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
 import { EventFormattedType, ViewType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
-import { TableConfig } from 'lib/components/ResizableTable'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Tooltip } from 'lib/components/Tooltip'
+import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -45,7 +45,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
     const {
         properties,
         eventsFormatted,
-        orderBy,
         isLoading,
         hasNext,
         isLoadingNext,
@@ -54,6 +53,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         columnConfig,
         columnConfigSaving,
         automaticLoadEnabled,
+        exportUrl,
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } = useActions(
@@ -288,38 +288,47 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 style={{ marginTop: 0 }}
             />
 
+            <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                    <EventName
+                        value={eventFilter}
+                        onChange={(value: string) => {
+                            setEventFilter(value || '')
+                        }}
+                    />
+                </Col>
+                <Col span={24}>
+                    {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} style={{ marginBottom: 0 }} /> : null}
+                </Col>
+            </Row>
+
+            <Row gutter={[16, 16]} justify="end">
+                <Col flex="1">
+                    <LabelledSwitch
+                        label={'Automatically load new events'}
+                        enabled={automaticLoadEnabled}
+                        onToggle={toggleAutomaticLoad}
+                        align="right"
+                    />
+                </Col>
+                <Col flex="0">
+                    {exportUrl && (
+                        <Tooltip title="Export up to 100,000 latest events." placement="left">
+                            <Button icon={<DownloadOutlined />} href={exportUrl}>
+                                Export events
+                            </Button>
+                        </Tooltip>
+                    )}
+                </Col>
+            </Row>
+
             <TableConfig
-                exportUrl={`/api/event.csv?${toParams({
-                    properties,
-                    ...(fixedFilters || {}),
-                    ...(eventFilter ? { event: eventFilter } : {}),
-                    orderBy: [orderBy],
-                })}`}
                 selectedColumns={selectedConfigOptions}
                 availableColumns={featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] ? propertyNames : undefined}
                 immutableColumns={['event', 'person', 'when']}
                 defaultColumns={defaultColumns.map((e) => e.key || '')}
                 onColumnUpdate={setColumnConfig}
                 saving={columnConfigSaving}
-                automaticLoading={{
-                    toggle: toggleAutomaticLoad,
-                    enabled: automaticLoadEnabled,
-                }}
-                mainActionComponent={
-                    <>
-                        <div style={{ width: '20%' }}>
-                            <EventName
-                                value={eventFilter}
-                                onChange={(value: string) => {
-                                    setEventFilter(value || '')
-                                }}
-                            />
-                        </div>
-                        {filtersEnabled ? (
-                            <PropertyFilters pageKey={'EventsTable'} style={{ marginBottom: 0 }} />
-                        ) : null}
-                    </>
-                }
             />
 
             <div>

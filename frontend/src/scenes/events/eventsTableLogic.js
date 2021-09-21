@@ -168,6 +168,16 @@ export const eventsTableLogic = kea({
             (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
         ],
         columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
+        exportUrl: [
+            () => [selectors.eventFilter, selectors.orderBy, selectors.properties],
+            (eventFilter, orderBy, properties) =>
+                `/api/event.csv?${toParams({
+                    properties,
+                    ...(props.fixedFilters || {}),
+                    ...(eventFilter ? { event: eventFilter } : {}),
+                    orderBy: [orderBy],
+                })}`,
+        ],
     }),
 
     events: ({ values }) => ({
