@@ -36,8 +36,6 @@ jobs:
               id: docker-latest
               if: github.repository == 'PostHog/posthog'
               uses: docker/build-push-action@v2
-              env:
-                  SAML_AVAILABLE: '1'
               with:
                   context: .
                   push: true
@@ -47,8 +45,6 @@ jobs:
               id: docker-dev
               if: github.repository == 'PostHog/posthog'
               uses: docker/build-push-action@v2
-              env:
-                  SAML_AVAILABLE: '1'
               with:
                   context: .
                   file: dev.Dockerfile

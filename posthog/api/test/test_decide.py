@@ -4,7 +4,9 @@ import json
 from django.test.client import Client
 from rest_framework import status
 
-from posthog.models import FeatureFlag, Person, PersonalAPIKey
+from posthog.models import FeatureFlag, Person, PersonalAPIKey, person
+from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.models.person import PersonDistinctId
 from posthog.test.base import BaseTest
 
 
@@ -134,14 +136,14 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("default-flag", response.json()["featureFlags"])
         self.assertIn("beta-feature", response.json()["featureFlags"])
         self.assertIn("filer-by-property-2", response.json()["featureFlags"])
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
@@ -178,13 +180,13 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=1)  # v1 functionality should not break
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertIn("beta-feature", response.json()["featureFlags"])
             self.assertIn("default-flag", response.json()["featureFlags"])
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -192,7 +194,7 @@ class TestDecide(BaseTest):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="other_id")
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -237,7 +239,7 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, distinct_id="hosted_id")
             self.assertIsNone(
                 (response.json()["featureFlags"]).get("multivariate-flag", None)
@@ -246,7 +248,7 @@ class TestDecide(BaseTest):
                 (response.json()["featureFlags"]).get("default-flag")
             )  # User still receives the default flag
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertIsNotNone(
                 response.json()["featureFlags"]["multivariate-flag"]
@@ -261,6 +263,139 @@ class TestDecide(BaseTest):
             # second-variant: 20 (100 * 80% * 25% = 20 users)
             # third-variant:  20 (100 * 80% * 25% = 20 users)
             # fourth-variant: 20 (100 * 80% * 25% = 20 users)
+
+    def test_feature_flags_v2_override(self):
+        self.user.distinct_id = "static-distinct-id"
+        self.user.save()
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=[self.user.distinct_id, "not-canonical-distinct-id"],
+            properties={"email": self.user.email},
+        )
+        ff_1 = FeatureFlag.objects.create(
+            team=self.team,
+            name="Full rollout feature",
+            rollout_percentage=100,
+            key="bool-key-overridden-to-false",
+            created_by=self.user,
+        )  # Overriden to False
+
+        ff_2 = FeatureFlag.objects.create(
+            team=self.team,
+            name="Zero rollout feature",
+            rollout_percentage=0,
+            key="bool-key-overridden-to-true",
+            created_by=self.user,
+        )  # Overriden to True
+
+        ff_3 = FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 100},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 0},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                    ],
+                },
+            },
+            name="This is a multi var feature flag that gets overriden.",
+            key="multivariate-flag-overridden",
+            created_by=self.user,
+        )  # Multi-var overriden to diff variant
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 0},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 100},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                    ],
+                },
+            },
+            name="This is a multi var feature flag that doens't get overriden.",
+            key="multivariate-flag-not-overridden",
+            created_by=self.user,
+        )  # Multi-var not overriden
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            name="This is a feature flag with default params, no filters.",
+            key="flag-rollout-100",
+            rollout_percentage=100,
+            created_by=self.user,
+        )  # True feature flag, not overriden
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            name="This is a feature flag with default params, no filters.",
+            key="flag-rollout-0",
+            rollout_percentage=0,
+            created_by=self.user,
+        )  # False feature flag, not overriden
+
+        FeatureFlagOverride.objects.create(
+            team=self.team, user=self.user, feature_flag=ff_1, override_value=False,
+        )
+        FeatureFlagOverride.objects.create(
+            team=self.team, user=self.user, feature_flag=ff_2, override_value=True,
+        )
+        FeatureFlagOverride.objects.create(
+            team=self.team, user=self.user, feature_flag=ff_3, override_value="third-variant",
+        )
+
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=1, distinct_id=str(self.user.distinct_id))
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json()["featureFlags"],
+                [
+                    "multivariate-flag-overridden",
+                    "multivariate-flag-not-overridden",
+                    "flag-rollout-100",
+                    "bool-key-overridden-to-true",
+                ],
+            )
+
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=2, distinct_id=str(self.user.distinct_id))
+            feature_flags_for_canonical_distinct_id = response.json()["featureFlags"]
+            self.assertEqual(
+                feature_flags_for_canonical_distinct_id,
+                {
+                    "bool-key-overridden-to-true": True,
+                    "multivariate-flag-overridden": "third-variant",
+                    "multivariate-flag-not-overridden": "second-variant",
+                    "flag-rollout-100": True,
+                },
+            )
+        # Ensure we get the same response from both of the user's distinct_ids
+        with self.assertNumQueries(3):
+            response_non_canonical_distinct_id = self._post_decide(
+                api_version=2, distinct_id="not-canonical-distinct-id"
+            )
+            self.assertEqual(
+                response_non_canonical_distinct_id.json()["featureFlags"], feature_flags_for_canonical_distinct_id,
+            )
+
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=2, distinct_id="user-with-no-overriden-flags")
+            self.assertEqual(
+                response.json()["featureFlags"],
+                {
+                    "bool-key-overridden-to-false": True,
+                    "multivariate-flag-overridden": "first-variant",
+                    "multivariate-flag-not-overridden": "second-variant",
+                    "flag-rollout-100": True,
+                },
+            )
 
     def test_feature_flags_with_personal_api_key(self):
         key = PersonalAPIKey(label="X", user=self.user)

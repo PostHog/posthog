@@ -2,23 +2,18 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathOptionsToLabels, pathOptionsToProperty, pathsLogic } from 'scenes/paths/pathsLogic'
-import { Col, Row, Select, Skeleton } from 'antd'
+import { Col, Row, Select } from 'antd'
 import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { BaseTabProps } from '../Insights'
-import { InsightTitle } from './InsightTitle'
-import { InsightActionBar } from './InsightActionBar'
 import { PathType } from '~/types'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { GlobalFiltersTitle } from '../common'
 
-export function PathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
+export function PathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
-    const { filter, filtersLoading } = useValues(pathsLogic({ dashboardItemId: null }))
+    const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
-    const { filledFilters: properties } = useValues(propertyFilterLogic({ pageKey: 'insight-path' }))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
@@ -26,15 +21,6 @@ export function PathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
-                <InsightTitle
-                    actionBar={
-                        <InsightActionBar
-                            filters={{ ...filter, properties }}
-                            annotations={annotationsToCreate}
-                            insight="PATHS"
-                        />
-                    }
-                />
                 <Row gutter={8} align="middle" className="mt">
                     <Col>Showing paths from</Col>
                     <Col>
@@ -57,7 +43,6 @@ export function PathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
                     <Col>starting at</Col>
                     <Col>
                         <PropertyValue
-                            endpoint={filter.path_type === PathType.AutoCapture ? 'api/paths/elements' : undefined}
                             outerOptions={
                                 filter.path_type === PathType.CustomEvent
                                     ? customEventNames.map((name) => ({
@@ -72,21 +57,14 @@ export function PathTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
                             value={filter.start_point}
                             placeholder={'Select start element'}
                             autoFocus={false}
-                            allowCustom={filter.path_type !== PathType.AutoCapture}
                         />
                     </Col>
                 </Row>
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                 <GlobalFiltersTitle unit="actions/events" />
-                {filtersLoading ? (
-                    <Skeleton active paragraph={{ rows: 1 }} />
-                ) : (
-                    <>
-                        <PropertyFilters pageKey="insight-path" />
-                        <TestAccountFilter filters={filter} onChange={setFilter} />
-                    </>
-                )}
+                <PropertyFilters pageKey="insight-path" />
+                <TestAccountFilter filters={filter} onChange={setFilter} />
             </Col>
         </Row>
     )

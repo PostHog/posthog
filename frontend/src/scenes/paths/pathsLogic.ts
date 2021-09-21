@@ -6,22 +6,17 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
 import { DashboardItemLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
     [PathType.Screen]: 'Screen views (Mobile)',
-    [PathType.AutoCapture]: 'Autocaptured events',
     [PathType.CustomEvent]: 'Custom events',
 }
 
 export const pathOptionsToProperty = {
     [PathType.PageView]: '$current_url',
     [PathType.Screen]: '$screen_name',
-    [PathType.AutoCapture]: 'autocaptured_event',
     [PathType.CustomEvent]: 'custom_event',
 }
 
@@ -133,7 +128,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         loadResults: () => {
             insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
             if (!props.dashboardItemId) {
-                actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+                if (!insightLogic.values.insight.id) {
+                    actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filter)
+                }
             }
         },
     }),
@@ -184,10 +183,6 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
 
                 return Object.keys(result).length === 0 ? '' : result
             },
-        ],
-        filtersLoading: [
-            () => [featureFlagLogic.selectors.featureFlags, propertyDefinitionsModel.selectors.loaded],
-            (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
         ],
     },
     actionToUrl: ({ values, props }) => ({

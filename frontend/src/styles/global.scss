@@ -325,17 +325,16 @@ code.code {
 .Toastify__toast-container {
     opacity: 1;
     transform: none;
+    margin-top: $top_nav_height;
 }
 
 .Toastify__toast {
     padding: 16px;
     border-radius: $radius;
-    color: $text_default;
     font-family: inherit;
     background-color: $bg_light;
     border: 1px solid $border;
     @extend .text-default;
-    color: $text_default;
 
     h1 {
         font-size: 1.14rem;
@@ -522,6 +521,9 @@ code.code {
         border-color: $border;
         background-color: white;
         color: $primary_alt;
+        height: 23px;
+        width: 23px;
+        font-size: unset;
     }
 }
 

@@ -9,6 +9,7 @@ import {
     FunnelResult,
     FunnelStep,
     FunnelStepWithNestedBreakdown,
+    BreakdownKeyType,
     FunnelsTimeConversionBins,
 } from '~/types'
 
@@ -91,17 +92,21 @@ export function humanizeStepCount(count?: number): string {
     return count > 9999 ? compactNumber(count) : count.toLocaleString()
 }
 
-export function cleanBinResult(binsResult: FunnelsTimeConversionBins): FunnelsTimeConversionBins {
+export function cleanBinResult(result: FunnelResult): FunnelResult {
+    const binsResult = result.result as FunnelsTimeConversionBins
     return {
-        ...binsResult,
-        bins: binsResult.bins.map(([time, count]) => [time ?? 0, count ?? 0]),
-        average_conversion_time: binsResult.average_conversion_time ?? 0,
+        ...result,
+        result: {
+            ...result.result,
+            bins: binsResult.bins.map(([time, count]) => [time ?? 0, count ?? 0]),
+            average_conversion_time: binsResult.average_conversion_time ?? 0,
+        },
     }
 }
 
 export function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
-    breakdownProperty?: string | number | number[]
+    breakdownProperty?: BreakdownKeyType
 ): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
         return breakdownList[0].map((step, i) => ({
@@ -119,7 +124,9 @@ export function aggregateBreakdownResult(
     return []
 }
 
-export function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): results is FunnelStep[][] {
+export function isBreakdownFunnelResults(
+    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
@@ -144,7 +151,9 @@ export const EMPTY_FUNNEL_RESULTS = {
     },
 }
 
-export async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Promise<FunnelResult<T>> {
+export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
+    apiParams: FunnelRequestParams
+): Promise<FunnelResult<T>> {
     // Tricky: This API endpoint has wildly different return types depending on parameters.
     const { refresh, ...bodyParams } = apiParams
     let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
