@@ -386,9 +386,9 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
         def test_empty_selector_same_as_null(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
             action_null_selector = Action.objects.create(team=self.team)
-            ActionStep.objects.create(action=action_null_selector, selector=None)
+            ActionStep.objects.create(action=action_null_selector, event="$autocapture", selector=None)
             action_empty_selector = Action.objects.create(team=self.team)
-            ActionStep.objects.create(action=action_empty_selector, selector="")
+            ActionStep.objects.create(action=action_empty_selector, event="$autocapture", selector="")
             event1 = _create_event(
                 event="$autocapture",
                 team=self.team,
