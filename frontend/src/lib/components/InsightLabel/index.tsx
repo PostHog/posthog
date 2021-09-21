@@ -7,6 +7,12 @@ import './InsightLabel.scss'
 import { MATHS } from 'lib/constants'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
+export enum IconSize {
+    Small = 'small',
+    Medium = 'medium',
+    Large = 'large',
+}
+
 // InsightsLabel pretty prints the action (or event) returned from /insights
 interface InsightsLabelProps {
     seriesColor?: string
@@ -15,6 +21,8 @@ interface InsightsLabelProps {
     breakdownValue?: string | number
     hideBreakdown?: boolean // Whether to hide the breakdown detail in the label
     hideIcon?: boolean // Whether to hide the icon that showcases the color of the series
+    iconSize?: IconSize // Size of the series color icon
+    iconStyle?: Record<string, any> // style on series color icon
     seriesStatus?: string // Used by lifecycle chart to display the series name
     fallbackName?: string // Name to display for the series if it can be determined from `action`
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
@@ -52,6 +60,8 @@ export function InsightLabel({
     breakdownValue,
     hideBreakdown,
     hideIcon,
+    iconSize = IconSize.Large,
+    iconStyle,
     seriesStatus,
     fallbackName,
     hasMultipleSeries,
@@ -60,6 +70,7 @@ export function InsightLabel({
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || hasMultipleSeries
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
+    const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
 
     return (
         <Row className="insights-label" wrap={false}>
@@ -70,6 +81,11 @@ export function InsightLabel({
                         style={{
                             background: seriesColor,
                             boxShadow: `0px 0px 0px 1px ${hexToRGBA(seriesColor, 0.5)}`,
+                            minWidth: iconSizePx,
+                            minHeight: iconSizePx,
+                            width: iconSizePx,
+                            height: iconSizePx,
+                            ...iconStyle,
                         }}
                     />
                 )}
