@@ -80,17 +80,17 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     let properties_local: string[] = []
 
     const events = Array.isArray(filters.events) ? filters.events : []
-    for (const event of events || []) {
+    for (const event of events) {
         properties_local = properties_local.concat(flattenProperties(event.properties || []))
     }
 
     const actions = Array.isArray(filters.actions) ? filters.actions : []
-    for (const action of actions || []) {
+    for (const action of actions) {
         properties_local = properties_local.concat(flattenProperties(action.properties || []))
     }
 
     const properties = Array.isArray(filters.properties) ? filters.properties : []
-    const properties_global = flattenProperties(properties || [])
+    const properties_global = flattenProperties(properties)
 
     return {
         insight,
