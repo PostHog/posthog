@@ -14,7 +14,7 @@ jest.mock('lib/api')
 describe('funnelLogic', () => {
     let logic: BuiltLogic<funnelLogicType>
 
-    mockAPI(async ({ pathname }) => {
+    mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === 'api/insight/funnel/') {
             return {
                 is_cached: true,
@@ -29,9 +29,7 @@ describe('funnelLogic', () => {
         } else if (pathname === 'api/users/@me/') {
             return {}
         } else {
-            console.error(`Unmocked fetch to: ${pathname}`)
-            debugger
-            throw new Error()
+            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
     })
 
