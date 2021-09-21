@@ -1,6 +1,9 @@
+import json
+from typing import Any, Dict, List
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test.client import Client
 from rest_framework.test import APIClient
 
 from posthog.models import Person
@@ -160,3 +163,13 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort.call_count, 1)
+
+
+def create_cohort(client: Client, name: str, groups: List[Dict[str, Any]]):
+    return client.post("/api/cohort", {"name": name, "groups": json.dumps(groups)})
+
+
+def create_cohort_ok(client: Client, name: str, groups: List[Dict[str, Any]]):
+    response = create_cohort(client=client, name=name, groups=groups)
+    assert response.status_code == 201, response.content
+    return response.json()

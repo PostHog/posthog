@@ -15,7 +15,7 @@ from posthog.api.test.test_event_definition import (
     create_user,
 )
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
-from posthog.models.person import Person, PersonDistinctId
+from posthog.utils import is_clickhouse_enabled
 
 
 def identify(distinct_id: str, team_id: int):
@@ -23,8 +23,17 @@ def identify(distinct_id: str, team_id: int):
     Simulate what is being done in the plugin-server, so we end up with the
     database in the right state
     """
-    person = Person.objects.create(team_id=team_id)
-    PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
+    if is_clickhouse_enabled():
+        from ee.clickhouse.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team_id, properties={"team_id": team_id})
+        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
+    else:
+        from posthog.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team_id)
+        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
+
     capture_event(
         event=EventData(
             event="$identify",
