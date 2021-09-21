@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, List, Optional
 
 from django.apps import apps
@@ -67,7 +68,7 @@ class Person(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
 
     # used to prevent race conditions with set and set_once
-    last_updated_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    last_updated_at: models.DateTimeField = models.DateTimeField(default=datetime.now)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     properties: models.JSONField = models.JSONField(default=dict)
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
