@@ -8,14 +8,14 @@ export interface LabelledSwitchProps {
     align: 'right' | 'left'
 }
 
-export function LabelledSwitch(props: LabelledSwitchProps): JSX.Element {
+export function LabelledSwitch({ align, enabled, label, onToggle }: LabelledSwitchProps): JSX.Element {
     return (
-        <Space className="labelled-switch" align="center" style={props.align === 'right' ? { float: 'right' } : {}}>
-            <div onClick={() => props.onToggle(!props.enabled)}>
+        <Space className="labelled-switch" align="center" style={align === 'right' ? { float: 'right' } : {}}>
+            <div onClick={() => onToggle(!enabled)}>
                 <Typography.Text ellipsis={true} className="labelled-switch-title">
-                    {props.label}
+                    {label}
                 </Typography.Text>
-                <Switch checked={props.enabled} onChange={props.onToggle} />
+                <Switch checked={enabled} onChange={onToggle} />
             </div>
         </Space>
     )
