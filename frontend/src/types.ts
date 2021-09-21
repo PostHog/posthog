@@ -24,7 +24,7 @@ export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K 
 export enum AvailableFeature {
     ZAPIER = 'zapier',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
-    PER_PROJECT_ACCESS = 'per_project_access',
+    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     GOOGLE_LOGIN = 'google_login',
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
@@ -88,7 +88,6 @@ export interface OrganizationType extends OrganizationBasicType {
     personalization: PersonalizationData
     setup: SetupState
     setup_section_2_completed: boolean
-    per_project_access: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
@@ -160,6 +159,8 @@ export interface TeamBasicType {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
+    /** Whether access to this project is restricted (AKA project-based permissioning enabled). */
+    project_based_permissioning: boolean
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
 }
@@ -196,14 +197,14 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string
-    href?: string
+    href?: string | null
     id?: number
     name?: string
     properties?: []
-    selector?: string
+    selector?: string | null
     tag_name?: string
-    text?: string
-    url?: string
+    text?: string | null
+    url?: string | null
     url_matching?: ActionStepUrlMatching
     isNew?: string
 }
@@ -580,7 +581,7 @@ export interface PluginType {
 }
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
     required?: boolean
 }
 
@@ -676,7 +677,6 @@ export enum ViewType {
 
 export enum PathType {
     PageView = '$pageview',
-    AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
 }
@@ -736,6 +736,7 @@ export interface FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
+    hidden_map?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
 }
 
 export interface SystemStatusSubrows {
@@ -854,7 +855,6 @@ export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionB
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number
-    steps: FunnelStep[] | FunnelStep[][]
 }
 
 export interface FunnelTimeConversionMetrics {
@@ -896,12 +896,26 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
         fromBasisStep: number // either fromPrevious or total, depending on FunnelStepReference
     }
     nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
+    rowKey?: number | string
 }
 
 export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
     rowKey: number | string
+    nestedRowKeys?: string[]
     isBreakdownParent?: boolean
     breakdownIndex?: number
+}
+
+export interface FlattenedFunnelStepByBreakdown {
+    rowKey: number | string
+    isBaseline?: boolean
+    breakdown?: string | number
+    breakdown_value?: string | number
+    breakdownIndex?: number
+    conversionRates?: {
+        total: number
+    }
+    steps?: FunnelStepWithConversionMetrics[]
 }
 
 export interface ChartParams {

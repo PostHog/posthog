@@ -27,6 +27,7 @@ import { featureFlagLogic } from '../../../lib/logic/featureFlagLogic'
 import { AvailableFeature, UserType } from '../../../types'
 import { TeamMembers } from './TeamMembers'
 import { teamMembersLogic } from './teamMembersLogic'
+import { AccessControl } from './AccessControl'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -230,15 +231,24 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                 </p>
                 <SessionRecording />
                 <Divider />
-                {currentTeam &&
-                    featureFlags[FEATURE_FLAGS.PER_PROJECT_ACCESS] &&
-                    currentOrganization?.available_features.includes(AvailableFeature.PER_PROJECT_ACCESS) &&
-                    currentOrganization?.per_project_access && (
-                        <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
-                            <TeamMembers user={user} team={currentTeam} />
-                            <Divider />
-                        </BindLogic>
-                    )}
+                {featureFlags[FEATURE_FLAGS.PROJECT_BASED_PERMISSIONING] && (
+                    <>
+                        <RestrictedArea
+                            Component={AccessControl}
+                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                        />
+                        <Divider />
+                        {currentTeam?.project_based_permissioning &&
+                            currentOrganization?.available_features.includes(
+                                AvailableFeature.PROJECT_BASED_PERMISSIONING
+                            ) && (
+                                <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
+                                    <TeamMembers user={user} team={currentTeam} />
+                                    <Divider />
+                                </BindLogic>
+                            )}
+                    </>
+                )}
                 <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
             </Card>
         </div>

@@ -98,6 +98,11 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError("This user likely already is an explicit member of the project.")
 
     def validate(self, attrs):
+        team: Team = self.context["team"]
+        if not team.project_based_permissioning:
+            raise exceptions.ValidationError(
+                "Explicit members can only be accessed for projects with project-based permissioning enabled."
+            )
         requesting_user: User = self.context["request"].user
         membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
         try:

@@ -8,8 +8,8 @@ from posthog.models import OrganizationMembership, Team, User
 class TestTeamMembershipsAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self.organization.per_project_access = True
-        self.organization.save()
+        self.team.project_based_permissioning = True
+        self.team.save()
 
     def test_add_member_as_org_owner_allowed(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -222,9 +222,11 @@ class TestTeamMembershipsAPI(APILicensedTest):
     def test_add_member_to_non_current_project_allowed(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        another_team = Team.objects.create(organization=self.organization)
+        another_team = Team.objects.create(organization=self.organization, project_based_permissioning=True)
 
-        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+        new_user: User = User.objects.create_and_join(
+            self.organization, "rookie@posthog.com", None,
+        )
 
         response = self.client.post(f"/api/projects/{another_team.id}/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
@@ -238,7 +240,9 @@ class TestTeamMembershipsAPI(APILicensedTest):
     def test_add_member_to_project_in_outside_organization_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        _, new_team, new_user = User.objects.bootstrap("Acme", "mallory@acme.com", None)
+        _, new_team, new_user = User.objects.bootstrap(
+            "Acme", "mallory@acme.com", None, team_fields={"project_based_permissioning": True}
+        )
 
         response = self.client.post(f"/api/projects/{new_team.id}/explicit_members/", {"user_uuid": new_user.uuid,})
         response_data = response.json()
@@ -408,3 +412,23 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.uuid}")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_add_member_to_project_with_project_based_permissioning_disabled_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self.team.project_based_permissioning = False
+        self.team.save()
+
+        new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
+
+        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
+        response_data = response.json()
+
+        self.assertDictEqual(
+            self.validation_error_response(
+                "Explicit members can only be accessed for projects with project-based permissioning enabled.",
+                attr="non_field_errors",
+            ),
+            response_data,
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
