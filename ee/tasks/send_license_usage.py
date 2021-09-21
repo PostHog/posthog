@@ -25,7 +25,7 @@ def send_license_usage():
         )
         if not response.ok:
             posthoganalytics.capture(
-                User.objects.first().distinct_id,
+                User.objects.first().distinct_id,  # type: ignore
                 "send license usage data error",
                 {
                     "error": response.content,
@@ -36,7 +36,7 @@ def send_license_usage():
             )
     except Exception as err:
         posthoganalytics.capture(
-            User.objects.first().distinct_id,
+            User.objects.first().distinct_id,  # type: ignore
             "send license usage data error",
             {"error": str(err), "date": date_from.strftime("%Y-%m-%d")},
         )

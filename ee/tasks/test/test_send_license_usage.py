@@ -19,7 +19,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):  # type: ignore
+class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("requests.post")
     def test_send_license_usage(self, mock_post):
@@ -54,7 +54,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         )
 
 
-class SendLicenseUsageNoLicenseTest(APIBaseTest):  # type: ignore
+class SendLicenseUsageNoLicenseTest(APIBaseTest):
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("requests.post")
     def test_no_license(self, mock_post):

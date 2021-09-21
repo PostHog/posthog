@@ -7,6 +7,7 @@ from django.db import DEFAULT_DB_ALIAS
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL
+from posthog.test.base import BaseTest
 
 
 class ClickhouseTestMixin:
@@ -38,7 +39,7 @@ class ClickhouseTestMixin:
             yield sqls
 
 
-class ClickhouseDestroyTablesMixin:
+class ClickhouseDestroyTablesMixin(BaseTest):
     """
     To speed up tests we normally don't destroy the tables between tests, so clickhouse tables will have data from previous tests.
     Use this mixin to make sure you completely destroy the tables between tests.
