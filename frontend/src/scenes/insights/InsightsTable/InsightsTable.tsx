@@ -71,7 +71,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 return (
                     <PHCheckbox
                         color={colorList[item.id]}
-                        checked={visibilityMap[item.id] || visibilityMap[item.id] === undefined}
+                        checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={isSingleEntity}
                     />

@@ -282,16 +282,27 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             },
         ],
         visibilityMap: [
-            // - false = invisible
-            // - true || undefined = visible
-            {} as Record<number, boolean | undefined>,
+            {} as Record<number, any>,
             {
-                loadResultsSuccess: () => ({}),
-                setVisibilityById: (state, { entry }) => ({
+                setVisibilityById: (
+                    state: Record<number, any>,
+                    {
+                        entry,
+                    }: {
+                        entry: Record<number, any>
+                    }
+                ) => ({
                     ...state,
                     ...entry,
                 }),
-                toggleVisibility: (state, { index }) => ({
+                toggleVisibility: (
+                    state: Record<number, any>,
+                    {
+                        index,
+                    }: {
+                        index: number
+                    }
+                ) => ({
                     ...state,
                     [`${index}`]: !state[index],
                 }),
