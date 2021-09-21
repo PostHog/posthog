@@ -29,13 +29,13 @@ export function TableConfig({
 }: TableConfigInterface): JSX.Element {
     const { state } = useValues(tableConfigLogic)
     const { setState } = useActions(tableConfigLogic)
-
+    const doNotDisplay = false // to be resolved by issue #1534
     return (
         <>
             <div className="table-options">
                 <div className="rhs-actions">
                     <Space align="baseline">
-                        {selectedColumns && availableColumns && onColumnUpdate && (
+                        {doNotDisplay && selectedColumns && availableColumns && onColumnUpdate && (
                             <>
                                 <Button
                                     data-attr="events-table-column-selector"
