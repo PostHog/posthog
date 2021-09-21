@@ -158,7 +158,7 @@ export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
     const { refresh, ...bodyParams } = apiParams
     let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
     const start = window.performance.now()
-    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
+    while (result.result?.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
         result = await api.create('api/insight/funnel', bodyParams)
     }

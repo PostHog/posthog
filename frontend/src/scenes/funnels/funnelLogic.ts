@@ -136,7 +136,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
-        logic: [insightLogic],
+        logic: [insightLogic, eventUsageLogic],
     },
 
     loaders: ({ props, values }) => ({
@@ -166,6 +166,7 @@ export const funnelLogic = kea<funnelLogicType>({
                                 ...apiParams,
                                 refresh,
                             })
+                            breakpoint()
                             eventUsageLogic.actions.reportFunnelCalculated(
                                 eventCount,
                                 actionCount,
@@ -195,7 +196,9 @@ export const funnelLogic = kea<funnelLogicType>({
                     const dashboardItemId = props.dashboardItemId as number | undefined
 
                     insightLogic.actions.startQuery(queryId)
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                    if (dashboardItemId) {
+                        dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                    }
 
                     let resultsPackage: LoadedRawFunnelResults = { ...EMPTY_FUNNEL_RESULTS, filters }
                     try {
@@ -203,16 +206,20 @@ export const funnelLogic = kea<funnelLogicType>({
                         breakpoint()
                         resultsPackage = { ...resultsPackage, results: result.result }
                         insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
-                        dashboardsModel.actions.updateDashboardRefreshStatus(
-                            dashboardItemId,
-                            false,
-                            result.last_refresh
-                        )
+                        if (dashboardItemId) {
+                            dashboardsModel.actions.updateDashboardRefreshStatus(
+                                dashboardItemId,
+                                false,
+                                result.last_refresh
+                            )
+                        }
                         return resultsPackage
                     } catch (e) {
                         if (!isBreakpoint(e)) {
                             insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
-                            dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                            if (dashboardItemId) {
+                                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                            }
                             console.error(e)
                         }
                         return resultsPackage
@@ -584,8 +591,9 @@ export const funnelLogic = kea<funnelLogicType>({
             // No calculate button on Clickhouse, but query performance is suboptimal on psql
             const { clickhouseFeaturesEnabled } = values
             // If user started from empty state (<2 steps) and added a new step
-            const shouldRefresh =
-                values.filters?.events?.length === 2 && values.lastAppliedFilters?.events?.length === 1
+            const filterLength = (filters: Partial<FilterType>): number =>
+                (filters?.events?.length || 0) + (filters?.actions?.length || 0)
+            const shouldRefresh = filterLength(values.filters) === 2 && filterLength(values.lastAppliedFilters) === 1
             // If layout is the only thing that changes
             const onlyLayoutChanged = equal(
                 Object.assign({}, values.filters, { layout: undefined }),
