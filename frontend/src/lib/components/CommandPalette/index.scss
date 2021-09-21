@@ -13,6 +13,7 @@
 }
 
 .palette__box {
+    @extend %mixin-elevated;
     position: absolute;
     top: 30%;
     display: flex;
@@ -24,7 +25,6 @@
     border-radius: $radius;
     background-color: $bg_menu;
     overflow: hidden;
-    @extend .mixin-elevated;
 
     @media (max-width: 500px) {
         top: 10%;

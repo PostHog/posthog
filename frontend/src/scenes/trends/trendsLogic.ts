@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
 import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import {
@@ -20,9 +20,7 @@ import {
 import { trendsLogicType } from './trendsLogicType'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
@@ -312,15 +310,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
     }),
 
     selectors: () => ({
-        filtersLoading: [
-            () => [
-                featureFlagLogic.selectors.featureFlags,
-                eventDefinitionsModel.selectors.loaded,
-                propertyDefinitionsModel.selectors.loaded,
-            ],
-            (featureFlags, eventsLoaded, propertiesLoaded) =>
-                !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
-        ],
         loadedFilters: [(selectors) => [selectors._results], (response) => response.filters],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
@@ -347,10 +336,14 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
-                insightHistoryLogic.actions.createInsight({
-                    ...values.filters,
-                    insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
-                })
+                if (!insightLogic.values.insight.id) {
+                    insightHistoryLogic.actions.createInsight({
+                        ...values.filters,
+                        insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
+                    })
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filters)
+                }
             }
 
             let indexedResults

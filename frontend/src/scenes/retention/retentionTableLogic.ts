@@ -5,13 +5,7 @@ import { toParams, objectsEqual, uuid } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
-import {
-    ACTIONS_LINE_GRAPH_LINEAR,
-    ACTIONS_TABLE,
-    FEATURE_FLAGS,
-    RETENTION_FIRST_TIME,
-    RETENTION_RECURRING,
-} from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, FilterType, ViewType } from '~/types'
 import {
@@ -21,9 +15,6 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
@@ -148,15 +139,6 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             (selectors) => [(selectors as any).actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
-        filtersLoading: [
-            () => [
-                featureFlagLogic.selectors.featureFlags,
-                eventDefinitionsModel.selectors.loaded,
-                propertyDefinitionsModel.selectors.loaded,
-            ],
-            (featureFlags, eventsLoaded, propertiesLoaded) =>
-                !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
-        ],
         actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
         actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
     },
@@ -208,7 +190,11 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             actions.clearPeople()
             insightLogic.actions.setAllFilters(values.filters)
             if (!props.dashboardItemId) {
-                actions.createInsight(values.filters)
+                if (!insightLogic.values.insight.id) {
+                    actions.createInsight(values.filters)
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filters)
+                }
             }
         },
         loadMorePeople: async () => {

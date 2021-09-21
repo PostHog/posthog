@@ -20,13 +20,14 @@ import { UploadFile } from 'antd/lib/upload/interface'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
-export type AvailableFeatures =
-    | 'zapier'
-    | 'organizations_projects'
-    | 'google_login'
-    | 'dashboard_collaboration'
-    | 'clickhouse'
-    | 'ingestion_taxonomy'
+export enum AvailableFeature {
+    ZAPIER = 'zapier',
+    ORGANIZATIONS_PROJECTS = 'organizations_projects',
+    GOOGLE_LOGIN = 'google_login',
+    SAML = 'saml',
+    DASHBOARD_COLLABORATION = 'dashboard_collaboration',
+    INGESTION_TAXONOMY = 'ingestion_taxonomy',
+}
 
 export interface ColumnConfig {
     active: string[] | 'DEFAULT'
@@ -91,7 +92,7 @@ export interface OrganizationType extends OrganizationBasicType {
     setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
-    available_features: AvailableFeatures[]
+    available_features: AvailableFeature[]
     domain_whitelist: string[]
     is_member_join_email_enabled: boolean
 }
@@ -203,6 +204,7 @@ export type EditorProps = {
     distinctId?: string
     userEmail?: boolean
     dataAttributes?: string[]
+    featureFlags?: Record<string, string | boolean>
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
@@ -546,8 +548,17 @@ export interface PluginType {
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    public_jobs?: Record<string, JobSpec>
 }
 
+export interface JobPayloadFieldOptions {
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    required?: boolean
+}
+
+export interface JobSpec {
+    payload?: Record<string, JobPayloadFieldOptions>
+}
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -637,7 +648,6 @@ export enum ViewType {
 
 export enum PathType {
     PageView = '$pageview',
-    AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
 }
@@ -650,6 +660,8 @@ export enum FunnelVizType {
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
+export type BreakdownKeyType = string | number | (string | number)[] | null
+
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
@@ -660,7 +672,7 @@ export interface FilterType {
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
-    breakdown?: string | number | number[] | null
+    breakdown?: BreakdownKeyType
     breakdown_value?: string | number
     shown_as?: ShownAsType
     session?: string
@@ -730,6 +742,21 @@ export interface SystemStatusQueriesResult {
     clickhouse_slow_log?: QuerySummary[]
 }
 
+export interface SystemStatusAnalyzeResult {
+    query: string
+    timing: {
+        query_id: string
+        event_time: string
+        query_duration_ms: number
+        read_rows: number
+        read_size: string
+        result_rows: number
+        result_size: string
+        memory_usage: string
+    }
+    flamegraphs: Record<string, string>
+}
+
 export type PersonalizationData = Record<string, string | string[] | null>
 
 interface EnabledSetupState {
@@ -782,7 +809,7 @@ export interface FunnelStep {
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: string | number | number[]
+    breakdown?: BreakdownKeyType
     breakdown_value?: string | number
 }
 
@@ -790,7 +817,7 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
     nested_breakdown?: FunnelStep[]
 }
 
-export interface FunnelResult<ResultType = FunnelStep[]> {
+export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
@@ -800,13 +827,7 @@ export interface FunnelResult<ResultType = FunnelStep[]> {
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number
-}
-
-export interface FunnelsTimeConversionResult {
-    result: FunnelsTimeConversionBins
-    last_refresh: string | null
-    is_cached: boolean
-    type: 'Funnel'
+    steps: FunnelStep[] | FunnelStep[][]
 }
 
 export interface FunnelTimeConversionMetrics {
@@ -836,8 +857,7 @@ export interface FunnelRequestParams extends FilterType {
 }
 
 export interface LoadedRawFunnelResults {
-    results: FunnelStep[] | FunnelStep[][]
-    timeConversionResults: FunnelsTimeConversionBins
+    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
     filters: Partial<FilterType>
 }
 
@@ -898,6 +918,19 @@ export interface FeatureFlagType {
     created_at: string
     is_simple_flag: boolean
     rollout_percentage: number | null
+}
+
+export interface FeatureFlagOverrideType {
+    id: number
+    feature_flag: number
+    user: number
+    override_value: boolean | string
+}
+
+export interface CombinedFeatureFlagAndOverrideType {
+    feature_flag: FeatureFlagType
+    value_for_user_without_override: boolean | string
+    override: FeatureFlagOverrideType | null
 }
 
 export interface PrevalidatedInvite {

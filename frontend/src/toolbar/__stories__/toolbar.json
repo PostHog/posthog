@@ -1,0 +1,296 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/feature_flags/new",
+                "search": "",
+                "hash": "#backTo=Feature%20Flags&backToURL=%2Ffeature_flags"
+            },
+            "searchParams": {},
+            "hashParams": {
+                "backTo": "Feature Flags",
+                "backToURL": "/feature_flags"
+            }
+        }
+    },
+    "toolbar": {
+        "toolbarLogic": {
+            "rawApiURL": "http://localhost:8000",
+            "rawJsURL": "http://localhost:8234/",
+            "temporaryToken": "UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk",
+            "actionId": null,
+            "userIntent": null,
+            "buttonVisible": true,
+            "dataAttributes": ["data-attr"]
+        },
+        "stats": {
+            "currentPageLogic": {
+                "href": "http://localhost:8000/feature_flags/new#backTo=Feature%20Flags&backToURL=%2Ffeature_flags"
+            }
+        },
+        "elements": {
+            "heatmapLogic": {
+                "events": [],
+                "eventsLoading": false,
+                "heatmapEnabled": false,
+                "heatmapLoading": false,
+                "showHeatmapTooltip": false,
+                "heatmapFilter": {}
+            },
+            "elementsLogic": {
+                "inspectEnabledRaw": false,
+                "rectUpdateCounter": 6,
+                "hoverElement": null,
+                "highlightElement": null,
+                "selectedElement": null,
+                "enabledLast": null
+            }
+        },
+        "actions": {
+            "actionsLogic": {
+                "allActions": [
+                    {
+                        "id": 8,
+                        "name": "Entered Free Trial",
+                        "post_to_slack": false,
+                        "slack_message_format": "",
+                        "steps": [
+                            {
+                                "id": "8",
+                                "event": "entered_free_trial",
+                                "tag_name": null,
+                                "text": null,
+                                "href": null,
+                                "selector": null,
+                                "url": null,
+                                "name": null,
+                                "url_matching": "contains",
+                                "properties": []
+                            }
+                        ],
+                        "created_at": "2021-09-10T16:24:38.742431Z",
+                        "deleted": false,
+                        "is_calculating": false,
+                        "last_calculated_at": "2021-09-13T08:51:00.196274Z",
+                        "created_by": null,
+                        "team_id": 2
+                    },
+                    {
+                        "id": 7,
+                        "name": "Purchase",
+                        "post_to_slack": false,
+                        "slack_message_format": "",
+                        "steps": [
+                            {
+                                "id": "7",
+                                "event": "purchase",
+                                "tag_name": null,
+                                "text": null,
+                                "href": null,
+                                "selector": null,
+                                "url": null,
+                                "name": null,
+                                "url_matching": "contains",
+                                "properties": []
+                            }
+                        ],
+                        "created_at": "2021-09-10T16:24:38.736545Z",
+                        "deleted": false,
+                        "is_calculating": false,
+                        "last_calculated_at": "2021-09-13T08:51:00.181461Z",
+                        "created_by": null,
+                        "team_id": 2
+                    },
+                    {
+                        "id": 6,
+                        "name": "Watched Movie",
+                        "post_to_slack": false,
+                        "slack_message_format": "",
+                        "steps": [
+                            {
+                                "id": "6",
+                                "event": "watched_movie",
+                                "tag_name": null,
+                                "text": null,
+                                "href": null,
+                                "selector": null,
+                                "url": null,
+                                "name": null,
+                                "url_matching": "contains",
+                                "properties": []
+                            }
+                        ],
+                        "created_at": "2021-09-10T16:24:38.506289Z",
+                        "deleted": false,
+                        "is_calculating": false,
+                        "last_calculated_at": "2021-09-13T08:51:00.080960Z",
+                        "created_by": null,
+                        "team_id": 2
+                    },
+                    {
+                        "id": 5,
+                        "name": "Rated App",
+                        "post_to_slack": false,
+                        "slack_message_format": "",
+                        "steps": [
+                            {
+                                "id": "5",
+                                "event": "rated_app",
+                                "tag_name": null,
+                                "text": null,
+                                "href": null,
+                                "selector": null,
+                                "url": null,
+                                "name": null,
+                                "url_matching": "contains",
+                                "properties": []
+                            }
+                        ],
+                        "created_at": "2021-09-10T16:24:38.498637Z",
+                        "deleted": false,
+                        "is_calculating": false,
+                        "last_calculated_at": "2021-09-13T08:51:00.129927Z",
+                        "created_by": null,
+                        "team_id": 2
+                    },
+                    {
+                        "id": 4,
+                        "name": "Installed App",
+                        "post_to_slack": false,
+                        "slack_message_format": "",
+                        "steps": [
+                            {
+                                "id": "4",
+                                "event": "installed_app",
+                                "tag_name": null,
+                                "text": null,
+                                "href": null,
+                                "selector": null,
+                                "url": null,
+                                "name": null,
+                                "url_matching": "contains",
+                                "properties": []
+                            }
+                        ],
+                        "created_at": "2021-09-10T16:24:38.493475Z",
+                        "deleted": false,
+                        "is_calculating": false,
+                        "last_calculated_at": "2021-09-13T08:51:00.142609Z",
+                        "created_by": null,
+                        "team_id": 2
+                    },
+                    {
+                        "id": 3,
+                        "name": "HogFlix paid",
+                        "post_to_slack": false,
+                        "slack_message_format": "",
+                        "steps": [
+                            {
+                                "id": "3",
+                                "event": "$autocapture",
+                                "tag_name": null,
+                                "text": null,
+                                "href": null,
+                                "selector": "button",
+                                "url": "http://hogflix.com/2",
+                                "name": null,
+                                "url_matching": "contains",
+                                "properties": []
+                            }
+                        ],
+                        "created_at": "2021-09-10T16:24:38.043829Z",
+                        "deleted": false,
+                        "is_calculating": false,
+                        "last_calculated_at": "2021-09-13T08:51:00.174216Z",
+                        "created_by": null,
+                        "team_id": 2
+                    },
+                    {
+                        "id": 2,
+                        "name": "HogFlix signed up",
+                        "post_to_slack": false,
+                        "slack_message_format": "",
+                        "steps": [
+                            {
+                                "id": "2",
+                                "event": "$autocapture",
+                                "tag_name": null,
+                                "text": null,
+                                "href": null,
+                                "selector": "button",
+                                "url": "http://hogflix.com/1",
+                                "name": null,
+                                "url_matching": "contains",
+                                "properties": []
+                            }
+                        ],
+                        "created_at": "2021-09-10T16:24:38.019025Z",
+                        "deleted": false,
+                        "is_calculating": false,
+                        "last_calculated_at": "2021-09-13T08:51:00.166619Z",
+                        "created_by": null,
+                        "team_id": 2
+                    },
+                    {
+                        "id": 1,
+                        "name": "HogFlix homepage view",
+                        "post_to_slack": false,
+                        "slack_message_format": "",
+                        "steps": [
+                            {
+                                "id": "1",
+                                "event": "$pageview",
+                                "tag_name": null,
+                                "text": null,
+                                "href": null,
+                                "selector": null,
+                                "url": "http://hogflix.com",
+                                "name": null,
+                                "url_matching": "exact",
+                                "properties": []
+                            }
+                        ],
+                        "created_at": "2021-09-10T16:24:37.986574Z",
+                        "deleted": false,
+                        "is_calculating": false,
+                        "last_calculated_at": "2021-09-13T08:51:00.157574Z",
+                        "created_by": null,
+                        "team_id": 2
+                    }
+                ],
+                "allActionsLoading": false
+            },
+            "actionsTabLogic": {
+                "buttonActionsVisible": false,
+                "selectedActionId": null,
+                "newActionForElement": null,
+                "inspectingElement": null,
+                "editingFields": null,
+                "form": null,
+                "counter": 0,
+                "showActionsTooltip": false
+            }
+        },
+        "button": {
+            "toolbarButtonLogic": {
+                "windowHeight": 796,
+                "windowWidth": 890,
+                "heatmapInfoVisible": false,
+                "actionsInfoVisible": false,
+                "extensionPercentage": 1,
+                "lastDragPosition": {
+                    "x": 270,
+                    "y": 236
+                },
+                "heatmapPosition": {
+                    "x": 100,
+                    "y": 100
+                },
+                "actionsPosition": {
+                    "x": 120,
+                    "y": 100
+                }
+            }
+        }
+    }
+}

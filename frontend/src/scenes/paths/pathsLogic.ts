@@ -7,22 +7,17 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { pathsLogicType } from './pathsLogicType'
 import { FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
     [PathType.Screen]: 'Screen views (Mobile)',
-    [PathType.AutoCapture]: 'Autocaptured events',
     [PathType.CustomEvent]: 'Custom events',
 }
 
 export const pathOptionsToProperty = {
     [PathType.PageView]: '$current_url',
     [PathType.Screen]: '$screen_name',
-    [PathType.AutoCapture]: 'autocaptured_event',
     [PathType.CustomEvent]: 'custom_event',
 }
 
@@ -49,9 +44,7 @@ interface PathResult {
 
 interface PathNode {
     target: string
-    target_id: number
     source: string
-    source_id: number
     value: number
 }
 
@@ -159,7 +152,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         loadResults: () => {
             insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
             if (!props.dashboardItemId) {
-                actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+                if (!insightLogic.values.insight.id) {
+                    actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filter)
+                }
             }
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
@@ -177,10 +174,10 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 const nodes: Record<string, any> = {}
                 for (const path of paths) {
                     if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source, id: path.source_id }
+                        nodes[path.source] = { name: path.source }
                     }
                     if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target, id: path.target_id }
+                        nodes[path.target] = { name: path.target }
                     }
                 }
 
@@ -215,10 +212,6 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
 
                 return Object.keys(result).length === 0 ? '' : result
             },
-        ],
-        filtersLoading: [
-            () => [featureFlagLogic.selectors.featureFlags, propertyDefinitionsModel.selectors.loaded],
-            (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
         ],
     },
     actionToUrl: ({ values, props }) => ({

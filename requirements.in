@@ -1,6 +1,6 @@
 # pip-compile requirements.in
 
-git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
+django-rest-hooks@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.5.2
 asgiref==3.3.2
 aioch==0.0.2
@@ -27,7 +27,7 @@ gunicorn==20.1.0
 grpcio==1.33.1
 idna==2.8
 importlib-metadata==1.6.0
-git+git://github.com/PostHog/infi.clickhouse_orm@f6f4838a75513773696737c9ac37a164af9be632
+infi-clickhouse-orm@ git+git://github.com/PostHog/infi.clickhouse_orm@f6f4838a75513773696737c9ac37a164af9be632
 kafka-python==2.0.1
 kafka-helper==0.2
 kombu==4.6.8
@@ -39,8 +39,6 @@ posthoganalytics==1.4.2
 protobuf==3.13.0
 psycopg2-binary==2.8.6
 python-dateutil==2.8.1
-python3-saml==1.12.0
-python3-openid==3.1.0
 pytz==2021.1
 redis==3.4.1
 requests==2.25.1
