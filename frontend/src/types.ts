@@ -316,6 +316,7 @@ export type EntityType = 'actions' | 'events' | 'new_entity'
 export interface Entity {
     id: string | number
     name: string
+    custom_name?: string
     order: number
     type: EntityType
 }
@@ -337,10 +338,6 @@ export type EntityFilter = {
 export interface FunnelStepRangeEntityFilter extends EntityFilter {
     funnel_from_step: number
     funnel_to_step: number
-}
-
-export interface EntityWithProperties extends Entity {
-    properties: Record<string, any>
 }
 
 export interface PersonType {

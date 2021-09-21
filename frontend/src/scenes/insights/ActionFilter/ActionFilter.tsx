@@ -25,6 +25,7 @@ export interface ActionFilterProps {
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     showOr?: boolean // Whether to show the "OR" label after each filter
     hideFilter?: boolean // Hide local filtering (currently used for retention insight)
+    hideRename?: boolean // Hides the rename option
     customRowPrefix?:
         | string
         | JSX.Element
@@ -76,6 +77,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             seriesIndicatorType = 'alpha',
             showOr = false,
             hideFilter = false,
+            hideRename = false,
             horizontalUI = false,
             fullWidth = false,
             customRowPrefix,
@@ -129,6 +131,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             renderRow,
         }
 
+        console.log('LOCAL FILTERS', localFilters)
+
         return (
             <div ref={ref}>
                 {localFilters ? (
@@ -155,6 +159,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 singleFilter={singleFilter}
                                 showOr={showOr}
                                 hideFilter={hideFilter}
+                                hideRename={hideRename}
                                 horizontalUI={horizontalUI}
                                 filterCount={localFilters.length}
                                 showNestedArrow={showNestedArrow}

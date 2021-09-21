@@ -14,7 +14,7 @@ import {
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EVENT_MATH_TYPE, FEATURE_FLAGS, MATHS, PROPERTY_MATH_TYPE } from 'lib/constants'
-import { CloseSquareOutlined, DeleteOutlined, DownOutlined, FilterOutlined } from '@ant-design/icons'
+import { CloseSquareOutlined, DeleteOutlined, DownOutlined, EditOutlined, FilterOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -50,6 +50,7 @@ export interface ActionFilterRowProps {
     singleFilter?: boolean
     showOr?: boolean
     hideFilter?: boolean // Hides the local filter options
+    hideRename?: boolean // Hides the rename option
     showSeriesIndicator?: boolean // Show series badge
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     horizontalUI?: boolean
@@ -83,6 +84,7 @@ export interface ActionFilterRowProps {
         filter,
         suffix,
         propertyFiltersButton,
+        renameRowButton,
         deleteButton,
         orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
@@ -97,6 +99,7 @@ export function ActionFilterRow({
     singleFilter,
     showOr,
     hideFilter,
+    hideRename,
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
     horizontalUI = false,
@@ -242,6 +245,20 @@ export function ActionFilterRow({
         </Button>
     )
 
+    const renameRowButton = (
+        <Button
+            type="link"
+            onClick={() => {
+                console.log('CLICKED RENAME')
+            }}
+            className={`row-action-btn show-rename`}
+            data-attr={'show-prop-rename-' + index}
+            title="Rename"
+        >
+            <EditOutlined />
+        </Button>
+    )
+
     const deleteButton = (
         <Button
             type="link"
@@ -270,6 +287,7 @@ export function ActionFilterRow({
                         filter: filterElement,
                         suffix,
                         propertyFiltersButton: propertyFiltersButton,
+                        renameRowButton,
                         deleteButton,
                         orLabel,
                     })
@@ -336,6 +354,7 @@ export function ActionFilterRow({
                             </>
                         )}
                         {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
+                        {(horizontalUI || fullWidth) && !hideRename && <Col>{renameRowButton}</Col>}
                         {!hideDeleteBtn && !horizontalUI && !singleFilter && (
                             <Col className="column-delete-btn">{deleteButton}</Col>
                         )}
