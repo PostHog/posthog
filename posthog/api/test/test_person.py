@@ -12,9 +12,7 @@ def factory_test_person(event_factory, person_factory, get_events):
     class TestPerson(APIBaseTest):
         def test_search(self) -> None:
             person_factory(
-                team=self.team,
-                distinct_ids=["distinct_id"],
-                properties={"email": "someone@gmail.com"},
+                team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
             )
             person_factory(
                 team=self.team,
@@ -45,14 +43,10 @@ def factory_test_person(event_factory, person_factory, get_events):
 
         def test_properties(self) -> None:
             person_factory(
-                team=self.team,
-                distinct_ids=["distinct_id"],
-                properties={"email": "someone@gmail.com"},
+                team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"},
             )
             person_factory(
-                team=self.team,
-                distinct_ids=["distinct_id_2"],
-                properties={"email": "another@gmail.com"},
+                team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
             )
             person_factory(team=self.team, distinct_ids=["distinct_id_3"], properties={})
 
@@ -87,8 +81,7 @@ def factory_test_person(event_factory, person_factory, get_events):
 
         def test_person_property_values(self):
             person_factory(
-                team=self.team,
-                properties={"random_prop": "asdf", "some other prop": "with some text"},
+                team=self.team, properties={"random_prop": "asdf", "some other prop": "with some text"},
             )
             person_factory(team=self.team, properties={"random_prop": "asdf"})
             person_factory(team=self.team, properties={"random_prop": "qwerty"})
@@ -109,9 +102,7 @@ def factory_test_person(event_factory, person_factory, get_events):
 
         def test_filter_by_cohort(self):
             person_factory(
-                team=self.team,
-                distinct_ids=["person_1", "anonymous_id"],
-                properties={"$os": "Chrome"},
+                team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
             )
             person_factory(team=self.team, distinct_ids=["person_2"])
 
@@ -129,9 +120,7 @@ def factory_test_person(event_factory, person_factory, get_events):
                 is_identified=True,
             )
             person2: Person = person_factory(
-                team=self.team,
-                distinct_ids=["distinct_id_2"],
-                properties={"email": "another@gmail.com"},
+                team=self.team, distinct_ids=["distinct_id_2"], properties={"email": "another@gmail.com"},
             )
 
             # Filter by distinct ID
@@ -174,19 +163,15 @@ def factory_test_person(event_factory, person_factory, get_events):
             another_org: Organization = Organization.objects.create()
             another_team: Team = Team.objects.create(organization=another_org)
             person_factory(
-                team=another_team,
-                distinct_ids=["distinct_id", "x_another_one"],
+                team=another_team, distinct_ids=["distinct_id", "x_another_one"],
             )
             person_factory(
-                team=another_team,
-                distinct_ids=["x_distinct_id_2"],
-                properties={"email": "team2_another@gmail.com"},
+                team=another_team, distinct_ids=["x_distinct_id_2"], properties={"email": "team2_another@gmail.com"},
             )
 
             # Person in current team
             person: Person = person_factory(
-                team=self.team,
-                distinct_ids=["distinct_id"],
+                team=self.team, distinct_ids=["distinct_id"],
             )
 
             # Filter by distinct ID
@@ -194,8 +179,7 @@ def factory_test_person(event_factory, person_factory, get_events):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 1)
             self.assertEqual(
-                response.json()["results"][0]["id"],
-                person.pk,
+                response.json()["results"][0]["id"], person.pk,
             )  # note that even with shared distinct IDs, only the person from the same team is returned
 
             response = self.client.get("/api/person/?distinct_id=x_another_one")
@@ -235,9 +219,7 @@ def factory_test_person(event_factory, person_factory, get_events):
 
         def test_delete_person(self):
             person = person_factory(
-                team=self.team,
-                distinct_ids=["person_1", "anonymous_id"],
-                properties={"$os": "Chrome"},
+                team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"},
             )
             event_factory(event="test", team=self.team, distinct_id="person_1")
             event_factory(event="test", team=self.team, distinct_id="anonymous_id")
@@ -273,10 +255,7 @@ def factory_test_person(event_factory, person_factory, get_events):
             )
             person2 = person_factory(team=self.team, distinct_ids=["2"], properties={"random_prop": "asdf"})
 
-            response = self.client.post(
-                "/api/person/%s/merge/" % person1.pk,
-                {"ids": [person2.pk, person3.pk]},
-            )
+            response = self.client.post("/api/person/%s/merge/" % person1.pk, {"ids": [person2.pk, person3.pk]},)
             mock_capture_internal.assert_has_calls(
                 [
                     mock.call(
@@ -310,8 +289,7 @@ def factory_test_person(event_factory, person_factory, get_events):
             )
 
             self.client.post(
-                "/api/person/%s/split/" % person1.pk,
-                {"main_distinct_id": "1"},
+                "/api/person/%s/split/" % person1.pk, {"main_distinct_id": "1"},
             )
             people = Person.objects.all().order_by("id")
             self.assertEqual(len(people), 3)
@@ -326,9 +304,7 @@ def factory_test_person(event_factory, person_factory, get_events):
                 team=self.team, distinct_ids=["1", "2", "3"], properties={"$browser": "whatever", "$os": "Mac OS X"}
             )
 
-            response = self.client.post(
-                "/api/person/%s/split/" % person1.pk,
-            )
+            response = self.client.post("/api/person/%s/split/" % person1.pk,)
             people = Person.objects.all().order_by("id")
             self.assertEqual(len(people), 3)
             self.assertEqual(people[0].distinct_ids, ["1"])
@@ -343,8 +319,7 @@ def factory_test_person(event_factory, person_factory, get_events):
                 distinct_ids=["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
             )
             person_factory(
-                team=self.team,
-                distinct_ids=["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
+                team=self.team, distinct_ids=["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
             )
 
             response = self.client.get("/api/person/").json()
