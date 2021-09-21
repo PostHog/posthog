@@ -143,14 +143,6 @@ export function wait(ms = 1000): Promise<any> {
 
 export const SECONDS_TO_POLL = 3 * 60
 
-export const EMPTY_FUNNEL_RESULTS = {
-    results: [],
-    timeConversionResults: {
-        bins: [],
-        average_conversion_time: 0,
-    },
-}
-
 export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
     apiParams: FunnelRequestParams
 ): Promise<FunnelResult<T>> {

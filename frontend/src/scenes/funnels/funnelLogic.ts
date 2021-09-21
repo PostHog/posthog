@@ -34,7 +34,6 @@ import {
     aggregateBreakdownResult,
     cleanBinResult,
     deepCleanFunnelExclusionEvents,
-    EMPTY_FUNNEL_RESULTS,
     formatDisplayPercentage,
     getClampedStepRangeFilter,
     getLastFilledStep,
@@ -139,17 +138,12 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
 
     loaders: ({ props, values }) => ({
         rawResults: [
-            { ...EMPTY_FUNNEL_RESULTS, filters: {} } as LoadedRawFunnelResults,
+            { results: [], filters: {} } as LoadedRawFunnelResults,
             {
                 setCachedResults: ({ results, filters }) => {
-                    // TODO: escape hatch for now: this funnel type makes two queries
-                    if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-                        return values.rawResults
-                    }
                     return {
-                        results: results as FunnelStep[] | FunnelStep[][],
-                        timeConversionResults: { bins: [], average_conversion_time: 0 },
-                        filters: values.filters,
+                        results: results as FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins,
+                        filters: filters,
                     }
                 },
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
@@ -171,7 +165,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
 
                     // Don't bother making any requests if filters aren't valid
                     if (!values.areFiltersValid) {
-                        return { ...EMPTY_FUNNEL_RESULTS, filters }
+                        return { results: [], filters }
                     }
 
                     await breakpoint(250)
@@ -213,7 +207,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     insightLogic.actions.startQuery(queryId)
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
-                    let resultsPackage: LoadedRawFunnelResults = { ...EMPTY_FUNNEL_RESULTS, filters }
+                    let resultsPackage: LoadedRawFunnelResults = { results: [], filters }
                     try {
                         const result = await loadFunnelResults()
                         breakpoint()
