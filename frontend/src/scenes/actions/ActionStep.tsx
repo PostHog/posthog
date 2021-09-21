@@ -124,7 +124,7 @@ function Option(props: {
     const onOptionChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void =>
         props.sendStep({
             ...props.step,
-            [props.item]: e.target.value,
+            [props.item]: e.target.value || null, // "" is a valid filter, we don't want it
         })
 
     return (

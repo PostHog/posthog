@@ -9,6 +9,7 @@ from django.core.validators import MinLengthValidator
 from django.db import models
 from django.dispatch.dispatcher import receiver
 
+from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
 
@@ -111,6 +112,7 @@ class Team(UUIDClassicModel):
     )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
+    project_based_permissioning: models.BooleanField = models.BooleanField(default=False)
     test_account_filters: models.JSONField = models.JSONField(default=list)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
@@ -135,19 +137,25 @@ class Team(UUIDClassicModel):
         parent_membership: "OrganizationMembership" = user.organization_memberships.only("id", "level").get(
             organization_id=self.organization_id
         )
-        if not settings.EE_AVAILABLE or not self.organization.per_project_access:
-            # Per-project access not available
-            return parent_membership.level
-        try:
-            return (
-                parent_membership.explicit_team_memberships.only("parent_membership", "level")
-                .get(team=self)
-                .effective_level
-            )
-        except ObjectDoesNotExist:
-            if parent_membership.level < OrganizationMembership.Level.ADMIN:
-                # Only organization admins and above get implicit project membership
-                return None
+        if (
+            settings.EE_AVAILABLE
+            and self.project_based_permissioning
+            and self.organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
+        ):
+            # Checking for project-specific level
+            try:
+                return (
+                    parent_membership.explicit_team_memberships.only("parent_membership", "level")
+                    .get(team=self)
+                    .effective_level
+                )
+            except ObjectDoesNotExist:
+                if parent_membership.level < OrganizationMembership.Level.ADMIN:
+                    # Only organization admins and above get implicit project membership
+                    return None
+                return parent_membership.level
+        else:
+            # Project-based permissioning unavailable or disabled, simply returning organization-wide level
             return parent_membership.level
 
     def __str__(self):

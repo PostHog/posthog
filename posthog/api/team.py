@@ -59,6 +59,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "session_recording_opt_in",
             "session_recording_retention_period_days",
             "effective_membership_level",
+            "project_based_permissioning",
         )
         read_only_fields = (
             "id",

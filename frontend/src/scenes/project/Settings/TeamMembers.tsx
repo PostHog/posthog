@@ -144,8 +144,8 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
     ]
     return (
         <>
-            <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
-                Members
+            <h2 className="subtitle" id="members-with-project-access" style={{ justifyContent: 'space-between' }}>
+                Members with Project Access
                 <RestrictedArea
                     Component={AddMembersModalWithButton}
                     minimumAccessLevel={OrganizationMembershipLevel.Admin}
