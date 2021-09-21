@@ -83,7 +83,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
             : {}),
         ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
         ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
-        ...(filters.hidden_map ? { hidden_map: filters.hidden_map } : {}),
+        ...(filters.hiddenLegendKeys ? { hiddenLegendKeys: filters.hiddenLegendKeys } : {}),
         exclusions: deepCleanFunnelExclusionEvents(filters),
         interval: autocorrectInterval(filters),
         breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
@@ -543,18 +543,22 @@ export const funnelLogic = kea<funnelLogicType>({
                 })
             },
         ],
-        hiddenMap: [
+        hiddenLegendKeys: [
             () => [selectors.filters],
             (filters) => {
                 if (!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN]) {
                     return {}
                 }
-                return filters.hidden_map ?? {}
+                return filters.hiddenLegendKeys ?? {}
             },
         ],
         visibleStepsWithConversionMetrics: [
-            () => [selectors.stepsWithConversionMetrics, selectors.hiddenMap, selectors.flattenedStepsByBreakdown],
-            (steps, hiddenMap, flattenedStepsByBreakdown) => {
+            () => [
+                selectors.stepsWithConversionMetrics,
+                selectors.hiddenLegendKeys,
+                selectors.flattenedStepsByBreakdown,
+            ],
+            (steps, hiddenLegendKeys, flattenedStepsByBreakdown) => {
                 const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
                     ...step,
@@ -567,7 +571,7 @@ export const funnelLogic = kea<funnelLogicType>({
                             order: breakdownIndex,
                         }))
                         ?.filter((b) => {
-                            return !hiddenMap[getVisibilityIndex(step, b.breakdown_value)]
+                            return !hiddenLegendKeys[getVisibilityIndex(step, b.breakdown_value)]
                         }),
                 }))
             },
@@ -696,7 +700,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         loadResultsSuccess: async () => {
-            // set visibility of baseline or first five breakdowns for each step
+            // hide all but the first five breakdowns for each step
             values.steps?.forEach((step) => {
                 values.flattenedStepsByBreakdown
                     ?.filter((s) => !!s.breakdown)
@@ -723,17 +727,17 @@ export const funnelLogic = kea<funnelLogicType>({
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
             values.visibleStepsWithConversionMetrics?.forEach((step) => {
                 const key = getVisibilityIndex(step, breakdownValue)
-                const currentIsHidden = !!values.hiddenMap?.[key]
+                const currentIsHidden = !!values.hiddenLegendKeys?.[key]
 
                 actions.setHiddenById({ [key]: currentIsHidden ? undefined : true })
             })
         },
         toggleVisibility: ({ index }) => {
-            const currentIsHidden = !!values.hiddenMap?.[index]
+            const currentIsHidden = !!values.hiddenLegendKeys?.[index]
 
             actions.setFilters({
-                hidden_map: {
-                    ...values.hiddenMap,
+                hiddenLegendKeys: {
+                    ...values.hiddenLegendKeys,
                     [`${index}`]: currentIsHidden ? undefined : true,
                 },
             })
@@ -744,8 +748,8 @@ export const funnelLogic = kea<funnelLogicType>({
             )
 
             actions.setFilters({
-                hidden_map: {
-                    ...values.hiddenMap,
+                hiddenLegendKeys: {
+                    ...values.hiddenLegendKeys,
                     ...nextEntries,
                 },
             })
@@ -759,8 +763,8 @@ export const funnelLogic = kea<funnelLogicType>({
             const shouldRefresh = filterLength(values.filters) === 2 && filterLength(values.lastAppliedFilters) === 1
             // If layout or visibility is the only thing that changes
             const onlyLayoutOrVisibilityChanged = equal(
-                Object.assign({}, values.filters, { layout: undefined, hidden_map: undefined }),
-                Object.assign({}, values.lastAppliedFilters, { layout: undefined, hidden_map: undefined })
+                Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
+                Object.assign({}, values.lastAppliedFilters, { layout: undefined, hiddenLegendKeys: undefined })
             )
 
             if (!onlyLayoutOrVisibilityChanged && (refresh || shouldRefresh || clickhouseFeaturesEnabled)) {
