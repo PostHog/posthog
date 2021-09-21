@@ -1106,30 +1106,26 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
 
     def test_properties_queried_using_path_filter(self):
-        def should_query_list(filter) -> Tuple[bool, bool, bool]:
+        def should_query_list(filter) -> Tuple[bool, bool]:
             path_query = PathEventQuery(filter, self.team.id)
-            return (
-                path_query._should_query_url(),
-                path_query._should_query_screen(),
-                path_query._should_query_elements_chain(),
-            )
+            return (path_query._should_query_url(), path_query._should_query_screen())
 
         filter = PathFilter()
-        self.assertEqual(should_query_list(filter), (True, True, True))
+        self.assertEqual(should_query_list(filter), (True, True))
 
         filter = PathFilter({"include_event_types": ["$pageview"]})
-        self.assertEqual(should_query_list(filter), (True, False, False))
+        self.assertEqual(should_query_list(filter), (True, False))
 
         filter = PathFilter({"include_event_types": ["$screen"]})
-        self.assertEqual(should_query_list(filter), (False, True, False))
+        self.assertEqual(should_query_list(filter), (False, True))
 
         filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom1", "/custom2"]})
-        self.assertEqual(should_query_list(filter), (False, False, False))
+        self.assertEqual(should_query_list(filter), (False, False))
 
         filter = filter.with_data(
             {"include_event_types": ["$pageview", "$screen", "custom_event"], "include_custom_events": []}
         )
-        self.assertEqual(should_query_list(filter), (True, True, False))
+        self.assertEqual(should_query_list(filter), (True, True))
 
         filter = filter.with_data(
             {
@@ -1138,14 +1134,9 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 "exclude_events": ["/custom1"],
             }
         )
-        self.assertEqual(should_query_list(filter), (True, True, False))
+        self.assertEqual(should_query_list(filter), (True, True))
 
         filter = filter.with_data(
             {"include_event_types": [], "include_custom_events": [], "exclude_events": ["$pageview"],}
         )
-        self.assertEqual(should_query_list(filter), (False, True, True))
-
-        filter = filter.with_data(
-            {"include_event_types": [], "include_custom_events": [], "exclude_events": ["$autocapture"],}
-        )
-        self.assertEqual(should_query_list(filter), (True, True, False))
+        self.assertEqual(should_query_list(filter), (False, True))

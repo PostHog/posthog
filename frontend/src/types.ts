@@ -552,7 +552,7 @@ export interface PluginType {
 }
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
     required?: boolean
 }
 
@@ -648,7 +648,6 @@ export enum ViewType {
 
 export enum PathType {
     PageView = '$pageview',
-    AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
 }
