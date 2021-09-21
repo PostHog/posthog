@@ -54,6 +54,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         columnConfigSaving,
         automaticLoadEnabled,
         exportUrl,
+        highlightEvents,
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } = useActions(
@@ -353,7 +354,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     }
                     rowClassName={(row) => {
                         if (row.event) {
-                            return 'event-row ' + (row.event.event === '$exception' && 'event-row-is-exception')
+                            const highlightRow = highlightEvents[row.event.id] ? 'highlight-new-row' : ''
+                            const isException = row.event.event === '$exception' && 'event-row-is-exception'
+                            return `event-row ${isException} ${highlightRow}`
                         }
                         if (row.date_break) {
                             return 'event-day-separator'
