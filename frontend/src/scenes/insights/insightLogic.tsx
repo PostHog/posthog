@@ -13,6 +13,9 @@ import React from 'react'
 import { Link } from 'lib/components/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+
 export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
 
 /*
@@ -193,7 +196,8 @@ export const insightLogic = kea<insightLogicType>({
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard))
             actions.setNotFirstLoad()
 
-            await breakpoint(10000)
+            // tests will wait for all breakpoints to finish
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard), 10)
         },
         startQuery: () => {

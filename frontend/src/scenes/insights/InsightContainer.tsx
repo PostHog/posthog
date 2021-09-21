@@ -7,7 +7,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { FunnelInsight } from 'scenes/insights/FunnelInsight'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FUNNEL_VIZ } from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_TABLE, FEATURE_FLAGS, FUNNEL_VIZ, FunnelLayout } from 'lib/constants'
 import { People } from 'scenes/funnels/FunnelPeople'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -27,6 +27,8 @@ import {
 import { Loading } from 'lib/utils'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import clsx from 'clsx'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface Props {
     loadResults: () => void
@@ -45,6 +47,7 @@ const VIEW_MAP = {
 
 export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.Element {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         hashParams: { fromItem },
     } = useValues(router)
@@ -107,9 +110,10 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
-            allFilters.funnel_viz_type === FunnelVizType.Steps
+            allFilters.funnel_viz_type === FunnelVizType.Steps &&
+            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || allFilters.layout === FunnelLayout.horizontal)
         ) {
-            return <FunnelStepTable />
+            return <FunnelStepTable filters={allFilters} />
         }
         if (
             (!allFilters.display ||
@@ -150,10 +154,15 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                     />
                 }
                 data-attr="insights-graph"
-                className="insights-graph-container"
+                className={clsx('insights-graph-container', {
+                    funnels: activeView === ViewType.FUNNELS,
+                })}
             >
                 <div>
                     <Row
+                        className={clsx('insights-graph-header', {
+                            funnels: activeView === ViewType.FUNNELS,
+                        })}
                         align="top"
                         justify="space-between"
                         style={{
