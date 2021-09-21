@@ -111,7 +111,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog/
+                  pytest -m "not ee" posthog/
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -168,7 +168,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog/
+                  pytest -m "not ee" posthog/
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -268,7 +268,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog --reuse-db -m "not skip_on_multitenancy"
+                  pytest posthog --reuse-db -m "not (skip_on_multitenancy or ee)"
 
             - name: Run cloud tests (posthog-cloud)
               env:
