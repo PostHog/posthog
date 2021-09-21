@@ -199,6 +199,18 @@ export const eventsTableLogic = kea({
                 { replace: true },
             ]
         },
+        toggleAutomaticLoad: () => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    properties: values.properties,
+                    autoload: values.automaticLoadEnabled,
+                },
+                window.location.hash,
+                { replace: true },
+            ]
+        },
     }),
 
     urlToAction: ({ actions, values }) => ({
@@ -215,8 +227,13 @@ export const eventsTableLogic = kea({
             }
 
             const isFirstRedirect = hashParams.backTo // first time we've navigated here from another page
+
             if (!objectsEqual(searchParams.properties || {}, values.properties) || isFirstRedirect) {
                 actions.setProperties(searchParams.properties || {})
+            }
+
+            if (searchParams.autoload) {
+                actions.toggleAutomaticLoad(searchParams.autoload)
             }
         },
     }),
