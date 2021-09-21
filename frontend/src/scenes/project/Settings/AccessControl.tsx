@@ -14,7 +14,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
     const { guardAvailableFeature } = useActions(sceneLogic)
 
     return (
-        <>
+        <div>
             <h2 className="subtitle" id="access-control">
                 Access Control
             </h2>
@@ -52,6 +52,6 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
             >
                 Enable project-based permissioning
             </label>
-        </>
+        </div>
     )
 }
