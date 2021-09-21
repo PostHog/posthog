@@ -5,6 +5,7 @@ import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { Button } from 'antd'
 
 // TODO: Replace with PathType enums when moving to TypeScript
 const PAGEVIEW = '$pageview'
@@ -86,11 +87,13 @@ function NoData() {
 
 const DEFAULT_PATHS_ID = 'default_paths'
 
+var coordinates
+
 export function Paths({ dashboardItemId = null, filters = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
-
+    
     useEffect(() => {
         renderPaths()
     }, [paths, !pathsLoading, size, color])
@@ -120,11 +123,30 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
             .nodeSort(null)
             .nodeWidth(15)
             .size([width, height])
+        
+        
 
         const { nodes, links } = sankey({
             nodes: paths.nodes.map((d) => ({ ...d })),
             links: paths.links.map((d) => ({ ...d })),
         })
+
+        coordinates = nodes
+
+        // this one!!!
+
+        // svg.append('g')
+        //     .selectAll('rect')
+        //     .data(nodes)
+        //     .join('rect')
+        //     .attr('x', (d) => d.x0 + 50)
+        //     .attr('y', (d) => d.y0)
+        //     .attr('height', (d) => d.y1 - d.y0)
+        //     .attr('width', (d) => d.x1 - d.x0 + 50)
+        //     .attr('fill', 'white')
+        //     .attr('stroke', 'black')
+        //     .text('hi?')
+            // .text((d) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
 
         svg.append('g')
             .selectAll('rect')
@@ -261,7 +283,19 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
         >
             <div ref={canvas} className="paths" data-attr="paths-viz">
                 {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
+                {
+                // coordinates && coordinates.map((coord, idx) => {
+                //     console.log(coord)
+                //     return (<div 
+                //             style={{position: 'absolute', left: coord.x0, top: coord.y0, background: 'white', minWidth: 100, height: 30, border: '1px solid'}}
+                //             >
+                //             {pageUrl(coord)}
+                //             {/* <span>{coord.source_link[0].average_conversion_time}</span> */}
+                //         </div>)
+                // })
+                }
             </div>
+            
         </div>
     )
 }
