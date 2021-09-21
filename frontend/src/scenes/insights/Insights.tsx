@@ -52,6 +52,7 @@ import { InsightsNav } from './InsightsNav'
 import { userLogic } from 'scenes/userLogic'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
+import { NewPathTab } from './InsightTabs/NewPathTab'
 
 dayjs.extend(relativeTime)
 
@@ -483,7 +484,8 @@ export function Insights(): JSX.Element {
                                                     [`${ViewType.SESSIONS}`]: <SessionTab />,
                                                     [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                                     [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                                    [`${ViewType.PATHS}`]: <PathTab />,
+                                                    // [`${ViewType.PATHS}`]: <PathTab />,
+                                                    [`${ViewType.PATHS}`]: <NewPathTab />,
                                                 }[activeView]
                                             }
                                         </div>

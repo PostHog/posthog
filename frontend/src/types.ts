@@ -683,8 +683,8 @@ export interface FilterType {
     target_entity?: Record<string, any>
     path_type?: PathType
     include_event_types?: PathType[]
-    start_point?: string | number
-    end_point?: string | number
+    start_point?: string 
+    end_point?: string 
     stickiness_days?: number
     type?: EntityType
     entity_id?: string | number
