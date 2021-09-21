@@ -173,7 +173,7 @@ export const eventsTableLogic = kea({
             (eventFilter, orderBy, properties) =>
                 `/api/event.csv?${toParams({
                     properties,
-                    ...(props.fixedFilters || {}),
+                    ...(props.fixedFilters || {}), // this never changes, the logic instance is keyed on this value
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
                 })}`,
