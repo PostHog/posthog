@@ -6,10 +6,7 @@ import { toast } from 'react-toastify'
 import { userLogic } from './userLogic'
 
 type OrganizationUpdatePayload = Partial<
-    Pick<
-        OrganizationType,
-        'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled' | 'per_project_access'
-    >
+    Pick<OrganizationType, 'name' | 'personalization' | 'domain_whitelist' | 'is_member_join_email_enabled'>
 >
 
 export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePayload>>({

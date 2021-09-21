@@ -107,27 +107,6 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(self.organization.name, "QWERTY")
         self.assertEqual(self.organization.is_member_join_email_enabled, False)
 
-    def test_cannot_enable_premium_feature_without_license(self):
-        self.organization_membership.level = OrganizationMembership.Level.OWNER
-        self.organization_membership.save()
-        self.organization.per_project_access = True
-        self.organization.save()
-
-        response_disable = self.client.patch(
-            f"/api/organizations/{self.organization.id}", {"per_project_access": False}
-        )
-
-        self.organization.refresh_from_db()
-        self.assertEqual(response_disable.status_code, status.HTTP_200_OK)
-        self.assertEqual(self.organization.per_project_access, False)
-
-        response_enable = self.client.patch(f"/api/organizations/{self.organization.id}", {"per_project_access": True})
-
-        self.organization.refresh_from_db()
-        self.assertEqual(response_enable.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("Per-project access is part of the premium PostHog offering.", response_enable.json()["detail"])
-        self.assertEqual(self.organization.per_project_access, False)
-
     def test_update_domain_whitelist_if_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -145,12 +124,8 @@ class TestOrganizationAPI(APIBaseTest):
         response_email = self.client.patch(
             f"/api/organizations/{self.organization.id}", {"is_member_join_email_enabled": False}
         )
-        response_per_project_access = self.client.patch(
-            f"/api/organizations/{self.organization.id}", {"per_project_access": False}
-        )
         self.assertEqual(response_rename.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response_email.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response_per_project_access.status_code, status.HTTP_403_FORBIDDEN)
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.name, "ASDFG")
 

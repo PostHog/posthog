@@ -81,7 +81,6 @@ class Organization(UUIDModel):
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # Used to allow/block self-serve account creation based on social login (#5111)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
-    per_project_access: models.BooleanField = models.BooleanField(default=False)
     personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,

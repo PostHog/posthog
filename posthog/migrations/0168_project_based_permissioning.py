@@ -17,6 +17,6 @@ class Migration(migrations.Migration):
         # It's also not referenced anywhere in code, so removing it should have no impact on any queries at all.
         migrations.RemoveField(model_name="team", name="users",),
         migrations.AddField(
-            model_name="organization", name="per_project_access", field=models.BooleanField(default=False),
+            model_name="team", name="project_based_permissioning", field=models.BooleanField(default=False),
         ),
     ]

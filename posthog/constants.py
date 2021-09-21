@@ -6,7 +6,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 class AvailableFeature(str, Enum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
-    PER_PROJECT_ACCESS = "per_project_access"
+    PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
     GOOGLE_LOGIN = "google_login"
     SAML = "saml"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"

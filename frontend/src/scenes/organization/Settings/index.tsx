@@ -8,11 +8,9 @@ import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
 import { DangerZone } from './DangerZone'
 import { RestrictedArea, RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
+import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
-import { featureFlagLogic } from '../../../lib/logic/featureFlagLogic'
-import { Permissioning } from './Permissioning'
 
 function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -141,7 +139,6 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
 
 export function OrganizationSettings({ user }: { user: UserType }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -165,15 +162,6 @@ export function OrganizationSettings({ user }: { user: UserType }): JSX.Element 
                 <Divider />
                 <Members user={user} />
                 <Divider />
-                {featureFlags[FEATURE_FLAGS.PER_PROJECT_ACCESS] && (
-                    <>
-                        <RestrictedArea
-                            Component={Permissioning}
-                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                        />
-                        <Divider />
-                    </>
-                )}
                 <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />

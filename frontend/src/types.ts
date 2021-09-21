@@ -24,7 +24,7 @@ export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K 
 export enum AvailableFeature {
     ZAPIER = 'zapier',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
-    PER_PROJECT_ACCESS = 'per_project_access',
+    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     GOOGLE_LOGIN = 'google_login',
     SAML = 'saml',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
@@ -88,7 +88,6 @@ export interface OrganizationType extends OrganizationBasicType {
     personalization: PersonalizationData
     setup: SetupState
     setup_section_2_completed: boolean
-    per_project_access: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
@@ -160,6 +159,8 @@ export interface TeamBasicType {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
+    /** Whether access to this project is restricted (AKA project-based permissioning enabled). */
+    project_based_permissioning: boolean
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
 }

@@ -143,7 +143,9 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
 
     return (
         <>
-            <h2 className="subtitle">Members</h2>
+            <h2 className="subtitle" id="members-with-project-access">
+                Members with Project Access
+            </h2>
             <Table
                 dataSource={allMembers}
                 columns={columns}

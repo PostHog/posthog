@@ -247,7 +247,7 @@ export const FEATURE_FLAGS = {
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
     PLUGINS_UI_JOBS: '5720-plugins-ui-jobs',
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
-    PER_PROJECT_ACCESS: 'per-project-access',
+    PROJECT_BASED_PERMISSIONING: 'project-based-permissioning',
     SPLIT_PERSON: '5898-split-persons',
     TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
 }
