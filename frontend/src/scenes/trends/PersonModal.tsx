@@ -90,8 +90,8 @@ export function PersonModalDialog({ visible, view, filters }: PersonModalProps):
         [filters, people, isInitialLoad]
     )
 
-    const isDownloadCsvAvailable = view === ViewType.TRENDS || view === ViewType.STICKINESS
-    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled && isDownloadCsvAvailable
+    const isSaveAsCohortAvailable =
+        (clickhouseFeaturesEnabled && view === ViewType.TRENDS) || view === ViewType.STICKINESS
 
     return (
         <Modal
