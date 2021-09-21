@@ -324,5 +324,10 @@ export const eventsTableLogic = kea({
         [userLogic.actionTypes.updateUserFailure]: () => {
             actions.setColumnConfigSaving(false)
         },
+        toggleAutomaticLoad: ({ automaticLoadEnabled }) => {
+            if (automaticLoadEnabled && values.newEvents.length > 0) {
+                actions.prependNewEvents(values.newEvents)
+            }
+        },
     }),
 })
