@@ -245,7 +245,7 @@ export const insightLogic = kea<insightLogicType>({
                 const duration = new Date().getTime() - values.queryStartTimes[queryId]
                 const tags = {
                     insight: values.activeView,
-                    scene: IS_TEST_MODE ? 'circular load if sceneLogic no loaded first' : sceneLogic.values.scene,
+                    scene: sceneLogic.values.scene,
                     success: !exception,
                     ...exception,
                 }
