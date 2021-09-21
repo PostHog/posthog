@@ -60,13 +60,15 @@ describe('funnelLogic', () => {
         })
 
         it('has clickhouse enabled once preflight loads', async () => {
-            await expectLogic(logic).toMatchValues({
-                clickhouseFeaturesEnabled: false,
-            })
-            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            await expectLogic(logic).toMatchValues({
-                clickhouseFeaturesEnabled: true,
-            })
+            await expectLogic()
+                .toDispatchActions(preflightLogic, ['loadPreflight'])
+                .toMatchValues(logic, {
+                    clickhouseFeaturesEnabled: false,
+                })
+                .toDispatchActions(preflightLogic, ['loadPreflightSuccess'])
+                .toMatchValues(logic, {
+                    clickhouseFeaturesEnabled: true,
+                })
         })
 
         it('sets filters in rawResults after load if valid', async () => {
