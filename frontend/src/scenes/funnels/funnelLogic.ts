@@ -327,10 +327,20 @@ export const funnelLogic = kea<funnelLogicType>({
         isLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
         results: [(s) => [s.rawResults], (rawResults) => rawResults.results],
         resultsLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
+        stepResults: [
+            (s) => [s.results, s.filters],
+            (results, filters) =>
+                filters.funnel_viz_type !== FunnelVizType.TimeToConvert
+                    ? (results as FunnelStep[] | FunnelStep[][])
+                    : [],
+        ],
         timeConversionResults: [
-            (s) => [s.rawResults],
-            ({ results, filters }): FunnelsTimeConversionBins | null =>
-                filters.funnel_viz_type === FunnelVizType.TimeToConvert ? (results as FunnelsTimeConversionBins) : null,
+            (s) => [s.results, s.filters],
+            (results, filters): FunnelsTimeConversionBins | null => {
+                return filters.funnel_viz_type === FunnelVizType.TimeToConvert
+                    ? (results as FunnelsTimeConversionBins)
+                    : null
+            },
         ],
         lastAppliedFilters: [(s) => [s.rawResults], (rawResults) => rawResults.filters],
         peopleSorted: [
@@ -351,13 +361,13 @@ export const funnelLogic = kea<funnelLogicType>({
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
         propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
         isValidFunnel: [
-            () => [selectors.filters, selectors.stepsWithCount],
-            (filters, stepsWithCount) => {
+            () => [selectors.filters, selectors.stepsWithCount, selectors.histogramGraphData],
+            (filters, stepsWithCount, histogramGraphData) => {
                 if (filters.funnel_viz_type === FunnelVizType.Steps || !filters.funnel_viz_type) {
                     return !!(stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1)
                 }
                 if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-                    return (stepsWithCount?.length ?? 0) > 0
+                    return (histogramGraphData?.length ?? 0) > 0
                 }
                 if (filters.funnel_viz_type === FunnelVizType.Trends) {
                     return (stepsWithCount?.length ?? 0) > 0 && stepsWithCount?.[0]?.labels
@@ -408,8 +418,18 @@ export const funnelLogic = kea<funnelLogicType>({
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
         conversionMetrics: [
-            () => [selectors.stepsWithCount, selectors.filters],
-            (stepsWithCount, filters): FunnelTimeConversionMetrics => {
+            () => [selectors.stepsWithCount, selectors.filters, selectors.timeConversionResults],
+            (stepsWithCount, filters, timeConversionResults): FunnelTimeConversionMetrics => {
+                // stepsWithCount should be empty in time conversion view. Return metrics precalculated on backend
+                if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                    return {
+                        averageTime: timeConversionResults?.average_conversion_time ?? 0,
+                        stepRate: 0,
+                        totalRate: 0,
+                    }
+                }
+
+                // Handle metrics for steps and trends
                 if (stepsWithCount.length <= 1) {
                     return {
                         averageTime: 0,
@@ -452,12 +472,8 @@ export const funnelLogic = kea<funnelLogicType>({
         eventCount: [() => [selectors.apiParams], (apiParams) => apiParams.events?.length || 0],
         actionCount: [() => [selectors.apiParams], (apiParams) => apiParams.actions?.length || 0],
         interval: [() => [selectors.apiParams], (apiParams) => apiParams.interval || ''],
-        stepsFromResult: [
-            () => [selectors.results, selectors.timeConversionResults],
-            (results, timeConversionResults) => (Array.isArray(results) ? results : timeConversionResults?.steps) ?? [],
-        ],
         stepsWithNestedBreakdown: [
-            () => [selectors.stepsFromResult, selectors.apiParams],
+            () => [selectors.stepResults, selectors.apiParams],
             (results, params) => {
                 if (isBreakdownFunnelResults(results) && isValidBreakdownParameter(params.breakdown)) {
                     return aggregateBreakdownResult(results, params.breakdown ?? undefined).sort(
@@ -468,7 +484,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         steps: [
-            () => [selectors.stepsFromResult, selectors.stepsWithNestedBreakdown, selectors.filters],
+            () => [selectors.stepResults, selectors.stepsWithNestedBreakdown, selectors.filters],
             (results, stepsWithNestedBreakdown, filters): FunnelStepWithNestedBreakdown[] => {
                 if (!Array.isArray(results)) {
                     return []

@@ -826,7 +826,6 @@ export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionB
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number
-    steps: FunnelStep[] | FunnelStep[][]
 }
 
 export interface FunnelTimeConversionMetrics {
