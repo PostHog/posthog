@@ -352,10 +352,10 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
     const { href_selected, text_selected, selector_selected, url_selected, ...rest } = step
     const newStep = {
         ...rest,
-        href: href_selected ? rest.href : undefined,
-        text: text_selected ? rest.text : undefined,
-        selector: selector_selected ? rest.selector : undefined,
-        url: url_selected ? rest.url : undefined,
+        href: href_selected ? rest.href || null : null,
+        text: text_selected ? rest.text || null : null,
+        selector: selector_selected ? rest.selector || null : null,
+        url: url_selected ? rest.url || null : null,
     }
     return newStep
 }
