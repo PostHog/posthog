@@ -1,0 +1,15 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Plugin Server - Postgres" type="js.build_tools.npm">
+    <package-json value="$PROJECT_DIR$/plugins/package.json" />
+    <command value="run" />
+    <scripts>
+      <script value="start" />
+    </scripts>
+    <node-interpreter value="project" />
+    <envs>
+      <env name="WORKER_CONCURRENCY" value="2" />
+      <env name="DATABASE_URL" value="postgres://localhost/posthog" />
+    </envs>
+    <method v="2" />
+  </configuration>
+</component>
