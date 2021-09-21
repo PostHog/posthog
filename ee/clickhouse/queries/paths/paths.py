@@ -25,10 +25,10 @@ class ClickhousePaths:
         self._team = team
         self.params = {
             "team_id": self._team.pk,
-            "events": [],  # purely a speed optimization, don't need this for filtering
             "event_in_session_limit": self._filter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT,
             "session_time_threshold": SESSION_TIME_THRESHOLD_DEFAULT,
             "groupings": self._filter.path_groupings or None,
+            "regex_groupings": None,
         }
         self._funnel_filter = funnel_filter
 
