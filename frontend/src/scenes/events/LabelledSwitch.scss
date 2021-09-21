@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .labelled-switch-title {
     margin-right: 5px;
 }
@@ -9,6 +11,6 @@
     padding: 5px 10px;
 
     &:hover {
-        background-color: #fdedc9;
+        background-color: rgba($yellow_50, 0.5);
     }
 }

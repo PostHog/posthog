@@ -1,5 +1,6 @@
 import { Space, Switch, Typography } from 'antd'
 import React from 'react'
+import './LabelledSwitch.scss'
 
 export interface LabelledSwitchProps {
     label: string
