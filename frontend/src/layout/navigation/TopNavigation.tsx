@@ -131,6 +131,7 @@ export function TopNavigation(): JSX.Element {
     const { showPalette } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const isCurrentProjectRestricted = currentTeam && !currentTeam.effective_membership_level
     const isProjectCreationForbidden =
         !currentOrganization?.membership_level ||
         currentOrganization.membership_level < OrganizationMembershipLevel.Admin
@@ -341,7 +342,11 @@ export function TopNavigation(): JSX.Element {
                         placement="bottomCenter"
                     >
                         <div>
-                            <ProjectOutlined className="mr-05" />
+                            {isCurrentProjectRestricted ? (
+                                <StopOutlined className="mr-05" />
+                            ) : (
+                                <ProjectOutlined className="mr-05" />
+                            )}
                             {currentTeam?.name}
                             <DownOutlined className="ml-05" />
                         </div>
