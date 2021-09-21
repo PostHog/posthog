@@ -36,7 +36,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
             loadMembers: async () => {
                 return await api.get('api/projects/@current/explicit_members/')
             },
-            addMembers: async (userUuids: UserBasicType['uuid'][], level: TeamMembershipLevel) => {
+            addMembers: async ({ userUuids, level }: { userUuids: string[]; level: TeamMembershipLevel }) => {
                 const newMembers: ExplicitTeamMemberType[] = await Promise.all(
                     userUuids.map((userUuid) =>
                         api.create(`api/projects/@current/explicit_members/`, {
@@ -55,7 +55,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                 )
                 return [...values.explicitMembers, ...newMembers]
             },
-            removeMember: async (member: ExplicitTeamMemberType) => {
+            removeMember: async ({ member }: { member: ExplicitTeamMemberType }) => {
                 await api.delete(`api/projects/@current/explicit_members/${member.user.id}/`)
                 toast(
                     <div>

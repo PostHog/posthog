@@ -27,7 +27,7 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
     async function handleOnFinish(): Promise<void> {
         await form.validateFields()
         const { userUuids, level } = form.getFieldsValue()
-        addMembers(userUuids, level)
+        addMembers({ userUuids, level })
         closeModal()
     }
 
