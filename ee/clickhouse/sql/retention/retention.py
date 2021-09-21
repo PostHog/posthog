@@ -4,14 +4,7 @@ SELECT
     datediff(%(period)s, reference_event.event_date, {trunc_func}(toDateTime(event_date))) as intervals_from_base,
     COUNT(DISTINCT event.person_id) count
 FROM (
-    SELECT
-    timestamp AS event_date,
-    pdi.person_id as person_id,
-    e.uuid as uuid,
-    e.event as event
-    FROM events e join ({GET_TEAM_PERSON_DISTINCT_IDS}) pdi on e.distinct_id = pdi.distinct_id
-    where toDateTime(e.timestamp) >= toDateTime(%(start_date)s) AND toDateTime(e.timestamp) <= toDateTime(%(end_date)s)
-    AND e.team_id = %(team_id)s {returning_query} {filters}
+    {returning_event_queyr}
 ) event
 JOIN (
     {reference_event_sql}

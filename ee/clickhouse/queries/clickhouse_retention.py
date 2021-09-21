@@ -6,6 +6,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.retention.people_in_period import (
@@ -48,10 +49,9 @@ class ClickhouseRetention(Retention):
         trunc_func = get_trunc_func_ch(period)
 
         target_query, target_params = self._get_condition(target_entity, table="e")
-        returning_query, returning_params = self._get_condition(returning_entity, table="e", prepend="returning")
+        _, returning_params = self._get_condition(returning_entity, table="e", prepend="returning")
 
         target_query_formatted = "AND {target_query}".format(target_query=target_query)
-        returning_query_formatted = "AND {returning_query}".format(returning_query=returning_query)
 
         reference_event_sql = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
             target_query=target_query_formatted,
@@ -64,17 +64,17 @@ class ClickhouseRetention(Retention):
         if is_first_time_retention:
             target_condition = target_condition.replace("reference_event.uuid", "reference_event.min_uuid")
             target_condition = target_condition.replace("reference_event.event", "reference_event.min_event")
-        returning_condition, _ = self._get_condition(returning_entity, table="event", prepend="returning")
+
+        returning_event_query, returning_event_params = RetentionEventsQuery(
+            filter=filter, team_id=team.pk, event_query_type="returning"
+        ).get_query()
+
         result = sync_execute(
             RETENTION_SQL.format(
-                target_query=target_query_formatted,
-                returning_query=returning_query_formatted,
+                returning_event_queyr=returning_event_query,
                 filters=prop_filters,
                 trunc_func=trunc_func,
-                extra_union="UNION ALL {} ".format(reference_event_sql),
                 reference_event_sql=reference_event_sql,
-                target_condition=target_condition,
-                returning_condition=returning_condition,
                 GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
             ),
             {
@@ -93,7 +93,7 @@ class ClickhouseRetention(Retention):
                 ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
                 **prop_filter_params,
                 **target_params,
-                **returning_params,
+                **returning_event_params,
                 "period": period,
             },
         )
