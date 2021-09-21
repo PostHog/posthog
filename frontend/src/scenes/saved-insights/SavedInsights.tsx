@@ -4,7 +4,7 @@ import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo, humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
+import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
 import {
     StarOutlined,
@@ -25,7 +25,7 @@ import {
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
+import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -106,26 +106,22 @@ export function SavedInsights(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function renderName(
-                name: string,
-                {
-                    short_id,
-                    id,
-                    description,
-                    favorited,
-                }: { short_id: string; id: number; description?: string; favorited?: boolean }
-            ) {
+            render: function renderName(name: string, insight: DashboardItemType) {
+                const link = displayMap[getDisplayedType(insight.filters)].link(insight)
+
                 return (
                     <Col>
                         <Row>
-                            <Link to={`/i/${short_id}`} style={{ marginRight: 12 }}>
-                                <strong>{name || `Insight #${id}`}</strong>
+                            <Link to={link} style={{ marginRight: 12 }}>
+                                <strong>{name || `Insight #${insight.id}`}</strong>
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content' }}
-                                onClick={() => updateFavoritedInsight({ id, favorited: !favorited })}
+                                onClick={() =>
+                                    updateFavoritedInsight({ id: insight.id, favorited: !insight.favorited })
+                                }
                             >
-                                {favorited ? (
+                                {insight.favorited ? (
                                     <StarFilled className="text-warning" />
                                 ) : (
                                     <StarOutlined className="star-outlined" />
@@ -133,7 +129,7 @@ export function SavedInsights(): JSX.Element {
                             </div>
                         </Row>
                         {hasDashboardCollaboration && (
-                            <div className="text-muted-alt">{description || 'No description provided'}</div>
+                            <div className="text-muted-alt">{insight.description || 'No description provided'}</div>
                         )}
                     </Col>
                 )
@@ -418,11 +414,7 @@ export function SavedInsights(): JSX.Element {
                                             }}
                                             dashboardMode={null}
                                             onClick={() => {
-                                                const _type: DisplayedType =
-                                                    insight.filters.insight === ViewType.RETENTION
-                                                        ? 'RetentionContainer'
-                                                        : insight.filters.display
-                                                window.open(displayMap[_type].link(insight))
+                                                window.open(displayMap[getDisplayedType(insight.filters)].link(insight))
                                             }}
                                             preventLoading={true}
                                             index={index}
