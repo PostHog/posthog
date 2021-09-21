@@ -445,7 +445,7 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(response["result"][0]["event"], "2nd action")
             self.assertEqual(response["result"][1]["event"], "3rd action")
 
-        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_LIMIT", 10)
+        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
         def test_events_csv_export_with_limit(self):
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 for _ in range(12):
@@ -454,7 +454,7 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(
                 len(response.content.splitlines()),
                 11,
-                "CSV export should return up to CSV_EXPORT_LIMIT events (+ headers row)",
+                "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
             )
 
         def test_get_event_by_id(self):
