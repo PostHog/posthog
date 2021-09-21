@@ -4,8 +4,8 @@ import { getContext } from 'kea'
 export const toMatchValues: ExpectFunction<Record<string, any>> = {
     common(logic, values) {
         const { recordedActions, ranActions, pointerMap } = testUtilsContext()
-        const currentState = ranActions.get(logic)
-            ? recordedActions[pointerMap.get(logic) || 0]?.afterState || getContext().store.getState()
+        const currentState = ranActions
+            ? recordedActions[pointerMap || 0]?.afterState || getContext().store.getState()
             : getContext().store.getState()
         for (const [key, value] of Object.entries(values)) {
             if (!(key in logic.selectors)) {

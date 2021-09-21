@@ -10,10 +10,13 @@ import { BuiltLogic, LogicWrapper } from 'kea'
 
 export interface ExpectLogicMethods {
     then: (callback?: (value: any) => void | Promise<void>) => Promise<void>
-    toDispatchActions: (actions: ActionToDispatch[]) => ExpectLogicMethods
-    toFinishListeners: (arg?: undefined) => ExpectLogicMethods
-    toFinishAllListeners: (arg?: undefined) => ExpectLogicMethods
-    toMatchValues: (values: Record<string, any>) => ExpectLogicMethods
+    toDispatchActions: ((actions: ActionToDispatch[]) => ExpectLogicMethods) &
+        ((logic: BuiltLogic | LogicWrapper, actions: ActionToDispatch[]) => ExpectLogicMethods)
+    toFinishListeners: ((ms?: number) => ExpectLogicMethods) &
+        ((logic: BuiltLogic | LogicWrapper, ms?: number) => ExpectLogicMethods)
+    toFinishAllListeners: (ms?: number) => ExpectLogicMethods
+    toMatchValues: ((values: Record<string, any>) => ExpectLogicMethods) &
+        ((logic: BuiltLogic | LogicWrapper, values: Record<string, any>) => ExpectLogicMethods)
     toMount: (otherLogics?: BuiltLogic | LogicWrapper | (BuiltLogic | LogicWrapper)[]) => ExpectLogicMethods
     printActions: (payload?: string) => ExpectLogicMethods
     delay: (ms: number) => ExpectLogicMethods

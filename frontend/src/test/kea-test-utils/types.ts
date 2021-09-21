@@ -11,8 +11,8 @@ export interface RecordedAction {
 
 export interface PluginContext {
     recordedActions: RecordedAction[]
-    pointerMap: Map<LogicWrapper | BuiltLogic, number>
-    ranActions: Map<LogicWrapper | BuiltLogic, boolean>
+    pointerMap: number
+    ranActions: boolean
 }
 
 export interface AsyncOperation {

@@ -9,8 +9,8 @@ export function testUtilsContext(): PluginContext {
 export function resetTestUtilsContext(): void {
     setPluginContext('testUtils', {
         recordedActions: [],
-        pointerMap: new Map(),
-        ranActions: new Map(),
+        pointerMap: 0,
+        ranActions: false,
     } as PluginContext)
 }
 

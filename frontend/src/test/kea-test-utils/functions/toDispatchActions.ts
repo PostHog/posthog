@@ -7,9 +7,8 @@ import { waitForAction, waitForCondition } from 'kea-waitfor'
 const ASYNC_ACTION_WAIT_TIMEOUT = 3000
 
 export const toDispatchActions: ExpectFunction<ActionToDispatch[]> = {
-    common(logic) {
-        const { ranActions } = testUtilsContext()
-        ranActions.set(logic, true)
+    common() {
+        testUtilsContext().ranActions = true
     },
 
     sync(logic, actions) {
@@ -46,10 +45,10 @@ function tryToSearchActions(
 ): (string | ReduxAction | ((action: ReduxAction) => boolean))[] {
     const actionsToSearch = [...actions]
     const { recordedActions, pointerMap } = testUtilsContext()
-    const actionPointer = pointerMap.get(logic) || -1
+    const actionPointer = pointerMap || -1
 
     for (let i = actionPointer + 1; i < recordedActions.length; i++) {
-        pointerMap.set(logic, i)
+        testUtilsContext().pointerMap = i
         const actionSearch = actionsToSearch[0]
         const recordedAction = recordedActions[i]
         if (
