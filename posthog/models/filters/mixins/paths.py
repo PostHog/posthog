@@ -5,6 +5,7 @@ from posthog.constants import (
     END_POINT,
     FUNNEL_PATHS,
     PAGEVIEW_EVENT,
+    PATH_GROUPINGS,
     PATH_TYPE,
     PATHS_EXCLUDE_EVENTS,
     PATHS_INCLUDE_CUSTOM_EVENTS,
@@ -142,3 +143,13 @@ class FunnelPathsMixin(BaseParamMixin):
     @include_dict
     def funnel_paths_to_dict(self):
         return {"funnel_paths": self.funnel_paths} if self.funnel_paths else {}
+
+
+class PathGroupingMixin(BaseParamMixin):
+    @cached_property
+    def path_groupings(self) -> Optional[List[str]]:
+        return self._data.get(PATH_GROUPINGS)
+
+    @include_dict
+    def path_groupings_to_dict(self):
+        return {PATH_GROUPINGS: self.path_groupings} if self.path_groupings else {}
