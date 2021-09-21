@@ -14,7 +14,7 @@ import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode, refreshStatus } = useValues(
+    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode, isRefreshing } = useValues(
         dashboardLogic
     )
     const {
@@ -99,7 +99,7 @@ export function DashboardItems(): JSX.Element {
                         layout={
                             resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
                         }
-                        isReloading={!!refreshStatus[item.id]?.loading}
+                        isReloading={isRefreshing(item.id)}
                         loadDashboardItems={loadDashboardItems}
                         setDiveDashboard={setDiveDashboard}
                         duplicateDashboardItem={duplicateDashboardItem}

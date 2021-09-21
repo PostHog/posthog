@@ -240,6 +240,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 return allItemsLoading || Object.values(refreshStatus).some((s) => s.loading)
             },
         ],
+        isRefreshing: [
+            () => [selectors.refreshStatus],
+            (refreshStatus) => (id: number) => !!refreshStatus[id]?.loading,
+        ],
         lastRefreshed: [
             () => [selectors.items],
             (items) => {
