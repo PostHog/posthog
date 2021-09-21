@@ -65,15 +65,14 @@ export function TableConfig({
                                 )}
                             </>
                         )}
-                        <span>
+                        <span onClick={() => automaticLoading.toggle(!automaticLoading.enabled)}>
                             Automatically load new events{' '}
                             <Switch checked={automaticLoading.enabled} onChange={automaticLoading.toggle} />
                         </span>
                         {exportUrl && (
                             <Tooltip title="Export up to 100,000 latest events." placement="left">
                                 <Button icon={<DownloadOutlined />} href={exportUrl}>
-                                    {' '}
-                                    Export events{' '}
+                                    Export events
                                 </Button>
                             </Tooltip>
                         )}
