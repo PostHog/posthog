@@ -98,7 +98,7 @@ export function cleanBinResult(result: FunnelResult): FunnelResult {
         ...result,
         result: {
             ...result.result,
-            bins: binsResult.bins.map(([time, count]) => [time ?? 0, count ?? 0]),
+            bins: binsResult.bins?.map(([time, count]) => [time ?? 0, count ?? 0]) ?? [],
             average_conversion_time: binsResult.average_conversion_time ?? 0,
         },
     }
