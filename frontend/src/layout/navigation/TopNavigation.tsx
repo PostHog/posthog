@@ -36,10 +36,11 @@ import { CreateInviteModalWithButton } from 'scenes/organization/Settings/Create
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Environments, FEATURE_FLAGS } from 'lib/constants'
+import { Environments, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from '../../scenes/teamLogic'
+import { organizationLogic } from '../../scenes/organizationLogic'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -123,11 +124,16 @@ export function TopNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { logout, updateCurrentOrganization } = useActions(userLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { showPalette } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const isProjectCreationForbidden =
+        !currentOrganization?.membership_level ||
+        currentOrganization.membership_level < OrganizationMembershipLevel.Admin
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
@@ -264,6 +270,7 @@ export function TopNavigation(): JSX.Element {
             <button
                 type="button"
                 className="plain-button"
+                disabled={isProjectCreationForbidden}
                 onClick={() =>
                     guardAvailableFeature(
                         AvailableFeature.ORGANIZATIONS_PROJECTS,
@@ -274,6 +281,10 @@ export function TopNavigation(): JSX.Element {
                         }
                     )
                 }
+                style={{
+                    cursor: isProjectCreationForbidden ? 'default' : undefined,
+                    color: isProjectCreationForbidden ? 'var(--text-muted)' : undefined,
+                }}
             >
                 <PlusOutlined className="mr-05" />
                 Create new project
