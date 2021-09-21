@@ -59,7 +59,7 @@ function ProjectRow({ team }: { team: TeamBasicType }): JSX.Element {
     const { push } = router.actions
 
     const isCurrent = team.id === currentTeam?.id
-    const isRestricted = !!team.effective_membership_level
+    const isRestricted = !team.effective_membership_level
 
     return (
         <button
