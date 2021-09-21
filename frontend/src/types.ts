@@ -202,7 +202,7 @@ export type EditorProps = {
     userIntent?: ToolbarUserIntent
     instrument?: boolean
     distinctId?: string
-    userEmail?: boolean
+    userEmail?: string
     dataAttributes?: string[]
     featureFlags?: Record<string, string | boolean>
 }
