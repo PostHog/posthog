@@ -1,5 +1,7 @@
 @import '~/vars';
 
+$funnel_canvas_background: #fafafa;
+
 .insights-page {
     .top-bar {
         .ant-tabs,
@@ -214,10 +216,20 @@
 }
 
 .funnel-insights-container {
+    padding: 24px;
+    background-color: $funnel_canvas_background;
+
+    &.no-padding {
+        padding: 0;
+    }
+
     &.non-empty-state {
-        min-height: 300px;
+        min-height: 400px;
         position: relative;
         margin-bottom: 0;
+    }
+    .ant-table-wrapper {
+        margin-top: 0 !important;
     }
 }
 

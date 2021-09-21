@@ -1,0 +1,155 @@
+@import '~/vars';
+
+.sub-column-title {
+    font-size: 12px;
+    color: $text_muted_alt;
+    text-transform: uppercase;
+}
+
+.column-title {
+    color: $text_default;
+    font-weight: 500;
+}
+
+.funnel-table-cell {
+    &.dividing-column {
+        border-right: 1px solid $border;
+    }
+
+    &.axis-labels-column {
+        z-index: 2;
+    }
+
+    &.no-border-bottom {
+        border-bottom: none;
+    }
+
+    &.dark-bg {
+        background-color: $antd_table_background_dark;
+    }
+
+    &.breakdown-label-column {
+        .insights-label {
+            word-break: break-all;
+        }
+    }
+}
+
+.funnel-step-title-row {
+    .funnel-step-title {
+        display: flex;
+        flex-direction: row;
+        justify-content: flex-start;
+        align-items: center;
+
+        .funnel-step-glyph {
+            color: $text_muted;
+            margin-right: 16px;
+            padding: 2px 4px;
+            border: 1px solid $border_light;
+            background-color: white;
+            border-radius: $radius;
+        }
+
+        .funnel-step-name {
+            @extend .text-ellipsis;
+            font-weight: bold;
+        }
+    }
+}
+
+.funnel-bar-wrapper.breakdown.vertical {
+    height: 400px;
+    width: 300px;
+    background-color: transparent;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: row;
+
+    .breakdown-bar-group {
+        display: flex;
+        justify-content: flex-start;
+        align-items: flex-end;
+        flex-direction: row;
+        height: 320px;
+        width: 200px;
+        position: relative;
+        z-index: 1;
+
+        .breakdown-bar-column {
+            display: block;
+            height: 100%;
+            margin: 0 1px;
+        }
+
+        .breakdown-previous-bar {
+            position: absolute;
+            bottom: 0;
+            opacity: 0.1;
+            border-radius: 3px;
+        }
+
+        .breakdown-current-bar {
+            position: absolute;
+            bottom: 0;
+            border-radius: 3px;
+        }
+
+        .breakdown-label {
+            position: absolute;
+            font-weight: 600;
+            font-size: 12px;
+            color: $text-muted;
+            text-align: center;
+        }
+    }
+
+    .funnel-bar-empty-space {
+        width: 50px;
+        height: 100%;
+    }
+
+    .funnel-bar-axis {
+        position: absolute;
+        height: 320px;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: flex-end;
+        z-index: 0;
+        left: 0;
+
+        &.label {
+            .axis-tick-line {
+                width: 12px;
+            }
+        }
+
+        .axis-tick-line {
+            width: 100%;
+            border: 1px dashed $border;
+        }
+    }
+
+    &.axis-wrapper {
+        justify-content: flex-end;
+        width: 100%;
+
+        .axis {
+            height: 332px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: flex-end;
+
+            .axis-tick {
+                font-size: 12px;
+                margin-right: 10px;
+                color: $text_muted_alt;
+            }
+        }
+    }
+}
