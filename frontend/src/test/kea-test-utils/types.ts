@@ -10,8 +10,8 @@ export interface RecordedAction {
 }
 
 export interface PluginContext {
-    recordedActions: RecordedAction[]
-    pointerMap: number
+    recordedHistory: RecordedAction[]
+    historyIndex: number
     ranActions: boolean
 }
 

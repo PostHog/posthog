@@ -8,8 +8,8 @@ export function testUtilsContext(): PluginContext {
 
 export function resetTestUtilsContext(): void {
     setPluginContext('testUtils', {
-        recordedActions: [],
-        pointerMap: 0,
+        recordedHistory: [],
+        historyIndex: 0,
         ranActions: false,
     } as PluginContext)
 }
@@ -28,8 +28,8 @@ export const testUtilsPlugin: () => KeaPlugin = () => ({
                 const response = next(action)
                 const afterState = store.getState()
 
-                const { recordedActions } = testUtilsContext()
-                recordedActions.push({
+                const { recordedHistory } = testUtilsContext()
+                recordedHistory.push({
                     action,
                     beforeState,
                     afterState,

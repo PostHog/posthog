@@ -32,7 +32,7 @@ export const toDispatchActions: ExpectFunction<ActionToDispatch[]> = {
                         ? waitForCondition(notFound)
                         : waitForCondition((a) => objectsEqual(a, notFound)),
                 ])
-                // will not get called if the timeout throws above, otherwise it was found, and update the pointerMap
+                // will not get called if the timeout throws above, otherwise it was found, and update the historyIndex
                 tryToSearchActions(logic, [action])
             }
         }
@@ -44,13 +44,13 @@ function tryToSearchActions(
     actions: ActionToDispatch[]
 ): (string | ReduxAction | ((action: ReduxAction) => boolean))[] {
     const actionsToSearch = [...actions]
-    const { recordedActions, pointerMap } = testUtilsContext()
-    const actionPointer = pointerMap || -1
+    const { recordedHistory, historyIndex } = testUtilsContext()
+    const actionPointer = historyIndex || -1
 
-    for (let i = actionPointer + 1; i < recordedActions.length; i++) {
-        testUtilsContext().pointerMap = i
+    for (let i = actionPointer + 1; i < recordedHistory.length; i++) {
+        testUtilsContext().historyIndex = i
         const actionSearch = actionsToSearch[0]
-        const recordedAction = recordedActions[i]
+        const recordedAction = recordedHistory[i]
         if (
             (typeof actionSearch === 'string' &&
                 (recordedAction.action.type === actionSearch ||
