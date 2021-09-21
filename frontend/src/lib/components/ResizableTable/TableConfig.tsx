@@ -1,4 +1,4 @@
-import { Button, Card, Col, Input, Row, Switch } from 'antd'
+import { Button, Card, Col, Input, Row, Space, Switch } from 'antd'
 import React, { useEffect, useState } from 'react'
 import { DownloadOutlined, SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
@@ -46,32 +46,38 @@ export function TableConfig({
             <div className="table-options">
                 <div className="main-actions">{mainActionComponent}</div>
                 <div className="rhs-actions">
-                    {selectedColumns && availableColumns && onColumnUpdate && (
-                        <>
-                            <Button
-                                data-attr="events-table-column-selector"
-                                onClick={() => setState('columnConfig')}
-                                icon={<SettingOutlined />}
-                            />
-                            {state === 'columnConfig' && (
-                                <ColumnConfigurator
-                                    allColumns={availableColumns}
-                                    currentSelection={selectedColumns}
-                                    onClose={() => setState(null)}
-                                    onColumnUpdate={onColumnUpdate}
-                                    {...props}
+                    <Space align="baseline">
+                        {selectedColumns && availableColumns && onColumnUpdate && (
+                            <>
+                                <Button
+                                    data-attr="events-table-column-selector"
+                                    onClick={() => setState('columnConfig')}
+                                    icon={<SettingOutlined />}
                                 />
-                            )}
-                        </>
-                    )}
-                    <Tooltip title="Toggle on to automatically load new events" placement="left">
-                        <Switch checked={automaticLoading.enabled} onChange={automaticLoading.toggle} />
-                    </Tooltip>
-                    {exportUrl && (
-                        <Tooltip title="Export up to 100,000 latest events." placement="left">
-                            <Button icon={<DownloadOutlined />} href={exportUrl} />
-                        </Tooltip>
-                    )}
+                                {state === 'columnConfig' && (
+                                    <ColumnConfigurator
+                                        allColumns={availableColumns}
+                                        currentSelection={selectedColumns}
+                                        onClose={() => setState(null)}
+                                        onColumnUpdate={onColumnUpdate}
+                                        {...props}
+                                    />
+                                )}
+                            </>
+                        )}
+                        <span>
+                            Automatically load new events{' '}
+                            <Switch checked={automaticLoading.enabled} onChange={automaticLoading.toggle} />
+                        </span>
+                        {exportUrl && (
+                            <Tooltip title="Export up to 100,000 latest events." placement="left">
+                                <Button icon={<DownloadOutlined />} href={exportUrl}>
+                                    {' '}
+                                    Export events{' '}
+                                </Button>
+                            </Tooltip>
+                        )}
+                    </Space>
                 </div>
             </div>
         </>
