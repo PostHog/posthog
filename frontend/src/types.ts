@@ -168,14 +168,14 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string
-    href?: string
+    href?: string | null
     id?: number
     name?: string
     properties?: []
-    selector?: string
+    selector?: string | null
     tag_name?: string
-    text?: string
-    url?: string
+    text?: string | null
+    url?: string | null
     url_matching?: ActionStepUrlMatching
     isNew?: string
 }
@@ -552,7 +552,7 @@ export interface PluginType {
 }
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
     required?: boolean
 }
 
@@ -648,7 +648,6 @@ export enum ViewType {
 
 export enum PathType {
     PageView = '$pageview',
-    AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
 }
@@ -708,6 +707,7 @@ export interface FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
+    hidden_map?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
 }
 
 export interface SystemStatusSubrows {
@@ -816,7 +816,7 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
     nested_breakdown?: FunnelStep[]
 }
 
-export interface FunnelResult<ResultType = FunnelStep[]> {
+export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
@@ -826,13 +826,7 @@ export interface FunnelResult<ResultType = FunnelStep[]> {
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number
-}
-
-export interface FunnelsTimeConversionResult {
-    result: FunnelsTimeConversionBins
-    last_refresh: string | null
-    is_cached: boolean
-    type: 'Funnel'
+    steps: FunnelStep[] | FunnelStep[][]
 }
 
 export interface FunnelTimeConversionMetrics {
@@ -862,8 +856,7 @@ export interface FunnelRequestParams extends FilterType {
 }
 
 export interface LoadedRawFunnelResults {
-    results: FunnelStep[] | FunnelStep[][]
-    timeConversionResults: FunnelsTimeConversionBins
+    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
     filters: Partial<FilterType>
 }
 
@@ -875,12 +868,26 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
         fromBasisStep: number // either fromPrevious or total, depending on FunnelStepReference
     }
     nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
+    rowKey?: number | string
 }
 
 export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
     rowKey: number | string
+    nestedRowKeys?: string[]
     isBreakdownParent?: boolean
     breakdownIndex?: number
+}
+
+export interface FlattenedFunnelStepByBreakdown {
+    rowKey: number | string
+    isBaseline?: boolean
+    breakdown?: string | number
+    breakdown_value?: string | number
+    breakdownIndex?: number
+    conversionRates?: {
+        total: number
+    }
+    steps?: FunnelStepWithConversionMetrics[]
 }
 
 export interface ChartParams {

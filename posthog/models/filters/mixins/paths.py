@@ -1,7 +1,6 @@
 from typing import Dict, List, Literal, Optional, Tuple, cast
 
 from posthog.constants import (
-    AUTOCAPTURE_EVENT,
     CUSTOM_EVENT,
     END_POINT,
     FUNNEL_PATHS,
@@ -17,7 +16,7 @@ from posthog.constants import (
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 
-PathType = Literal["$pageview", "$autocapture", "$screen", "custom_event"]
+PathType = Literal["$pageview", "$screen", "custom_event"]
 
 FunnelPathsType = Literal["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"]
 
@@ -57,8 +56,6 @@ class PropTypeDerivedMixin(PathTypeMixin):
     def prop_type(self) -> str:
         if self.path_type == SCREEN_EVENT:
             return "properties->> '$screen_name'"
-        elif self.path_type == AUTOCAPTURE_EVENT:
-            return "tag_name_source"
         elif self.path_type == CUSTOM_EVENT:
             return "event"
         else:
@@ -70,8 +67,6 @@ class ComparatorDerivedMixin(PropTypeDerivedMixin):
     def comparator(self) -> str:
         if self.path_type == SCREEN_EVENT:
             return "{} =".format(self.prop_type)
-        elif self.path_type == AUTOCAPTURE_EVENT:
-            return "group_id ="
         elif self.path_type == CUSTOM_EVENT:
             return "event ="
         else:
@@ -83,8 +78,6 @@ class TargetEventDerivedMixin(PropTypeDerivedMixin):
     def target_event(self) -> Tuple[Optional[PathType], Dict[str, str]]:
         if self.path_type == SCREEN_EVENT:
             return cast(PathType, SCREEN_EVENT), {"event": SCREEN_EVENT}
-        elif self.path_type == AUTOCAPTURE_EVENT:
-            return cast(PathType, AUTOCAPTURE_EVENT), {"event": AUTOCAPTURE_EVENT}
         elif self.path_type == CUSTOM_EVENT:
             return None, {}
         else:
@@ -111,10 +104,6 @@ class TargetEventsMixin(BaseParamMixin):
     @property
     def include_screenviews(self) -> bool:
         return SCREEN_EVENT in self.target_events
-
-    @property
-    def include_autocaptures(self) -> bool:
-        return AUTOCAPTURE_EVENT in self.target_events
 
     @property
     def include_all_custom_events(self) -> bool:

@@ -12,14 +12,12 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
     [PathType.Screen]: 'Screen views (Mobile)',
-    [PathType.AutoCapture]: 'Autocaptured events',
     [PathType.CustomEvent]: 'Custom events',
 }
 
 export const pathOptionsToProperty = {
     [PathType.PageView]: '$current_url',
     [PathType.Screen]: '$screen_name',
-    [PathType.AutoCapture]: 'autocaptured_event',
     [PathType.CustomEvent]: 'custom_event',
 }
 
@@ -124,7 +122,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         loadResults: () => {
             insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
             if (!props.dashboardItemId) {
-                actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+                if (!insightLogic.values.insight.id) {
+                    actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filter)
+                }
             }
         },
         [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
