@@ -90,8 +90,8 @@ export function PersonModalDialog({ visible, view, filters }: PersonModalProps):
         [filters, people, isInitialLoad]
     )
 
-    const isDownloadCsvAvailable = view === ViewType.TRENDS
-    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled
+    const isDownloadCsvAvailable = view === ViewType.TRENDS || view === ViewType.STICKINESS
+    const isSaveAsCohortAvailable = clickhouseFeaturesEnabled && isDownloadCsvAvailable
 
     return (
         <Modal
@@ -102,37 +102,33 @@ export function PersonModalDialog({ visible, view, filters }: PersonModalProps):
             footer={
                 people &&
                 people.count > 0 &&
-                (isDownloadCsvAvailable || isSaveAsCohortAvailable) && (
+                isSaveAsCohortAvailable && (
                     <>
-                        {isDownloadCsvAvailable && (
-                            <Button
-                                icon={<DownloadOutlined />}
-                                href={`/api/action/people.csv?${parsePeopleParams(
-                                    {
-                                        label: people.label,
-                                        action: people.action,
-                                        date_from: people.day,
-                                        date_to: people.day,
-                                        breakdown_value: people.breakdown_value,
-                                    },
-                                    filters
-                                )}`}
-                                style={{ marginRight: 8 }}
-                                data-attr="person-modal-download-csv"
-                            >
-                                Download CSV
-                            </Button>
-                        )}
-                        {isSaveAsCohortAvailable && (
-                            <Button
-                                onClick={() => setCohortModalVisible(true)}
-                                icon={<UsergroupAddOutlined />}
-                                data-attr="person-modal-save-as-cohort"
-                                loading={savedCohortLoading}
-                            >
-                                Save as cohort
-                            </Button>
-                        )}
+                        <Button
+                            icon={<DownloadOutlined />}
+                            href={`/api/action/people.csv?${parsePeopleParams(
+                                {
+                                    label: people.label,
+                                    action: people.action,
+                                    date_from: people.day,
+                                    date_to: people.day,
+                                    breakdown_value: people.breakdown_value,
+                                },
+                                filters
+                            )}`}
+                            style={{ marginRight: 8 }}
+                            data-attr="person-modal-download-csv"
+                        >
+                            Download CSV
+                        </Button>
+                        <Button
+                            onClick={() => setCohortModalVisible(true)}
+                            icon={<UsergroupAddOutlined />}
+                            data-attr="person-modal-save-as-cohort"
+                            loading={savedCohortLoading}
+                        >
+                            Save as cohort
+                        </Button>
                     </>
                 )
             }
