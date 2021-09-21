@@ -454,6 +454,8 @@ export interface SessionRecordingType {
     start_time: string
     /** When the recording ends in ISO format. */
     end_time: string
+    distinct_id?: string
+    email?: string
 }
 
 export interface BillingType {

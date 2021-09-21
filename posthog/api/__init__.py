@@ -24,6 +24,7 @@ from . import (
     plugin,
     plugin_log_entry,
     property_definition,
+    session_recording,
     sessions_filter,
     team,
     user,
@@ -58,6 +59,9 @@ project_plugins_configs_router.register(
 )
 projects_router.register(
     r"feature_flag_overrides", feature_flag.FeatureFlagOverrideViewset, "project_feature_flag_overrides", ["team_id"]
+)
+projects_router.register(
+    r"session_recordings", session_recording.SessionRecordingViewSet, "project_session_recordings", ["team_id"],
 )
 
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")

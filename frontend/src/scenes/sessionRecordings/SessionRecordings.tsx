@@ -1,22 +1,26 @@
 import React from 'react'
-import { SessionsView } from './SessionsView'
-import { SavedFiltersMenu } from 'scenes/sessions/filters/SavedFiltersMenu'
+import { SessionRecordingsTable } from './SessionRecordingsTable'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Divider } from 'antd'
+import { Typography } from 'antd'
+import { teamLogic } from 'scenes/teamLogic'
+import { useValues } from 'kea'
 
 export function Sessions(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
     return (
-        <div className="sessions-wrapper">
-            <div className="sessions-sidebar">
-                <div>
-                    <PageHeader title="Sessions" />
-                    <SavedFiltersMenu />
+        <div>
+            <PageHeader title="Session Recordings" />
+            {currentTeam?.session_recording_opt_in ? (
+                <div className="sessions-wrapper">
+                    <div className="sessions-with-filters">
+                        <SessionRecordingsTable key="global" />
+                    </div>
                 </div>
-                <Divider type="vertical" className="sessions-divider" />
-            </div>
-            <div className="sessions-with-filters">
-                <SessionsView key="global" />
-            </div>
+            ) : (
+                <div>
+                    <Typography.Text>Please enable session recording....</Typography.Text>
+                </div>
+            )}
         </div>
     )
 }
