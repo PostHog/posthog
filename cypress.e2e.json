@@ -5,5 +5,6 @@
     "requestTimeout": 8000,
     "pageLoadTimeout": 80000,
     "projectId": "twojfp",
-    "retries": 2
+    "retries": 2,
+    "viewportWidth": 1200
 }

@@ -6,7 +6,7 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 
 import { Row, Col, Card, Input, Button, Popconfirm, Tooltip } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS } from 'lib/constants'
+import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 
@@ -14,7 +14,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 
 import { Paths } from 'scenes/paths/Paths'
 
-import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
+import { FunnelTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
 import { getLogicFromInsight } from './utils'
@@ -34,7 +34,7 @@ import { People } from 'scenes/funnels/FunnelPeople'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { AvailableFeature, FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
+import { AvailableFeature, FunnelVizType, HotKeys, InsightType, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -53,6 +53,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { NewPathTab } from './InsightTabs/NewPathTab'
+import clsx from 'clsx'
 
 dayjs.extend(relativeTime)
 
@@ -100,9 +101,20 @@ export function Insights(): JSX.Element {
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
-    const logicFromInsight = getLogicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
+    const logicFromInsight = getLogicFromInsight(activeView as InsightType, {
+        dashboardItemId: fromItem || null,
+        filters: allFilters,
+    })
     const { loadResults } = useActions(logicFromInsight)
     const { resultsLoading } = useValues(logicFromInsight)
+
+    // show render's here because inline conditionals are getting ridonkulous
+    const showFunnelStepTable =
+        preflight?.is_clickhouse_enabled &&
+        activeView === ViewType.FUNNELS &&
+        !showErrorMessage &&
+        allFilters.funnel_viz_type === FunnelVizType.Steps &&
+        (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || allFilters.layout === FunnelLayout.horizontal)
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -220,8 +232,8 @@ export function Insights(): JSX.Element {
                     <Col span={24} xl={verticalLayout ? 16 : undefined}>
                         {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                         {/* These are filters that are reused between insight features. They
-                each have generic logic that updates the url
-            */}
+                            each have generic logic that updates the url
+                        */}
                         <Card
                             title={
                                 <InsightDisplayConfig
@@ -232,7 +244,9 @@ export function Insights(): JSX.Element {
                                 />
                             }
                             data-attr="insights-graph"
-                            className="insights-graph-container"
+                            className={clsx('insights-graph-container', {
+                                funnels: activeView === ViewType.FUNNELS,
+                            })}
                         >
                             <div>
                                 <Row
@@ -275,17 +289,16 @@ export function Insights(): JSX.Element {
                             areFiltersValid &&
                             activeView === ViewType.FUNNELS &&
                             allFilters.display === FUNNEL_VIZ && <People />}
-                        {preflight?.is_clickhouse_enabled &&
-                            activeView === ViewType.FUNNELS &&
-                            !showErrorMessage &&
-                            allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}
+                        {
+                            showFunnelStepTable && <FunnelStepTable filters={allFilters} /> // Don't render table below if bars are vertical. Rendering table handled by FunnelBarGraph
+                        }
                         {(!allFilters.display ||
                             (allFilters.display !== ACTIONS_TABLE && allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
                             (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
                                 /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
-                    Exclusions:
-                        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-                        2. Bar value chart. Because this view displays data in completely different dimensions.
+                        Exclusions:
+                            1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+                            2. Bar value chart. Because this view displays data in completely different dimensions.
                     */
                                 <Card style={{ marginTop: 8 }}>
                                     <BindLogic
@@ -494,8 +507,8 @@ export function Insights(): JSX.Element {
                                 <Col span={24} xl={verticalLayout ? 16 : undefined}>
                                     {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
                                     {/* These are filters that are reused between insight features. They
-                                each have generic logic that updates the url
-                            */}
+                                        each have generic logic that updates the url
+                                    */}
                                     <Card
                                         title={
                                             <InsightDisplayConfig
@@ -506,10 +519,13 @@ export function Insights(): JSX.Element {
                                             />
                                         }
                                         data-attr="insights-graph"
-                                        className="insights-graph-container"
+                                        className={clsx('insights-graph-container', {
+                                            funnels: activeView === ViewType.FUNNELS,
+                                        })}
                                     >
                                         <div>
                                             <Row
+                                                className="insights-graph-header"
                                                 align="top"
                                                 justify="space-between"
                                                 style={{
@@ -557,10 +573,9 @@ export function Insights(): JSX.Element {
                                         areFiltersValid &&
                                         activeView === ViewType.FUNNELS &&
                                         allFilters.display === FUNNEL_VIZ && <People />}
-                                    {preflight?.is_clickhouse_enabled &&
-                                        activeView === ViewType.FUNNELS &&
-                                        !showErrorMessage &&
-                                        allFilters.funnel_viz_type === FunnelVizType.Steps && <FunnelStepTable />}
+                                    {
+                                        showFunnelStepTable && <FunnelStepTable filters={allFilters} /> // Don't render table below if bars are vertical. Rendering table handled by FunnelBarGraph
+                                    }
                                     {(!allFilters.display ||
                                         (allFilters.display !== ACTIONS_TABLE &&
                                             allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&

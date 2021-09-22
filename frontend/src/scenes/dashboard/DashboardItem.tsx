@@ -48,6 +48,7 @@ interface Props {
     setDiveDashboard?: (id: number, dashboardId: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
+    isReloading?: boolean
     dashboardMode: DashboardMode | null
     isOnEditMode: boolean
     setEditMode?: () => void
@@ -163,6 +164,7 @@ export function DashboardItem({
     setDiveDashboard,
     loadDashboardItems,
     isDraggingRef,
+    isReloading,
     dashboardMode,
     isOnEditMode,
     setEditMode,
@@ -182,7 +184,7 @@ export function DashboardItem({
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const _type: DisplayedType =
+    const _type =
         item.filters.insight === ViewType.RETENTION
             ? 'RetentionContainer'
             : item.filters.insight === ViewType.PATHS
@@ -285,7 +287,7 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
-            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined }}
+            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
         >
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: isOnEditMode ? 'move' : 'inherit' }}>
@@ -597,6 +599,7 @@ export function DashboardItem({
                             ) : (
                                 <Element
                                     dashboardItemId={item.id}
+                                    cachedResults={item.result}
                                     filters={filters}
                                     color={color}
                                     theme={color === 'white' ? 'light' : 'dark'}

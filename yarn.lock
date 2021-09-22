@@ -10550,10 +10550,10 @@ kea-window-values@^0.0.1:
   resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
   integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
 
-kea@^2.4.7:
-  version "2.4.7"
-  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.7.tgz#2b927feddfb8771d7027195620d0023a874ad3b2"
-  integrity sha512-iPMsm3G0+Lv7jzFRy8t/WWouykzsdj5cfjoYTFj9KQRcPdwB1I1e3N6e9feotzH0UmjWt0lsYT0lTMqzvyOoBg==
+kea@^2.4.10:
+  version "2.4.10"
+  resolved "https://registry.yarnpkg.com/kea/-/kea-2.4.10.tgz#f31de4651f3a896451ca252f8489ed9c4cbfb69a"
+  integrity sha512-N2OibPpTYzuYag9tBrcQvBVb04Kt0PIVmJ9i40T77//O0AyOkUF1jQQ+uoyQk8ALYFEQylYdlNELTyFJWWefwQ==
 
 killable@^1.0.1:
   version "1.0.1"
@@ -15331,9 +15331,9 @@ tinycolor2@^1.4.1:
   integrity sha512-vJhccZPs965sV/L2sU4oRQVAos0pQXwsvTLkWYdqJ+a8Q5kPFzJTuOFwy7UniPli44NKQGAglksjvOcpo95aZA==
 
 tmpl@1.0.x:
-  version "1.0.4"
-  resolved "https://registry.yarnpkg.com/tmpl/-/tmpl-1.0.4.tgz#23640dd7b42d00433911140820e5cf440e521dd1"
-  integrity sha1-I2QN17QtAEM5ERQIIOXPRA5SHdE=
+  version "1.0.5"
+  resolved "https://registry.yarnpkg.com/tmpl/-/tmpl-1.0.5.tgz#8683e0b902bb9c20c4f726e3c0b69f36518c07cc"
+  integrity sha512-3f0uOEAQwIqGuWW2MVzYg8fV/QNnc/IpuJNG837rLuczAaLVHslWHZQj4IGiEl5Hs3kkbhwL9Ab7Hrsmuj+Smw==
 
 to-arraybuffer@^1.0.0:
   version "1.0.1"

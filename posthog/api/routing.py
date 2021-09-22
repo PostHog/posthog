@@ -8,6 +8,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 from posthog.api.utils import get_token
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
@@ -47,11 +48,15 @@ class StructuredViewSetMixin(NestedViewSetMixin):
         if team_from_token:
             return team_from_token
 
+        user = cast(User, self.request.user)
         if self.legacy_team_compatibility:
-            team = self.request.user.team
+            team = user.team
             assert team is not None
             return team
-        return Team.objects.get(id=self.team_id)
+        try:
+            return Team.objects.get(id=self.team_id)
+        except Team.DoesNotExist:
+            raise NotFound(detail="Project not found.")
 
     @property
     def organization_id(self) -> str:
@@ -62,7 +67,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
 
     @property
     def organization(self) -> Organization:
-        return Organization.objects.get(id=self.organization_id)
+        try:
+            return Organization.objects.get(id=self.organization_id)
+        except Organization.DoesNotExist:
+            raise NotFound(detail="Organization not found.")
 
     def filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.get_parents_query_dict()

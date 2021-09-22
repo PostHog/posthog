@@ -5,8 +5,7 @@ import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { FilterType, PathType, PropertyFilter, ViewType } from '~/types'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { DashboardItemLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const pathOptionsToLabels = {
@@ -49,6 +48,7 @@ interface PathNode {
 }
 
 export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
+    props: {} as DashboardItemLogicProps,
     key: (props) => {
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
@@ -58,6 +58,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     actions: {
         setProperties: (properties) => ({ properties }),
         setFilter: (filter) => filter,
+        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
         showPathEvents: (event) => ({ event }),
         addImportantEvent: (event) => ({ event }),
         addExcludedEvent: (event) => ({ event }),
@@ -67,6 +68,12 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     loaders: ({ values, props }) => ({
         results: {
             __default: { paths: [], filter: {} } as PathResult,
+            setCachedResults: ({ results, filters }) => {
+                return {
+                    paths: results,
+                    filters: filters,
+                }
+            },
             loadResults: async (refresh = false, breakpoint) => {
                 const filter = { ...values.filter, properties: values.properties }
                 if (!refresh && (props.cachedResults || props.preventLoading) && values.filter === props.filters) {
@@ -100,9 +107,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     reducers: ({ props }) => ({
         filter: [
             (props.filters
-                ? cleanPathParams(props.filters as Partial<FilterType>)
-                : (state: Record<string, any>) =>
-                      cleanPathParams(router.selectors.searchParams(state)) as Record<string, any>) as Partial<
+                ? cleanPathParams(props.filters)
+                : (state: Record<string, any>) => cleanPathParams(router.selectors.searchParams(state))) as Partial<
                 FilterType
             >,
             {
@@ -120,7 +126,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         ],
         properties: [
             (props.filters
-                ? (props.filters as Partial<FilterType>).properties || []
+                ? props.filters.properties || []
                 : (state: Record<string, any>) =>
                       router.selectors.searchParams(state).properties || []) as PropertyFilter[],
             {
@@ -157,11 +163,6 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 } else {
                     insightLogic.actions.updateInsightFilters(values.filter)
                 }
-            }
-        },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
-            if (props.dashboardItemId) {
-                actions.setFilter(filters)
             }
         },
     }),

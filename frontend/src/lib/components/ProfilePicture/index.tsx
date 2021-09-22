@@ -6,9 +6,10 @@ export interface ProfilePictureProps {
     name?: string
     email?: string
     size?: 'md' | 'sm'
+    style?: React.CSSProperties
 }
 
-export function ProfilePicture({ name, email, size }: ProfilePictureProps): JSX.Element {
+export function ProfilePicture({ name, email, size, style }: ProfilePictureProps): JSX.Element {
     const [didImageError, setDidImageError] = useState(false)
     const pictureClass = `profile-picture${size ? ` ${size}` : ''}`
 
@@ -24,10 +25,13 @@ export function ProfilePicture({ name, email, size }: ProfilePictureProps): JSX.
                 alt=""
             />
         )
-    } else if (name) {
-        return <div className={pictureClass}>{name[0]?.toUpperCase()}</div>
-    } else if (email) {
-        return <div className={pictureClass}>{email[0]?.toUpperCase()}</div>
     }
-    return <div className={pictureClass}>?</div>
+
+    const initialLetter = name ? name[0]?.toUpperCase() : email ? email[0]?.toUpperCase() : '?'
+
+    return (
+        <div className={pictureClass} style={style}>
+            {initialLetter}
+        </div>
+    )
 }

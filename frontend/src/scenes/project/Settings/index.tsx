@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Button, Card, Divider, Input, Skeleton, Tag } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
@@ -18,10 +18,16 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea } from '../../../lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from '../../../lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
+import { organizationLogic } from '../../organizationLogic'
+import { featureFlagLogic } from '../../../lib/logic/featureFlagLogic'
+import { AvailableFeature, UserType } from '../../../types'
+import { TeamMembers } from './TeamMembers'
+import { teamMembersLogic } from './teamMembersLogic'
+import { AccessControl } from './AccessControl'
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -62,10 +68,12 @@ function DisplayName(): JSX.Element {
     )
 }
 
-export function ProjectSettings(): JSX.Element {
+export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useAnchor(location.hash)
 
@@ -223,6 +231,24 @@ export function ProjectSettings(): JSX.Element {
                 </p>
                 <SessionRecording />
                 <Divider />
+                {featureFlags[FEATURE_FLAGS.PROJECT_BASED_PERMISSIONING] && (
+                    <>
+                        <RestrictedArea
+                            Component={AccessControl}
+                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                        />
+                        <Divider />
+                        {currentTeam?.access_control &&
+                            currentOrganization?.available_features.includes(
+                                AvailableFeature.PROJECT_BASED_PERMISSIONING
+                            ) && (
+                                <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
+                                    <TeamMembers user={user} team={currentTeam} />
+                                    <Divider />
+                                </BindLogic>
+                            )}
+                    </>
+                )}
                 <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
             </Card>
         </div>

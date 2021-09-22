@@ -4,10 +4,11 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { membersLogicType } from './membersLogicType'
-import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
+import { membershipLevelToName } from '../../../lib/utils/permissioning'
 
 export const membersLogic = kea<membersLogicType>({
     actions: {
@@ -44,7 +45,7 @@ export const membersLogic = kea<membersLogicType>({
                 <div>
                     <h1 className="text-success">
                         <CheckCircleOutlined /> Made <b>{member.user.first_name}</b> organization{' '}
-                        {organizationMembershipLevelToName.get(level)}.
+                        {membershipLevelToName.get(level)}.
                     </h1>
                 </div>
             )

@@ -18,6 +18,11 @@ export enum OrganizationMembershipLevel {
     Owner = 15,
 }
 
+export enum TeamMembershipLevel {
+    Member = 1,
+    Admin = 8,
+}
+
 /** See posthog/api/organization.py for details. */
 export enum PluginsAccessLevel {
     None = 0,
@@ -25,12 +30,6 @@ export enum PluginsAccessLevel {
     Install = 6,
     Root = 9,
 }
-
-export const organizationMembershipLevelToName = new Map<number, string>([
-    [OrganizationMembershipLevel.Member, 'member'],
-    [OrganizationMembershipLevel.Admin, 'administrator'],
-    [OrganizationMembershipLevel.Owner, 'owner'],
-])
 
 export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.DashboardItem, 'dashboard item'],
@@ -243,8 +242,10 @@ export const FEATURE_FLAGS = {
     PLUGINS_UI_JOBS: '5720-plugins-ui-jobs',
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
     NEW_PATHS_UI: 'new-paths-ui',
+    PROJECT_BASED_PERMISSIONING: 'project-based-permissioning',
     SPLIT_PERSON: '5898-split-persons',
     TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
+    FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

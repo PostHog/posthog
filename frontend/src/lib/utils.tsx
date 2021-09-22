@@ -53,7 +53,13 @@ export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
-        (parseInt(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (parseInt(c) / 4)))).toString(16)
+        (
+            parseInt(c) ^
+            ((typeof window?.crypto !== 'undefined' // in node tests, jsdom doesn't implement window.crypto
+                ? window.crypto.getRandomValues(new Uint8Array(1))[0]
+                : Math.floor(Math.random() * 256)) &
+                (15 >> (parseInt(c) / 4)))
+        ).toString(16)
     )
 }
 
@@ -64,6 +70,10 @@ export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
 }
 
 export function toParams(obj: Record<string, any>): string {
+    if (!obj) {
+        return ''
+    }
+
     function handleVal(val: any): string {
         if (dayjs.isDayjs(val)) {
             return encodeURIComponent(val.format('YYYY-MM-DD'))
@@ -427,6 +437,11 @@ export function slugify(text: string): string {
         .replace(/\s+/g, '-') // Replace spaces with -
         .replace(/[^\w-]+/g, '') // Remove all non-word chars
         .replace(/--+/g, '-')
+}
+
+// Number to number with commas (e.g. 1234 -> 1,234)
+export function humanFriendlyNumber(d: number): string {
+    return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
