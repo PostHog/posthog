@@ -33,7 +33,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         send_license_usage()
 
         mock_post.assert_called_once_with(
-            "https://license.posthog.com/license/usage",
+            "https://license.posthog.com/licenses/usage",
             data={"date": "2021-10-09", "key": self.license.key, "events_count": 3},
         )
 
