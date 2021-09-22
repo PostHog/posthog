@@ -7,13 +7,13 @@ import { ClickHouseEvent, Event, PluginConfig, TimestampFormat } from '../../../
 import { DB } from '../../../../utils/db/db'
 import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
 export interface TimestampBoundaries {
-    min: Date
-    max: Date
+    min: Date | null
+    max: Date | null
 }
 
 export interface ExportEventsJobPayload extends Record<string, any> {
     // The lower bound of the timestamp interval to be processed
-    timstampCursor?: number
+    timestampCursor?: number
 
     // The offset *within* a given timestamp interval
     intraIntervalOffset?: number
@@ -30,13 +30,13 @@ export type ExportEventsFromTheBeginningUpgrade = Plugin<{
         pgClient: Client
         eventsToIgnore: Set<string>
         sanitizedTableName: string
-        exportEventsFromTheBeginning: (
-            payload: ExportEventsJobPayload,
-            meta: PluginMeta<ExportEventsFromTheBeginningUpgrade>
-        ) => Promise<void>
-        initialTimestampCursor: number
-        timestampLimit: Date
-        minTimestamp: number
+        exportEventsFromTheBeginning: (payload: ExportEventsJobPayload) => Promise<void>
+        initTimestampsAndCursor: (payload: Record<string, any> | undefined) => Promise<void>
+        setTimestampBoundaries: () => Promise<void>
+        updateProgressBar: (incrementedCursor: number) => void
+        timestampBoundariesForTeam: TimestampBoundaries
+        maxTimestamp: number | null
+        minTimestamp: number | null
     }
 }>
 
@@ -50,10 +50,18 @@ export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): P
             SELECT min(_timestamp) as min, max(_timestamp) as max
             FROM events
             WHERE team_id = ${teamId}`)
+        const min = clickhouseFetchTimestampsResult.data[0].min
+        const max = clickhouseFetchTimestampsResult.data[0].max
+
+        const minDate = new Date(clickhouseEventTimestampToDate(min))
+        const maxDate = new Date(clickhouseEventTimestampToDate(max))
+
+        const isValidMin = minDate.getTime() !== new Date(0).getTime()
+        const isValidMax = maxDate.getTime() !== new Date(0).getTime()
 
         return {
-            min: new Date(clickhouseEventTimestampToDate(clickhouseFetchTimestampsResult.data[0].min)),
-            max: new Date(clickhouseEventTimestampToDate(clickhouseFetchTimestampsResult.data[0].max)),
+            min: isValidMin ? minDate : null,
+            max: isValidMax ? maxDate : null,
         }
     } else {
         const postgresFetchTimestampsResult = await db.postgresQuery(
@@ -62,9 +70,11 @@ export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): P
             'fetchTimestampBoundariesForTeam'
         )
 
+        const min = postgresFetchTimestampsResult.rows[0].min
+        const max = postgresFetchTimestampsResult.rows[0].max
         return {
-            min: new Date(postgresFetchTimestampsResult.rows[0].min),
-            max: new Date(postgresFetchTimestampsResult.rows[0].max),
+            min: min ? new Date(min) : null,
+            max: max ? new Date(max) : null,
         }
     }
 }
@@ -125,7 +135,8 @@ export const convertDatabaseEventToPluginEvent = (
         team_id,
         distinct_id,
         properties,
-        now: timestamp,
+        timestamp,
+        now: DateTime.now().toISO(),
         event: eventName || '',
         ip: properties?.['$ip'] || '',
         site_url: '',

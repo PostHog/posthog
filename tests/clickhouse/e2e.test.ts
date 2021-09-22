@@ -1,5 +1,3 @@
-import IORedis from 'ioredis'
-
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../../src/types'
@@ -16,7 +14,7 @@ import { resetTestDatabase } from '../helpers/sql'
 import { delayUntilEventIngested } from '../shared/process-event'
 
 const { console: testConsole } = writeToFile
-const HISTORICAL_EVENTS_COUNTER_CACHE_KEY = '@plugin/60/2/historical_events_seen'
+const ONE_HOUR = 1000 * 60 * 60
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
@@ -27,6 +25,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 2,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
+    CELERY_DEFAULT_QUEUE: 'test-celery-default-queue',
 }
 
 const indexJs = `
@@ -41,7 +40,13 @@ export async function processEvent (event) {
     return event
 }
 
-export function onEvent (event) {
+export function onEvent (event, { global }) {
+    // we use this to mock setupPlugin being 
+    // run after some events were already ingested
+    global.timestampBoundariesForTeam = {
+        max: new Date(),
+        min: new Date(Date.now()-${ONE_HOUR})
+    }
     testConsole.log('onEvent', event.event)
 }
 
@@ -49,9 +54,11 @@ export function onSnapshot (event) {
     testConsole.log('onSnapshot', event.event)
 }
 
-export async function exportEvents(events, meta) {
-    for (const _ in events.filter(e => e.event.startsWith('historicalEvent'))) 
-        await meta.cache.incr('historical_events_seen')
+
+export async function exportEvents(events) {
+    for (const event of events) {
+        testConsole.log('exported event', event.event)
+    }
 }
 `
 
@@ -60,7 +67,6 @@ describe('e2e', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
-    let redis: IORedis.Redis
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
@@ -74,13 +80,9 @@ describe('e2e', () => {
         hub = startResponse.hub
         stopServer = startResponse.stop
         posthog = createPosthog(hub, pluginConfig39)
-        redis = await hub.redisPool.acquire()
-
-        await redis.del(HISTORICAL_EVENTS_COUNTER_CACHE_KEY)
     })
 
     afterEach(async () => {
-        await hub.redisPool.release(redis)
         await stopServer()
     })
 
@@ -150,19 +152,25 @@ describe('e2e', () => {
     })
 
     describe('e2e export historical events', () => {
+        const awaitLogs = async () =>
+            await new Promise((resolve) => {
+                resolve(testConsole.read().filter((log) => log[0] === 'exported event'))
+            })
+
         test('export historical events', async () => {
             await posthog.capture('historicalEvent1')
             await posthog.capture('historicalEvent2')
             await posthog.capture('historicalEvent3')
             await posthog.capture('historicalEvent4')
 
-            await delayUntilEventIngested(() => hub.db.fetchEvents())
-
-            await delay(2000)
+            await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
+            await delay(100)
 
             const historicalEvents = await hub.db.fetchEvents()
-
             expect(historicalEvents.length).toBe(4)
+
+            const exportedEventsCountBeforeJob = testConsole.read().filter((log) => log[0] === 'exported event').length
+            expect(exportedEventsCountBeforeJob).toEqual(0)
 
             const kwargs = {
                 pluginConfigTeam: 2,
@@ -176,11 +184,65 @@ describe('e2e', () => {
             const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
             client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
 
+            await delayUntilEventIngested(awaitLogs, 4)
+            await delay(100)
+
+            const exportedEventsAfterJob = testConsole.read().filter((log) => log[0] === 'exported event')
+            expect(exportedEventsAfterJob.length).toEqual(4)
+            expect(exportedEventsAfterJob.map((log) => log[1])).toEqual(
+                expect.arrayContaining(['historicalEvent1', 'historicalEvent2', 'historicalEvent3', 'historicalEvent4'])
+            )
+        })
+
+        test('export historical events with specified timestamp boundaries', async () => {
+            await posthog.capture('historicalEvent1')
+            await posthog.capture('historicalEvent2')
+            await posthog.capture('historicalEvent3')
+            await posthog.capture('historicalEvent4')
+
+            await delayUntilEventIngested(() => hub.db.fetchEvents(), 4)
+            await delay(1000)
+
+            const historicalEvents = await hub.db.fetchEvents()
+            expect(historicalEvents.length).toBe(4)
+
+            const exportedEventsCountBeforeJob = testConsole.read().filter((log) => log[0] === 'exported event').length
+            expect(exportedEventsCountBeforeJob).toEqual(0)
+
+            const kwargs = {
+                pluginConfigTeam: 2,
+                pluginConfigId: 39,
+                type: 'Export events from the beginning',
+                jobOp: 'start',
+                payload: {
+                    dateFrom: new Date().toISOString(),
+                    dateTo: new Date().toISOString(),
+                },
+            }
+            let args = Object.values(kwargs)
+
+            const client = new Client(hub.db, hub.PLUGINS_CELERY_QUEUE)
+            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
+
             await delay(10000)
 
-            const totalEvents = await redis.get(HISTORICAL_EVENTS_COUNTER_CACHE_KEY)
+            const exportedEventsCountAfterFirstJob = testConsole
+                .read()
+                .filter((log) => log[0] === 'exported event').length
+            expect(exportedEventsCountAfterFirstJob).toEqual(0)
 
-            expect(Number(totalEvents)).toBe(4)
+            kwargs.payload.dateFrom = new Date(Date.now() - ONE_HOUR).toISOString()
+            args = Object.values(kwargs)
+            client.sendTask('posthog.tasks.plugins.plugin_job', args, {})
+
+            await delayUntilEventIngested(awaitLogs, 4)
+            await delay(1000)
+
+            const exportedEventsAfterSecondJob = testConsole.read().filter((log) => log[0] === 'exported event')
+            expect(exportedEventsAfterSecondJob.length).toEqual(4)
+            expect(exportedEventsAfterSecondJob.map((log) => log[1])).toEqual(
+                expect.arrayContaining(['historicalEvent1', 'historicalEvent2', 'historicalEvent3', 'historicalEvent4'])
+            )
         })
     })
 })

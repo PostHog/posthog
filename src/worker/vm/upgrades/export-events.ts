@@ -3,15 +3,16 @@ import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-sca
 
 import { Hub, MetricMathOperations, PluginConfig, PluginConfigVMInternalResponse, PluginTaskType } from '../../../types'
 import { status } from '../../../utils/status'
-import { stringClamp } from '../../../utils/utils'
+import { determineNodeEnv, stringClamp } from '../../../utils/utils'
+import { NodeEnv } from './../../../utils/utils'
 
 const MAXIMUM_RETRIES = 15
 const EXPORT_BUFFER_BYTES_MINIMUM = 1
 const EXPORT_BUFFER_BYTES_DEFAULT = 1024 * 1024
 const EXPORT_BUFFER_BYTES_MAXIMUM = 100 * 1024 * 1024
 const EXPORT_BUFFER_SECONDS_MINIMUM = 1
-const EXPORT_BUFFER_SECONDS_DEFAULT = 10
 const EXPORT_BUFFER_SECONDS_MAXIMUM = 600
+const EXPORT_BUFFER_SECONDS_DEFAULT = determineNodeEnv() === NodeEnv.Test ? EXPORT_BUFFER_SECONDS_MAXIMUM : 10
 
 type ExportEventsUpgrade = Plugin<{
     global: {
