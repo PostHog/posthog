@@ -195,7 +195,7 @@ export const eventsTableLogic = kea({
                     ...router.values.searchParams,
                     properties: values.properties,
                 },
-                window.location.hash,
+                router.values.hashParams,
                 { replace: true },
             ]
         },
@@ -204,10 +204,9 @@ export const eventsTableLogic = kea({
                 router.values.location.pathname,
                 {
                     ...router.values.searchParams,
-                    properties: values.properties,
                     autoload: values.automaticLoadEnabled,
                 },
-                window.location.hash,
+                router.values.hashParams,
                 { replace: true },
             ]
         },
