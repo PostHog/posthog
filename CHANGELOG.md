@@ -4,6 +4,7 @@
 
 -   Bug fix. Fixes a bug where refreshing dashboards could cause a server overload (#5865).
 -   Bug fix. Fixes a bug where SAML wouldn't work correctly on Dockerized installations (#5965).
+-   Bug fix. Adds more safeguards to prevent incorrect person merges, leading to incorrect user counts (#6023). In addition, we now report an aggregate number to signal if any incorrect data is detected (#6024).
 -   Improvement. Updates event reporting to enable usaged-based billing for Scale customers.
 
 ### 1.28.0 - Wednesday 15 September 2021
