@@ -49,7 +49,7 @@ export const eventsTableLogic = kea({
 
     actions: () => ({
         setProperties: (properties) => {
-            if (properties === []) {
+            if (Array.isArray(properties) && properties.length === 0) {
                 return { properties: {} }
             }
             return { properties }
