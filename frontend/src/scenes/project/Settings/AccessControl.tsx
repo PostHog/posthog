@@ -20,19 +20,28 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
 
     return (
         <div>
-            <h2 className="subtitle" id="privacy">
-                Privacy settings
+            <h2 className="subtitle" id="access-control">
+                Access Control
             </h2>
             <p>
                 {projectPermissioningEnabled ? (
                     <>
-                        This project is <b>private</b>. Only members listed below and your organization's administrators
-                        and owner will be allowed to access it.
+                        This project is{' '}
+                        <b>
+                            <LockOutlined style={{ color: 'var(--warning)', marginRight: 5 }} />
+                            private
+                        </b>
+                        . Only members listed below are allowed to access it.
                     </>
                 ) : (
                     <>
-                        This project is open. Any member in your organization can access it. To enable granular access
-                        control, make it private.
+                        This project is{' '}
+                        <b>
+                            <UnlockOutlined style={{ marginRight: 5 }} />
+                            open
+                        </b>
+                        . Any member of the organization can access it. To enable granular access control, make it
+                        private.
                     </>
                 )}
             </p>
@@ -57,17 +66,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                 }}
                 htmlFor="project-based-permissioning-switch"
             >
-                {projectPermissioningEnabled ? (
-                    <>
-                        <LockOutlined style={{ color: 'var(--warning)', marginRight: 4 }} /> This project is{' '}
-                        <b>private</b>
-                    </>
-                ) : (
-                    <>
-                        <UnlockOutlined style={{ marginRight: 4 }} /> This project is open
-                    </>
-                )}
-                .
+                Make project private
             </label>
         </div>
     )
