@@ -12,20 +12,20 @@ import {
     CrownFilled,
 } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
-import { getReasonForAccessLevelChangeProhibition } from '../../../lib/utils/permissioning'
+import {
+    getReasonForAccessLevelChangeProhibition,
+    organizationMembershipLevelIntegers,
+    membershipLevelToName,
+} from '../../../lib/utils/permissioning'
 
-const membershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
-    (value) => typeof value === 'number'
-) as OrganizationMembershipLevel[]
-
-export function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
+function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { changeMemberAccessLevel } = useActions(membersLogic)
@@ -65,11 +65,11 @@ export function LevelComponent(member: OrganizationMemberType): JSX.Element | nu
             data-attr="change-membership-level"
             icon={member.level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
         >
-            {organizationMembershipLevelToName.get(member.level) ?? `unknown (${member.level})`}
+            {membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}
         </Button>
     )
 
-    const allowedLevels = membershipLevelIntegers.filter(
+    const allowedLevels = organizationMembershipLevelIntegers.filter(
         (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
     )
     const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
@@ -91,12 +91,12 @@ export function LevelComponent(member: OrganizationMemberType): JSX.Element | nu
                                 ) : listLevel > member.level ? (
                                     <>
                                         <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                        Upgrade to {organizationMembershipLevelToName.get(listLevel)}
+                                        Upgrade to {membershipLevelToName.get(listLevel)}
                                     </>
                                 ) : (
                                     <>
                                         <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                        Downgrade to {organizationMembershipLevelToName.get(listLevel)}
+                                        Downgrade to {membershipLevelToName.get(listLevel)}
                                     </>
                                 )}
                             </a>
