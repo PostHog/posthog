@@ -48,7 +48,12 @@ export const eventsTableLogic = kea({
         props.key,
 
     actions: () => ({
-        setProperties: (properties) => ({ properties }),
+        setProperties: (properties) => {
+            if (properties === []) {
+                return { properties: {} }
+            }
+            return { properties }
+        },
         setColumnConfig: (columnConfig) => ({ columnConfig }),
         setColumnConfigSaving: (saving) => ({ saving }), // Type: boolean
         fetchEvents: (nextParams = null) => ({ nextParams }),
