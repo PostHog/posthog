@@ -14,7 +14,12 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepsPicker'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
+    const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(
+        funnelLogic({
+            dashboardItemId: null,
+            filters: null,
+        })
+    )
     const { allFilters } = useValues(insightLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
 
