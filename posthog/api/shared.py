@@ -36,7 +36,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "ingested_event",
             "is_demo",
             "timezone",
-            "project_based_permissioning",
+            "access_control",
             "effective_membership_level",
         )
 

@@ -79,7 +79,7 @@ class Organization(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
-    )  # Used to allow/block self-serve account creation based on social login (#5111)
+    )  # Used to allow self-serve account creation based on social login (#5111)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
     personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(

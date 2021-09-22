@@ -21,6 +21,7 @@ import {
     CreditCardOutlined,
     KeyOutlined,
     SmileOutlined,
+    StopOutlined,
 } from '@ant-design/icons'
 import { sceneLogic, urls } from 'scenes/sceneLogic'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
@@ -30,14 +31,16 @@ import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPalett
 import { Link } from 'lib/components/Link'
 import { LinkButton } from 'lib/components/LinkButton'
 import { BulkInviteModal } from 'scenes/organization/Settings/BulkInviteModal'
-import { AvailableFeature, UserType } from '~/types'
+import { AvailableFeature, TeamBasicType, UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Environments, FEATURE_FLAGS } from 'lib/constants'
+import { Environments, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
+import { teamLogic } from '../../scenes/teamLogic'
+import { organizationLogic } from '../../scenes/organizationLogic'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -48,6 +51,53 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
                 <span>{user.organization?.name}</span>
             </div>
         </div>
+    )
+}
+
+function ProjectRow({ team }: { team: TeamBasicType }): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(userLogic)
+    const { push } = router.actions
+
+    const isCurrent = team.id === currentTeam?.id
+    const isRestricted = !team.effective_membership_level
+
+    return (
+        <button
+            key={team.id}
+            className="plain-button"
+            type="button"
+            onClick={(e) => {
+                if (!isCurrent && !isRestricted) {
+                    updateCurrentTeam(team.id, '/')
+                } else {
+                    e.preventDefault() // Prevent dropdown from hiding if can't switch project
+                }
+            }}
+            disabled={isCurrent || isRestricted}
+            style={{
+                cursor: isCurrent || isRestricted ? 'default' : undefined,
+                color: isRestricted ? 'var(--text-muted)' : undefined,
+            }}
+        >
+            {isRestricted ? <StopOutlined className="mr-05" /> : <ProjectOutlined className="mr-05" />}
+            <span style={{ flexGrow: 1, fontWeight: isCurrent ? 700 : 400 }}>{team.name}</span>
+            {!isRestricted && (
+                <span
+                    className="subaction"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        if (isCurrent) {
+                            push(urls.projectSettings())
+                        } else {
+                            updateCurrentTeam(team.id, '/project/settings')
+                        }
+                    }}
+                >
+                    <ToolOutlined />
+                </span>
+            )}
+        </button>
     )
 }
 
@@ -70,15 +120,21 @@ export function TopNavigation(): JSX.Element {
         projectModalShown,
         organizationModalShown,
     } = useValues(navigationLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { billing } = useValues(billingLogic)
-    const { logout, updateCurrentTeam, updateCurrentOrganization } = useActions(userLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { logout, updateCurrentOrganization } = useActions(userLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
-    const { push } = router.actions
     const { showPalette } = useActions(commandPaletteLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const isCurrentProjectRestricted = currentTeam && !currentTeam.effective_membership_level
+    const isProjectCreationForbidden =
+        !currentOrganization?.membership_level ||
+        currentOrganization.membership_level < OrganizationMembershipLevel.Admin
 
     const whoAmIDropdown = (
         <div className="navigation-top-dropdown whoami-dropdown">
@@ -201,46 +257,21 @@ export function TopNavigation(): JSX.Element {
         <div className="navigation-top-dropdown project-dropdown">
             <div className="title">Select project</div>
             <div className="projects">
-                {user?.organization?.teams &&
-                    user.organization.teams
+                {currentOrganization?.teams &&
+                    currentOrganization.teams
                         .sort((teamA, teamB) =>
-                            teamA.id === user?.team?.id ? -2 : teamA.name.localeCompare(teamB.name)
+                            teamA.id === currentTeam?.id
+                                ? -2
+                                : teamA.effective_membership_level
+                                ? 2
+                                : teamA.name.localeCompare(teamB.name)
                         )
-                        .map((team) => {
-                            const isCurrentTeam = team.id === user?.team?.id
-                            return (
-                                <button
-                                    key={team.id}
-                                    className="plain-button"
-                                    type="button"
-                                    onClick={() => updateCurrentTeam(team.id, '/')}
-                                    style={isCurrentTeam ? { cursor: 'default' } : undefined}
-                                    disabled={isCurrentTeam}
-                                >
-                                    <ProjectOutlined className="mr-05" />
-                                    <span style={{ flexGrow: 1, fontWeight: isCurrentTeam ? 700 : 400 }}>
-                                        {team.name}
-                                    </span>
-                                    <span
-                                        className="subaction"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            if (isCurrentTeam) {
-                                                push(urls.projectSettings())
-                                            } else {
-                                                updateCurrentTeam(team.id, '/project/settings')
-                                            }
-                                        }}
-                                    >
-                                        <ToolOutlined />
-                                    </span>
-                                </button>
-                            )
-                        })}
+                        .map((team) => <ProjectRow key={team.id} team={team} />)}
             </div>
             <button
                 type="button"
                 className="plain-button"
+                disabled={isProjectCreationForbidden}
                 onClick={() =>
                     guardAvailableFeature(
                         AvailableFeature.ORGANIZATIONS_PROJECTS,
@@ -251,6 +282,10 @@ export function TopNavigation(): JSX.Element {
                         }
                     )
                 }
+                style={{
+                    cursor: isProjectCreationForbidden ? 'default' : undefined,
+                    color: isProjectCreationForbidden ? 'var(--text-muted)' : undefined,
+                }}
             >
                 <PlusOutlined className="mr-05" />
                 Create new project
@@ -307,8 +342,12 @@ export function TopNavigation(): JSX.Element {
                         placement="bottomCenter"
                     >
                         <div>
-                            <ProjectOutlined className="mr-05" />
-                            {user?.team?.name}
+                            {isCurrentProjectRestricted ? (
+                                <StopOutlined className="mr-05" />
+                            ) : (
+                                <ProjectOutlined className="mr-05" />
+                            )}
+                            {currentTeam?.name}
                             <DownOutlined className="ml-05" />
                         </div>
                     </Dropdown>

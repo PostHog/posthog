@@ -4,10 +4,14 @@ import { router } from 'kea-router'
 import { getContext, Provider } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { App } from 'scenes/App'
+import { featureFlagLogic } from '../logic/featureFlagLogic'
+import { systemStatusLogic } from '../../scenes/instance/SystemStatus/systemStatusLogic'
 
 function resetKeaWithState(state: Record<string, any>): void {
     const history = createMemoryHistory({ initialEntries: [state.kea.router.location] })
     initKea({ state, routerLocation: history.location, routerHistory: history })
+    featureFlagLogic.mount()
+    systemStatusLogic.mount()
     router.mount()
     const { store } = getContext()
     store.dispatch({ type: 'bla' })
