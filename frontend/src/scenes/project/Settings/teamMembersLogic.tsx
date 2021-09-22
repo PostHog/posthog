@@ -49,8 +49,8 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                 toast(
                     <div>
                         <h1 className="text-success">
-                            <CheckCircleOutlined /> Added {newMembers.length} members{newMembers.length !== 1 && 's'}{' '}
-                            from the project.
+                            <CheckCircleOutlined /> Added {newMembers.length} members{newMembers.length !== 1 && 's'} to
+                            the project.
                         </h1>
                     </div>
                 )

@@ -13,6 +13,8 @@ export function ProfilePicture({ name, email, size, style }: ProfilePictureProps
     const [didImageError, setDidImageError] = useState(false)
     const pictureClass = `profile-picture${size ? ` ${size}` : ''}`
 
+    const initial = name ? name[0]?.toUpperCase() : email ? email[0]?.toUpperCase() : '?'
+
     if (email && !didImageError) {
         const emailHash = md5(email.trim().toLowerCase())
         const gravatarUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
@@ -25,22 +27,11 @@ export function ProfilePicture({ name, email, size, style }: ProfilePictureProps
                 alt=""
             />
         )
-    } else if (name) {
-        return (
-            <div className={pictureClass} style={style}>
-                {name[0]?.toUpperCase()}
-            </div>
-        )
-    } else if (email) {
-        return (
-            <div className={pictureClass} style={style}>
-                {email[0]?.toUpperCase()}
-            </div>
-        )
     }
+
     return (
         <div className={pictureClass} style={style}>
-            ?
+            {initial}
         </div>
     )
 }
