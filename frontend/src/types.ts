@@ -96,7 +96,8 @@ export interface OrganizationType extends OrganizationBasicType {
     membership_level: OrganizationMembershipLevel | null
 }
 
-interface BaseMemberType {
+/** Member properties relevant at both organization and project level. */
+export interface BaseMemberType {
     id: string
     user: UserBasicType
     joined_at: string

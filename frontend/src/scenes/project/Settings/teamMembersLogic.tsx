@@ -5,6 +5,7 @@ import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import {
+    BaseMemberType,
     ExplicitTeamMemberType,
     FusedTeamMemberType,
     OrganizationMemberType,
@@ -17,7 +18,7 @@ import { membersLogic } from '../../organization/Settings/membersLogic'
 import { membershipLevelToName } from '../../../lib/utils/permissioning'
 import { userLogic } from '../../userLogic'
 
-const MINIMUM_DEFAULT_ACCESS_LEVEL = OrganizationMembershipLevel.Admin
+export const MINIMUM_IMPLICIT_ACCESS_LEVEL = OrganizationMembershipLevel.Admin
 
 export const teamMembersLogic = kea<teamMembersLogicType>({
     props: {} as {
@@ -30,16 +31,16 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
             newLevel,
         }),
     },
-    loaders: ({ values }) => ({
+    loaders: ({ props, values }) => ({
         explicitMembers: {
             __default: [] as ExplicitTeamMemberType[],
             loadMembers: async () => {
-                return await api.get('api/projects/@current/explicit_members/')
+                return await api.get(`api/projects/${props.team.id}/explicit_members/`)
             },
             addMembers: async ({ userUuids, level }: { userUuids: string[]; level: TeamMembershipLevel }) => {
                 const newMembers: ExplicitTeamMemberType[] = await Promise.all(
                     userUuids.map((userUuid) =>
-                        api.create(`api/projects/@current/explicit_members/`, {
+                        api.create(`api/projects/${props.team.id}/explicit_members/`, {
                             user_uuid: userUuid,
                             level,
                         })
@@ -55,16 +56,20 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                 )
                 return [...values.explicitMembers, ...newMembers]
             },
-            removeMember: async ({ member }: { member: ExplicitTeamMemberType }) => {
-                await api.delete(`api/projects/@current/explicit_members/${member.user.id}/`)
+            removeMember: async ({ member }: { member: BaseMemberType }) => {
+                await api.delete(`api/projects/${props.team.id}/explicit_members/${member.user.uuid}/`)
                 toast(
                     <div>
                         <h1 className="text-success">
-                            <CheckCircleOutlined /> Removed <b>{member.user.first_name}</b> from the project.
+                            <CheckCircleOutlined />{' '}
+                            {member.user.uuid === userLogic.values.user?.uuid
+                                ? 'Left'
+                                : `Removed ${member.user.first_name} (${member.user.email}) from`}{' '}
+                            the project.
                         </h1>
                     </div>
                 )
-                return values.explicitMembers.filter((thisMember) => thisMember.user.id !== member.user.id)
+                return values.explicitMembers.filter((thisMember) => thisMember.user.uuid !== member.user.uuid)
             },
         },
     }),
@@ -77,7 +82,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                 organizationMembers: OrganizationMemberType[]
             ): FusedTeamMemberType[] =>
                 organizationMembers
-                    .filter(({ level }) => level >= MINIMUM_DEFAULT_ACCESS_LEVEL)
+                    .filter(({ level }) => level >= MINIMUM_IMPLICIT_ACCESS_LEVEL)
                     .map(
                         (member) =>
                             ({
@@ -88,7 +93,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                     )
                     .concat(
                         explicitMembers
-                            .filter(({ parent_level }) => parent_level < MINIMUM_DEFAULT_ACCESS_LEVEL)
+                            .filter(({ parent_level }) => parent_level < MINIMUM_IMPLICIT_ACCESS_LEVEL)
                             .map(
                                 (member) =>
                                     ({
@@ -122,7 +127,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                             effectiveLevel = Math.max(explicitMember.effective_level, organizationMember.level)
                         } else {
                             effectiveLevel =
-                                organizationMember.level >= MINIMUM_DEFAULT_ACCESS_LEVEL
+                                organizationMember.level >= MINIMUM_IMPLICIT_ACCESS_LEVEL
                                     ? organizationMember.level
                                     : null
                         }
@@ -135,9 +140,9 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                     }),
         ],
     }),
-    listeners: ({ actions }) => ({
+    listeners: ({ props, actions }) => ({
         changeUserAccessLevel: async ({ user, newLevel }) => {
-            await api.update(`api/projects/@current/explicit_members/${user.uuid}/`, { level: newLevel })
+            await api.update(`api/projects/${props.team.id}/explicit_members/${user.uuid}/`, { level: newLevel })
             toast(
                 <div>
                     <h1 className="text-success">
