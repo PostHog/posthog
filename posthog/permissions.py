@@ -159,5 +159,5 @@ if settings.EE_AVAILABLE:
     from ee.api.explicit_team_member import TeamMemberAccessPermission
 else:
 
-    class TeamMemberAccessPermission(BasePermission):
+    class TeamMemberAccessPermission(BasePermission):  # type: ignore
         """If EE features are not available, this class is a just dummy."""
