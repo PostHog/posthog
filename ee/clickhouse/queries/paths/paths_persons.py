@@ -7,6 +7,21 @@ from posthog.models.filters.filter import Filter
 
 
 class ClickhousePathsPersons(ClickhousePaths):
+    """    
+    `path_start_key` and `path_end_key` are two new params for this class.
+    These determine the start and end point of Paths you want. Both of these are optional.
+
+    Not specifying them means "get me all users on this path query".
+
+    Only specifying `path_start_key` means "get me all users whose paths start at this key"
+    Only specifying `path_end_key` means "get me all users whose paths end at this key"
+
+    Specifying both means "get me all users whose path starts at `start_key` and ends at `end_key`."
+    Note that:
+        Persons are calculated only between direct paths. There should not be any
+        other path item between start and end key.
+    """
+
     def get_query(self):
 
         paths_per_person_query = self.get_paths_per_person_query()
