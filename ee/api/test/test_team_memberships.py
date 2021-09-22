@@ -61,7 +61,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+            self.permission_denied_response("Your project access level is too low for this action."), response_data
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -77,7 +77,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+            self.permission_denied_response("Your project access level is too low for this action."), response_data
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -114,7 +114,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+            self.permission_denied_response("Your project access level is too low for this action."), response_data
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -194,7 +194,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+            self.permission_denied_response("Your project access level is too low for this action."), response_data
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -315,7 +315,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data,
+            self.permission_denied_response("Your project access level is too low for this action."), response_data,
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -432,3 +432,25 @@ class TestTeamMembershipsAPI(APILicensedTest):
             response_data,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_leave_project_as_admin_allowed(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        explicit_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+        )
+
+        response = self.client.delete(f"/api/projects/@current/explicit_members/{self.user.uuid}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_leave_project_as_admin_member(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        explicit_team_membership = ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
+        )
+
+        response = self.client.delete(f"/api/projects/@current/explicit_members/{self.user.uuid}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
