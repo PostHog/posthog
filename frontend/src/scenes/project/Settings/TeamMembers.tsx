@@ -121,7 +121,7 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
     }
 
     const allowDeletion =
-        // You can leave, but only project admins can remove others,
+        // You can leave, but only project admins can remove others
         ((currentTeam?.effective_membership_level &&
             currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
             member.user.uuid === user.uuid) &&
