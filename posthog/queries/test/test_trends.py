@@ -1346,7 +1346,14 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             # test week
             with freeze_time("2020-01-02"):
                 response = trends().run(
-                    Filter(data={"date_from": "2019-11-24", "interval": "week", "events": [{"id": "sign up"}]}),
+                    Filter(
+                        data={
+                            #  2019-11-24 is a Sunday, i.e. beginning of our week
+                            "date_from": "2019-11-24",
+                            "interval": "week",
+                            "events": [{"id": "sign up"}],
+                        }
+                    ),
                     self.team,
                 )
             self.assertEqual(

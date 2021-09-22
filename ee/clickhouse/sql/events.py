@@ -169,8 +169,33 @@ SELECT timestamp from events WHERE team_id = %(team_id)s order by toDate(timesta
 """
 
 NULL_SQL = """
+-- Creates zero values for all date axis ticks for the given date_from, date_to range
 SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number)) AS day_start
-FROM numbers(dateDiff(%(interval)s, toDateTime(%(date_from)s), toDateTime(%(date_to)s)) + 1)
+
+-- Get the number of `intervals` between date_from and date_to.
+--
+-- NOTE: for week there is some unusual behavior, see:
+--       https://github.com/ClickHouse/ClickHouse/issues/7322
+--
+--       This actually aligns with what we want, as they are assuming Sunday week starts, 
+--       and we'd rather have the relative week num difference. Likewise the same for 
+--       "month" intervals
+--
+--       To ensure we get all relevant intervals, we add in the truncated "date_from" 
+--       value.
+--
+--       This behaviour of dateDiff is different to our handling of "week" and "month" 
+--       differences we are performing in python, which just considers seconds between
+--       date_from and date_to
+--
+-- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this 
+--       `ticks` query elsewhere.
+FROM numbers(dateDiff(%(interval)s, toDateTime(%(date_from)s), toDateTime(%(date_to)s)))
+
+UNION ALL 
+
+-- Make sure we capture the interval date_from falls into.
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s))
 """
 
 EVENT_JOIN_PERSON_SQL = f"""
