@@ -35,91 +35,40 @@ from posthog.queries.retention import AppearanceRow, Retention
 class ClickhouseRetention(Retention):
     def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
-        )
-        target_entity = filter.target_entity
-        returning_entity = filter.returning_entity
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         date_from = filter.date_from
-        date_to = filter.date_to
-
-        target_query = ""
-        target_params: Dict = {}
         trunc_func = get_trunc_func_ch(period)
-
-        target_query, target_params = self._get_condition(target_entity, table="e")
-        _, returning_params = self._get_condition(returning_entity, table="e", prepend="returning")
-
-        target_query_formatted = "AND {target_query}".format(target_query=target_query)
-
-        reference_event_sql = REFERENCE_EVENT_UNIQUE_SQL.format(
-            target_query=target_query_formatted,
-            filters=prop_filters,
-            trunc_func=trunc_func,
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        )
-
-        target_condition, _ = self._get_condition(target_entity, table="reference_event")
-        if is_first_time_retention:
-            target_condition = target_condition.replace("reference_event.uuid", "reference_event.min_uuid")
-            target_condition = target_condition.replace("reference_event.event", "reference_event.min_event")
 
         returning_event_query, returning_event_params = RetentionEventsQuery(
             filter=filter, team_id=team.pk, event_query_type="returning"
         ).get_query()
         target_event_query, target_event_params = RetentionEventsQuery(
-            filter=filter, team_id=team.pk, event_query_type="target"
+            filter=filter,
+            team_id=team.pk,
+            event_query_type="target_first_time" if is_first_time_retention else "target",
         ).get_query()
+
+        all_params = {
+            "team_id": team.pk,
+            "start_date": date_from.strftime(
+                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+            ),
+            **returning_event_params,
+            **target_event_params,
+            "period": period,
+        }
 
         result = sync_execute(
             RETENTION_SQL.format(
                 returning_event_query=returning_event_query,
-                filters=prop_filters,
                 trunc_func=trunc_func,
-                target_event_query=reference_event_sql if is_first_time_retention else target_event_query,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+                target_event_query=target_event_query,
             ),
-            {
-                "team_id": team.pk,
-                "start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                **prop_filter_params,
-                **returning_event_params,
-                **target_event_params,
-                "period": period,
-            },
+            all_params,
         )
 
         initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(
-                reference_event_sql=reference_event_sql if is_first_time_retention else target_event_query,
-                trunc_func=trunc_func,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-            ),
-            {
-                "team_id": team.pk,
-                "start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_end_date": (
-                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
-                ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
-                **prop_filter_params,
-                **target_event_params,
-                **returning_params,
-                "period": period,
-            },
+            INITIAL_INTERVAL_SQL.format(reference_event_sql=target_event_query, trunc_func=trunc_func,), all_params
         )
 
         result_dict = {}

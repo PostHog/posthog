@@ -11,10 +11,10 @@ from posthog.models.filters.retention_filter import RetentionFilter
 
 class RetentionEventsQuery(ClickhouseEventQuery):
     _filter: RetentionFilter
-    _event_query_type: Literal["returning", "target"]
+    _event_query_type: Literal["returning", "target", "target_first_time"]
     _trunc_func: str
 
-    def __init__(self, event_query_type: Literal["returning", "target"], *args, **kwargs):
+    def __init__(self, event_query_type: Literal["returning", "target", "target_first_time"], *args, **kwargs):
         self._event_query_type = event_query_type
         super().__init__(*args, **kwargs)
 
@@ -22,14 +22,18 @@ class RetentionEventsQuery(ClickhouseEventQuery):
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
-            (
-                f"DISTINCT {self._trunc_func}({self.EVENT_TABLE_ALIAS}.timestamp) AS event_date"
-                if self._event_query_type == "target"
-                else f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
-            )
+            (self.get_timestamp_field())
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
-            + f", {self.EVENT_TABLE_ALIAS}.uuid AS uuid"
-            + f", {self.EVENT_TABLE_ALIAS}.event AS event"
+            + (
+                f", argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
+                if self._event_query_type == "target_first_time"
+                else f", {self.EVENT_TABLE_ALIAS}.uuid AS uuid"
+            )
+            + (
+                f", argMin(e.event, {self._trunc_func}(e.timestamp)) as min_event"
+                if self._event_query_type == "target_first_time"
+                else f", {self.EVENT_TABLE_ALIAS}.event AS event"
+            )
         )
 
         date_query, date_params = self._get_date_filter()
@@ -40,7 +44,9 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         self.params.update(prop_params)
 
         entity_query, entity_params = self._get_entity_query(
-            entity=self._filter.target_entity if self._event_query_type == "target" else self._filter.returning_entity
+            entity=self._filter.target_entity
+            if self._event_query_type == "target" or self._event_query_type == "target_first_time"
+            else self._filter.returning_entity
         )
         self.params.update(entity_params)
 
@@ -49,12 +55,21 @@ class RetentionEventsQuery(ClickhouseEventQuery):
             {self._get_disintct_id_query()}
             {self._get_person_query()}
             WHERE team_id = %(team_id)s
-            {entity_query}
-            {date_query}
+            {f"AND {entity_query}"}
+            {f"AND {date_query}" if self._event_query_type != "target_first_time" else ''}
             {prop_query}
+            {f"GROUP BY person_id HAVING {date_query}" if self._event_query_type == "target_first_time" else ''}
         """
 
         return query, self.params
+
+    def get_timestamp_field(self) -> str:
+        if self._event_query_type == "target":
+            return f"DISTINCT {self._trunc_func}({self.EVENT_TABLE_ALIAS}.timestamp) AS event_date"
+        elif self._event_query_type == "target_first_time":
+            return f"min({self._trunc_func}(e.timestamp)) as event_date"
+        else:
+            return f"{self.EVENT_TABLE_ALIAS}.timestamp AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = True
@@ -71,10 +86,14 @@ class RetentionEventsQuery(ClickhouseEventQuery):
         else:
             condition = f"{self.EVENT_TABLE_ALIAS}.event = %({prepend}_event)s"
             params = {f"{prepend}_event": PAGEVIEW_EVENT}
-        return f"AND {condition}", params
+        return condition, params
 
     def _get_date_filter(self):
-        query = f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s)"
+        query = (
+            f"event_date >= toDateTime(%({self._event_query_type}_start_date)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s)"
+            if self._event_query_type == "target_first_time"
+            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s)"
+        )
         params = {
             f"{self._event_query_type}_start_date": self._filter.date_from.strftime(
                 "%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")
@@ -85,4 +104,4 @@ class RetentionEventsQuery(ClickhouseEventQuery):
                 else self._filter.date_to
             ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self._filter.period == "Hour" else " 00:00:00")),
         }
-        return f"AND {query}", params
+        return query, params
