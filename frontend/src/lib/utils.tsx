@@ -64,6 +64,10 @@ export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
 }
 
 export function toParams(obj: Record<string, any>): string {
+    if (!obj) {
+        return ''
+    }
+
     function handleVal(val: any): string {
         if (dayjs.isDayjs(val)) {
             return encodeURIComponent(val.format('YYYY-MM-DD'))
