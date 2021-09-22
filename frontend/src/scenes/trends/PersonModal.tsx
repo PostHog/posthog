@@ -91,7 +91,7 @@ export function PersonModalDialog({ visible, view, filters }: PersonModalProps):
     )
 
     const isSaveAsCohortAvailable =
-        (clickhouseFeaturesEnabled && view === ViewType.TRENDS) || view === ViewType.STICKINESS
+        clickhouseFeaturesEnabled && (view === ViewType.TRENDS || view === ViewType.STICKINESS)
 
     return (
         <Modal
