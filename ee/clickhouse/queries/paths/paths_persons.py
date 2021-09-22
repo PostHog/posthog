@@ -7,6 +7,21 @@ from posthog.models.filters.filter import Filter
 
 
 class ClickhousePathsPersons(ClickhousePaths):
+    """    
+    `path_start_key` and `path_end_key` are two new params for this class.
+    These determine the start and end point of Paths you want. Both of these are optional.
+
+    Not specifying them means "get me all users on this path query".
+
+    Only specifying `path_start_key` means "get me all users whose paths start at this key"
+    Only specifying `path_end_key` means "get me all users whose paths end at this key"
+
+    Specifying both means "get me all users whose path starts at `start_key` and ends at `end_key`."
+    Note that:
+        Persons are calculated only between direct paths. There should not be any
+        other path item between start and end key.
+    """
+
     def get_query(self):
 
         paths_per_person_query = self.get_paths_per_person_query()
@@ -16,12 +31,12 @@ class ClickhousePathsPersons(ClickhousePaths):
         if self.should_query_funnel():
             paths_funnel_cte = self.get_path_query_funnel_cte(cast(Filter, self._funnel_filter))
 
-        self.params["limit"] = self._filter.limit or 100
+        self.params["limit"] = self._filter.limit
         self.params["offset"] = self._filter.offset
 
         return f"""
             {paths_funnel_cte}
-            SELECT person_id
+            SELECT DISTINCT person_id
             FROM (
                 {paths_per_person_query}
             )
@@ -41,7 +56,10 @@ class ClickhousePathsPersons(ClickhousePaths):
             conditions.append("path_key = %(path_end_key)s")
             self.params["path_end_key"] = self._filter.path_end_key
 
-        return " AND ".join(conditions)
+        if conditions:
+            return " AND ".join(conditions)
+
+        return "1=1"
 
     def _format_results(self, results):
         people = Person.objects.filter(team_id=self._team.pk, uuid__in=[val[0] for val in results])
