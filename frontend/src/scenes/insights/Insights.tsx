@@ -34,7 +34,7 @@ import { People } from 'scenes/funnels/FunnelPeople'
 import { InsightsTable } from './InsightsTable'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { AvailableFeature, FunnelVizType, HotKeys, ItemMode, ViewType } from '~/types'
+import { AvailableFeature, FunnelVizType, HotKeys, InsightType, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
@@ -100,7 +100,10 @@ export function Insights(): JSX.Element {
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
-    const logicFromInsight = getLogicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
+    const logicFromInsight = getLogicFromInsight(activeView as InsightType, {
+        dashboardItemId: fromItem || null,
+        filters: allFilters,
+    })
     const { loadResults } = useActions(logicFromInsight)
     const { resultsLoading } = useValues(logicFromInsight)
 

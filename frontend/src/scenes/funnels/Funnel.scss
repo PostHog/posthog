@@ -3,13 +3,13 @@
 .funnels-empty-state {
     text-align: center;
     h2.funnels-empty-state__title {
-        font-weight: 600;
+        font-weight: bold;
         font-size: 1.5rem;
         line-height: 1.6rem;
     }
 
     .funnels-empty-state__description {
-        font-weight: 500;
+        font-weight: medium;
         font-size: 1rem;
         line-height: 1.7rem;
         color: $text_muted;
