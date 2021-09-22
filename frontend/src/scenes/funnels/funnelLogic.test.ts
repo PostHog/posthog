@@ -77,7 +77,6 @@ describe('funnelLogic', () => {
                     rawResults: {
                         filters: {},
                         results: [],
-                        timeConversionResults: { average_conversion_time: 0, bins: [] },
                     },
                     filters: {
                         actions: [
@@ -97,7 +96,6 @@ describe('funnelLogic', () => {
                             ],
                         },
                         results: [],
-                        timeConversionResults: { average_conversion_time: 0, bins: [] },
                     },
                     filters: {
                         actions: [
