@@ -240,6 +240,33 @@ def get_event_count() -> int:
     return result
 
 
+def get_event_count_for_last_month() -> int:
+    result = sync_execute(
+        """
+        -- count of events last month
+        SELECT
+        COUNT(1) freq
+        FROM events
+        WHERE 
+        toStartOfMonth(timestamp) = toStartOfMonth(date_sub(MONTH, 1, now()))
+    """
+    )[0][0]
+    return result
+
+
+def get_event_count_month_to_date() -> int:
+    result = sync_execute(
+        """
+        -- count of events month to date
+        SELECT
+        COUNT(1) freq
+        FROM events
+        WHERE toStartOfMonth(timestamp) = toStartOfMonth(now());
+    """
+    )[0][0]
+    return result
+
+
 def get_events_count_for_team_by_client_lib(
     team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
 ) -> dict:

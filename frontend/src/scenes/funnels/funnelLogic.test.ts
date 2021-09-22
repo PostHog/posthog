@@ -1,5 +1,5 @@
 import { BuiltLogic } from 'kea'
-import { funnelLogic } from './funnelLogic'
+import { funnelLogic, FunnelLogicProps } from './funnelLogic'
 import { funnelLogicType } from './funnelLogicType'
 import { api, mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
@@ -12,7 +12,7 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 jest.mock('lib/api')
 
 describe('funnelLogic', () => {
-    let logic: BuiltLogic<funnelLogicType>
+    let logic: BuiltLogic<funnelLogicType<FunnelLogicProps>>
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === 'api/insight/funnel/') {
@@ -77,7 +77,6 @@ describe('funnelLogic', () => {
                     rawResults: {
                         filters: {},
                         results: [],
-                        timeConversionResults: { average_conversion_time: 0, bins: [] },
                     },
                     filters: {
                         actions: [
@@ -97,7 +96,6 @@ describe('funnelLogic', () => {
                             ],
                         },
                         results: [],
-                        timeConversionResults: { average_conversion_time: 0, bins: [] },
                     },
                     filters: {
                         actions: [

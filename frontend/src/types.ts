@@ -235,7 +235,7 @@ export type EditorProps = {
     userIntent?: ToolbarUserIntent
     instrument?: boolean
     distinctId?: string
-    userEmail?: boolean
+    userEmail?: string
     dataAttributes?: string[]
     featureFlags?: Record<string, string | boolean>
 }
@@ -517,7 +517,7 @@ export interface DashboardItemType {
     name: string
     short_id: string
     description?: string
-    filters: Record<string, any>
+    filters: Partial<FilterType>
     filters_hash: string
     order: number
     deleted: boolean
@@ -740,7 +740,7 @@ export interface FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
-    hidden_map?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
+    hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
 }
 
 export interface SystemStatusSubrows {
@@ -928,8 +928,15 @@ export interface ChartParams {
     filters: Partial<FilterType>
     inSharedMode?: boolean
     showPersonsModal?: boolean
-    cachedResults?: TrendResult
+    cachedResults?: TrendResult[]
     view: ViewType
+}
+
+export interface DashboardItemLogicProps {
+    dashboardItemId?: number | null
+    cachedResults?: any
+    filters?: Partial<FilterType> | null
+    preventLoading?: boolean
 }
 
 export interface FeatureFlagGroupType {

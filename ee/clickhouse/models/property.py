@@ -257,11 +257,14 @@ def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, pr
         if selectors:
             combination_conditions = []
             for idx, query in enumerate(selectors):
+                if not query:  # Skip empty selectors
+                    continue
                 selector = Selector(query, escape_slashes=False)
                 key = f"{prepend}_{idx}_selector_regex"
                 params[key] = build_selector_regex(selector)
                 combination_conditions.append(f"match(elements_chain, %({key})s)")
-            final_conditions.append(f"({' OR '.join(combination_conditions)})")
+            if combination_conditions:
+                final_conditions.append(f"({' OR '.join(combination_conditions)})")
         elif operator not in NEGATED_OPERATORS:
             # If a non-negated filter has an empty selector list provided, it can't match anything
             return "0 = 191", {}
