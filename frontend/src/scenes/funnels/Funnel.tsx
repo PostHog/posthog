@@ -9,7 +9,11 @@ import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import './Funnel.scss'
 
 export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
-    const logic = funnelLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
+    const logic = funnelLogic({
+        dashboardItemId: props.dashboardItemId,
+        filters: props.filters,
+        cachedResults: props.cachedResults,
+    })
     const { filters } = useValues(logic)
     const funnel_viz_type = filters.funnel_viz_type || props.filters.funnel_viz_type
 

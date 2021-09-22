@@ -484,7 +484,7 @@ export interface DashboardItemType {
     name: string
     short_id: string
     description?: string
-    filters: Record<string, any>
+    filters: Partial<FilterType>
     filters_hash: string
     order: number
     deleted: boolean
@@ -895,8 +895,15 @@ export interface ChartParams {
     filters: Partial<FilterType>
     inSharedMode?: boolean
     showPersonsModal?: boolean
-    cachedResults?: TrendResult
+    cachedResults?: TrendResult[]
     view: ViewType
+}
+
+export interface DashboardItemLogicProps {
+    dashboardItemId?: number | null
+    cachedResults?: any
+    filters?: Partial<FilterType> | null
+    preventLoading?: boolean
 }
 
 export interface FeatureFlagGroupType {
