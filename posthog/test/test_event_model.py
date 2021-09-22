@@ -383,6 +383,26 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             events = _get_events_for_action(action1)
             self.assertEqual(len(events), 0)
 
+        def test_empty_selector_same_as_null(self):
+            _create_person(distinct_ids=["whatever"], team=self.team)
+            action_null_selector = Action.objects.create(team=self.team)
+            ActionStep.objects.create(action=action_null_selector, event="$autocapture", selector=None)
+            action_empty_selector = Action.objects.create(team=self.team)
+            ActionStep.objects.create(action=action_empty_selector, event="$autocapture", selector="")
+            event1 = _create_event(
+                event="$autocapture",
+                team=self.team,
+                distinct_id="whatever",
+                elements=[Element(tag_name="span", attr_class=None)],
+            )
+
+            events_null_selector = _get_events_for_action(action_null_selector)
+            self.assertEqual(events_null_selector[0].pk, event1.pk)
+            self.assertEqual(len(events_null_selector), 1)
+
+            events_empty_selector = _get_events_for_action(action_empty_selector)
+            self.assertEqual(events_empty_selector, events_null_selector)
+
     return TestFilterByActions
 
 
