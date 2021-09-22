@@ -23,7 +23,13 @@ from ee.clickhouse.sql.retention.retention import (
     RETENTION_PEOPLE_SQL,
     RETENTION_SQL,
 )
-from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
+from posthog.constants import (
+    RETENTION_FIRST_TIME,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_LINEAR,
+    RetentionQueryType,
+)
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
@@ -40,12 +46,14 @@ class ClickhouseRetention(Retention):
         trunc_func = get_trunc_func_ch(period)
 
         returning_event_query, returning_event_params = RetentionEventsQuery(
-            filter=filter, team_id=team.pk, event_query_type="returning"
+            filter=filter, team_id=team.pk, event_query_type=RetentionQueryType.RETURNING
         ).get_query()
         target_event_query, target_event_params = RetentionEventsQuery(
             filter=filter,
             team_id=team.pk,
-            event_query_type="target_first_time" if is_first_time_retention else "target",
+            event_query_type=RetentionQueryType.TARGET_FIRST_TIME
+            if is_first_time_retention
+            else RetentionQueryType.TARGET,
         ).get_query()
 
         all_params = {

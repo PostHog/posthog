@@ -152,3 +152,9 @@ MONTHLY_ACTIVE = "monthly_active"
 
 ENVIRONMENT_TEST = "test"
 ENVIRONMENT_PRODUCTION = "production"
+
+
+class RetentionQueryType(str, Enum):
+    RETURNING = "returning"
+    TARGET = "target"
+    TARGET_FIRST_TIME = "target"
