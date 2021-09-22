@@ -91,7 +91,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
     }
 }
 
-interface FunnelLogicProps extends DashboardItemLogicProps {
+export interface FunnelLogicProps extends DashboardItemLogicProps {
     refresh?: boolean
     exclusionFilters?: Partial<FilterType>
 }
