@@ -1,5 +1,6 @@
 import os
 import time
+from random import randrange
 
 from celery import Celery
 from celery.schedules import crontab
@@ -84,6 +85,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
         sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
 
+        sender.add_periodic_task(
+            crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
+        )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
         try:
             from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
 
@@ -258,6 +262,14 @@ def clickhouse_mark_all_materialized():
         from ee.tasks.materialized_columns import mark_all_materialized
 
         mark_all_materialized()
+
+
+@app.task(ignore_result=True)
+def clickhouse_send_license_usage():
+    if is_clickhouse_enabled() and not settings.MULTI_TENANCY:
+        from ee.tasks.send_license_usage import send_license_usage
+
+        send_license_usage()
 
 
 @app.task(ignore_result=True)

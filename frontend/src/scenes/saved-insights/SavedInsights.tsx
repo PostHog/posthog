@@ -25,7 +25,7 @@ import {
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
+import { DashboardItem, displayMap } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -33,6 +33,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
+
 const { TabPane } = Tabs
 
 interface InsightType {
@@ -412,11 +413,13 @@ export function SavedInsights(): JSX.Element {
                                     }}
                                     dashboardMode={null}
                                     onClick={() => {
-                                        const _type: DisplayedType =
+                                        const _type =
                                             insight.filters.insight === ViewType.RETENTION
                                                 ? 'RetentionContainer'
                                                 : insight.filters.display
-                                        window.open(displayMap[_type].link(insight))
+                                        if (_type) {
+                                            window.open(displayMap[_type].link(insight))
+                                        }
                                     }}
                                     preventLoading={true}
                                     index={index}

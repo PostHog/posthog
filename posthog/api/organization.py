@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.conf import settings
 from django.db.models import Model, QuerySet
@@ -10,6 +10,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_onboarding_completed
+from posthog.exceptions import EnterpriseFeatureException
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, User
 from posthog.models.organization import OrganizationMembership
@@ -100,7 +101,6 @@ class OrganizationSerializer(serializers.ModelSerializer):
         return membership.level if membership is not None else None
 
     def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
-
         if not instance.is_onboarding_active:
             # As Section 2 is the last one of the setup process (as of today),
             # if it's completed it means the setup process is done

@@ -72,14 +72,40 @@ class TestOrganizationAPI(APIBaseTest):
     def test_update_organization_if_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        self.organization.name = self.CONFIG_ORGANIZATION_NAME
+        self.organization.is_member_join_email_enabled = True
+        self.organization.save()
+
         response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
         response_email = self.client.patch(
             f"/api/organizations/{self.organization.id}", {"is_member_join_email_enabled": False}
         )
+
         self.assertEqual(response_rename.status_code, status.HTTP_200_OK)
         self.assertEqual(response_email.status_code, status.HTTP_200_OK)
+
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
+        self.assertEqual(self.organization.is_member_join_email_enabled, False)
+
+    def test_update_organization_if_owner(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self.organization.name = self.CONFIG_ORGANIZATION_NAME
+        self.organization.is_member_join_email_enabled = True
+        self.organization.save()
+
+        response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
+        response_email = self.client.patch(
+            f"/api/organizations/{self.organization.id}", {"is_member_join_email_enabled": False}
+        )
+
+        self.assertEqual(response_rename.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_email.status_code, status.HTTP_200_OK)
+
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.name, "QWERTY")
+        self.assertEqual(self.organization.is_member_join_email_enabled, False)
 
     def test_update_domain_whitelist_if_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -92,6 +118,8 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(self.organization.domain_whitelist, ["posthog.com", "movies.posthog.com"])
 
     def test_cannot_update_organization_if_not_owner_or_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
         response_email = self.client.patch(
             f"/api/organizations/{self.organization.id}", {"is_member_join_email_enabled": False}
@@ -101,7 +129,9 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.name, "ASDFG")
 
-    def test_cannot_update_domain_whitelist_if_non_admin_or_higher(self):
+    def test_cannot_update_domain_whitelist_if_not_owner_or_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         response = self.client.patch(
             f"/api/organizations/@current", {"domain_whitelist": ["posthog.com", "movies.posthog.com"]}
         )

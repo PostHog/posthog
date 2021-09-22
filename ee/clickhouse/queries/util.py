@@ -75,8 +75,14 @@ def get_time_diff(
     else:
         round_interval = diff.total_seconds() >= TIME_IN_SECONDS[interval] * 2
 
-    addition = 2 if interval == "week" else 1
-    return int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + addition, TIME_IN_SECONDS[interval], round_interval
+    return (
+        # NOTE: `int` will simply strip the decimal part. Checking the
+        # extremities, if start_time, end_time are less than an interval apart,
+        # we'll get 0, then add 1, so we'll always get at least one interval
+        int(diff.total_seconds() / TIME_IN_SECONDS[interval]) + 1,
+        TIME_IN_SECONDS[interval],
+        round_interval,
+    )
 
 
 PERIOD_TO_TRUNC_FUNC: Dict[str, str] = {
