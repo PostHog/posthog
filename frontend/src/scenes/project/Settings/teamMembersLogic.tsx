@@ -36,7 +36,13 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
             loadMembers: async () => {
                 return await api.get('api/projects/@current/explicit_members/')
             },
-            addMembers: async (userUuids: UserBasicType['uuid'][], level: TeamMembershipLevel) => {
+            addMembers: async ({
+                userUuids,
+                level,
+            }: {
+                userUuids: UserBasicType['uuid'][]
+                level: TeamMembershipLevel
+            }) => {
                 const newMembers: ExplicitTeamMemberType[] = await Promise.all(
                     userUuids.map((userUuid) =>
                         api.create(`api/projects/@current/explicit_members/`, {
@@ -48,8 +54,8 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                 toast(
                     <div>
                         <h1 className="text-success">
-                            <CheckCircleOutlined /> Added {newMembers.length} members{newMembers.length !== 1 && 's'}{' '}
-                            from the project.
+                            <CheckCircleOutlined /> Added {newMembers.length} members{newMembers.length !== 1 && 's'} to
+                            the project.
                         </h1>
                     </div>
                 )

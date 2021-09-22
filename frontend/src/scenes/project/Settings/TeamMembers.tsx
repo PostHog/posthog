@@ -18,7 +18,7 @@ import {
 import { AddMembersModalWithButton } from './AddMembersModal'
 import { RestrictedArea, RestrictionScope } from '../../../lib/components/RestrictedArea'
 
-export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
+function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { changeUserAccessLevel } = useActions(teamMembersLogic)
