@@ -39,7 +39,7 @@ class TeamMemberObjectPermissions(BasePermission):
         and at least admin effective project access level for write/delete.
     """
 
-    message = "Your project access level is too low for this action."
+    message = "You don't sufficient permissions in this project."
 
     def has_permission(self, request, view) -> bool:
         try:
