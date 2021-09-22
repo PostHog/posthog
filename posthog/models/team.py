@@ -112,7 +112,7 @@ class Team(UUIDClassicModel):
     )
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
-    project_based_permissioning: models.BooleanField = models.BooleanField(default=False)
+    access_control: models.BooleanField = models.BooleanField(default=False)
     test_account_filters: models.JSONField = models.JSONField(default=list)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes: models.JSONField = models.JSONField(default=get_default_data_attributes)
@@ -139,7 +139,7 @@ class Team(UUIDClassicModel):
         )
         if (
             settings.EE_AVAILABLE
-            and self.project_based_permissioning
+            and self.access_control
             and self.organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
         ):
             # Checking for project-specific level

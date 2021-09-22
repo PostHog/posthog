@@ -15,7 +15,17 @@ import {
     humanFriendlyDuration,
     colonDelimitedDuration,
     areObjectValuesEmpty,
+    toParams,
 } from './utils'
+
+describe('toParams', () => {
+    it('handles unusual input', () => {
+        expect(toParams({})).toEqual('')
+        expect(toParams([])).toEqual('')
+        expect(toParams(undefined)).toEqual('')
+        expect(toParams(null)).toEqual('')
+    })
+})
 
 describe('capitalizeFirstLetter()', () => {
     it('returns the capitalized string', () => {

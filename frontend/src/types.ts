@@ -163,8 +163,8 @@ export interface TeamBasicType {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
-    /** Whether access to this project is restricted (AKA project-based permissioning enabled). */
-    project_based_permissioning: boolean
+    /** Whether the project is private. */
+    access_control: boolean
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
 }
