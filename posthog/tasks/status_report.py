@@ -8,7 +8,6 @@ import posthoganalytics
 from django.db import connection
 from psycopg2 import sql
 
-from ee.clickhouse.models.person import count_total_persons_with_multiple_ids
 from posthog.models import Event, Organization, Person, Team, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -80,7 +79,10 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
                     get_events_count_for_team_by_client_lib,
                     get_events_count_for_team_by_event_type,
                 )
-                from ee.clickhouse.models.person import count_duplicate_distinct_ids_for_team
+                from ee.clickhouse.models.person import (
+                    count_duplicate_distinct_ids_for_team,
+                    count_total_persons_with_multiple_ids,
+                )
 
                 team_event_count = get_event_count_for_team(team.id)
                 instance_usage_summary["events_count_total"] += team_event_count
