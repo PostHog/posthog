@@ -25,7 +25,7 @@ import {
     membershipLevelToName,
 } from '../../../lib/utils/permissioning'
 
-export function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
+function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { changeMemberAccessLevel } = useActions(membersLogic)
