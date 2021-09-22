@@ -268,6 +268,7 @@ function MenuItems(): JSX.Element {
                         to={urls.dashboards()}
                         onClick={() => setPinnedDashboardsVisible(false)}
                         hotkey="d"
+                        hideTooltip
                     />
                 </div>
             </Popover>
