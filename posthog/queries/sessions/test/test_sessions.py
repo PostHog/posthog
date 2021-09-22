@@ -115,6 +115,7 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             week_response = sessions().run(
                 SessionsFilter(
                     data={
+                        # 2012-01-01 is a Sunday
                         "date_from": "2012-01-01",
                         "date_to": "2012-02-01",
                         "interval": "week",
@@ -129,12 +130,12 @@ def sessions_test_factory(sessions, event_factory, person_factory):
                 ),
                 self.team,
             )
-            self.assertEqual(week_response[0]["data"][2], 4.0)
-            self.assertEqual(week_response[0]["data"][4], 2.0)
-            self.assertEqual(week_response[0]["labels"][0], "25-Dec-2011")
-            self.assertEqual(week_response[0]["labels"][2], "8-Jan-2012")
-            self.assertEqual(week_response[0]["days"][1], "2012-01-01")
-            self.assertEqual(week_response[0]["days"][2], "2012-01-08")
+            self.assertEqual(week_response[0]["data"][1], 4.0)
+            self.assertEqual(week_response[0]["data"][3], 2.0)
+            self.assertEqual(week_response[0]["labels"][0], "1-Jan-2012")
+            self.assertEqual(week_response[0]["labels"][1], "8-Jan-2012")
+            self.assertEqual(week_response[0]["days"][0], "2012-01-01")
+            self.assertEqual(week_response[0]["days"][1], "2012-01-08")
 
             # # # hour
             hour_response = sessions().run(
