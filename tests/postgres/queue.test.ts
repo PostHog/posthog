@@ -126,6 +126,8 @@ test('plugin jobs queue', async () => {
     const queue = (await startQueues(hub, fakePiscina, {})).ingestion
     await advanceOneTick()
 
+    await delay(1000)
+
     expect(await redis.llen(hub.PLUGINS_CELERY_QUEUE)).not.toBe(6)
 
     await queue.pause()

@@ -19,8 +19,9 @@ import {
 
 const EVENTS_TIME_INTERVAL = 10 * 60 * 1000 // 10 minutes
 const EVENTS_PER_RUN = 100
-const TIMESTAMP_CURSOR_KEY = 'timestamp_cursor1'
-const MAX_TIMESTAMP_KEY = 'max_timestamp'
+const TIMESTAMP_CURSOR_KEY = 'timestamp_cursor'
+const MAX_UNIX_TIMESTAMP_KEY = 'max_timestamp'
+const MIN_UNIX_TIMESTAMP_KEY = 'min_timestamp'
 const EXPORT_RUNNING_KEY = 'is_export_running'
 
 const INTERFACE_JOB_NAME = 'Export events from the beginning'
@@ -41,32 +42,48 @@ export function addHistoricalEventsExportCapability(
         // Fetch the max and min timestamps for a team's events
         const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id)
 
-        // Set the max limit if we haven't already.
-        // We don't update this because the export plugin would have already
-        // started exporting *new* events so we should only export *historical* ones.
-        const storedTimestampLimit = await meta.storage.get(MAX_TIMESTAMP_KEY, null)
-        if (storedTimestampLimit) {
-            meta.global.timestampLimit = new Date(String(storedTimestampLimit))
-        } else {
-            await meta.storage.set(MAX_TIMESTAMP_KEY, timestampBoundaries.max.toISOString())
-            meta.global.timestampLimit = timestampBoundaries.max
-        }
-
-        // Set the lower timestamp boundary to start from.
-        // We set it to an interval lower than the start point so the
-        // first postgresIncrement call works correctly.
-        const startCursor = timestampBoundaries.min.getTime() - EVENTS_TIME_INTERVAL
-        await meta.utils.cursor.init(TIMESTAMP_CURSOR_KEY, startCursor)
-
-        meta.global.minTimestamp = timestampBoundaries.min.getTime()
+        // make sure we set these boundaries at setupPlugin, because from here on out
+        // the new events will already be exported via exportEvents, and we don't want
+        // the historical export to duplicate them
+        meta.global.timestampBoundariesForTeam = timestampBoundaries
 
         await oldSetupPlugin?.()
     }
 
-    meta.global.exportEventsFromTheBeginning = async (
-        payload: ExportEventsJobPayload,
-        meta: PluginMeta<ExportEventsFromTheBeginningUpgrade>
-    ) => {
+    tasks.job['exportEventsFromTheBeginning'] = {
+        name: 'exportEventsFromTheBeginning',
+        type: PluginTaskType.Job,
+        exec: (payload) => meta.global.exportEventsFromTheBeginning(payload as ExportEventsJobPayload),
+    }
+
+    tasks.job[INTERFACE_JOB_NAME] = {
+        name: INTERFACE_JOB_NAME,
+        type: PluginTaskType.Job,
+        // TODO: Accept timestamp as payload
+        exec: async (payload) => {
+            // only let one export run at a time
+            const exportAlreadyRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
+            if (exportAlreadyRunning) {
+                return
+            }
+            await meta.storage.set(EXPORT_RUNNING_KEY, true)
+
+            // get rid of all state pertaining to a previous run
+            await meta.storage.del(TIMESTAMP_CURSOR_KEY)
+            await meta.storage.del(MAX_UNIX_TIMESTAMP_KEY)
+            await meta.storage.del(MIN_UNIX_TIMESTAMP_KEY)
+            meta.global.maxTimestamp = null
+            meta.global.minTimestamp = null
+
+            await meta.global.initTimestampsAndCursor(payload)
+
+            await meta.jobs
+                .exportEventsFromTheBeginning({ retriesPerformedSoFar: 0, incrementTimestampCursor: true })
+                .runNow()
+        },
+    }
+
+    meta.global.exportEventsFromTheBeginning = async (payload): Promise<void> => {
         if (payload.retriesPerformedSoFar >= 15) {
             // create some log error here
             return
@@ -75,30 +92,26 @@ export function addHistoricalEventsExportCapability(
         let timestampCursor = payload.timestampCursor
         let intraIntervalOffset = payload.intraIntervalOffset ?? 0
 
+        // this ensures minTimestamp and timestampLimit are not null
+        // each thread will set them the first time they run this job
+        // we do this to prevent us from doing 2 additional queries
+        // to postgres each time the job runs
+        await meta.global.setTimestampBoundaries()
+
         // This is the first run OR we're done with an interval
-        if (payload.incrementTimestampCursor) {
+        if (payload.incrementTimestampCursor || !timestampCursor) {
             // Done with a timestamp interval, reset offset
             intraIntervalOffset = 0
 
             // This ensures we never process an interval twice
             const incrementedCursor = await meta.utils.cursor.increment(TIMESTAMP_CURSOR_KEY, EVENTS_TIME_INTERVAL)
 
-            const progress = Math.round(
-                ((incrementedCursor - meta.global.minTimestamp) /
-                    (meta.global.timestampLimit.getTime() - meta.global.minTimestamp)) *
-                    20
-            )
-            const progressBarCompleted = Array.from({ length: progress })
-                .map((_) => '■')
-                .join('')
-            const progressBarRemaining = Array.from({ length: 20 - progress })
-                .map((_) => '□')
-                .join('')
-            createLog(`Export progress: ${progressBarCompleted}${progressBarRemaining}`)
+            meta.global.updateProgressBar(incrementedCursor)
+
             timestampCursor = Number(incrementedCursor)
         }
 
-        if (timestampCursor > meta.global.timestampLimit.getTime()) {
+        if (timestampCursor > meta.global.maxTimestamp!) {
             await meta.storage.del(EXPORT_RUNNING_KEY)
             createLog(`Done exporting all events`)
             return
@@ -174,29 +187,81 @@ export function addHistoricalEventsExportCapability(
         incrementMetric('events_exported', events.length)
     }
 
-    tasks.job['exportEventsFromTheBeginning'] = {
-        name: 'exportEventsFromTheBeginning',
-        type: PluginTaskType.Job,
-        exec: (payload) => meta.global.exportEventsFromTheBeginning(payload as ExportEventsJobPayload, meta),
+    // initTimestampsAndCursor decides what timestamp boundaries to use before
+    // the export starts. if a payload is passed with boundaries, we use that,
+    // but if no payload is specified, we use the boundaries determined at setupPlugin
+    meta.global.initTimestampsAndCursor = async (payload) => {
+        // initTimestampsAndCursor will only run on **one** thread, because of our guard against
+        // multiple exports. as a result, we need to set the boundaries on postgres, and
+        // only set them in global when the job runs, so all threads have global state in sync
+
+        if (payload && payload.dateFrom) {
+            try {
+                const dateFrom = new Date(payload.dateFrom).getTime()
+                await meta.utils.cursor.init(TIMESTAMP_CURSOR_KEY, dateFrom - EVENTS_TIME_INTERVAL)
+                await meta.storage.set(MIN_UNIX_TIMESTAMP_KEY, dateFrom)
+            } catch (error) {
+                createLog(`'dateFrom' should be an timestamp in ISO string format.`)
+                throw error
+            }
+        } else {
+            // no timestamp override specified via the payload, default to the first event ever ingested
+            if (!meta.global.timestampBoundariesForTeam.min) {
+                throw new Error(
+                    `Unable to determine the lower timestamp bound for the export automatically. Please specify a 'dateFrom' value.`
+                )
+            }
+            const dateFrom = meta.global.timestampBoundariesForTeam.min.getTime()
+            await meta.utils.cursor.init(TIMESTAMP_CURSOR_KEY, dateFrom - EVENTS_TIME_INTERVAL)
+            await meta.storage.set(MIN_UNIX_TIMESTAMP_KEY, dateFrom)
+        }
+
+        if (payload && payload.dateTo) {
+            try {
+                await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, new Date(payload.dateTo).getTime())
+            } catch (error) {
+                createLog(`'dateTo' should be an timestamp in ISO string format.`)
+                throw error
+            }
+        } else {
+            // no timestamp override specified via the payload, default to the last event before the plugin was enabled
+            if (!meta.global.timestampBoundariesForTeam.max) {
+                throw new Error(
+                    `Unable to determine the upper timestamp bound for the export automatically. Please specify a 'dateTo' value.`
+                )
+            }
+            await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, meta.global.timestampBoundariesForTeam.max.getTime())
+        }
     }
 
-    tasks.job[INTERFACE_JOB_NAME] = {
-        name: INTERFACE_JOB_NAME,
-        type: PluginTaskType.Job,
-        // TODO: Accept timestamp as payload
-        exec: async (_) => {
-            const exportAlreadyRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
+    // this ensures we have the global object correctly set on every thread
+    // without having to always do a postgres query when an export job for an
+    // inteval is triggered
+    meta.global.setTimestampBoundaries = async () => {
+        if (!meta.global.maxTimestamp) {
+            const storedTimestampLimit = await meta.storage.get(MAX_UNIX_TIMESTAMP_KEY, null)
+            meta.global.maxTimestamp = Number(storedTimestampLimit)
+        }
 
-            // only let one export run at a time
-            if (exportAlreadyRunning) {
-                return
-            }
+        if (!meta.global.minTimestamp) {
+            const storedMinTimestamp = await meta.storage.get(MIN_UNIX_TIMESTAMP_KEY, null)
+            meta.global.minTimestamp = Number(storedMinTimestamp)
+        }
+    }
 
-            await meta.storage.set(EXPORT_RUNNING_KEY, true)
-            await meta.jobs
-                .exportEventsFromTheBeginning({ retriesPerformedSoFar: 0, incrementTimestampCursor: true })
-                .runNow()
-        },
+    meta.global.updateProgressBar = (incrementedCursor) => {
+        const progressNumerator = incrementedCursor - meta.global.minTimestamp!
+        const progressDenominator = meta.global.maxTimestamp! - meta.global.minTimestamp!
+
+        const progress = progressDenominator === 0 ? 20 : Math.round(progressNumerator / progressDenominator) * 20
+
+        const progressBarCompleted = Array.from({ length: progress })
+            .map((_) => '■')
+            .join('')
+        const progressBarRemaining = Array.from({ length: 20 - progress })
+            .map((_) => '□')
+            .join('')
+        createLog(`Export progress: ${progressBarCompleted}${progressBarRemaining}`)
     }
 
     function incrementMetric(metricName: string, value: number) {
