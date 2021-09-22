@@ -16,12 +16,12 @@ class ClickhousePathsPersons(ClickhousePaths):
         if self.should_query_funnel():
             paths_funnel_cte = self.get_path_query_funnel_cte(cast(Filter, self._funnel_filter))
 
-        self.params["limit"] = self._filter.limit or 100
+        self.params["limit"] = self._filter.limit
         self.params["offset"] = self._filter.offset
 
         return f"""
             {paths_funnel_cte}
-            SELECT person_id
+            SELECT DISTINCT person_id
             FROM (
                 {paths_per_person_query}
             )
@@ -41,7 +41,10 @@ class ClickhousePathsPersons(ClickhousePaths):
             conditions.append("path_key = %(path_end_key)s")
             self.params["path_end_key"] = self._filter.path_end_key
 
-        return " AND ".join(conditions)
+        if conditions:
+            return " AND ".join(conditions)
+
+        return "1=1"
 
     def _format_results(self, results):
         people = Person.objects.filter(team_id=self._team.pk, uuid__in=[val[0] for val in results])
