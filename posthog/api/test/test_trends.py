@@ -41,13 +41,13 @@ def test_includes_only_intervals_within_range(client: Client):
     #  this is what was used demonstrated in
     #  https://github.com/PostHog/posthog/issues/2675 but it might not be the
     #  simplest way to reproduce
-    cohort = create_cohort_ok(client=client, name="test cohort", groups=[{"properties": {"team_id": team.id}}])
+    cohort = create_cohort_ok(client=client, name="test cohort", groups=[{"properties": {"cohort_identifier": 1}}])
 
     # "2021-09-19" is a sunday, i.e. beginning of week
     with freeze_time("2021-09-20T16:00:00"):
         #  First identify as a member of the cohort
         distinct_id = "abc"
-        identify(distinct_id=distinct_id, team_id=team.id)
+        identify(distinct_id=distinct_id, team_id=team.id, properties={"cohort_identifier": 1})
 
         for date in ["2021-09-04", "2021-09-05", "2021-09-12", "2021-09-19"]:
             capture_event(
