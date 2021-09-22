@@ -38,7 +38,7 @@ from posthog.models import (
 from posthog.models.event import EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import base, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
 from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
@@ -182,7 +182,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self):
         queryset = super().get_queryset()

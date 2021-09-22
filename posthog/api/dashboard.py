@@ -144,7 +144,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise NotFound()
         elif not self.request.user.is_authenticated or "team_id" not in self.get_parents_query_dict():
             raise AuthenticationFailed(detail="You're not logged in, but also not using add share_token.")
-
+        # TODO: Rework this to allow project-based permissioning restrictions
         return queryset
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:

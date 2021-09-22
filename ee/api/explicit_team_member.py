@@ -8,6 +8,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -16,27 +17,48 @@ from posthog.models.user import User
 def get_ephemeral_requesting_team_membership(team: Team, user: User) -> Optional[ExplicitTeamMembership]:
     """Return an ExplicitTeamMembership instance only for permission checking.
     None returned if the user has no explicit membership and organization access is too low for implicit membership."""
-    requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.get(
-        organization_id=team.organization_id, user=user
-    )
-    try:
-        return ExplicitTeamMembership.objects.select_related(
-            "team", "parent_membership", "parent_membership__user"
-        ).get(team=team, parent_membership=requesting_parent_membership)
-    except ExplicitTeamMembership.DoesNotExist:
-        # If there's no explicit team membership, we instantiate an ephemeral one just for validation
-        if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
+    requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
+        "organization"
+    ).get(organization_id=team.organization_id, user=user)
+    if team.project_based_permissioning and requesting_parent_membership.organization.is_feature_available(
+        AvailableFeature.PROJECT_BASED_PERMISSIONING
+    ):
+        try:
+            return ExplicitTeamMembership.objects.select_related(
+                "team", "parent_membership", "parent_membership__user"
+            ).get(team=team, parent_membership=requesting_parent_membership)
+        except ExplicitTeamMembership.DoesNotExist:
             # Only organizations admins and above get implicit project membership
-            return None
-        return ExplicitTeamMembership(
-            team=team, parent_membership=requesting_parent_membership, level=requesting_parent_membership.level
-        )
+            if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
+                return None
+    # If project-based permissioning is disabled or unavailable, or membership is implicit,
+    # we instantiate an ephemeral membership just for validation
+    return ExplicitTeamMembership(
+        team=team, parent_membership=requesting_parent_membership, level=requesting_parent_membership.level
+    )
 
 
-class TeamMemberObjectPermissions(BasePermission):
+class TeamMemberAccessPermission(BasePermission):
+    """Require effective project membership for any access at all."""
+
+    message = "You don't have access to the relevant project."
+
+    def has_permission(self, request, view) -> bool:
+        try:
+            if request.resolver_match.url_name == "team-detail":
+                team = view.get_object()
+            else:
+                team = Team.objects.get(id=view.get_parents_query_dict()["team_id"])
+        except Team.DoesNotExist:
+            return True  # This will be handled as a 404 in the viewset
+        requesting_team_membership = get_ephemeral_requesting_team_membership(team, cast(User, request.user))
+        return requesting_team_membership is not None and requesting_team_membership.effective_level is not None
+
+
+class TeamMemberManagementPermission(BasePermission):
     """
-        Require effective project membership for any access at all,
-        and at least admin effective project access level for write/delete.
+    Require effective project membership for any access at all,
+    and at least admin effective project access level for write/delete.
     """
 
     message = "You don't have sufficient permissions in this project."
@@ -142,7 +164,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
 class ExplicitTeamMemberViewSet(
     StructuredViewSetMixin, viewsets.ModelViewSet,
 ):
-    permission_classes = [IsAuthenticated, TeamMemberObjectPermissions]
+    permission_classes = [IsAuthenticated, TeamMemberManagementPermission]
     pagination_class = None
     queryset = ExplicitTeamMembership.objects.select_related("team", "parent_membership", "parent_membership__user")
     lookup_field = "parent_membership__user__uuid"

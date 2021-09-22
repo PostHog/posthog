@@ -1,6 +1,5 @@
 from typing import Any, Dict, Optional, Type, cast
 
-from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
@@ -12,8 +11,13 @@ from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token, generate_random_token_project
-from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, ProjectMembershipNecessaryPermissions
+from posthog.models.utils import generate_random_token_project
+from posthog.permissions import (
+    CREATE_METHODS,
+    OrganizationAdminWritePermissions,
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -94,6 +98,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         permissions.IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         PremiumMultiprojectPermissions,
+        TeamMemberAccessPermission,
     ]
     lookup_field = "id"
     ordering = "-created_by"

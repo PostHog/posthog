@@ -153,3 +153,11 @@ class OrganizationAdminAnyPermissions(BasePermission):
             OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
             >= OrganizationMembership.Level.ADMIN
         )
+
+
+if settings.EE_AVAILABLE:
+    from ee.api.explicit_team_member import TeamMemberAccessPermission
+else:
+
+    class TeamMemberAccessPermission(BasePermission):
+        """If EE features are not available, this class is a just dummy."""
