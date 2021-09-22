@@ -33,6 +33,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
+
 const { TabPane } = Tabs
 
 interface InsightType {
