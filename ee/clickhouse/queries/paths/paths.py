@@ -1,3 +1,4 @@
+from re import escape
 from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from rest_framework.exceptions import ValidationError
@@ -24,9 +25,10 @@ class ClickhousePaths:
         self._team = team
         self.params = {
             "team_id": self._team.pk,
-            "events": [],  # purely a speed optimization, don't need this for filtering
             "event_in_session_limit": self._filter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT,
             "session_time_threshold": SESSION_TIME_THRESHOLD_DEFAULT,
+            "groupings": self._filter.path_groupings or None,
+            "regex_groupings": None,
         }
         self._funnel_filter = funnel_filter
 
@@ -35,6 +37,15 @@ class ClickhousePaths:
 
         if not self._filter.limit:
             self._filter = self._filter.with_data({LIMIT: 100})
+
+        if self._filter.path_groupings:
+            regex_groupings = []
+            for grouping in self._filter.path_groupings:
+                regex_grouping = escape(grouping)
+                # don't allow arbitrary regex for now
+                regex_grouping = regex_grouping.replace("\\*", ".*")
+                regex_groupings.append(regex_grouping)
+            self.params["regex_groupings"] = regex_groupings
 
         # TODO: don't allow including $pageview and excluding $pageview at the same time
 
