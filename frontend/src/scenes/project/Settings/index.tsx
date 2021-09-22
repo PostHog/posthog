@@ -238,7 +238,7 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                             minimumAccessLevel={OrganizationMembershipLevel.Admin}
                         />
                         <Divider />
-                        {currentTeam?.project_based_permissioning &&
+                        {currentTeam?.access_control &&
                             currentOrganization?.available_features.includes(
                                 AvailableFeature.PROJECT_BASED_PERMISSIONING
                             ) && (

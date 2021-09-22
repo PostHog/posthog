@@ -16,7 +16,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
 
     const projectPermissioningEnabled =
         currentOrganization?.available_features.includes(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
-        currentTeam?.project_based_permissioning
+        currentTeam?.access_control
 
     return (
         <div>
@@ -53,7 +53,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                         AvailableFeature.PROJECT_BASED_PERMISSIONING,
                         'project-based permissioning',
                         'Set permissions granularly for each project. Make sure only the right people have access to protected data.',
-                        () => updateCurrentTeam({ project_based_permissioning: checked })
+                        () => updateCurrentTeam({ access_control: checked })
                     )
                 }}
                 checked={projectPermissioningEnabled}
