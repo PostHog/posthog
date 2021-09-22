@@ -4,12 +4,14 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import dayjs from 'dayjs'
 import { userLogic } from 'scenes/userLogic'
-import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 
+import { eventsTableLogicType } from './eventsTableLogicType'
+import { FixedFilters } from 'scenes/events/EventsTable'
+import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 const POLL_TIMEOUT = 5000
 
-const formatEvents = (events, newEvents, apiUrl) => {
-    let eventsFormatted = []
+const formatEvents = (events: any[], newEvents: any[], apiUrl: string): any[] => {
+    let eventsFormatted: any[] = []
     if (!apiUrl) {
         eventsFormatted = [...events.map((event) => ({ event }))]
     } else {
@@ -33,52 +35,70 @@ const formatEvents = (events, newEvents, apiUrl) => {
     }
     return eventsFormatted
 }
+
+export interface EventsTableLogicProps {
+    fixedFilters?: FixedFilters
+    apiUrl?: string
+    live?: boolean
+    key?: string
+}
+
+export interface EventsTableEvent {
+    id: string
+}
+
 // props:
 // - fixedFilters
 // - apiUrl = 'api/event/'
 // - live = false
-export const eventsTableLogic = kea({
+export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>({
+    props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
     key: (props) =>
-        (props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all') +
-        '-' +
-        (props.apiUrl || 'events') +
-        (props.live ? '-live' : '') +
-        props.key,
+        [
+            props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all',
+            props.apiUrl || 'events',
+            props.live ? 'live' : '',
+            props.key,
+        ].join('-'),
 
     actions: () => ({
-        setProperties: (properties) => {
+        setProperties: (properties: []) => {
             if (Array.isArray(properties) && properties.length === 0) {
-                return { properties: {} }
+                return { properties: [{}] }
             }
             return { properties }
         },
-        setColumnConfig: (columnConfig) => ({ columnConfig }),
-        setColumnConfigSaving: (saving) => ({ saving }), // Type: boolean
+        setColumnConfig: (columnConfig: string[]) => ({ columnConfig }),
+        setColumnConfigSaving: (saving: boolean) => ({ saving }),
         fetchEvents: (nextParams = null) => ({ nextParams }),
-        fetchEventsSuccess: (events, hasNext = false, isNext = false) => ({ events, hasNext, isNext }),
+        fetchEventsSuccess: (events: EventsTableEvent[], hasNext: boolean = false, isNext = false) => ({
+            events,
+            hasNext,
+            isNext,
+        }),
         fetchNextEvents: true,
-        fetchOrPollFailure: (error) => ({ error }),
+        fetchOrPollFailure: (error: Error) => ({ error }),
         flipSort: true,
         pollEvents: true,
-        pollEventsSuccess: (events) => ({ events }),
-        prependNewEvents: (events) => ({ events }),
-        setSelectedEvent: (selectedEvent) => ({ selectedEvent }),
-        setPollTimeout: (pollTimeout) => ({ pollTimeout }),
+        pollEventsSuccess: (events: EventsTableEvent[]) => ({ events }),
+        prependNewEvents: (events: EventsTableEvent[]) => ({ events }),
+        setSelectedEvent: (selectedEvent: EventsTableEvent) => ({ selectedEvent }),
+        setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
         setDelayedLoading: true,
-        setEventFilter: (event) => ({ event }),
-        toggleAutomaticLoad: (automaticLoadEnabled) => ({ automaticLoadEnabled }),
+        setEventFilter: (event: EventsTableEvent) => ({ event }),
+        toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
     }),
 
     reducers: () => ({
         // save the pathname that was used when this logic was mounted
         // we use it to NOT update the filters when the user moves away from this path, yet the scene is still active
-        initialPathname: [(state) => router.selectors.location(state).pathname, { noop: (a) => a }],
+        initialPathname: [(state: string) => router.selectors.location(state).pathname, { noop: (a: string) => a }],
         properties: [
             [],
             {
-                setProperties: (_, { properties }) => properties,
+                setProperties: (_: [], { properties }: { properties: [] }) => properties,
             },
         ],
         eventFilter: [
@@ -90,7 +110,7 @@ export const eventsTableLogic = kea({
         isLoading: [
             false,
             {
-                fetchEvents: (state, { nextParams }) => (nextParams ? state : state || null),
+                fetchEvents: (state, { nextParams }) => (nextParams ? state : state || false),
                 setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
                 fetchOrPollFailure: () => false,
@@ -104,10 +124,16 @@ export const eventsTableLogic = kea({
             },
         ],
         events: [
-            [],
+            [] as EventsTableEvent[],
             {
-                fetchEventsSuccess: (state, { events, isNext }) => (isNext ? [...state, ...events] : events),
-                prependNewEvents: (state, { events }) => [...events, ...state],
+                fetchEventsSuccess: (
+                    state: EventsTableEvent[],
+                    { events, isNext }: { events: EventsTableEvent[]; isNext: boolean }
+                ) => (isNext ? [...state, ...events] : events),
+                prependNewEvents: (state: EventsTableEvent[], { events }: { events: EventsTableEvent[] }) => [
+                    ...events,
+                    ...state,
+                ],
             },
         ],
 
@@ -116,53 +142,53 @@ export const eventsTableLogic = kea({
             {
                 fetchEvents: () => false,
                 fetchNextEvents: () => false,
-                fetchEventsSuccess: (_, { hasNext }) => hasNext,
+                fetchEventsSuccess: (_, { hasNext }) => !!hasNext, //the server sends a URL but we use its truthiness
             },
         ],
-        orderBy: ['-timestamp', { flipSort: (state) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
+        orderBy: ['-timestamp', { flipSort: (state: string) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
         selectedEvent: [
-            null,
+            (null as unknown) as EventsTableEvent,
             {
                 setSelectedEvent: (_, { selectedEvent }) => selectedEvent,
             },
         ],
         newEvents: [
-            [],
+            [] as EventsTableEvent[],
             {
                 setProperties: () => [],
-                pollEventsSuccess: (_, { events }) => events,
+                pollEventsSuccess: (_: EventsTableEvent[], { events }: { events: EventsTableEvent[] }) => events || [],
                 prependNewEvents: () => [],
             },
         ],
         highlightEvents: [
-            {},
+            {} as Record<string, boolean>,
             {
                 pollEventsSuccess: () => ({}),
-                prependNewEvents: (_, { events }) => {
-                    const highlightEvents = {}
-                    events.forEach((event) => {
+                prependNewEvents: (_: Record<string, boolean>, { events }: { events: EventsTableEvent[] }) => {
+                    return events.reduce((highlightEvents, event) => {
                         highlightEvents[event.id] = true
-                    })
-                    return highlightEvents
+                        return highlightEvents
+                    }, {} as Record<string, boolean>)
                 },
             },
         ],
         pollTimeout: [
-            null,
+            -1,
             {
-                setPollTimeout: (_, { pollTimeout }) => pollTimeout,
+                setPollTimeout: (_: number, { pollTimeout }: { pollTimeout: number }) => pollTimeout,
             },
         ],
         columnConfigSaving: [
             false,
             {
-                setColumnConfigSaving: (_, { saving }) => saving,
+                setColumnConfigSaving: (_: boolean, { saving }: { saving: boolean }) => saving,
             },
         ],
         automaticLoadEnabled: [
             false,
             {
-                toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
+                toggleAutomaticLoad: (_: boolean, { automaticLoadEnabled }: { automaticLoadEnabled: boolean }) =>
+                    automaticLoadEnabled,
             },
         ],
     }),
@@ -170,7 +196,7 @@ export const eventsTableLogic = kea({
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [
             () => [selectors.events, selectors.newEvents],
-            (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
+            (events, newEvents) => formatEvents(events, newEvents, props.apiUrl as string),
         ],
         columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
         exportUrl: [
@@ -178,7 +204,7 @@ export const eventsTableLogic = kea({
             (eventFilter, orderBy, properties) =>
                 `/api/event.csv?${toParams({
                     properties,
-                    ...(props.fixedFilters || {}), // this never changes, the logic instance is keyed on this value
+                    ...((props.fixedFilters as FixedFilters) || {}),
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
                 })}`,
@@ -188,7 +214,9 @@ export const eventsTableLogic = kea({
     events: ({ values }) => ({
         // No afterMount necessary because actionToUrl will call
         beforeUnmount: () => {
-            clearTimeout(values.pollTimeout)
+            if (values.pollTimeout !== null) {
+                clearTimeout(values.pollTimeout)
+            }
         },
     }),
 
@@ -229,9 +257,7 @@ export const eventsTableLogic = kea({
                 // if we have an error accessing the filter value, the logic is gone and we should return
                 return
             }
-
             const isFirstRedirect = hashParams.backTo // first time we've navigated here from another page
-
             if (!objectsEqual(searchParams.properties || {}, values.properties) || isFirstRedirect) {
                 actions.setProperties(searchParams.properties || {})
             }
@@ -277,17 +303,17 @@ export const eventsTableLogic = kea({
                     orderBy: [values.orderBy],
                 })
 
-                let events = null
+                let apiResponse = null
 
                 try {
-                    events = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
+                    apiResponse = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
                 } catch (error) {
                     actions.fetchOrPollFailure(error)
                     return
                 }
 
                 breakpoint()
-                actions.fetchEventsSuccess(events.results, events.next, !!nextParams)
+                actions.fetchEventsSuccess(apiResponse.results, apiResponse.next, !!nextParams)
 
                 actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
             },
@@ -298,7 +324,7 @@ export const eventsTableLogic = kea({
                 return
             }
 
-            let params = {
+            const params = {
                 properties: values.properties,
                 ...(props.fixedFilters || {}),
                 ...(values.eventFilter ? { event: values.eventFilter } : {}),

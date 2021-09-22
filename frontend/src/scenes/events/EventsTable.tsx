@@ -9,7 +9,7 @@ import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { eventToName, toParams } from 'lib/utils'
 import './EventsTable.scss'
-import { eventsTableLogic } from './eventsTableLogic'
+import { EventsTableEvent, eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
@@ -30,7 +30,7 @@ import clsx from 'clsx'
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
 
-interface FixedFilters {
+export interface FixedFilters {
     person_id?: string | number
     distinct_ids?: string[]
 }
@@ -241,7 +241,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
     )
 
     const selectedConfigOptions = useMemo(
-        () => (columnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key) : columnConfig),
+        () => (columnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key || 'unknown-key') : columnConfig),
         [columnConfig]
     )
 
@@ -339,7 +339,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     loading={isLoading}
                     columns={columns}
                     size="small"
-                    key={columnConfig === 'DEFAULT' ? 'default' : columnConfig}
+                    key={columnConfig === 'DEFAULT' ? 'default' : columnConfig.join('-')}
                     className="ph-no-capture"
                     locale={{
                         emptyText: (
@@ -356,7 +356,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     rowClassName={(row) => {
                         return clsx({
                             'event-row': row.event,
-                            'highlight-new-row': row.event && highlightEvents[row.event.id],
+                            'highlight-new-row': row.event && highlightEvents[(row.event as EventsTableEvent).id],
                             'event-row-is-exception': row.event && row.event.event === '$exception',
                             'event-day-separator': row.date_break,
                             'event-row-new': row.new_events,
