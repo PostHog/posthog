@@ -95,21 +95,6 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
         renderPaths()
     }, [paths, !pathsLoading, size, color])
 
-    function calculatePercentages(nodes) {
-        let newNodes = []
-        nodes.forEach((n) => {
-            let parentTotal = 0
-            n.targetLinks.forEach((link) => {
-                parentTotal += link.value
-            })
-            newNodes.push({
-                ...n,
-                perctange: parentTotal > 0 ? n.value / parentTotal : 0,
-            })
-        })
-        return newNodes
-    }
-
     function renderPaths() {
         const elements = document
             .getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)
@@ -140,9 +125,6 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
             nodes: paths.nodes.map((d) => ({ ...d })),
             links: paths.links.map((d) => ({ ...d })),
         })
-
-        const newNodes = calculatePercentages(nodes)
-        console.log(newNodes)
 
         svg.append('g')
             .selectAll('rect')
@@ -259,13 +241,11 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
             .text(loadedFilter?.path_type === PAGEVIEW ? pageUrl : pathText)
             .style('cursor', 'auto')
             .style('fill', color === 'white' ? '#000' : '#fff')
-        console.log(nodes, links)
+
         textSelection
             .append('tspan')
             .attr('fill-opacity', 0.8)
-            .text((d) => {
-                return ` ${d.value.toLocaleString()}`
-            })
+            .text((d) => ` ${d.value.toLocaleString()}`)
 
         textSelection.append('title').text((d) => stripHTTP(d.name))
 
