@@ -8,6 +8,7 @@ import posthoganalytics
 from django.db import connection
 from psycopg2 import sql
 
+from ee.clickhouse.models.person import count_total_persons_with_multiple_ids
 from posthog.models import Event, Organization, Person, Team, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
@@ -96,6 +97,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
                 )
 
                 team_report["duplicate_distinct_ids"] = count_duplicate_distinct_ids_for_team(team.id)
+                team_report["multiple_ids_per_person"] = count_total_persons_with_multiple_ids(team.id)
             else:
                 # pull events stats from postgres
                 events_considered_total = Event.objects.filter(team_id=team.id)

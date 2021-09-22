@@ -166,6 +166,35 @@ class TestStatusReport(APIBaseTest):
 
             self.assertEqual(duplicate_ids_report, expected_result)
 
+    # CH only
+    def test_status_report_multiple_ids_per_person(self) -> None:
+        if is_clickhouse_enabled():
+            from ee.clickhouse.models.person import create_person_distinct_id
+
+            person_id1 = str(UUIDT())
+            person_id2 = str(UUIDT())
+
+            create_person_distinct_id(self.team.id, "id1", person_id1)
+            create_person_distinct_id(self.team.id, "id2", person_id1)
+            create_person_distinct_id(self.team.id, "id3", person_id1)
+            create_person_distinct_id(self.team.id, "id4", person_id1)
+            create_person_distinct_id(self.team.id, "id5", person_id1)
+
+            create_person_distinct_id(self.team.id, "id6", person_id2)
+            create_person_distinct_id(self.team.id, "id7", person_id2)
+            create_person_distinct_id(self.team.id, "id8", person_id2)
+
+            report = status_report(dry_run=True).get("teams")[self.team.id]  # type: ignore
+
+            multiple_ids_report = report["multiple_ids_per_person"]
+
+            expected_result = {
+                "total_persons_with_more_than_2_ids": 2,
+                "max_distinct_ids_for_one_person": 5,
+            }
+
+            self.assertEqual(multiple_ids_report, expected_result)
+
     @staticmethod
     def create_person(distinct_id: str, team: Team) -> None:
         Person.objects.create(team=team, distinct_ids=[distinct_id])
