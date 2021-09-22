@@ -4,7 +4,7 @@ import { Loading } from 'lib/utils'
 import { useValues, useActions } from 'kea'
 import { insightHistoryLogic } from './insightHistoryLogic'
 import { DashboardItemType, ViewType } from '~/types'
-import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
+import { DashboardItem, displayMap } from 'scenes/dashboard/DashboardItem'
 import './InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
@@ -71,11 +71,13 @@ function InsightPane({
                                 if (reportOnClick) {
                                     reportOnClick()
                                 }
-                                const _type: DisplayedType =
+                                const _type =
                                     insight.filters.insight === ViewType.RETENTION
                                         ? 'RetentionContainer'
                                         : insight.filters.display
-                                router.actions.push(displayMap[_type].link(insight))
+                                if (_type) {
+                                    router.actions.push(displayMap[_type].link(insight))
+                                }
                             }}
                             moveDashboardItem={
                                 insight.saved

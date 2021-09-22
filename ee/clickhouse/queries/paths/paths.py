@@ -1,5 +1,5 @@
 from re import escape
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -69,12 +69,15 @@ class ClickhousePaths:
 
     def get_query(self) -> str:
 
-        if self._filter.funnel_paths and self._funnel_filter:
-            return self.get_path_query_by_funnel(funnel_filter=self._funnel_filter)
-        else:
-            return self.get_path_query()
+        path_query = self.get_path_query()
+        funnel_cte = ""
 
-    def get_path_query(self) -> str:
+        if self.should_query_funnel():
+            funnel_cte = self.get_path_query_funnel_cte(cast(Filter, self._funnel_filter))
+
+        return funnel_cte + path_query
+
+    def get_paths_per_person_query(self) -> str:
         path_event_query, params = PathEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
         self.params.update(params)
 
@@ -86,8 +89,31 @@ class ClickhousePaths:
             path_event_query=path_event_query, boundary_event_filter=boundary_event_filter, target_clause=target_clause
         )
 
-    def get_path_query_by_funnel(self, funnel_filter: Filter):
-        path_query = self.get_path_query()
+    def should_query_funnel(self) -> bool:
+        if self._filter.funnel_paths and self._funnel_filter:
+            return True
+        return False
+
+    def get_path_query(self) -> str:
+
+        paths_per_person_query = self.get_paths_per_person_query()
+
+        return f"""
+            SELECT last_path_key as source_event,
+                path_key as target_event,
+                COUNT(*) AS event_count,
+                avg(conversion_time) AS average_conversion_time
+            FROM ({paths_per_person_query})
+            WHERE source_event IS NOT NULL
+            GROUP BY source_event,
+                    target_event
+            ORDER BY event_count DESC,
+                    source_event,
+                    target_event
+            LIMIT 30
+        """
+
+    def get_path_query_funnel_cte(self, funnel_filter: Filter):
         funnel_persons_generator = ClickhouseFunnelPersons(
             funnel_filter,
             self._team,
@@ -103,7 +129,6 @@ class ClickhousePaths:
         WITH {PathEventQuery.FUNNEL_PERSONS_ALIAS} AS (
             {funnel_persons_query_new_params}
         )
-        {path_query}
         """
 
     def get_target_point_filter(self) -> str:

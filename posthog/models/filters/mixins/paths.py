@@ -5,7 +5,9 @@ from posthog.constants import (
     END_POINT,
     FUNNEL_PATHS,
     PAGEVIEW_EVENT,
+    PATH_END_KEY,
     PATH_GROUPINGS,
+    PATH_START_KEY,
     PATH_TYPE,
     PATHS_EXCLUDE_EVENTS,
     PATHS_INCLUDE_CUSTOM_EVENTS,
@@ -153,3 +155,24 @@ class PathGroupingMixin(BaseParamMixin):
     @include_dict
     def path_groupings_to_dict(self):
         return {PATH_GROUPINGS: self.path_groupings} if self.path_groupings else {}
+
+
+class PathPersonsMixin(BaseParamMixin):
+    @cached_property
+    def path_start_key(self) -> Optional[str]:
+        return self._data.get(PATH_START_KEY, None)
+
+    @cached_property
+    def path_end_key(self) -> Optional[str]:
+        return self._data.get(PATH_END_KEY, None)
+
+    @include_dict
+    def path_start_end_to_dict(self):
+        result = {}
+        if self.path_start_key:
+            result[PATH_START_KEY] = self.path_start_key
+
+        if self.path_end_key:
+            result[PATH_END_KEY] = self.path_end_key
+
+        return result

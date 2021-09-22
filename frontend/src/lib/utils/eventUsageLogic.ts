@@ -78,14 +78,19 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     } = filters
 
     let properties_local: string[] = []
-    for (const event of filters.events || []) {
+
+    const events = Array.isArray(filters.events) ? filters.events : []
+    for (const event of events) {
         properties_local = properties_local.concat(flattenProperties(event.properties || []))
     }
-    for (const action of filters.actions || []) {
+
+    const actions = Array.isArray(filters.actions) ? filters.actions : []
+    for (const action of actions) {
         properties_local = properties_local.concat(flattenProperties(action.properties || []))
     }
 
-    const properties_global = flattenProperties(filters.properties || [])
+    const properties = Array.isArray(filters.properties) ? filters.properties : []
+    const properties_global = flattenProperties(properties)
 
     return {
         insight,
@@ -95,9 +100,9 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         date_to,
         filter_test_accounts,
         formula,
-        filters_count: filters.properties?.length || 0,
-        events_count: filters.events?.length || 0,
-        actions_count: filters.actions?.length || 0,
+        filters_count: properties?.length || 0,
+        events_count: events?.length || 0,
+        actions_count: actions?.length || 0,
         funnel_viz_type,
         funnel_from_step,
         funnel_to_step,

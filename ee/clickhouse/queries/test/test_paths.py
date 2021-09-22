@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries import ClickhousePaths
+from ee.clickhouse.queries.paths import ClickhousePathsPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import (
@@ -34,6 +35,11 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     maxDiff = None
 
+    def _get_people_at_path(self, filter, path_start, path_end, funnel_filter=None):
+        person_filter = filter.with_data({"path_start_key": path_start, "path_end_key": path_end})
+        result = ClickhousePathsPersons(person_filter, self.team, funnel_filter)._exec_query()
+        return [row[0] for row in result]
+
     def test_denormalized_properties(self):
         materialize("events", "$current_url")
         materialize("events", "$screen_name")
@@ -49,7 +55,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
     def test_step_limit(self):
 
         with freeze_time("2012-01-01T03:21:34.000Z"):
-            Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
+            p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["fake"])
             _create_event(
                 properties={"$current_url": "/1"}, distinct_id="fake", event="$pageview", team=self.team,
             )
@@ -70,34 +76,40 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             filter = PathFilter(data={"step_limit": 2})
             response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
-        self.assertEqual(
-            response, [{"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE}]
-        )
+            self.assertEqual(
+                response, [{"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE}]
+            )
+            self.assertEqual([p1.uuid], self._get_people_at_path(filter, "1_/1", "2_/2"))
+            self.assertEqual([], self._get_people_at_path(filter, "2_/2", "3_/3"))
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
             filter = PathFilter(data={"step_limit": 3})
             response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
-        self.assertEqual(
-            response,
-            [
-                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
-                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
-            ],
-        )
+            self.assertEqual(
+                response,
+                [
+                    {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                    {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                ],
+            )
+            self.assertEqual([p1.uuid], self._get_people_at_path(filter, "2_/2", "3_/3"))
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
             filter = PathFilter(data={"step_limit": 4})
             response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
-        self.assertEqual(
-            response,
-            [
-                {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
-                {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
-                {"source": "3_/3", "target": "4_/4", "value": 1, "average_conversion_time": 3 * ONE_MINUTE},
-            ],
-        )
+            self.assertEqual(
+                response,
+                [
+                    {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                    {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                    {"source": "3_/3", "target": "4_/4", "value": 1, "average_conversion_time": 3 * ONE_MINUTE},
+                ],
+            )
+            self.assertEqual([p1.uuid], self._get_people_at_path(filter, "1_/1", "2_/2"))
+            self.assertEqual([p1.uuid], self._get_people_at_path(filter, "2_/2", "3_/3"))
+            self.assertEqual([p1.uuid], self._get_people_at_path(filter, "3_/3", "4_/4"))
 
     def test_step_conversion_times(self):
 
@@ -328,6 +340,16 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 },
             ],
         )
+        self.assertEqual(20, len(self._get_people_at_path(path_filter, "1_step one", "2_step dropoff1", funnel_filter)))
+        self.assertEqual(
+            20, len(self._get_people_at_path(path_filter, "2_step dropoff1", "3_step dropoff2", funnel_filter))
+        )
+        self.assertEqual(
+            10, len(self._get_people_at_path(path_filter, "3_step dropoff2", "4_step branch", funnel_filter))
+        )
+        self.assertEqual(
+            0, len(self._get_people_at_path(path_filter, "4_step branch", "3_step dropoff2", funnel_filter))
+        )
 
     def test_path_by_funnel_after_step(self):
         self._create_sample_data_multiple_dropoffs()
@@ -528,6 +550,21 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                     "average_conversion_time": 60000.0,
                 },
             ],
+        )
+        self.assertEqual(
+            15, len(self._get_people_at_path(path_filter, "1_step one", "2_between_step_1_a", funnel_filter))
+        )
+        self.assertEqual(
+            15, len(self._get_people_at_path(path_filter, "2_between_step_1_a", "3_between_step_1_b", funnel_filter))
+        )
+        self.assertEqual(
+            10, len(self._get_people_at_path(path_filter, "3_between_step_1_b", "4_step two", funnel_filter))
+        )
+        self.assertEqual(
+            5, len(self._get_people_at_path(path_filter, "3_between_step_1_b", "4_between_step_1_c", funnel_filter))
+        )
+        self.assertEqual(
+            5, len(self._get_people_at_path(path_filter, "4_between_step_1_c", "5_step two", funnel_filter))
         )
 
     @test_with_materialized_columns(["$current_url"])

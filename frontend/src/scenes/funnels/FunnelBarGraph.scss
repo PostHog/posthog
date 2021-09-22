@@ -7,6 +7,9 @@ $glyph_height: 22px;
 $funnel_canvas_background: #fafafa;
 
 .funnel-bar-graph {
+    background-color: $funnel_canvas_background;
+    min-height: 100%;
+
     .ant-popover {
         .ant-popover-content {
             background: #fafafa;
@@ -27,14 +30,6 @@ $funnel_canvas_background: #fafafa;
             background: #fafafa;
         }
     }
-
-    background-color: $funnel_canvas_background;
-    margin-left: -24px; // negative margins to account for padding of .ant-card
-    margin-right: -24px;
-    margin-bottom: -24px;
-    padding: 12px 24px;
-    border-top: 1px solid $border_light;
-    min-height: 100%;
 
     // Layout: horizontal bars
     .funnel-step {
@@ -192,7 +187,7 @@ $funnel_canvas_background: #fafafa;
                 position: absolute;
                 top: 8px;
                 line-height: 16px;
-                font-weight: 500;
+                font-weight: bold;
                 color: #fff;
 
                 &.inside {

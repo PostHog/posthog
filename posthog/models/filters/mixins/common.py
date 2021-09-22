@@ -217,8 +217,7 @@ class OffsetMixin(BaseParamMixin):
 class LimitMixin(BaseParamMixin):
     @cached_property
     def limit(self) -> Optional[int]:
-        limit = self._data.get(LIMIT, None)
-        return limit
+        return self._data.get(LIMIT, None)
 
     @include_dict
     def limit_to_dict(self):

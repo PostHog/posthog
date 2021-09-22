@@ -12,6 +12,8 @@ from posthog.models.filters.mixins.common import (
     FilterTestAccountsMixin,
     InsightMixin,
     IntervalMixin,
+    LimitMixin,
+    OffsetMixin,
 )
 from posthog.models.filters.mixins.funnel import FunnelPersonsStepMixin, FunnelWindowMixin
 from posthog.models.filters.mixins.paths import (
@@ -19,6 +21,7 @@ from posthog.models.filters.mixins.paths import (
     EndPointMixin,
     FunnelPathsMixin,
     PathGroupingMixin,
+    PathPersonsMixin,
     PathStepLimitMixin,
     PropTypeDerivedMixin,
     StartPointMixin,
@@ -48,6 +51,9 @@ class PathFilter(
     FunnelWindowMixin,
     FunnelPersonsStepMixin,
     PathGroupingMixin,
+    PathPersonsMixin,
+    LimitMixin,
+    OffsetMixin,
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):
