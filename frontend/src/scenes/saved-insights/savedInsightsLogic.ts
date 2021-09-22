@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, UserBasicType } from '~/types'
@@ -17,6 +18,7 @@ interface InsightsResult {
 
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
     actions: {
+        addGraph: (type: string) => ({ type }),
         setInsightType: (type: string) => ({ type }),
         setCreatedBy: (user: Partial<UserBasicType> | 'All users') => ({ user }),
         setLayoutView: (view: string) => ({ view }),
@@ -130,6 +132,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
         ],
     },
     listeners: ({ actions }) => ({
+        addGraph: ({ type }) => {
+            router.actions.push(`/insights?insight=${type.toString().toUpperCase()}&backToURL=/saved_insights`)
+        },
         setTab: () => {
             actions.loadInsights()
         },

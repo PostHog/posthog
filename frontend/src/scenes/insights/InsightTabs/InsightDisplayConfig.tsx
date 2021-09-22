@@ -10,7 +10,6 @@ import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
@@ -79,7 +78,6 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
 export function InsightDisplayConfig({
     allFilters,
     activeView,
-    annotationsToCreate,
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === ViewType.FUNNELS
@@ -132,17 +130,6 @@ export function InsightDisplayConfig({
                             )}
                         />
                     </>
-                )}
-
-                {activeView === ViewType.FUNNELS && (
-                    <SaveToDashboard
-                        item={{
-                            entity: {
-                                filters: allFilters,
-                                annotations: annotationsToCreate,
-                            },
-                        }}
-                    />
                 )}
 
                 {showComparePrevious[activeView] && <CompareFilter />}

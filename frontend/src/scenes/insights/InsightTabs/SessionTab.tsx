@@ -5,18 +5,15 @@ import { SessionFilter } from 'lib/components/SessionsFilter'
 import { trendsLogic } from '../../trends/trendsLogic'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { FilterType, ViewType } from '~/types'
-import { Col, Row, Skeleton } from 'antd'
+import { Col, Row } from 'antd'
 import { TestAccountFilter } from '../TestAccountFilter'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { BaseTabProps } from '../Insights'
-import { InsightTitle } from './InsightTitle'
-import { InsightActionBar } from './InsightActionBar'
 import { GlobalFiltersTitle } from '../common'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
-    const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
+export function SessionTab(): JSX.Element {
+    const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
 
     const screens = useBreakpoint()
@@ -25,11 +22,6 @@ export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
-                <InsightTitle
-                    actionBar={
-                        <InsightActionBar filters={filters} annotations={annotationsToCreate} insight="SESSIONS" />
-                    }
-                />
                 <Row gutter={8} align="middle" className="mb">
                     <Col>Showing</Col>
                     <Col>
@@ -60,14 +52,8 @@ export function SessionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                 <GlobalFiltersTitle unit="actions/events" />
-                {filtersLoading ? (
-                    <Skeleton active paragraph={{ rows: 1 }} />
-                ) : (
-                    <>
-                        <PropertyFilters pageKey="insight-retention" />
-                        <TestAccountFilter filters={filters} onChange={setFilters} />
-                    </>
-                )}
+                <PropertyFilters pageKey="insight-retention" />
+                <TestAccountFilter filters={filters} onChange={setFilters} />
             </Col>
         </Row>
     )

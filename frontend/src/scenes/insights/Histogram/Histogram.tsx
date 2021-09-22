@@ -202,6 +202,9 @@ export function Histogram({
                         })
                     })
 
+                // Always move bar above everything else
+                _svg.node().appendChild(_bars.node())
+
                 // text labels
                 if (!isDashboardItem) {
                     const _labels = getOrCreateEl(_svg, 'g#labels', () => _svg.append('svg:g').attr('id', 'labels'))
@@ -244,6 +247,9 @@ export function Histogram({
                             return y(d.count) + labelDy
                         })
                         .classed('outside', (d) => !d.shouldShowInBar)
+
+                    // Always move labels to top
+                    _svg.node().appendChild(_labels.node())
                 }
 
                 return _svg

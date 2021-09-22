@@ -1,0 +1,53 @@
+.toolbar-block {
+    .ant-list {
+        padding-top: 5px;
+    }
+    .feature-flag-row {
+        margin-bottom: 5px;
+        padding: 0 8px 0 8px;
+
+        .feature-flag-row-header {
+            background-color: #fafafa;
+            padding: 10px;
+            border-radius: 4px;
+            .feature-flag-title {
+                flex: 1;
+                margin-right: 5px;
+                font-weight: bold;
+                font-size: 13;
+            }
+        }
+        .feature-flag-row-header.overridden {
+            background-color: #fdedc9;
+        }
+
+        .variant-radio-group {
+            margin-left: 15px;
+            padding: 4px 0 4px 15px;
+            border-left: 2px solid #fafafa;
+
+            .ant-radio-wrapper-checked {
+                background-color: #eef2ff;
+                border-radius: 4px;
+            }
+
+            .ant-radio-wrapper-checked > span {
+                font-weight: bold;
+            }
+
+            .ant-radio-wrapper {
+                padding: 8px;
+                width: 100%;
+            }
+        }
+        .variant-radio-group.overridden {
+            border-left-color: #fdedc9;
+        }
+    }
+    .local-feature-flag-override-warning {
+        margin: 16px;
+        .ant-btn {
+            margin-top: 10px;
+        }
+    }
+}

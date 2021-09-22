@@ -168,14 +168,14 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string
-    href?: string
+    href?: string | null
     id?: number
     name?: string
     properties?: []
-    selector?: string
+    selector?: string | null
     tag_name?: string
-    text?: string
-    url?: string
+    text?: string | null
+    url?: string | null
     url_matching?: ActionStepUrlMatching
     isNew?: string
 }
@@ -202,8 +202,9 @@ export type EditorProps = {
     userIntent?: ToolbarUserIntent
     instrument?: boolean
     distinctId?: string
-    userEmail?: boolean
+    userEmail?: string
     dataAttributes?: string[]
+    featureFlags?: Record<string, string | boolean>
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
@@ -483,7 +484,7 @@ export interface DashboardItemType {
     name: string
     short_id: string
     description?: string
-    filters: Record<string, any>
+    filters: Partial<FilterType>
     filters_hash: string
     order: number
     deleted: boolean
@@ -551,7 +552,7 @@ export interface PluginType {
 }
 
 export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number'
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
     required?: boolean
 }
 
@@ -647,7 +648,6 @@ export enum ViewType {
 
 export enum PathType {
     PageView = '$pageview',
-    AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
 }
@@ -660,6 +660,8 @@ export enum FunnelVizType {
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
+export type BreakdownKeyType = string | number | (string | number)[] | null
+
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
@@ -670,7 +672,7 @@ export interface FilterType {
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
-    breakdown?: string | number | number[] | null
+    breakdown?: BreakdownKeyType
     breakdown_value?: string | number
     shown_as?: ShownAsType
     session?: string
@@ -705,6 +707,7 @@ export interface FilterType {
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
+    hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
 }
 
 export interface SystemStatusSubrows {
@@ -805,7 +808,7 @@ export interface FunnelStep {
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: string | number | number[]
+    breakdown?: BreakdownKeyType
     breakdown_value?: string | number
 }
 
@@ -813,7 +816,7 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
     nested_breakdown?: FunnelStep[]
 }
 
-export interface FunnelResult<ResultType = FunnelStep[]> {
+export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
@@ -823,13 +826,6 @@ export interface FunnelResult<ResultType = FunnelStep[]> {
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number
-}
-
-export interface FunnelsTimeConversionResult {
-    result: FunnelsTimeConversionBins
-    last_refresh: string | null
-    is_cached: boolean
-    type: 'Funnel'
 }
 
 export interface FunnelTimeConversionMetrics {
@@ -859,8 +855,7 @@ export interface FunnelRequestParams extends FilterType {
 }
 
 export interface LoadedRawFunnelResults {
-    results: FunnelStep[] | FunnelStep[][]
-    timeConversionResults: FunnelsTimeConversionBins
+    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
     filters: Partial<FilterType>
 }
 
@@ -872,12 +867,26 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
         fromBasisStep: number // either fromPrevious or total, depending on FunnelStepReference
     }
     nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
+    rowKey?: number | string
 }
 
 export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
     rowKey: number | string
+    nestedRowKeys?: string[]
     isBreakdownParent?: boolean
     breakdownIndex?: number
+}
+
+export interface FlattenedFunnelStepByBreakdown {
+    rowKey: number | string
+    isBaseline?: boolean
+    breakdown?: string | number
+    breakdown_value?: string | number
+    breakdownIndex?: number
+    conversionRates?: {
+        total: number
+    }
+    steps?: FunnelStepWithConversionMetrics[]
 }
 
 export interface ChartParams {
@@ -886,8 +895,15 @@ export interface ChartParams {
     filters: Partial<FilterType>
     inSharedMode?: boolean
     showPersonsModal?: boolean
-    cachedResults?: TrendResult
+    cachedResults?: TrendResult[]
     view: ViewType
+}
+
+export interface DashboardItemLogicProps {
+    dashboardItemId?: number | null
+    cachedResults?: any
+    filters?: Partial<FilterType> | null
+    preventLoading?: boolean
 }
 
 export interface FeatureFlagGroupType {
@@ -921,6 +937,19 @@ export interface FeatureFlagType {
     created_at: string
     is_simple_flag: boolean
     rollout_percentage: number | null
+}
+
+export interface FeatureFlagOverrideType {
+    id: number
+    feature_flag: number
+    user: number
+    override_value: boolean | string
+}
+
+export interface CombinedFeatureFlagAndOverrideType {
+    feature_flag: FeatureFlagType
+    value_for_user_without_override: boolean | string
+    override: FeatureFlagOverrideType | null
 }
 
 export interface PrevalidatedInvite {

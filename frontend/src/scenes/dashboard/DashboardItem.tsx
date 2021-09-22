@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
 import { BuiltLogic, Logic, useActions, useValues } from 'kea'
-import { Dropdown, Menu, Alert, Button, Skeleton } from 'antd'
+import { Dropdown, Menu, Alert, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
 import React, { RefObject, useEffect, useState } from 'react'
@@ -48,6 +48,7 @@ interface Props {
     setDiveDashboard?: (id: number, dashboardId: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
+    isReloading?: boolean
     dashboardMode: DashboardMode | null
     isOnEditMode: boolean
     setEditMode?: () => void
@@ -163,6 +164,7 @@ export function DashboardItem({
     setDiveDashboard,
     loadDashboardItems,
     isDraggingRef,
+    isReloading,
     dashboardMode,
     isOnEditMode,
     setEditMode,
@@ -182,7 +184,7 @@ export function DashboardItem({
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const _type: DisplayedType =
+    const _type =
         item.filters.insight === ViewType.RETENTION
             ? 'RetentionContainer'
             : item.filters.insight === ViewType.PATHS
@@ -285,13 +287,8 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
-            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined }}
+            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
         >
-            {item.is_sample && (
-                <div className="sample-dasbhoard-overlay">
-                    <Button onClick={() => router.actions.push(link)}>Configure</Button>
-                </div>
-            )}
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: isOnEditMode ? 'move' : 'inherit' }}>
                     <div className="dashboard-item-title" data-attr="dashboard-item-title">
@@ -602,6 +599,7 @@ export function DashboardItem({
                             ) : (
                                 <Element
                                     dashboardItemId={item.id}
+                                    cachedResults={item.result}
                                     filters={filters}
                                     color={color}
                                     theme={color === 'white' ? 'light' : 'dark'}

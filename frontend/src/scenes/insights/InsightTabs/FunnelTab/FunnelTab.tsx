@@ -7,10 +7,8 @@ import { Button, Col, Row } from 'antd'
 import { useState } from 'react'
 import { SaveModal } from '../../SaveModal'
 import { funnelCommandLogic } from './funnelCommandLogic'
-import { InsightTitle } from '../InsightTitle'
-import { InfoCircleOutlined, SaveOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { ToggleButtonChartFilter } from './ToggleButtonChartFilter'
-import { InsightActionBar } from '../InsightActionBar'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepOrderPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepOrderPicker'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -18,7 +16,7 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { BreakdownType, FunnelVizType } from '~/types'
+import { FunnelVizType } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
@@ -29,7 +27,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, stepsWithCount, clickhouseFeaturesEnabled } = useValues(funnelLogic)
+    const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
@@ -37,7 +35,6 @@ export function FunnelTab(): JSX.Element {
     const isHorizontalUIEnabled = featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI]
     const isSmallScreen = screens.xs || (screens.sm && !screens.md) || (screens.xl && !isHorizontalUIEnabled)
 
-    const showModal = (): void => setSavingModal(true)
     const closeModal = (): void => setSavingModal(false)
     const onSubmit = (input: string): void => {
         saveFunnelInsight(input)
@@ -49,18 +46,6 @@ export function FunnelTab(): JSX.Element {
             <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
                 <Col xs={24} md={16} xl={isHorizontalUIEnabled ? undefined : 24}>
                     <div style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
-                        <InsightTitle
-                            actionBar={
-                                clickhouseFeaturesEnabled ? (
-                                    <InsightActionBar
-                                        filters={filters}
-                                        insight="FUNNELS"
-                                        showReset={!isStepsEmpty || !!filters.properties?.length}
-                                        onReset={(): void => clearFunnel()}
-                                    />
-                                ) : undefined
-                            }
-                        />
                         <ToggleButtonChartFilter />
                         <form
                             onSubmit={(e): void => {
@@ -120,13 +105,6 @@ export function FunnelTab(): JSX.Element {
                                 <>
                                     <hr />
                                     <Row style={{ justifyContent: 'flex-end' }}>
-                                        {!isStepsEmpty && Array.isArray(stepsWithCount) && !!stepsWithCount.length && (
-                                            <div style={{ flexGrow: 1 }}>
-                                                <Button type="default" onClick={showModal} icon={<SaveOutlined />}>
-                                                    Save
-                                                </Button>
-                                            </div>
-                                        )}
                                         {!isStepsEmpty && (
                                             <Button
                                                 type="link"
@@ -199,19 +177,17 @@ export function FunnelTab(): JSX.Element {
                             {filters.breakdown_type === 'cohort' && filters.breakdown ? (
                                 <BreakdownFilter
                                     filters={filters}
-                                    onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                    onChange={(breakdown, breakdown_type): void =>
                                         setFilters({ breakdown, breakdown_type })
                                     }
-                                    buttonExtraProps={{ type: 'link' }}
                                 />
                             ) : (
                                 <Row align="middle">
                                     <BreakdownFilter
                                         filters={filters}
-                                        onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                        onChange={(breakdown, breakdown_type): void =>
                                             setFilters({ breakdown, breakdown_type })
                                         }
-                                        buttonExtraProps={{ type: 'link' }}
                                     />
                                     {filters.breakdown && (
                                         <CloseButton

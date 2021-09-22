@@ -3,13 +3,8 @@ import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { InfoCircleOutlined } from '@ant-design/icons'
-import {
-    retentionTableLogic,
-    dateOptions,
-    retentionOptionDescriptions,
-    defaultFilters,
-} from 'scenes/retention/retentionTableLogic'
-import { Select, Row, Col, Skeleton } from 'antd'
+import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
+import { Select, Row, Col } from 'antd'
 
 import { FilterType, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
@@ -17,15 +12,12 @@ import './RetentionTab.scss'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { IconExternalLink } from 'lib/components/icons'
-import { BaseTabProps } from '../Insights'
-import { InsightTitle } from './InsightTitle'
-import { InsightActionBar } from './InsightActionBar'
 import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element {
-    const { filters, filtersLoading, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
+export function RetentionTab(): JSX.Element {
+    const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
         retentionTableLogic({ dashboardItemId: null })
     )
     const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
@@ -43,16 +35,6 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
         <div data-attr="retention-tab" className="retention-tab">
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <InsightTitle
-                        actionBar={
-                            <InsightActionBar
-                                filters={filters}
-                                annotations={annotationsToCreate}
-                                insight="RETENTION"
-                                onReset={() => setFilters(defaultFilters({}))}
-                            />
-                        }
-                    />
                     <Row gutter={8} align="middle">
                         <Col>
                             <ActionFilter
@@ -68,7 +50,7 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                                     } else if (newFilters.actions && newFilters.actions.length > 0) {
                                         setFilters({ target_entity: newFilters.actions[0] })
                                     } else {
-                                        setFilters({ target_entity: null })
+                                        setFilters({ target_entity: undefined })
                                     }
                                 }}
                                 typeKey="retention-table"
@@ -83,7 +65,7 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                             <div style={{ display: '-webkit-inline-box', flexWrap: 'wrap' }}>
                                 <Select
                                     value={retentionOptions[filters.retention_type]}
-                                    onChange={(value): void => setFilters({ retention_type: value as RetentionType })}
+                                    onChange={(value): void => setFilters({ retentionType: value as RetentionType })}
                                     dropdownMatchSelectWidth={false}
                                 >
                                     {Object.entries(retentionOptions).map(([key, value]) => (
@@ -127,7 +109,7 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                                     } else if (newFilters.actions && newFilters.actions.length > 0) {
                                         setFilters({ returning_entity: newFilters.actions[0] })
                                     } else {
-                                        setFilters({ returning_entity: null })
+                                        setFilters({ returning_entity: undefined })
                                     }
                                 }}
                                 typeKey="retention-table-returning"
@@ -154,14 +136,8 @@ export function RetentionTab({ annotationsToCreate }: BaseTabProps): JSX.Element
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     <GlobalFiltersTitle unit="actions/events" />
-                    {filtersLoading ? (
-                        <Skeleton active paragraph={{ rows: 1 }} />
-                    ) : (
-                        <>
-                            <PropertyFilters pageKey="insight-retention" />
-                            <TestAccountFilter filters={filters} onChange={setFilters} />
-                        </>
-                    )}
+                    <PropertyFilters pageKey="insight-retention" />
+                    <TestAccountFilter filters={filters} onChange={setFilters} />
                 </Col>
             </Row>
         </div>

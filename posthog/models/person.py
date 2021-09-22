@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Optional
 
 from django.apps import apps
 from django.db import models, transaction
@@ -49,6 +49,19 @@ class Person(models.Model):
             event = {"event": "$create_alias", "properties": {"alias": other_person.distinct_ids[-1]}}
 
             capture_internal(event, self.distinct_ids[-1], None, None, now, now, self.team.id)
+
+    def split_person(self, main_distinct_id: Optional[str]):
+        distinct_ids = Person.objects.get(pk=self.pk).distinct_ids
+        if not main_distinct_id:
+            self.properties = {}
+            self.save()
+            main_distinct_id = distinct_ids[0]
+
+        for distinct_id in distinct_ids:
+            if not distinct_id == main_distinct_id:
+                with transaction.atomic():
+                    PersonDistinctId.objects.filter(person=self, distinct_id=distinct_id).delete()
+                    Person.objects.create(team_id=self.team_id, distinct_ids=[distinct_id])
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)

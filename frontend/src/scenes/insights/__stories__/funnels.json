@@ -1084,8 +1084,7 @@
         "logic": {
             "featureFlagLogic": {
                 "featureFlags": {
-                    "4050-query-ui-optB": true,
-                    "4267-taxonomic-property-filter": true
+                    "4050-query-ui-optB": true
                 },
                 "receivedFeatureFlags": true
             }

@@ -764,9 +764,7 @@
     "lib": {
         "logic": {
             "featureFlagLogic": {
-                "featureFlags": {
-                    "4267-taxonomic-property-filter": true
-                },
+                "featureFlags": {},
                 "receivedFeatureFlags": true
             }
         },

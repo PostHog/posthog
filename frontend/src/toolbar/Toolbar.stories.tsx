@@ -16,7 +16,7 @@ export default {
 } as Meta
 
 const toolbarStory = (json: Record<string, any>): (() => JSX.Element) => {
-    const { rawApiURL, rawJsUrl, buttonVisible, ...rest } = json?.toolbar?.toolbarLogic || {}
+    const { rawApiURL, rawJsUrl, ...rest } = json?.toolbar?.toolbarLogic || {}
     const editorParams: EditorProps = { ...rest, apiURL: rawApiURL, jsURL: rawJsUrl, userEmail: 'foobar@posthog.com' }
     return keaStory(() => {
         useEffect(() => {

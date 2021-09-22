@@ -15,7 +15,7 @@ export function ActionsTab(): JSX.Element {
 
     return (
         <div className="toolbar-content">
-            <div className="toolbar-block">
+            <div className="toolbar-block action-block-body">
                 {selectedAction ? (
                     <EditAction />
                 ) : (

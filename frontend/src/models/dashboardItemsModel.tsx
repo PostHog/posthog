@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
 import { toast } from 'react-toastify'
-import { DashboardItemType, FilterType } from '~/types'
+import { DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from './dashboardItemsModelType'
@@ -19,7 +19,6 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
             move,
         }),
         duplicateDashboardItemSuccess: (item: DashboardItemType) => ({ item }),
-        refreshAllDashboardItems: (filters: Partial<FilterType>) => filters,
     }),
     listeners: ({ actions }) => ({
         renameDashboardItem: async ({ item }) => {

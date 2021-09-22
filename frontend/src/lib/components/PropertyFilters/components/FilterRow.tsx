@@ -2,15 +2,13 @@ import React, { useState } from 'react'
 import { PropertyFilter } from './PropertyFilter'
 import { AnyPropertyFilter } from '~/types'
 import { Button } from 'antd'
-import { useActions, useValues } from 'kea'
-import { Popover, Row } from 'antd'
+import { useActions } from 'kea'
+import { Row } from 'antd'
 import { CloseButton } from 'lib/components/CloseButton'
 import PropertyFilterButton from './PropertyFilterButton'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PlusCircleOutlined } from '@ant-design/icons'
@@ -40,13 +38,11 @@ export const FilterRow = React.memo(function FilterRow({
     showConditionBadge,
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
-    popoverPlacement, // used for legacy `unified` & `tabs` filters
     taxonomicPopoverPlacement = undefined,
     groupTypes,
     showNestedArrow = false,
 }: FilterRowProps) {
     const { remove } = useActions(propertyFilterLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [open, setOpen] = useState(false)
 
     const { key } = item
@@ -67,12 +63,6 @@ export const FilterRow = React.memo(function FilterRow({
         groupTypes,
     }
 
-    const filterVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER]
-        ? 'taxonomic'
-        : disablePopover
-        ? 'unified'
-        : 'tabs'
-
     return (
         <Row
             align="middle"
@@ -87,11 +77,7 @@ export const FilterRow = React.memo(function FilterRow({
         >
             {disablePopover ? (
                 <>
-                    <PropertyFilter
-                        {...propertyFilterCommonProps}
-                        disablePopover={disablePopover}
-                        variant={filterVariant}
-                    />
+                    <PropertyFilter {...propertyFilterCommonProps} disablePopover={disablePopover} />
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
                             onClick={() => remove(index)}
@@ -105,7 +91,7 @@ export const FilterRow = React.memo(function FilterRow({
                         />
                     )}
                 </>
-            ) : filterVariant === 'taxonomic' ? (
+            ) : (
                 <>
                     <Popup
                         visible={open}
@@ -116,7 +102,6 @@ export const FilterRow = React.memo(function FilterRow({
                             <PropertyFilter
                                 {...propertyFilterCommonProps}
                                 disablePopover={disablePopover}
-                                variant={filterVariant}
                                 selectProps={{
                                     delayBeforeAutoOpen: 150,
                                     placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
@@ -155,53 +140,6 @@ export const FilterRow = React.memo(function FilterRow({
                             )
                         }}
                     </Popup>
-                    {!!Object.keys(filters[index]).length && (
-                        <CloseButton
-                            className="ml-1"
-                            onClick={() => remove(index)}
-                            style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                        />
-                    )}
-                </>
-            ) : (
-                <>
-                    <Popover
-                        trigger="click"
-                        onVisibleChange={handleVisibleChange}
-                        destroyTooltipOnHide={true}
-                        defaultVisible={false}
-                        visible={open}
-                        placement={popoverPlacement || 'bottomLeft'}
-                        getPopupContainer={(trigger) =>
-                            // Prevent scrolling up on trigger
-                            (trigger.parentNode as HTMLElement | undefined) ||
-                            (document.querySelector('body') as HTMLElement)
-                        }
-                        content={
-                            <PropertyFilter
-                                {...propertyFilterCommonProps}
-                                disablePopover={disablePopover}
-                                variant={filterVariant}
-                                selectProps={{
-                                    delayBeforeAutoOpen: 150,
-                                    placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
-                                }}
-                            />
-                        }
-                    >
-                        {isValidPropertyFilter(item) ? (
-                            <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
-                        ) : (
-                            <Button
-                                type="link"
-                                data-attr={'new-prop-filter-' + pageKey}
-                                style={{ paddingLeft: 0 }}
-                                icon={<PlusCircleOutlined />}
-                            >
-                                Add filter
-                            </Button>
-                        )}
-                    </Popover>
                     {!!Object.keys(filters[index]).length && (
                         <CloseButton
                             className="ml-1"

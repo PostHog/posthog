@@ -3,10 +3,11 @@ from datetime import timedelta
 from typing import Dict, List
 
 from celery import shared_task
-from dateutil import parser
+from django.db import connection, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 from django.utils.timezone import now
+from sentry_sdk import capture_exception
 
 from posthog.models import SessionRecordingEvent, Team
 
@@ -17,23 +18,19 @@ SESSION_CUTOFF = timedelta(minutes=30)
 def session_recording_retention_scheduler() -> None:
     for team in Team.objects.all().filter(session_recording_retention_period_days__isnull=False):
         time_threshold = now() - timedelta(days=team.session_recording_retention_period_days)
-        session_recording_retention.delay(team_id=team.id, time_threshold=time_threshold)
+        session_recording_retention.delay(team_id=team.id, time_threshold=time_threshold.isoformat())
 
 
 @shared_task(ignore_result=True, max_retries=1)
 def session_recording_retention(team_id: int, time_threshold: str) -> None:
-    time_threshold_dt = parser.isoparse(time_threshold)
-    events = SessionRecordingEvent.objects.filter(team_id=team_id, timestamp__lte=time_threshold_dt).order_by(
-        "timestamp"
-    )
-    purged_sessions = {
-        session_id: events
-        for session_id, events in build_sessions(events).items()
-        if not close_to_threshold(time_threshold_dt, events)
-    }
-
-    primary_keys = [event.pk for session_events in purged_sessions.values() for event in session_events]
-    SessionRecordingEvent.objects.filter(pk__in=primary_keys).delete()
+    cursor = connection.cursor()
+    try:
+        # This deletes events, but may cut sessions in half, this is by choice for performance reasons
+        cursor.execute(
+            "DELETE FROM posthog_sessionrecordingevent WHERE team_id = %s AND timestamp < %s", [team_id, time_threshold]
+        )
+    except Exception as err:
+        capture_exception(err)
 
 
 def build_sessions(events: QuerySet) -> Dict[str, List[SessionRecordingEvent]]:
@@ -41,11 +38,3 @@ def build_sessions(events: QuerySet) -> Dict[str, List[SessionRecordingEvent]]:
     for event in events:
         sessions[event.session_id].append(event)
     return sessions
-
-
-# If last event of session was within 30 minutes of threshold, it may be cut in half.
-#
-# Closely coupled with semantics in session queries
-def close_to_threshold(time_threshold: timezone.datetime, session_events: List[SessionRecordingEvent]) -> bool:
-    last_event_time = session_events[-1].timestamp
-    return (time_threshold - last_event_time) <= SESSION_CUTOFF

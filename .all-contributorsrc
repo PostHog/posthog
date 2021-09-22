@@ -1563,6 +1563,42 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "leoMehlig",
+      "name": "Leo Mehlig",
+      "avatar_url": "https://avatars.githubusercontent.com/u/9119485?v=4",
+      "profile": "https://twitter.com/leoMehlig",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "banagale",
+      "name": "Rob Banagale",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1409710?v=4",
+      "profile": "https://banagale.com",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "skabbes",
+      "name": "Steven Kabbes",
+      "avatar_url": "https://avatars.githubusercontent.com/u/592178?v=4",
+      "profile": "https://github.com/skabbes",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "csykes",
+      "name": "Chad Sykes",
+      "avatar_url": "https://avatars.githubusercontent.com/u/944809?v=4",
+      "profile": "https://github.com/csykes",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

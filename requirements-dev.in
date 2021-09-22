@@ -1,7 +1,10 @@
 # pip-compile requirements-dev.in
 
-Django==3.1.12 # freeze version to the same as in production
-djangorestframework==3.12.2 # freeze version to the same as in production
+# Make sure we use production deps for constraining installed dev packages. This
+# is important as otherwise we could be running tests with different versions
+# than production.
+
+-c requirements.txt 
 
 flake8>=3.8 # match minimum version to oldest Python version that PostHog currently supports
 flake8-bugbear

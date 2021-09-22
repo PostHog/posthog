@@ -8,8 +8,6 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { AvailableFeature, ViewType } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
@@ -325,12 +323,10 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
     },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
-        const { featureFlags } = featureFlagLogic.values
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                const redirect =
-                    path === '/' && featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? '/saved_insights' : redirects[path]
+                const redirect = redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }

@@ -6,12 +6,14 @@ import { errorToast } from 'lib/utils'
 
 import { interfaceJobsLogicType } from './interfaceJobsLogicType'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { JobSpec } from '~/types'
 
 export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
     props: {} as {
         jobName: string
         pluginConfigId: number
         pluginId: number
+        jobSpecPayload: JobSpec['payload']
     },
     key: (props) => {
         return `${props.pluginId}_${props.jobName}`
@@ -54,6 +56,17 @@ export const interfaceJobsLogic = kea<interfaceJobsLogicType>({
                 return
             }
             actions.setIsJobModalOpen(false)
+            const formValues = form.getFieldsValue()
+
+            for (const [fieldKey, fieldValue] of Object.entries(formValues)) {
+                if (props.jobSpecPayload?.[fieldKey].type === 'date') {
+                    if (!!formValues[fieldKey]) {
+                        formValues[fieldKey] = (fieldValue as moment.Moment).toISOString()
+                    } else {
+                        formValues[fieldKey] = null
+                    }
+                }
+            }
             try {
                 await api.create(`api/plugin_config/${props.pluginConfigId}/job`, {
                     job: {

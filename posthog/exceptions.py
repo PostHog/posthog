@@ -1,5 +1,6 @@
-from typing import Dict, Literal, Optional, TypedDict
+from typing import Optional, TypedDict
 
+from django.conf import settings
 from django.core.signals import got_request_exception
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
@@ -14,7 +15,18 @@ class RequestParsingError(Exception):
 
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
-    default_detail = "This is an Enterprise feature."
+
+    def __init__(self) -> None:
+        super().__init__(
+            detail=(
+                "This feature is part of the premium PostHog offering. "
+                + (
+                    "To use it, subscribe to PostHog Cloud with a generous free tier: https://app.posthog.com/organization/billing"
+                    if settings.MULTI_TENANCY
+                    else "To use it, contact us for a self-hosted license: https://posthog.com/pricing"
+                )
+            )
+        )
 
 
 class EstimatedQueryExecutionTimeTooLong(APIException):
