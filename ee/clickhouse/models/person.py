@@ -115,11 +115,16 @@ def delete_person(
 
 # counts duplicate distinct IDs in clickhouse for a team broken down by day
 def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
+    cutoff_date = (datetime.datetime.now() - datetime.timedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")
     query_result = sync_execute(
         """
-        SELECT count(1) as ids_with_duplicates, minus(sum(count), ids_with_duplicates) as extra_rows
+        SELECT 
+            count(if(startdate < toDate('%(cutoff_date)s'), 1, NULL)) as prev_ids_with_duplicates,
+            minus(sum(if(startdate < toDate('%(cutoff_date)s'), count, 0)), prev_ids_with_duplicates) as prev_total_extra_distinct_id_rows,
+            count(if(startdate >= toDate('%(cutoff_date)s'), 1, NULL)) as new_ids_with_duplicates,
+            minus(sum(if(startdate >= toDate('%(cutoff_date)s'), count, 0)), prev_ids_with_duplicates) as new_total_extra_distinct_id_rows
         FROM (
-            SELECT distinct_id, count(*) as count
+            SELECT distinct_id, count(*) as count, toDate(min(timestamp)) as startdate
             FROM (
                 SELECT person_id, distinct_id, max(_timestamp) as timestamp
                 FROM person_distinct_id
@@ -129,15 +134,17 @@ def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
             )
             GROUP BY distinct_id
             HAVING count > 1
-        )
+        ) as duplicates
         """,
-        {"team_id": str(team_id)},
+        {"team_id": str(team_id), "cut_off_date": cutoff_date},
     )
     # total_distinct_ids_with_duplicates = how many distinct IDs point to more than one person
     # total_extra_distinct_id_rows = number of undeleted distinct ID rows that we shouldn't have
     result = {
-        "total_distinct_ids_with_duplicates": query_result[0][0],
-        "total_extra_distinct_id_rows": query_result[0][1],
+        "prev_total_ids_with_duplicates": query_result[0][0],
+        "prev_total_extra_distinct_id_rows": query_result[0][1],
+        "new_total_ids_with_duplicates": query_result[0][2],
+        "new_total_extra_distinct_id_rows": query_result[0][3],
     }
     return result
 
