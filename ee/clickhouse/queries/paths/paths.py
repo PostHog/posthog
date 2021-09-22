@@ -40,8 +40,7 @@ class ClickhousePaths:
             for grouping in self._filter.path_groupings:
                 regex_grouping = escape(grouping)
                 # don't allow arbitrary regex for now
-                regex_grouping = regex_grouping.replace("\\*", "[^?=&/]+")
-                regex_grouping = regex_grouping.replace("%", ".*")
+                regex_grouping = regex_grouping.replace("\\*", ".*")
                 regex_groupings.append(regex_grouping)
             self.params["regex_groupings"] = regex_groupings
 

@@ -135,11 +135,11 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.get(
-            "/api/insight/path", data={"insight": "PATHS", "path_groupings": json.dumps(["/about%"])}
+            "/api/insight/path", data={"insight": "PATHS", "path_groupings": json.dumps(["/about*"])}
         ).json()
         self.assertEqual(len(response["result"]), 2)
 
         response = self.client.get(
-            "/api/insight/path", data={"insight": "PATHS", "path_groupings": json.dumps(["/about_%"])}
+            "/api/insight/path", data={"insight": "PATHS", "path_groupings": json.dumps(["/about_*"])}
         ).json()
         self.assertEqual(len(response["result"]), 3)
