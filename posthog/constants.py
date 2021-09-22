@@ -157,4 +157,4 @@ ENVIRONMENT_PRODUCTION = "production"
 class RetentionQueryType(str, Enum):
     RETURNING = "returning"
     TARGET = "target"
-    TARGET_FIRST_TIME = "target"
+    TARGET_FIRST_TIME = "target_first_time"

@@ -29,16 +29,16 @@ class RetentionEventsQuery(ClickhouseEventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = [
             self.get_timestamp_field(),
-            (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else ""),
+            (f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else ""),
             (
-                f", argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
+                f"argMin(e.uuid, {self._trunc_func}(e.timestamp)) as min_uuid"
                 if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-                else f", {self.EVENT_TABLE_ALIAS}.uuid AS uuid"
+                else f"{self.EVENT_TABLE_ALIAS}.uuid AS uuid"
             ),
             (
-                f", argMin(e.event, {self._trunc_func}(e.timestamp)) as min_event"
+                f"argMin(e.event, {self._trunc_func}(e.timestamp)) as min_event"
                 if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-                else f", {self.EVENT_TABLE_ALIAS}.event AS event"
+                else f"{self.EVENT_TABLE_ALIAS}.event AS event"
             ),
         ]
         _fields = list(filter(None, _fields))
