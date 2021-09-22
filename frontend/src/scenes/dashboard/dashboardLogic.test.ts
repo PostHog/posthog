@@ -60,10 +60,13 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.refreshAllDashboardItemsManual()
             })
-                // starts loading
-                .toDispatchActions(['refreshAllDashboardItemsManual', 'refreshAllDashboardItems'])
-                // sets the "reloading" status
                 .toDispatchActions([
+                    // starts loading
+                    'refreshAllDashboardItemsManual',
+                    'refreshAllDashboardItems',
+                ])
+                .toDispatchActionsInAnyOrder([
+                    // sets the "reloading" status
                     logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, true),
                     logic.actionCreators.setRefreshStatus(dashboardJson.items[1].id, true),
                 ])
@@ -73,19 +76,21 @@ describe('dashboardLogic', () => {
                         175: { loading: true },
                     },
                 })
-                // calls the "setCachedResults" directly on the sub-logics (trendsLogic.172 this case)
-                .toDispatchActions(trendsLogic({ dashboardItemId: 172 }), ['setCachedResults'])
-                .toDispatchActions(dashboardsModel, ['updateDashboardItem'])
-                .toDispatchActions(trendsLogic({ dashboardItemId: 177 }), ['setCachedResults'])
-                .toDispatchActions(dashboardsModel, ['updateDashboardItem'])
-                // no longer reloading
-                .toDispatchActions([
+                .toDispatchActionsInAnyOrder([
+                    // calls the "setCachedResults" directly on the sub-logics (trendsLogic.172 this case)
+                    trendsLogic({ dashboardItemId: dashboardJson.items[0].id }).actionTypes.setCachedResults,
+                    trendsLogic({ dashboardItemId: dashboardJson.items[1].id }).actionTypes.setCachedResults,
+                    // and updates the action in the model
+                    (a) =>
+                        a.type === dashboardsModel.actionTypes.updateDashboardItem &&
+                        a.payload.item.id === dashboardJson.items[1].id,
+                    (a) =>
+                        a.type === dashboardsModel.actionTypes.updateDashboardItem &&
+                        a.payload.item.id === dashboardJson.items[0].id,
+                    // no longer reloading
                     logic.actionCreators.setRefreshStatus(dashboardJson.items[0].id, false),
                     logic.actionCreators.setRefreshStatus(dashboardJson.items[1].id, false),
                 ])
-                .delay(1000)
-                .printActions()
-                .toDispatchActions([])
         })
     })
 })
