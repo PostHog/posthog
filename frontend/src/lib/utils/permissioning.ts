@@ -50,3 +50,17 @@ export function getReasonForAccessLevelChangeProhibition(
     }
     return null
 }
+
+export const membershipLevelToName = new Map<EitherMembershipLevel, string>([
+    [OrganizationMembershipLevel.Member, 'member'],
+    [OrganizationMembershipLevel.Admin, 'administrator'],
+    [OrganizationMembershipLevel.Owner, 'owner'],
+])
+
+export const organizationMembershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(
+    (value) => typeof value === 'number'
+) as OrganizationMembershipLevel[]
+
+export const teamMembershipLevelIntegers = Object.values(TeamMembershipLevel).filter(
+    (value) => typeof value === 'number'
+) as TeamMembershipLevel[]
