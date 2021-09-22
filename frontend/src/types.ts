@@ -124,8 +124,8 @@ export interface ExplicitTeamMemberType extends BaseMemberType {
 export interface FusedTeamMemberType extends BaseMemberType {
     /**
      * Level at which the user explicitly is in the project.
-     * Null if membership is implicit (in case of the list of permitted members)
-     * or if there's no membership at all (in case of the list of addable members).
+     * Null means that membership is implicit (when showing permitted members)
+     * or that there's no membership at all (when showing addable members).
      */
     explicit_team_level: TeamMembershipLevel | null
     /** Level at which the user is in the organization. */
