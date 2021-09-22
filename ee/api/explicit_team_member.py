@@ -20,7 +20,7 @@ def get_ephemeral_requesting_team_membership(team: Team, user: User) -> Optional
     requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
         "organization"
     ).get(organization_id=team.organization_id, user=user)
-    if team.project_based_permissioning and requesting_parent_membership.organization.is_feature_available(
+    if team.access_control and requesting_parent_membership.organization.is_feature_available(
         AvailableFeature.PROJECT_BASED_PERMISSIONING
     ):
         try:
