@@ -257,8 +257,8 @@ export function TopNavigation(): JSX.Element {
         <div className="navigation-top-dropdown project-dropdown">
             <div className="title">Select project</div>
             <div className="projects">
-                {user?.organization?.teams &&
-                    user.organization.teams
+                {currentOrganization?.teams &&
+                    currentOrganization.teams
                         .sort((teamA, teamB) =>
                             teamA.id === currentTeam?.id
                                 ? -2
