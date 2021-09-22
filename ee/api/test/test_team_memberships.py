@@ -8,7 +8,7 @@ from posthog.models import OrganizationMembership, Team, User
 class TestTeamMembershipsAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self.team.project_based_permissioning = True
+        self.team.access_control = True
         self.team.save()
 
     def test_add_member_as_org_owner_allowed(self):
@@ -222,7 +222,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
     def test_add_member_to_non_current_project_allowed(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        another_team = Team.objects.create(organization=self.organization, project_based_permissioning=True)
+        another_team = Team.objects.create(organization=self.organization, access_control=True)
 
         new_user: User = User.objects.create_and_join(
             self.organization, "rookie@posthog.com", None,
@@ -241,7 +241,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         _, new_team, new_user = User.objects.bootstrap(
-            "Acme", "mallory@acme.com", None, team_fields={"project_based_permissioning": True}
+            "Acme", "mallory@acme.com", None, team_fields={"access_control": True}
         )
 
         response = self.client.post(f"/api/projects/{new_team.id}/explicit_members/", {"user_uuid": new_user.uuid,})
@@ -413,10 +413,10 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_add_member_to_project_with_project_based_permissioning_disabled_forbidden(self):
+    def test_add_member_to_non_private_project_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
-        self.team.project_based_permissioning = False
+        self.team.access_control = False
         self.team.save()
 
         new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)

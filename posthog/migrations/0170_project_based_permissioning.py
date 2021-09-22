@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0168_action_step_empty_string_reset"),
+        ("posthog", "0169_person_properties_last_updated_at"),
     ]
 
     operations = [
@@ -16,7 +16,5 @@ class Migration(migrations.Migration):
         # This field however is a many-to-many one, meaning it's not stored as a column, but as a table.
         # It's also not referenced anywhere in code, so removing it should have no impact on any queries at all.
         migrations.RemoveField(model_name="team", name="users",),
-        migrations.AddField(
-            model_name="team", name="project_based_permissioning", field=models.BooleanField(default=False),
-        ),
+        migrations.AddField(model_name="team", name="access_control", field=models.BooleanField(default=False),),
     ]

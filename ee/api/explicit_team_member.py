@@ -106,7 +106,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         team: Team = self.context["team"]
-        if not team.project_based_permissioning:
+        if not team.access_control:
             raise exceptions.ValidationError(
                 "Explicit members can only be accessed for projects with project-based permissioning enabled."
             )

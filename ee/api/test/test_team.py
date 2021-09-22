@@ -18,7 +18,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertDictContainsSubset(
             {
                 "name": "Test",
-                "project_based_permissioning": False,
+                "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
             },
             response_data,
