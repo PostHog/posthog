@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -52,7 +52,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         distinct_id_to_email = {}
         for person_distinct_id in person_distinct_ids:
             distinct_id_to_email[person_distinct_id.distinct_id] = person_distinct_id.person.properties.get("email")
-
+        if not request.user.is_authenticated:  # for mypy
+            raise exceptions.NotAuthenticated()
         viewed_session_recordings = set(
             SessionRecordingViewed.objects.filter(team=self.team, user=request.user).values_list(
                 "session_id", flat=True

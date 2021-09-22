@@ -1,23 +1,47 @@
 import React from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import { humanFriendlyDetailedTime, humanFriendlyDuration } from '~/lib/utils'
+import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-
-import { ResizableTable, ResizableColumnType } from 'lib/components/ResizableTable'
+import { Table } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsLogic'
+import { PlayCircleOutlined } from '@ant-design/icons'
+import { useIsTableScrolling } from 'lib/components/Table/utils'
+import { SessionPlayerDrawer } from './SessionPlayerDrawer'
 
-export const MATCHING_EVENT_ICON_SIZE = 26
+interface SessionRecordingsTableProps {
+    personIds?: string[]
+    isPersonPage?: boolean
+}
 
-export function SessionRecordingsTable(): JSX.Element {
-    const logic = sessionRecordingsTableLogic()
-    const { sessionRecordings, sessionRecordingsLoading } = useValues(logic)
+export function SessionRecordingsTable({ personIds, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
+    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personIds })
+    const { sessionRecordings, sessionRecordingsLoading, sessionRecordingId } = useValues(
+        sessionRecordingsTableLogicInstance
+    )
+    const { setSessionRecordingId } = useActions(sessionRecordingsTableLogicInstance)
+    const { tableScrollX } = useIsTableScrolling('lg')
+    console.log(sessionRecordingId)
 
-    const columns: ResizableColumnType<SessionRecordingType>[] = [
+    const columns = [
+        {
+            key: 'play',
+            render: function RenderPlayButton() {
+                return <PlayCircleOutlined size={16} />
+            },
+            width: 32,
+        },
+        {
+            title: 'Session duration',
+            render: function RenderDuration(sessionRecording: SessionRecordingType) {
+                return <span>{humanFriendlyDuration(sessionRecording.recording_duration)}</span>
+            },
+            span: 2,
+        },
         {
             title: 'Person',
             key: 'person',
-            render: function RenderSession(sessionRecording: SessionRecordingType) {
+            render: function RenderPersonLink(sessionRecording: SessionRecordingType) {
                 return (
                     <Link
                         to={`/person/${encodeURIComponent(sessionRecording.distinct_id as string)}`}
@@ -31,41 +55,41 @@ export function SessionRecordingsTable(): JSX.Element {
             span: 3,
         },
         {
-            title: 'Session duration',
-            render: function RenderDuration(sessionRecording: SessionRecordingType) {
-                return <span>{humanFriendlyDuration(sessionRecording.recording_duration)}</span>
-            },
-            span: 3,
-        },
-        {
             title: 'Start time',
             render: function RenderStartTime(sessionRecording: SessionRecordingType) {
                 return humanFriendlyDetailedTime(sessionRecording.start_time)
             },
-            span: 3,
+            span: 2,
         },
         {
             title: 'End time',
             render: function RenderStartTime(sessionRecording: SessionRecordingType) {
                 return humanFriendlyDetailedTime(sessionRecording.end_time)
             },
-            span: 3,
+            span: 2,
         },
     ]
 
     return (
         <div className="events" data-attr="events-table">
-            <ResizableTable
-                data-attr="session-recordings-table"
-                size="small"
+            <Table
                 rowKey="id"
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                rowClassName="cursor-pointer"
                 dataSource={sessionRecordings}
                 columns={columns}
-                loading={sessionRecordingsLoading}
+                loading={!sessionRecordings && sessionRecordingsLoading}
+                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                onRow={(sessionRecording) => ({
+                    onClick: () => {
+                        setSessionRecordingId(sessionRecording.id)
+                    },
+                })}
+                size="small"
+                rowClassName="cursor-pointer"
+                data-attr="session-recording-table"
+                scroll={{ x: tableScrollX }}
             />
             <div style={{ marginTop: '5rem' }} />
+            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}
         </div>
     )
 }

@@ -3,9 +3,12 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonsTabType, PersonType } from '~/types'
+import { CohortType, PersonsTabType, PersonType, TeamType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/sceneLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -18,6 +21,7 @@ const FILTER_ALLOWLIST: string[] = ['is_identified', 'search', 'cohort']
 export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
     },
     actions: {
         setListFilters: (payload) => ({ payload }),
@@ -40,7 +44,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             },
         ],
         activeTab: [
-            PersonsTabType.EVENTS as PersonsTabType,
+            null as PersonsTabType | null,
             {
                 navigateToTab: (_, { tab }) => tab,
             },
@@ -52,6 +56,40 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             (persons: PersonPaginatedResponse): string => {
                 const match = persons && persons.results.find((person) => person.properties?.email)
                 return match?.properties?.email || 'example@gmail.com'
+            },
+        ],
+        showSessions: [
+            (s) => [s.featureFlags],
+            (featureFlags: Record<string, string | boolean>): boolean => {
+                return !featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]
+            },
+        ],
+        showSessionRecordings: [
+            (s) => [s.featureFlags, s.currentTeam],
+            (featureFlags: Record<string, string | boolean>, currentTeam: TeamType): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] && currentTeam?.session_recording_opt_in
+            },
+        ],
+        showTabs: [
+            (s) => [s.showSessions, s.showSessionRecordings],
+            (showSessions: boolean, showSessionRecordings: boolean): boolean => {
+                return showSessions || showSessionRecordings
+            },
+        ],
+        currentTab: [
+            (s) => [s.activeTab, s.showSessionRecordings, s.showSessions],
+            (activeTab: PersonsTabType | null, showSessionRecordings: boolean, showSessions: boolean) => {
+                // Ensure the activeTab reflects a valid tab given the available tabs
+                if (!activeTab) {
+                    return showSessionRecordings ? PersonsTabType.SESSION_RECORDINGS : PersonsTabType.EVENTS
+                }
+                if (activeTab === PersonsTabType.SESSIONS && !showSessions) {
+                    return showSessionRecordings ? PersonsTabType.SESSION_RECORDINGS : PersonsTabType.EVENTS
+                }
+                if (activeTab === PersonsTabType.SESSION_RECORDINGS && !showSessionRecordings) {
+                    return showSessions ? PersonsTabType.SESSIONS : PersonsTabType.EVENTS
+                }
+                return activeTab
             },
         ],
     },
@@ -204,7 +242,11 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         },
         '/person/*': ({ _: person }, { sessionRecordingId }, { activeTab }) => {
             if (sessionRecordingId) {
-                actions.navigateToTab(PersonsTabType.SESSIONS)
+                if (values.showSessionRecordings) {
+                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
+                } else if (values.showSessions) {
+                    actions.navigateToTab(PersonsTabType.SESSIONS)
+                }
             } else if (activeTab && values.activeTab !== activeTab) {
                 actions.navigateToTab(activeTab as PersonsTabType)
             }

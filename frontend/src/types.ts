@@ -408,6 +408,7 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     EVENTS = 'events',
     SESSIONS = 'sessions',
+    SESSION_RECORDINGS = 'sessionRecordings',
 }
 
 export enum LayoutView {
