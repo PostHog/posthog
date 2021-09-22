@@ -25,6 +25,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
+import clsx from 'clsx'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -353,18 +354,13 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                         row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || ''
                     }
                     rowClassName={(row) => {
-                        if (row.event) {
-                            const highlightRow = highlightEvents[row.event.id] ? 'highlight-new-row' : ''
-                            const isException = row.event.event === '$exception' && 'event-row-is-exception'
-                            return `event-row ${isException} ${highlightRow}`
-                        }
-                        if (row.date_break) {
-                            return 'event-day-separator'
-                        }
-                        if (row.new_events) {
-                            return 'event-row-new'
-                        }
-                        return ''
+                        return clsx({
+                            'event-row': row.event,
+                            'highlight-new-row': row.event && highlightEvents[row.event.id],
+                            'event-row-is-exception': row.event && row.event.event === '$exception',
+                            'event-day-separator': row.date_break,
+                            'event-row-new': row.new_events,
+                        })
                     }}
                     expandable={{
                         expandedRowRender: function renderExpand({ event }) {
