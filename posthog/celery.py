@@ -266,7 +266,7 @@ def clickhouse_mark_all_materialized():
 
 @app.task(ignore_result=True)
 def clickhouse_send_license_usage():
-    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+    if is_clickhouse_enabled() and not settings.MULTI_TENANCY:
         from ee.tasks.send_license_usage import send_license_usage
 
         send_license_usage()
