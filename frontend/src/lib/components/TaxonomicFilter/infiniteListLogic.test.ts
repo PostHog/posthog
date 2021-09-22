@@ -1,18 +1,17 @@
 import { infiniteListLogic } from './infiniteListLogic'
 import { BuiltLogic } from 'kea'
-import { waitForAction } from 'kea-waitfor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
-import { mockAPIGet } from 'lib/api.mock'
-import { initKeaTestLogic } from '~/test/utils'
+import { mockAPI } from 'lib/api.mock'
+import { initKeaTestLogic, expectLogic } from '~/test/kea-test-utils'
 import { mockEventDefinitions } from '~/test/mocks'
 
 jest.mock('lib/api')
 
-describe('infiniteListLogic verbose version', () => {
+describe('infiniteListLogic', () => {
     let logic: BuiltLogic<infiniteListLogicType>
 
-    mockAPIGet(async ({ pathname, searchParams }) => {
+    mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === 'api/projects/@current/event_definitions') {
             const results = searchParams.search
                 ? mockEventDefinitions.filter((e) => e.name.includes(searchParams.search))
@@ -30,76 +29,87 @@ describe('infiniteListLogic verbose version', () => {
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Events,
         },
-        waitFor: 'loadRemoteItemsSuccess',
         onLogic: (l) => (logic = l),
     })
 
-    describe('values', () => {
-        it('has proper defaults', () => {
-            expect(logic.values).toMatchSnapshot()
+    it('calls loadRemoteItems on mount', async () => {
+        await expectLogic(logic)
+            .toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+            .toMatchValues({
+                remoteItems: expect.objectContaining({
+                    results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
+                }),
+            })
+    })
+
+    it('setting search query filters events', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearchQuery('event')
+        })
+            .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+            .toMatchValues({
+                searchQuery: 'event',
+                remoteItems: expect.objectContaining({
+                    count: 3,
+                    results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
+                }),
+            })
+    })
+
+    it('setting search query loads remote items', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearchQuery('event')
+        })
+            .toDispatchActions(['setSearchQuery', 'loadRemoteItems'])
+            .toMatchValues({
+                searchQuery: 'event',
+                remoteItems: expect.objectContaining({
+                    count: 56, // old values, didn't get success action yet
+                }),
+                remoteItemsLoading: true,
+            })
+            .toDispatchActions(['loadRemoteItemsSuccess'])
+            .toMatchValues({
+                searchQuery: 'event',
+                remoteItems: expect.objectContaining({
+                    count: 3, // got new results
+                    results: expect.arrayContaining([expect.objectContaining({ name: 'event1' })]),
+                }),
+                remoteItemsLoading: false,
+            })
+    })
+
+    describe('index', () => {
+        it('is set via setIndex', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+            expectLogic(logic).toMatchValues({ index: 0, remoteItems: expect.objectContaining({ count: 56 }) })
+            expectLogic(logic, () => logic.actions.setIndex(1)).toMatchValues({
+                remoteItems: expect.objectContaining({ count: 56 }),
+                index: 1,
+            })
+        })
+
+        it('can go up and down', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+            expectLogic(logic).toMatchValues({ index: 0, remoteItems: expect.objectContaining({ count: 56 }) })
+            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 55 })
+            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 54 })
+            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 55 })
+            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 0 })
+            expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
+            expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
         })
     })
 
-    describe('loaders', () => {
-        describe('remoteItems', () => {
-            it('loads initial items on mount', async () => {
-                expect(logic.values.remoteItems.results.length).toEqual(56)
-            })
-
-            it('setting search query filters events', async () => {
-                logic.actions.setSearchQuery('event')
-                expect(logic.values.searchQuery).toEqual('event')
-
-                await waitForAction(logic.actions.loadRemoteItemsSuccess)
-                expect(logic.values.remoteItems.results.length).toEqual(3)
-                expect(logic.values.remoteItems).toMatchSnapshot()
-            })
-        })
-    })
-
-    describe('reducers', () => {
-        describe('index', () => {
-            it('is set via setIndex', async () => {
-                expect(logic.values.index).toEqual(0)
-                logic.actions.setIndex(1)
-                expect(logic.values.index).toEqual(1)
-            })
-
-            it('can go up and down', async () => {
-                expect(logic.values.remoteItems.results.length).toEqual(56)
-
-                logic.actions.moveUp()
-                expect(logic.values.index).toEqual(55)
-
-                logic.actions.moveUp()
-                expect(logic.values.index).toEqual(54)
-
-                logic.actions.moveDown()
-                expect(logic.values.index).toEqual(55)
-
-                logic.actions.moveDown()
-                expect(logic.values.index).toEqual(0)
-
-                logic.actions.moveDown()
-                expect(logic.values.index).toEqual(1)
-            })
-        })
-    })
-
-    describe('actions', () => {
-        describe('selectSelected', () => {
-            it('actually selects the selected', async () => {
-                expect(logic.values.selectedItem).toEqual(expect.objectContaining({ name: 'event1' }))
-
-                logic.actions.selectItem = jest.fn()
-                logic.actions.selectSelected()
-
-                expect(logic.actions.selectItem).toHaveBeenCalledWith(
-                    'events',
-                    'event1',
-                    expect.objectContaining({ name: 'event1' })
-                )
-            })
-        })
+    it('selects the selected item', async () => {
+        expectLogic(logic).toMatchValues({ selectedItem: expect.objectContaining({ name: 'event1' }) })
+        expectLogic(logic, () => logic.actions.selectSelected()).toDispatchActions([
+            logic.actionCreators.selectSelected(),
+            logic.actionCreators.selectItem(
+                TaxonomicFilterGroupType.Events,
+                'event1',
+                expect.objectContaining({ name: 'event1' })
+            ),
+        ])
     })
 })

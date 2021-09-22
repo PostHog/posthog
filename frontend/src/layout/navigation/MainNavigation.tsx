@@ -58,9 +58,19 @@ interface MenuItemProps {
     hotkey?: HotKeys
     tooltip?: string
     onClick?: () => void
+    hideTooltip?: boolean
 }
 
-const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: MenuItemProps): JSX.Element => {
+const MenuItem = ({
+    title,
+    icon,
+    identifier,
+    to,
+    hotkey,
+    tooltip,
+    onClick,
+    hideTooltip = false,
+}: MenuItemProps): JSX.Element => {
     const { activeScene } = useValues(sceneLogic)
     const { hotkeyNavigationEngaged } = useValues(navigationLogic)
     const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
@@ -103,7 +113,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
     )
     return (
         <Link to={to} onClick={handleClick}>
-            {tooltip ? (
+            {!hideTooltip && (tooltip || hotkey) ? (
                 <Tooltip
                     title={
                         !isMobile() ? (
@@ -309,6 +319,7 @@ export function MainNavigation(): JSX.Element {
                                 to={urls.dashboards()}
                                 onClick={() => setPinnedDashboardsVisible(false)}
                                 hotkey="d"
+                                hideTooltip
                             />
                         </div>
                     </Popover>

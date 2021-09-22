@@ -66,7 +66,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         results = funnel_trends.run()
 
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
         self.assertEqual(
             results,
             {
@@ -175,7 +174,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
         results = funnel_trends.run()
 
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
         # 7 bins, autoscaled to work best with minimum time to convert and maximum time to convert at hand
         self.assertEqual(
             results,
@@ -228,8 +226,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnel)
         results = funnel_trends.run()
 
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
-
         self.assertEqual(
             results,
             {
@@ -248,7 +244,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             Filter(data={**filter._data, "funnel_from_step": 0, "funnel_to_step": 2,}), self.team, ClickhouseFunnel
         )
         results_steps_specified = funnel_trends_steps_specified.run()
-        results_steps_specified.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
 
         self.assertEqual(results, results_steps_specified)
 
@@ -291,7 +286,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnelUnordered)
         results = funnel_trends.run()
 
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
         self.assertEqual(
             results,
@@ -353,7 +347,6 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         funnel_trends = ClickhouseFunnelTimeToConvert(filter, self.team, ClickhouseFunnelStrict)
         results = funnel_trends.run()
 
-        results.pop("steps")  # steps are already tested in ClickhouseFunnelTrends
         # Autobinned using the minimum time to convert, maximum time to convert, and sample count
         self.assertEqual(
             results,

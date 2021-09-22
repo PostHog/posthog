@@ -56,8 +56,6 @@ class PathEventQuery(ClickhouseEventQuery):
         )
         event_conditional += f"{self.EVENT_TABLE_ALIAS}.event)) AS path_item"
 
-        # _fields.append("if(match(path_item_ungrouped, %(grouping_pattern)s), %(grouping_pattern)s, path_item) AS path_item")
-
         _fields.append(event_conditional)
 
         # remove empty strings

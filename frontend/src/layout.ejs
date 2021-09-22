@@ -1,122 +1,121 @@
 <%/* DJANGO login/signup form layout! */%>
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta name="robots" content="noindex">
-    <title>PostHog</title>
-    {% include "head.html" %}
+    <head>
+        <meta name="robots" content="noindex" />
+        <title>PostHog</title>
+        {% include "head.html" %}
 
-    <script>
-        !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
-        posthog.init({{js_posthog_api_key | safe}}, {api_host: {{js_posthog_host | safe}}})
-    </script>
-    <%= htmlWebpackPlugin.tags.headTags %><%/* This adds the main.css file! */%>
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" rel="stylesheet"
-        crossorigin="anonymous" />
+        <script>
+            !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+            posthog.init({{js_posthog_api_key | safe}}, {api_host: {{js_posthog_host | safe}}})
+        </script>
+        <%= htmlWebpackPlugin.tags.headTags %><%/* This adds the main.css file! */%>
+        <link
+            href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"
+            rel="stylesheet"
+            crossorigin="anonymous"
+        />
 
-<style>
-    html,
-body {
-  height: 100%;
-}
+        <style>
+            html,
+            body {
+                height: 100%;
+            }
 
-body {
-  display: -ms-flexbox;
-  display: flex;
-  -ms-flex-align: center;
-  align-items: center;
-  padding-top: 40px;
-  padding-bottom: 40px;
-}
+            body {
+                display: -ms-flexbox;
+                display: flex;
+                -ms-flex-align: center;
+                align-items: center;
+                padding-top: 40px;
+                padding-bottom: 40px;
+            }
 
-.form-signin {
-  width: 100%;
-  max-width: 400px;
-  padding: 15px;
-  margin: auto;
-}
-.form-signin .checkbox {
-  font-weight: 400;
-}
-.form-signin .form-control {
-  position: relative;
-  box-sizing: border-box;
-  height: auto;
-  padding: 10px;
-  font-size: 16px;
-}
-.form-signin .form-control:focus {
-  z-index: 2;
-}
-.form-signin-inputs input {
-    border-radius: 0;
-    margin-bottom: -1px;
-}
-.form-signin-inputs input:first-child {
-  border-radius: 0.25rem 0.25rem 0 0;
-}
-.form-signin input:last-child {
-  border-radius: 0 0 0.25rem 0.25rem;
-}
+            .form-signin {
+                width: 100%;
+                max-width: 400px;
+                padding: 15px;
+                margin: auto;
+            }
+            .form-signin .checkbox {
+                font-weight: normal;
+            }
+            .form-signin .form-control {
+                position: relative;
+                box-sizing: border-box;
+                height: auto;
+                padding: 10px;
+                font-size: 16px;
+            }
+            .form-signin .form-control:focus {
+                z-index: 2;
+            }
+            .form-signin-inputs input {
+                border-radius: 0;
+                margin-bottom: -1px;
+            }
+            .form-signin-inputs input:first-child {
+                border-radius: 0.25rem 0.25rem 0 0;
+            }
+            .form-signin input:last-child {
+                border-radius: 0 0 0.25rem 0.25rem;
+            }
 
-.field {
-  display: flex;
-  flex-flow: column-reverse;
-  margin-bottom: 1em;
-}
-.field label, .field input {
-  transition: all 0.2s;
-  touch-action: manipulation;
-  color: #495057;
-}
+            .field {
+                display: flex;
+                flex-flow: column-reverse;
+                margin-bottom: 1em;
+            }
+            .field label,
+            .field input {
+                transition: all 0.2s;
+                touch-action: manipulation;
+                color: #495057;
+            }
 
-.field input {
-  font-size: 1.5em;
-  border: 0;
-  border-bottom: 1px solid #ccc;
-  font-family: inherit;
-  -webkit-appearance: none;
-  border-radius: 0;
-  padding: 0;
-  cursor: text;
-}
+            .field input {
+                font-size: 1.5em;
+                border: 0;
+                border-bottom: 1px solid #ccc;
+                font-family: inherit;
+                -webkit-appearance: none;
+                border-radius: 0;
+                padding: 0;
+                cursor: text;
+            }
 
-.field input:focus {
-  outline: 0;
-  border-bottom: 1px solid #666;
-}
+            .field input:focus {
+                outline: 0;
+                border-bottom: 1px solid #666;
+            }
 
-input:placeholder-shown + label {
-  cursor: text;
-  max-width: 66.66%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transform-origin: left bottom;
-  transform: translate(0, 2.125rem) scale(1.5);
-}
-::-webkit-input-placeholder {
-  opacity: 0;
-  transition: inherit;
-}
-input:focus::-webkit-input-placeholder {
-  opacity: 1;
-}
-input:not(:placeholder-shown) + label,
-input:focus + label {
-  transform: translate(0, 0) scale(1);
-  cursor: pointer;
-color: var(--primary)
-}
-</style>
-  {% block head %}
-  {% endblock %}
-  </head>
-  <body>
-
-        {% include "overlays.html" %}
-        {% block content %}
-        {% endblock %}
-
-  </body>
+            input:placeholder-shown + label {
+                cursor: text;
+                max-width: 66.66%;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                transform-origin: left bottom;
+                transform: translate(0, 2.125rem) scale(1.5);
+            }
+            ::-webkit-input-placeholder {
+                opacity: 0;
+                transition: inherit;
+            }
+            input:focus::-webkit-input-placeholder {
+                opacity: 1;
+            }
+            input:not(:placeholder-shown) + label,
+            input:focus + label {
+                transform: translate(0, 0) scale(1);
+                cursor: pointer;
+                color: var(--primary);
+            }
+        </style>
+        {% block head %} {% endblock %}
+    </head>
+    <body>
+        {% include "overlays.html" %} {% block content %} {% endblock %}
+    </body>
 </html>

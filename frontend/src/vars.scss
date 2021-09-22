@@ -48,6 +48,7 @@ $funnel_background: #e7e8ee;
 $funnel_axis_zero: $bg_depth;
 $funnel_axis: $border_dark;
 $funnel_axis_label: $text_muted;
+$antd_table_background_dark: #fafafa;
 
 .bg-mid {
     background-color: $bg_mid !important;
@@ -80,9 +81,6 @@ $sky: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
 $dusk_sky: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
 $night_sky: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
 $space: linear-gradient(180deg, #0a092a 0%, #271955 100%);
-
-// Fonts
-$gosha_sans: 'GoshaSans-Bold', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue';
 
 // Additional style configurations
 .mixin-base-bordered-card {
