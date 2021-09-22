@@ -1,3 +1,4 @@
+import json
 from typing import Dict, List, Literal, Optional, Tuple, cast
 
 from posthog.constants import (
@@ -150,7 +151,11 @@ class FunnelPathsMixin(BaseParamMixin):
 class PathGroupingMixin(BaseParamMixin):
     @cached_property
     def path_groupings(self) -> Optional[List[str]]:
-        return self._data.get(PATH_GROUPINGS)
+        path_groupings = self._data.get(PATH_GROUPINGS, [])
+        if isinstance(path_groupings, str):
+            return json.loads(path_groupings)
+
+        return path_groupings
 
     @include_dict
     def path_groupings_to_dict(self):

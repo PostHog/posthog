@@ -98,3 +98,48 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             "/api/insight/path", data={"path_type": "$screen", "insight": "PATHS", "start_point": "/screen1",}
         ).json()
         self.assertEqual(len(response["result"]), 1)
+
+    def test_path_groupings(self):
+        _create_person(team=self.team, distinct_ids=["person_1"])
+        _create_event(
+            properties={"$current_url": "/about_1"}, distinct_id="person_1", event="$pageview", team=self.team,
+        )
+        _create_event(
+            properties={"$current_url": "/about_2"}, distinct_id="person_1", event="$pageview", team=self.team,
+        )
+        _create_event(
+            properties={"$current_url": "/something else"}, distinct_id="person_1", event="$pageview", team=self.team,
+        )
+        _create_event(
+            properties={"$current_url": "/about3"}, distinct_id="person_1", event="$pageview", team=self.team,
+        )
+        _create_event(
+            properties={"$current_url": "/about4"}, distinct_id="person_1", event="$pageview", team=self.team,
+        )
+
+        _create_person(team=self.team, distinct_ids=["person_2"])
+        _create_event(
+            properties={"$current_url": "/about_1"}, distinct_id="person_2", event="$pageview", team=self.team,
+        )
+        _create_event(
+            properties={"$current_url": "/about_2"}, distinct_id="person_2", event="$pageview", team=self.team,
+        )
+        _create_event(
+            properties={"$current_url": "/something else"}, distinct_id="person_2", event="$pageview", team=self.team,
+        )
+        _create_event(
+            properties={"$current_url": "/about3"}, distinct_id="person_2", event="$pageview", team=self.team,
+        )
+        _create_event(
+            properties={"$current_url": "/about4"}, distinct_id="person_2", event="$pageview", team=self.team,
+        )
+
+        response = self.client.get(
+            "/api/insight/path", data={"insight": "PATHS", "path_groupings": json.dumps(["/about%"])}
+        ).json()
+        self.assertEqual(len(response["result"]), 2)
+
+        response = self.client.get(
+            "/api/insight/path", data={"insight": "PATHS", "path_groupings": json.dumps(["/about_%"])}
+        ).json()
+        self.assertEqual(len(response["result"]), 3)
