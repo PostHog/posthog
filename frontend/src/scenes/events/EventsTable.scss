@@ -40,4 +40,8 @@
     .event-row-is-exception {
         background-color: lighten($danger, 40%);
     }
+
+    .highlight-new-row {
+        background-color: rgba($yellow_50, 0.5);
+    }
 }

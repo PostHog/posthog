@@ -34,7 +34,6 @@ import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
-
 const { TabPane } = Tabs
 
 interface InsightType {
@@ -414,7 +413,10 @@ export function SavedInsights(): JSX.Element {
                                             }}
                                             dashboardMode={null}
                                             onClick={() => {
-                                                window.open(displayMap[getDisplayedType(insight.filters)].link(insight))
+                                                const _type = getDisplayedType(insight.filters)
+                                                if (_type) {
+                                                    window.open(displayMap[_type].link(insight))
+                                                }
                                             }}
                                             preventLoading={true}
                                             index={index}

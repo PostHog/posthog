@@ -63,14 +63,18 @@ def make_ch_pool(**overrides) -> ChPool:
 if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
 
+    class ClickHouseNotConfigured(NotImplementedError):
+        def __init__(self, msg='This function only works if PRIMARY_DB is set to indicate ClickHouse!"', *args):
+            super().__init__(msg, *args)
+
     def async_execute(query, args=None, settings=None, with_column_types=False):
-        return
+        raise ClickHouseNotConfigured()
 
     def sync_execute(query, args=None, settings=None, with_column_types=False):
-        return
+        raise ClickHouseNotConfigured()
 
     def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None, with_column_types=False):
-        return
+        raise ClickHouseNotConfigured()
 
 
 else:

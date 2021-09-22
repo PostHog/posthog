@@ -12,7 +12,7 @@ import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
-import { AvailableFeature, HotKeys, ItemMode, ViewType } from '~/types'
+import { AvailableFeature, HotKeys, ItemMode, ViewType, InsightType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -60,7 +60,10 @@ export function Insights(): JSX.Element {
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
-    const logicFromInsight = getLogicFromInsight(activeView, { dashboardItemId: fromItem || null, filters: allFilters })
+    const logicFromInsight = getLogicFromInsight(activeView as InsightType, {
+        dashboardItemId: fromItem || null,
+        filters: allFilters,
+    })
     const { loadResults } = useActions(logicFromInsight)
     const { resultsLoading } = useValues(logicFromInsight)
 

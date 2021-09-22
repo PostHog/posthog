@@ -32,7 +32,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
         filters,
         steps,
         visibleStepsWithConversionMetrics,
-        hiddenMap,
+        hiddenLegendKeys,
         barGraphLayout,
         flattenedStepsByBreakdown,
         flattenedBreakdowns,
@@ -51,7 +51,10 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
             _columns.push({
                 render: function RenderCheckbox({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
                     const checked = !!flattenedBreakdowns?.every(
-                        (b) => !hiddenMap[getVisibilityIndex(visibleStepsWithConversionMetrics?.[0], b.breakdown_value)]
+                        (b) =>
+                            !hiddenLegendKeys[
+                                getVisibilityIndex(visibleStepsWithConversionMetrics?.[0], b.breakdown_value)
+                            ]
                     )
 
                     return renderGraphAndHeader(
@@ -59,7 +62,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         0,
                         <PHCheckbox
                             checked={
-                                !hiddenMap[
+                                !hiddenLegendKeys[
                                     getVisibilityIndex(
                                         visibleStepsWithConversionMetrics?.[0],
                                         breakdown.breakdown_value
@@ -72,7 +75,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             checked={checked}
                             indeterminate={flattenedBreakdowns?.some(
                                 (b) =>
-                                    !hiddenMap[
+                                    !hiddenLegendKeys[
                                         getVisibilityIndex(visibleStepsWithConversionMetrics?.[0], b.breakdown_value)
                                     ]
                             )}
@@ -83,7 +86,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                         visibleStepsWithConversionMetrics.flatMap((s) =>
                                             flattenedBreakdowns.map((b) => [
                                                 getVisibilityIndex(s, b.breakdown_value),
-                                                !checked,
+                                                checked,
                                             ])
                                         )
                                     )
@@ -321,11 +324,13 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                     if (step.breakdownIndex === undefined && (step.nestedRowKeys ?? []).length > 0) {
                         return (
                             <PHCheckbox
-                                checked={!!step.nestedRowKeys?.every((rowKey) => !hiddenMap[rowKey])}
-                                indeterminate={step.nestedRowKeys?.some((rowKey) => !hiddenMap[rowKey])}
+                                checked={!!step.nestedRowKeys?.every((rowKey) => !hiddenLegendKeys[rowKey])}
+                                indeterminate={step.nestedRowKeys?.some((rowKey) => !hiddenLegendKeys[rowKey])}
                                 onChange={() => {
                                     // either toggle all data on or off
-                                    const currentState = !!step.nestedRowKeys?.every((rowKey) => !hiddenMap[rowKey])
+                                    const currentState = !!step.nestedRowKeys?.every(
+                                        (rowKey) => !hiddenLegendKeys[rowKey]
+                                    )
                                     setHiddenById(
                                         Object.fromEntries(
                                             (
@@ -340,7 +345,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                     // Breakdown child
                     return (
                         <PHCheckbox
-                            checked={!hiddenMap[step.rowKey]}
+                            checked={!hiddenLegendKeys[step.rowKey]}
                             onChange={() => toggleVisibilityByBreakdown(step.breakdownIndex as number)}
                         />
                     )
