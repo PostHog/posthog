@@ -11,10 +11,13 @@ import { preflightLogic } from './PreflightCheck/logic'
 import { AvailableFeature, ViewType } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
+import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../layout/ErrorProjectUnavailable'
+import { teamLogic } from './teamLogic'
 
 export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
+    ErrorProjectUnavailable = 'projectUnavailable',
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
     Insights = 'insights',
@@ -56,11 +59,15 @@ const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.ErrorNetwork]: {
         component: ErrorNetworkComponent,
     },
+    [Scene.ErrorProjectUnavailable]: {
+        component: ErrorProjectUnavailableComponent,
+    },
 }
 
 export const scenes: Record<Scene, () => any> = {
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
+    [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
@@ -319,7 +326,11 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 return sceneConfigurations[scene] ?? {}
             },
         ],
-        activeScene: [(s) => [s.loadingScene, s.scene], (loadingScene, scene) => loadingScene || scene],
+        activeScene: [
+            (selectors) => [selectors.loadingScene, selectors.scene, teamLogic.selectors.mayCurrentTeamBeAvailable],
+            (loadingScene, scene, mayCurrentTeamBeAvailable) =>
+                mayCurrentTeamBeAvailable ? loadingScene || scene : Scene.ErrorProjectUnavailable,
+        ],
     },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}

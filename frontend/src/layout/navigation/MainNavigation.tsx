@@ -42,6 +42,7 @@ import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/components/Tooltip'
+import { teamLogic } from '../../scenes/teamLogic'
 
 // to show the right page in the sidebar
 const sceneOverride: Partial<Record<Scene, string>> = {
@@ -193,22 +194,164 @@ function PinnedDashboards(): JSX.Element {
     )
 }
 
-export function MainNavigation(): JSX.Element {
+function MenuItems(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible, hotkeyNavigationEngaged } = useValues(
+    const { pinnedDashboardsVisible } = useValues(navigationLogic)
+    const { setToolbarModalOpen, setPinnedDashboardsVisible } = useActions(navigationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return (
+        <>
+            {currentOrganization?.setup.is_active && (
+                <MenuItem
+                    title="Setup"
+                    icon={<SettingOutlined />}
+                    identifier="onboardingSetup"
+                    to={urls.onboardingSetup()}
+                    hotkey="u"
+                />
+            )}
+            {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
+                <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to={urls.home()} />
+            )}
+            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                <MenuItem
+                    title="Explore"
+                    icon={<IconExplore />}
+                    identifier="insights"
+                    to={urls.insightView(ViewType.TRENDS)}
+                    hotkey="x"
+                    tooltip="Answers to all your analytics questions"
+                />
+            )}
+            <MenuItem
+                title="Insights"
+                icon={<IconInsights />}
+                identifier={featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? 'savedInsights' : 'insights'}
+                to={
+                    featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                        ? urls.savedInsights()
+                        : urls.insightView(ViewType.TRENDS)
+                }
+                hotkey="i"
+                tooltip={
+                    featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                        ? 'See your saved insights'
+                        : 'Answers to all your analytics questions'
+                }
+            />
+            <Popover
+                content={PinnedDashboards}
+                placement="right"
+                trigger="hover"
+                arrowPointAtCenter
+                overlayClassName="pinned-dashboards-popover"
+                onVisibleChange={(visible) => setPinnedDashboardsVisible(visible)}
+                visible={pinnedDashboardsVisible}
+            >
+                <div>
+                    <MenuItem
+                        title="Dashboards"
+                        icon={<IconDashboard />}
+                        identifier="dashboards"
+                        to={urls.dashboards()}
+                        onClick={() => setPinnedDashboardsVisible(false)}
+                        hotkey="d"
+                    />
+                </div>
+            </Popover>
+
+            <div className="divider" />
+            <MenuItem
+                title="Events"
+                icon={<IconEvents />}
+                identifier="events"
+                to={urls.events()}
+                hotkey="e"
+                tooltip="List of events and actions"
+            />
+            <MenuItem
+                title="Sessions"
+                icon={<ClockCircleFilled />}
+                identifier="sessions"
+                to={urls.sessions()}
+                hotkey="s"
+                tooltip="Understand interactions based by visits and watch session recordings"
+            />
+            <div className="divider" />
+            <MenuItem
+                title="Persons"
+                icon={<IconPerson />}
+                identifier="persons"
+                to={urls.persons()}
+                hotkey="p"
+                tooltip="Understand your users individually"
+            />
+            <MenuItem
+                title="Cohorts"
+                icon={<IconCohorts />}
+                identifier="cohorts"
+                to={urls.cohorts()}
+                hotkey="c"
+                tooltip="Group users for easy filtering"
+            />
+            <div className="divider" />
+            <MenuItem
+                title="Annotations"
+                icon={<MessageOutlined />}
+                identifier="annotations"
+                to={urls.annotations()}
+                hotkey="a"
+            />
+            <div className="divider" />
+            <MenuItem
+                title="Feat. Flags"
+                icon={<IconFeatureFlags />}
+                identifier="featureFlags"
+                to={urls.featureFlags()}
+                hotkey="f"
+                tooltip="Controlled feature releases"
+            />
+            <div className="divider" />
+            {canViewPlugins(user?.organization) && (
+                <MenuItem
+                    title="Plugins"
+                    icon={<ApiFilled />}
+                    identifier="plugins"
+                    to={urls.plugins()}
+                    hotkey="l"
+                    tooltip="Extend your analytics functionality"
+                />
+            )}
+            <MenuItem
+                title="Project"
+                icon={<ProjectFilled />}
+                identifier="projectSettings"
+                to={urls.projectSettings()}
+                hotkey="j"
+            />
+            <div className="divider" />
+            <MenuItem
+                title="Toolbar"
+                icon={<IconToolbar />}
+                identifier="toolbar"
+                to=""
+                hotkey="t"
+                onClick={() => setToolbarModalOpen(true)}
+            />
+        </>
+    )
+}
+
+export function MainNavigation(): JSX.Element {
+    const { menuCollapsed, toolbarModalOpen, hotkeyNavigationEngaged } = useValues(navigationLogic)
+    const { mayCurrentTeamBeAvailable } = useValues(teamLogic)
+    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setHotkeyNavigationEngaged } = useActions(
         navigationLogic
     )
-    const {
-        setMenuCollapsed,
-        collapseMenu,
-        setToolbarModalOpen,
-        setPinnedDashboardsVisible,
-        setHotkeyNavigationEngaged,
-    } = useActions(navigationLogic)
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useEscapeKey(collapseMenu, [menuCollapsed])
 
@@ -254,143 +397,7 @@ export function MainNavigation(): JSX.Element {
                             </Link>
                         }
                     </div>
-                    {currentOrganization?.setup.is_active && (
-                        <MenuItem
-                            title="Setup"
-                            icon={<SettingOutlined />}
-                            identifier="onboardingSetup"
-                            to={urls.onboardingSetup()}
-                            hotkey="u"
-                        />
-                    )}
-                    {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
-                        <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to={urls.home()} />
-                    )}
-                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
-                        <MenuItem
-                            title="Explore"
-                            icon={<IconExplore />}
-                            identifier="insights"
-                            to={urls.insightView(ViewType.TRENDS)}
-                            hotkey="x"
-                            tooltip="Answers to all your analytics questions"
-                        />
-                    )}
-                    <MenuItem
-                        title="Insights"
-                        icon={<IconInsights />}
-                        identifier={featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? 'savedInsights' : 'insights'}
-                        to={
-                            featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
-                                ? urls.savedInsights()
-                                : urls.insightView(ViewType.TRENDS)
-                        }
-                        hotkey="i"
-                        tooltip={
-                            featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
-                                ? 'See your saved insights'
-                                : 'Answers to all your analytics questions'
-                        }
-                    />
-                    <Popover
-                        content={PinnedDashboards}
-                        placement="right"
-                        trigger="hover"
-                        arrowPointAtCenter
-                        overlayClassName="pinned-dashboards-popover"
-                        onVisibleChange={(visible) => setPinnedDashboardsVisible(visible)}
-                        visible={pinnedDashboardsVisible}
-                    >
-                        <div>
-                            <MenuItem
-                                title="Dashboards"
-                                icon={<IconDashboard />}
-                                identifier="dashboards"
-                                to={urls.dashboards()}
-                                onClick={() => setPinnedDashboardsVisible(false)}
-                                hotkey="d"
-                            />
-                        </div>
-                    </Popover>
-
-                    <div className="divider" />
-                    <MenuItem
-                        title="Events"
-                        icon={<IconEvents />}
-                        identifier="events"
-                        to={urls.events()}
-                        hotkey="e"
-                        tooltip="List of events and actions"
-                    />
-                    <MenuItem
-                        title="Sessions"
-                        icon={<ClockCircleFilled />}
-                        identifier="sessions"
-                        to={urls.sessions()}
-                        hotkey="s"
-                        tooltip="Understand interactions based by visits and watch session recordings"
-                    />
-                    <div className="divider" />
-                    <MenuItem
-                        title="Persons"
-                        icon={<IconPerson />}
-                        identifier="persons"
-                        to={urls.persons()}
-                        hotkey="p"
-                        tooltip="Understand your users individually"
-                    />
-                    <MenuItem
-                        title="Cohorts"
-                        icon={<IconCohorts />}
-                        identifier="cohorts"
-                        to={urls.cohorts()}
-                        hotkey="c"
-                        tooltip="Group users for easy filtering"
-                    />
-                    <div className="divider" />
-                    <MenuItem
-                        title="Annotations"
-                        icon={<MessageOutlined />}
-                        identifier="annotations"
-                        to={urls.annotations()}
-                        hotkey="a"
-                    />
-                    <div className="divider" />
-                    <MenuItem
-                        title="Feat. Flags"
-                        icon={<IconFeatureFlags />}
-                        identifier="featureFlags"
-                        to={urls.featureFlags()}
-                        hotkey="f"
-                        tooltip="Controlled feature releases"
-                    />
-                    <div className="divider" />
-                    {canViewPlugins(user?.organization) && (
-                        <MenuItem
-                            title="Plugins"
-                            icon={<ApiFilled />}
-                            identifier="plugins"
-                            to={urls.plugins()}
-                            hotkey="l"
-                            tooltip="Extend your analytics functionality"
-                        />
-                    )}
-                    <MenuItem
-                        title="Project"
-                        icon={<ProjectFilled />}
-                        identifier="projectSettings"
-                        to={urls.projectSettings()}
-                        hotkey="j"
-                    />
-                    <div className="divider" />
-                    <MenuItem
-                        title="Toolbar"
-                        icon={<IconToolbar />}
-                        identifier="toolbar"
-                        to=""
-                        hotkey="t"
-                        onClick={() => setToolbarModalOpen(true)}
-                    />
+                    {mayCurrentTeamBeAvailable && <MenuItems />}
                     <div className={`scroll-indicator ${canScroll ? '' : 'hide'}`} onClick={scrollToBottom}>
                         <DownOutlined />
                     </div>
