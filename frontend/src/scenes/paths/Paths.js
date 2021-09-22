@@ -1,14 +1,10 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import { useValues } from 'kea'
 import { stripHTTP } from 'lib/utils'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button } from 'antd'
-
-// TODO: Replace with PathType enums when moving to TypeScript
-const PAGEVIEW = '$pageview'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -71,11 +67,6 @@ function pageUrl(d) {
     return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
 }
 
-function pathText(d) {
-    const name = d.name.replace(/(^[0-9]+_)/, '')
-    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
-}
-
 function NoData() {
     return (
         <div style={{ padding: '1rem' }}>
@@ -87,13 +78,11 @@ function NoData() {
 
 const DEFAULT_PATHS_ID = 'default_paths'
 
-var coordinates
-
 export function Paths({ dashboardItemId = null, filters = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
-    const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
-    
+    const { paths, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
+    const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
         renderPaths()
     }, [paths, !pathsLoading, size, color])
@@ -114,39 +103,21 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
             .select(canvas.current)
             .append('svg')
             .style('background', 'var(--item-background)')
-            .style('width', width)
+            .style('width', width + 200)
             .style('height', height)
 
         let sankey = new Sankey.sankey()
             .nodeId((d) => d.name)
-            .nodeAlign(Sankey.sankeyLeft)
+            .nodeAlign(Sankey.sankeyJustify)
             .nodeSort(null)
             .nodeWidth(15)
-            .size([width, height])
-        
-        
+            .size([width - 100, height])
 
         const { nodes, links } = sankey({
             nodes: paths.nodes.map((d) => ({ ...d })),
             links: paths.links.map((d) => ({ ...d })),
         })
-
-        coordinates = nodes
-
-        // this one!!!
-
-        // svg.append('g')
-        //     .selectAll('rect')
-        //     .data(nodes)
-        //     .join('rect')
-        //     .attr('x', (d) => d.x0 + 50)
-        //     .attr('y', (d) => d.y0)
-        //     .attr('height', (d) => d.y1 - d.y0)
-        //     .attr('width', (d) => d.x1 - d.x0 + 50)
-        //     .attr('fill', 'white')
-        //     .attr('stroke', 'black')
-        //     .text('hi?')
-            // .text((d) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
+        setPathItemCards(nodes)
 
         svg.append('g')
             .selectAll('rect')
@@ -178,11 +149,10 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                 const startNodeColor = d3.color(c)
                     ? d3.color(c)
                     : color === 'white'
-                    ? d3.color('#dddddd')
+                    ? d3.color('#5375ff')
                     : d3.color('#191919')
-                return startNodeColor.darker(0.5)
+                return startNodeColor
             })
-            .attr('opacity', 0.5)
             .append('title')
             .text((d) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
 
@@ -209,7 +179,7 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
             .data(links)
             .join('g')
             .attr('stroke', () => (color === 'white' ? 'var(--primary)' : 'var(--item-lighter'))
-            .attr('opacity', 0.4)
+            .attr('opacity', 0.2)
 
         link.append('path')
             .attr('d', Sankey.sankeyLinkHorizontal())
@@ -248,30 +218,6 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
         link.append('title').text(
             (d) => `${stripHTTP(d.source.name)} → ${stripHTTP(d.target.name)}\n${d.value.toLocaleString()}`
         )
-
-        var textSelection = svg
-            .append('g')
-            .style('font-size', '12px')
-            .selectAll('text')
-            .data(nodes)
-            .join('text')
-            .attr('x', (d) => (d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6))
-            .attr('y', (d) => (d.y1 + d.y0) / 2)
-            .attr('dy', '0.35em')
-            .attr('text-anchor', (d) => (d.x0 < width / 2 ? 'start' : 'end'))
-            .attr('display', (d) => (d.value > 0 ? 'inherit' : 'none'))
-            .text(loadedFilter?.path_type === PAGEVIEW ? pageUrl : pathText)
-            .style('cursor', 'auto')
-            .style('fill', color === 'white' ? '#000' : '#fff')
-
-        textSelection
-            .append('tspan')
-            .attr('fill-opacity', 0.8)
-            .text((d) => ` ${d.value.toLocaleString()}`)
-
-        textSelection.append('title').text((d) => stripHTTP(d.name))
-
-        return textSelection.node()
     }
 
     return (
@@ -283,19 +229,26 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
         >
             <div ref={canvas} className="paths" data-attr="paths-viz">
                 {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
-                {
-                // coordinates && coordinates.map((coord, idx) => {
-                //     console.log(coord)
-                //     return (<div 
-                //             style={{position: 'absolute', left: coord.x0, top: coord.y0, background: 'white', minWidth: 100, height: 30, border: '1px solid'}}
-                //             >
-                //             {pageUrl(coord)}
-                //             {/* <span>{coord.source_link[0].average_conversion_time}</span> */}
-                //         </div>)
-                // })
-                }
+                {pathItemCards &&
+                    pathItemCards.map((coord, idx) => {
+                        return (
+                            <div
+                                key={idx}
+                                style={{
+                                    position: 'absolute',
+                                    left: coord.x0,
+                                    top: coord.y0 + (coord.y1 - coord.y0) / 2,
+                                    background: 'white',
+                                    minWidth: 100,
+                                    height: 30,
+                                    border: '1px solid',
+                                }}
+                            >
+                                {pageUrl(coord)}
+                            </div>
+                        )
+                    })}
             </div>
-            
         </div>
     )
 }
