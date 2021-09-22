@@ -79,6 +79,10 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
                     get_events_count_for_team_by_client_lib,
                     get_events_count_for_team_by_event_type,
                 )
+                from ee.clickhouse.models.person import (
+                    count_duplicate_distinct_ids_for_team,
+                    count_total_persons_with_multiple_ids,
+                )
 
                 team_event_count = get_event_count_for_team(team.id)
                 instance_usage_summary["events_count_total"] += team_event_count
@@ -93,6 +97,9 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
                 team_report["events_count_by_name"] = get_events_count_for_team_by_event_type(
                     team.id, period_start, period_end
                 )
+
+                team_report["duplicate_distinct_ids"] = count_duplicate_distinct_ids_for_team(team.id)
+                team_report["multiple_ids_per_person"] = count_total_persons_with_multiple_ids(team.id)
             else:
                 # pull events stats from postgres
                 events_considered_total = Event.objects.filter(team_id=team.id)

@@ -54,9 +54,12 @@ class PathEventQuery(ClickhouseEventQuery):
             if self._should_query_url()
             else "if(0, '', "
         )
-        event_conditional += f"{self.EVENT_TABLE_ALIAS}.event)) AS path_item"
+        event_conditional += f"{self.EVENT_TABLE_ALIAS}.event)) AS path_item_ungrouped"
 
         _fields.append(event_conditional)
+
+        _fields.append("multiMatchAnyIndex(path_item_ungrouped, %(regex_groupings)s) AS group_index")
+        _fields.append("if(group_index > 0, %(groupings)s[group_index], path_item_ungrouped) AS path_item")
 
         # remove empty strings
         _fields = list(filter(None, _fields))
