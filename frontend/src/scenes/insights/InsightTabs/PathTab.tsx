@@ -43,7 +43,6 @@ export function PathTab(): JSX.Element {
                     <Col>starting at</Col>
                     <Col>
                         <PropertyValue
-                            endpoint={filter.path_type === PathType.AutoCapture ? 'api/paths/elements' : undefined}
                             outerOptions={
                                 filter.path_type === PathType.CustomEvent
                                     ? customEventNames.map((name) => ({
@@ -58,7 +57,6 @@ export function PathTab(): JSX.Element {
                             value={filter.start_point}
                             placeholder={'Select start element'}
                             autoFocus={false}
-                            allowCustom={filter.path_type !== PathType.AutoCapture}
                         />
                     </Col>
                 </Row>

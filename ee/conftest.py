@@ -43,14 +43,8 @@ def reset_clickhouse_tables():
         (DROP_COHORTPEOPLE_TABLE_SQL, CREATE_COHORTPEOPLE_TABLE_SQL),
     ]
     for item in TABLES_TO_CREATE_DROP:
-        try:
-            sync_execute(item[0])
-        except Exception as e:
-            pass
-        try:
-            sync_execute(item[1])
-        except Exception as e:
-            pass
+        sync_execute(item[0])
+        sync_execute(item[1])
 
 
 if is_clickhouse_enabled():

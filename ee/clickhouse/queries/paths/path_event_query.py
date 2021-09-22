@@ -3,7 +3,6 @@ from typing import Any, Dict, Tuple
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from posthog.constants import (
-    AUTOCAPTURE_EVENT,
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
     FUNNEL_PATH_BETWEEN_STEPS,
@@ -55,12 +54,7 @@ class PathEventQuery(ClickhouseEventQuery):
             if self._should_query_url()
             else "if(0, '', "
         )
-        event_conditional += (
-            f"if({self.EVENT_TABLE_ALIAS}.event = '{AUTOCAPTURE_EVENT}', concat('autocapture:', {self.EVENT_TABLE_ALIAS}.elements_chain), "
-            if self._should_query_elements_chain()
-            else "if(0, '', "
-        )
-        event_conditional += f"{self.EVENT_TABLE_ALIAS}.event))) AS path_item"
+        event_conditional += f"{self.EVENT_TABLE_ALIAS}.event)) AS path_item"
 
         _fields.append(event_conditional)
 
@@ -113,9 +107,6 @@ class PathEventQuery(ClickhouseEventQuery):
         if self._filter.include_screenviews:
             or_conditions.append(f"event = '{SCREEN_EVENT}'")
 
-        if self._filter.include_autocaptures:
-            or_conditions.append(f"event = '{AUTOCAPTURE_EVENT}'")
-
         if self._filter.include_all_custom_events:
             or_conditions.append(f"NOT event LIKE '$%%'")
 
@@ -151,16 +142,6 @@ class PathEventQuery(ClickhouseEventQuery):
         ) and SCREEN_EVENT not in self._filter.exclude_events:
             return True
         elif self._filter.include_screenviews:
-            return True
-
-        return False
-
-    def _should_query_elements_chain(self) -> bool:
-        if (
-            self._filter.target_events == [] and self._filter.custom_events == []
-        ) and AUTOCAPTURE_EVENT not in self._filter.exclude_events:
-            return True
-        elif self._filter.include_autocaptures:
             return True
 
         return False
