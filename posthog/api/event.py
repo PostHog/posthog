@@ -99,7 +99,9 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     pagination_class = LimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
-    CSV_EXPORT_LIMIT = 100_000  # Return at most this number of events in CSV export
+    # Return at most this number of events in CSV export
+    CSV_EXPORT_DEFAULT_LIMIT = 10_000
+    CSV_EXPORT_MAXIMUM_LIMIT = 100_000
 
     def get_queryset(self):
         queryset = cast(EventManager, super().get_queryset()).add_person_id(self.team_id)
@@ -183,21 +185,29 @@ class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = self.get_queryset().filter(timestamp__lte=now() + timedelta(seconds=5))
         next_url: Optional[str] = None
 
-        if is_csv_request:
-            events = queryset[: self.CSV_EXPORT_LIMIT]
+        if self.request.GET.get("limit", None):
+            limit = int(self.request.GET.get("limit"))  # type: ignore
+        elif is_csv_request:
+            limit = self.CSV_EXPORT_DEFAULT_LIMIT
         else:
-            events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[:101]
-            if len(events) < 101:
-                events = queryset[:101]
+            limit = 100
+
+        if is_csv_request:
+            limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
+            events = queryset[:limit]
+        else:
+            events = queryset.filter(timestamp__gte=monday.replace(hour=0, minute=0, second=0))[: (limit + 1)]
+            if len(events) < limit + 1:
+                events = queryset[: limit + 1]
             path = request.get_full_path()
             reverse = request.GET.get("orderBy", "-timestamp") != "-timestamp"
-            if len(events) > 100:
+            if len(events) > limit:
                 next_url = request.build_absolute_uri(
                     "{}{}{}={}".format(
                         path,
                         "&" if "?" in path else "?",
                         "after" if reverse else "before",
-                        events[99].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                        events[limit - 1].timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                     )
                 )
             events = self.paginator.paginate_queryset(events, request, view=self)  # type: ignore
