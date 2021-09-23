@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { EntityFilter } from '~/types'
 import { Button, Input, Modal } from 'antd'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
@@ -11,6 +11,7 @@ interface Props {
 }
 
 export function FilterRenameModal({ visible, setModalOpen }: Props): JSX.Element {
+    const ref = useRef<Input | null>(null)
     const { selectedFilter } = useValues(entityFilterLogic)
     const { renameFilter, selectFilter } = useActions(entityFilterLogic)
 
@@ -19,6 +20,18 @@ export function FilterRenameModal({ visible, setModalOpen }: Props): JSX.Element
     useEffect(() => {
         setName(getDisplayNameFromEntityFilter(selectedFilter) ?? '')
     }, [selectedFilter])
+
+    // Hacky setTimeout is needed - https://github.com/ant-design/ant-design/issues/8668#issuecomment-352955313
+    useEffect(() => {
+        const autoFocusTimeout = setTimeout(() => {
+            if (visible && ref.current) {
+                ref.current?.focus({
+                    cursor: 'all',
+                })
+            }
+        }, 0)
+        return () => clearTimeout(autoFocusTimeout)
+    }, [visible])
 
     const onRename = (): void => {
         renameFilter({ ...selectedFilter, custom_name: name } as EntityFilter)
@@ -50,6 +63,7 @@ export function FilterRenameModal({ visible, setModalOpen }: Props): JSX.Element
             <br />
             <div className="l4 mt-05 mb-05">Name</div>
             <Input
+                ref={ref}
                 value={name}
                 onPressEnter={onRename}
                 onChange={(e) => setName(e.target.value)}
