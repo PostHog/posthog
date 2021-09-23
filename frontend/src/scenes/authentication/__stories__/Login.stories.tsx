@@ -6,12 +6,14 @@ import { keaStory } from 'lib/storybook/kea-story'
 import { Login } from '../Login'
 
 // import the `getReduxState()` output for all the variations you wish to show
-import loginState from './login-self-hosted.json'
+import selfHostedState from './login-self-hosted.json'
+import cloudState from './login-cloud.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'PostHog/Scenes/Login',
+    title: 'PostHog/Login',
 } as Meta
 
 // export more stories with different state
-export const SelfHosted = keaStory(Login, loginState)
+export const SelfHosted = keaStory(Login, selfHostedState)
+export const Cloud = keaStory(Login, cloudState)

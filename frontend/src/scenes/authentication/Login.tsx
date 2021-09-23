@@ -86,6 +86,7 @@ export function Login(): JSX.Element {
                             </Form.Item>
                         </Form>
                         <div className="text-center">
+                            &nbsp;
                             {preflight?.cloud && (
                                 <Link to="/signup" data-attr="signup" style={{ float: 'left' }}>
                                     Create an account
@@ -99,9 +100,7 @@ export function Login(): JSX.Element {
                                 Forgot your password?
                             </a>
                         </div>
-                        <div>
-                            <SocialLoginButtons displayStyle="link" caption="Or log in with" />
-                        </div>
+                        <SocialLoginButtons caption="Or log in with" />
                     </div>
                 </Col>
             </Row>
