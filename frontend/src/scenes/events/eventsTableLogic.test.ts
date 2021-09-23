@@ -1,14 +1,16 @@
 import { BuiltLogic } from 'kea'
 import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
-import { eventsTableLogic, EventsTableLogicProps } from 'scenes/events/eventsTableLogic'
+import { EventsTableEvent, eventsTableLogic, EventsTableLogicProps } from 'scenes/events/eventsTableLogic'
 import { mockAPI } from 'lib/api.mock'
 import { mockEventDefinitions } from '~/test/mocks'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 
 jest.mock('lib/api')
 
+const randomBool = (): boolean => Math.random() < 0.5
+
 describe('eventsTableLogic', () => {
-    let logic: BuiltLogic<eventsTableLogicType<EventsTableLogicProps>>
+    let logic: BuiltLogic<eventsTableLogicType<EventsTableEvent, EventsTableLogicProps>>
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === 'api/projects/@current/event_definitions') {
@@ -38,10 +40,20 @@ describe('eventsTableLogic', () => {
 
     it('starts with known defaults', async () => {
         await expectLogic(logic).toMatchValues({
+            initialPathname: '/',
             properties: expect.arrayContaining([]),
-            automaticLoadEnabled: false,
+            eventFilter: '',
+            isLoading: false,
+            isLoadingNext: false,
+            events: [],
             hasNext: false,
             orderBy: '-timestamp',
+            selectedEvent: null,
+            newEvents: [],
+            highlightEvents: {},
+            // pollTimeout: truth,
+            columnConfigSaving: false,
+            automaticLoadEnabled: false,
         })
     })
 
@@ -181,7 +193,7 @@ describe('eventsTableLogic', () => {
 
     it('fetch events success can set hasNext (which is the URL of the next page of results, that we do not use)', async () => {
         await expectLogic(logic, () => {
-            logic.actions.fetchEventsSuccess('', 'potato.io', false)
+            logic.actions.fetchEventsSuccess({ events: '', hasNext: true, isNext: false })
         }).toMatchValues({
             hasNext: true,
         })
@@ -189,7 +201,7 @@ describe('eventsTableLogic', () => {
 
     it('fetch events clears the has next flag', async () => {
         await expectLogic(logic, () => {
-            logic.actions.fetchEventsSuccess('', 'potato.io', false)
+            logic.actions.fetchEventsSuccess({ events: '', hasNext: true, isNext: false })
             logic.actions.fetchEvents()
         }).toMatchValues({
             hasNext: false,
@@ -198,7 +210,7 @@ describe('eventsTableLogic', () => {
 
     it('fetch next events clears the has next flag', async () => {
         await expectLogic(logic, () => {
-            logic.actions.fetchEventsSuccess('', 'potato.io', false)
+            logic.actions.fetchEventsSuccess({ events: '', hasNext: true, isNext: false })
             logic.actions.fetchNextEvents()
         }).toMatchValues({
             hasNext: false,
@@ -218,8 +230,8 @@ describe('eventsTableLogic', () => {
         const originalEvents = [{ id: 'potato' }, { id: 'tomato' }]
         const subsequentEvents = [{ id: 'apple' }, { id: 'melon' }]
         await expectLogic(logic, () => {
-            logic.actions.fetchEventsSuccess(originalEvents, false, false)
-            logic.actions.fetchEventsSuccess(subsequentEvents, false, false)
+            logic.actions.fetchEventsSuccess({ events: originalEvents, hasNext: false, isNext: false })
+            logic.actions.fetchEventsSuccess({ events: subsequentEvents, hasNext: false, isNext: false })
         }).toMatchValues({
             events: subsequentEvents,
         })
@@ -229,8 +241,8 @@ describe('eventsTableLogic', () => {
         const originalEvents = [{ id: 'potato' }, { id: 'tomato' }]
         const subsequentEvents = [{ id: 'apple' }, { id: 'melon' }]
         await expectLogic(logic, () => {
-            logic.actions.fetchEventsSuccess(originalEvents, false, false)
-            logic.actions.fetchEventsSuccess(subsequentEvents, false, true)
+            logic.actions.fetchEventsSuccess({ events: originalEvents, hasNext: false, isNext: false })
+            logic.actions.fetchEventsSuccess({ events: subsequentEvents, hasNext: false, isNext: true })
         }).toMatchValues({
             events: [...originalEvents, ...subsequentEvents],
         })
@@ -239,7 +251,7 @@ describe('eventsTableLogic', () => {
     it('can unset the isLoadingNext flag when succeeding', async () => {
         await expectLogic(logic, () => {
             logic.actions.fetchNextEvents()
-            logic.actions.fetchEventsSuccess([])
+            logic.actions.fetchEventsSuccess({ events: [], hasNext: false, isNext: false })
         }).toMatchValues({
             isLoadingNext: false,
         })
@@ -250,6 +262,81 @@ describe('eventsTableLogic', () => {
             logic.actions.fetchNextEvents()
         }).toMatchValues({
             isLoadingNext: true,
+        })
+    })
+
+    describe('the isloading flag', () => {
+        // had complicated implementation but on testing the fetchEvents action maintains the current state
+
+        it('simple cases', async () => {
+            await expectLogic(logic).toMatchValues({ isLoading: false })
+            await expectLogic(logic, () => {
+                logic.actions.setDelayedLoading()
+            }).toMatchValues({ isLoading: true })
+            await expectLogic(logic, () => {
+                logic.actions.setDelayedLoading()
+                logic.actions.fetchEventsSuccess({ events: [], hasNext: randomBool(), isNext: randomBool() })
+            }).toMatchValues({ isLoading: false })
+            await expectLogic(logic, () => {
+                logic.actions.setDelayedLoading()
+                logic.actions.fetchOrPollFailure(new Error())
+            }).toMatchValues({ isLoading: false })
+        })
+
+        it('on FetchEvents remains true when next params is true', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setDelayedLoading() // now it is true
+                logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
+            }).toMatchValues({ isLoading: true })
+        })
+
+        it('on FetchEvents remains false when next params is true', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
+            }).toMatchValues({ isLoading: false })
+        })
+
+        it('on FetchEvents remains true when next params is false', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setDelayedLoading() // now it is true
+                logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
+            }).toMatchValues({ isLoading: true })
+        })
+
+        it('on FetchEvents remains false when next params is false', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
+            }).toMatchValues({ isLoading: false })
+        })
+    })
+
+    describe('the event filter', () => {
+        it('can set the event filter', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEventFilter('event name')
+            }).toMatchValues({ eventFilter: 'event name' })
+        })
+    })
+
+    describe('the properties', () => {
+        it('can set the properties when empty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([])
+            }).toMatchValues({ properties: [{}] })
+
+            await expectLogic(logic, () => {
+                logic.actions.setProperties({})
+            }).toMatchValues({ properties: [{}] })
+
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([{}])
+            }).toMatchValues({ properties: [{}] })
+        })
+
+        it('can set an object inside the array', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([{ key: 'value' }])
+            }).toMatchValues({ properties: [{ key: 'value' }] })
         })
     })
 })
