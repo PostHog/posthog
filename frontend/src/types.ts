@@ -454,14 +454,14 @@ export interface EventsTableAction {
 }
 
 export interface EventType {
-    elements: ElementType[] | undefined
+    elements: ElementType[]
     elements_hash: string | null
     id: number | string
     properties: Record<string, unknown>
     timestamp: string
     action: EventsTableAction
     person?: Partial<PersonType> | null
-    event?: string
+    event: string
 }
 
 export interface EventsTableRowItem {
