@@ -15,7 +15,6 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { Dayjs } from 'dayjs'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 
@@ -449,19 +448,25 @@ export enum LayoutView {
     List = 'list',
 }
 
-export interface EventType {
-    elements: ElementType[]
-    elements_hash: string | null
-    event: string
-    id: number | string
-    properties: Record<string, any>
-    timestamp: string
-    person?: Partial<PersonType> | null
+export interface EventsTableAction {
+    name: string
+    id: string
 }
 
-export interface EventFormattedType {
-    event: EventType
-    date_break?: Dayjs
+export interface EventType {
+    elements: ElementType[] | undefined
+    elements_hash: string | null
+    id: number | string
+    properties: Record<string, unknown>
+    timestamp: string
+    action: EventsTableAction
+    person?: Partial<PersonType> | null
+    event?: string
+}
+
+export interface EventsTableRowItem {
+    event?: EventType
+    date_break?: string
     new_events?: boolean
 }
 

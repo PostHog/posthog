@@ -1,17 +1,11 @@
 import { BuiltLogic } from 'kea'
 import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
-import {
-    ApiError,
-    EventsTableEvent,
-    eventsTableLogic,
-    EventsTableLogicProps,
-    OnFetchEventsSuccess,
-} from 'scenes/events/eventsTableLogic'
+import { ApiError, eventsTableLogic, EventsTableLogicProps, OnFetchEventsSuccess } from 'scenes/events/eventsTableLogic'
 import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
-import { truth } from '~/test/kea-test-utils/jest'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
+import { EventType } from '~/types'
 
 const toastSpy = jest.spyOn(utils, 'errorToast')
 
@@ -21,16 +15,20 @@ const randomBool = (): boolean => Math.random() < 0.5
 
 const randomString = (): string => Math.random().toString(36).substr(2, 5)
 
-const makeEvent = (id: string = '1', timestamp: string = randomString()): EventsTableEvent => ({
+const makeEvent = (id: string = '1', timestamp: string = randomString()): EventType => ({
     id: id,
     timestamp,
     action: { name: randomString(), id: randomString() },
+    elements: [],
+    elements_hash: '',
+    event: {},
+    properties: {},
 })
 
 // TODO test interactions with userLogic
 
 describe('eventsTableLogic', () => {
-    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableEvent, EventsTableLogicProps, OnFetchEventsSuccess>>
+    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventType, EventsTableLogicProps, OnFetchEventsSuccess>>
 
     mockAPI(async () => ({ results: [], count: 0 }))
 
@@ -59,7 +57,6 @@ describe('eventsTableLogic', () => {
             selectedEvent: null,
             newEvents: [],
             highlightEvents: {},
-            pollTimeout: truth((pt) => pt >= -1), //may not be default of -1 if the logic has already run a poll
             columnConfigSaving: false,
             automaticLoadEnabled: false,
             columnConfig: 'DEFAULT',
@@ -121,10 +118,11 @@ describe('eventsTableLogic', () => {
         })
 
         it('can set a poll timeout ID', async () => {
+            const timeoutHandle = setTimeout(() => {})
             await expectLogic(logic, () => {
-                logic.actions.setPollTimeout(12)
+                logic.actions.setPollTimeout(timeoutHandle)
             }).toMatchValues({
-                pollTimeout: 12,
+                pollTimeout: timeoutHandle,
             })
         })
 

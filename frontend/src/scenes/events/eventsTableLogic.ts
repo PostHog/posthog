@@ -9,32 +9,26 @@ import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
+import { EventsTableRowItem, EventType } from '~/types'
 const POLL_TIMEOUT = 5000
 
 // necessary for the date format in the formatEvents method to work
 // doesn't matter if it is called multiple times but must be called once
 dayjs.extend(LocalizedFormat)
 
-const formatEvents = (
-    events: EventsTableEvent[],
-    newEvents: EventsTableEvent[],
-    apiUrl: string | undefined
-): EventsTableEvent[] => {
-    let eventsFormatted: any[] = []
-    if (!apiUrl) {
-        eventsFormatted = [...events.map((event) => ({ event }))]
-    } else {
-        eventsFormatted = [
-            ...events.map((item) => ({
-                event: { ...item.event, actionName: item.action.name, actionId: item.action.id },
-            })),
-        ]
-    }
+const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableRowItem[] => {
+    let eventsFormatted: EventsTableRowItem[] = []
+
+    eventsFormatted = events.map((item) => ({
+        event: item,
+    }))
     eventsFormatted.forEach((event, index) => {
+        const previous = eventsFormatted[index - 1]
         if (
             index > 0 &&
-            eventsFormatted[index - 1].event &&
-            !dayjs(event.event.timestamp).isSame(eventsFormatted[index - 1].event.timestamp, 'day')
+            event.event &&
+            previous.event &&
+            !dayjs(event.event.timestamp).isSame(previous.event.timestamp, 'day')
         ) {
             eventsFormatted.splice(index, 0, { date_break: dayjs(event.event.timestamp).format('LL') })
         }
@@ -52,20 +46,8 @@ export interface EventsTableLogicProps {
     key?: string
 }
 
-interface EventsTableAction {
-    name: string
-    id: string
-}
-
-export interface EventsTableEvent {
-    id: string
-    event?: EventsTableEvent
-    action: EventsTableAction
-    timestamp?: string
-}
-
 export interface OnFetchEventsSuccess {
-    events: EventsTableEvent[]
+    events: EventType[]
     hasNext: boolean
     isNext: boolean
 }
@@ -81,9 +63,7 @@ export interface ApiError {
 // - fixedFilters
 // - apiUrl = 'api/event/'
 // - live = false
-export const eventsTableLogic = kea<
-    eventsTableLogicType<ApiError, EventsTableEvent, EventsTableLogicProps, OnFetchEventsSuccess>
->({
+export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
@@ -118,9 +98,9 @@ export const eventsTableLogic = kea<
         fetchOrPollFailure: (error: ApiError) => ({ error }),
         flipSort: true,
         pollEvents: true,
-        pollEventsSuccess: (events: EventsTableEvent[]) => ({ events }),
-        prependNewEvents: (events: EventsTableEvent[]) => ({ events }),
-        setSelectedEvent: (selectedEvent: EventsTableEvent) => ({ selectedEvent }),
+        pollEventsSuccess: (events: EventType[]) => ({ events }),
+        prependNewEvents: (events: EventType[]) => ({ events }),
+        setSelectedEvent: (selectedEvent: EventType) => ({ selectedEvent }),
         setPollTimeout: (pollTimeout: ReturnType<typeof setTimeout>) => ({ pollTimeout }),
         setDelayedLoading: true,
         setEventFilter: (event: string) => ({ event }),
@@ -178,16 +158,16 @@ export const eventsTableLogic = kea<
             },
         ],
         events: [
-            [] as EventsTableEvent[],
+            [] as EventType[],
             {
-                fetchEventsSuccess: (state: EventsTableEvent[], { events, isNext }: OnFetchEventsSuccess) =>
+                fetchEventsSuccess: (state: EventType[], { events, isNext }: OnFetchEventsSuccess) =>
                     isNext ? [...state, ...events] : events,
                 prependNewEvents: (
-                    state: EventsTableEvent[],
+                    state: EventType[],
                     {
                         events,
                     }: {
-                        events: EventsTableEvent[]
+                        events: EventType[]
                     }
                 ) => [...events, ...state],
             },
@@ -203,28 +183,28 @@ export const eventsTableLogic = kea<
         ],
         orderBy: ['-timestamp', { flipSort: (state: string) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
         selectedEvent: [
-            (null as unknown) as EventsTableEvent,
+            (null as unknown) as EventType,
             {
                 setSelectedEvent: (
-                    _: EventsTableEvent,
+                    _: EventType,
                     {
                         selectedEvent,
                     }: {
-                        selectedEvent: EventsTableEvent
+                        selectedEvent: EventType
                     }
                 ) => selectedEvent,
             },
         ],
         newEvents: [
-            [] as EventsTableEvent[],
+            [] as EventType[],
             {
                 setProperties: () => [],
                 pollEventsSuccess: (
-                    _: EventsTableEvent[],
+                    _: EventType[],
                     {
                         events,
                     }: {
-                        events: EventsTableEvent[]
+                        events: EventType[]
                     }
                 ) => events || [],
                 prependNewEvents: () => [],
@@ -239,7 +219,7 @@ export const eventsTableLogic = kea<
                     {
                         events,
                     }: {
-                        events: EventsTableEvent[]
+                        events: EventType[]
                     }
                 ) => {
                     return events.reduce((highlightEvents, event) => {
@@ -286,7 +266,7 @@ export const eventsTableLogic = kea<
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [
             () => [selectors.events, selectors.newEvents],
-            (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
+            (events, newEvents) => formatEvents(events, newEvents),
         ],
         columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
         exportUrl: [
@@ -446,12 +426,8 @@ export const eventsTableLogic = kea<
 
             const event = values.events[0]
 
-            if (event) {
-                if (event.timestamp) {
-                    params.after = event.timestamp
-                } else if (event.event && event.timestamp) {
-                    params.after = event.event.timestamp
-                }
+            if (event && event.timestamp) {
+                params.after = event.timestamp
             }
 
             let apiResponse = null
