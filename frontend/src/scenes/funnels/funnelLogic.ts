@@ -141,7 +141,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
-        logic: [insightLogic, eventUsageLogic],
+        logic: [insightLogic, eventUsageLogic, dashboardsModel],
     },
 
     loaders: ({ props, values }) => ({
@@ -159,10 +159,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                         (props.cachedResults || props.preventLoading) &&
                         equal(cleanFunnelParams(values.filters, true), cleanFunnelParams(props.filters || {}, true))
                     ) {
-                        return {
-                            results: props.cachedResults,
-                            filters,
-                        }
+                        return { results: props.cachedResults, filters }
                     }
 
                     // Don't bother making any requests if filters aren't valid
