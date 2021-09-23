@@ -18,7 +18,7 @@ dayjs.extend(LocalizedFormat)
 const formatEvents = (
     events: EventsTableEvent[],
     newEvents: EventsTableEvent[],
-    apiUrl: string
+    apiUrl: string | undefined
 ): EventsTableEvent[] => {
     let eventsFormatted: any[] = []
     if (!apiUrl) {
@@ -267,7 +267,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableEvent, Event
     selectors: ({ selectors, props }) => ({
         eventsFormatted: [
             () => [selectors.events, selectors.newEvents],
-            (events, newEvents) => formatEvents(events, newEvents, props.apiUrl as string),
+            (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
         ],
         columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
         exportUrl: [

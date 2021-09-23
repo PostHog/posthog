@@ -2,7 +2,6 @@ import { BuiltLogic } from 'kea'
 import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
 import { EventsTableEvent, eventsTableLogic, EventsTableLogicProps } from 'scenes/events/eventsTableLogic'
 import { mockAPI } from 'lib/api.mock'
-import { mockEventDefinitions } from '~/test/mocks'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { truth } from '~/test/kea-test-utils/jest'
 
@@ -21,19 +20,7 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): Events
 describe('eventsTableLogic', () => {
     let logic: BuiltLogic<eventsTableLogicType<EventsTableEvent, EventsTableLogicProps>>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === 'api/projects/@current/event_definitions') {
-            const results = searchParams.search
-                ? mockEventDefinitions.filter((e) => e.name.includes(searchParams.search))
-                : mockEventDefinitions
-            return {
-                results,
-                count: results.length,
-            }
-        }
-        // console.log({ pathname, searchParams }, 'mockAPI')
-        return { results: [], count: 0 }
-    })
+    mockAPI(async () => ({ results: [], count: 0 }))
 
     initKeaTestLogic({
         logic: eventsTableLogic,
@@ -63,6 +50,7 @@ describe('eventsTableLogic', () => {
             pollTimeout: truth((pt) => pt >= -1), //may not be default of -1 if the logic has already run a poll
             columnConfigSaving: false,
             automaticLoadEnabled: false,
+            columnConfig: 'DEFAULT',
         })
     })
 
@@ -376,5 +364,30 @@ describe('eventsTableLogic', () => {
                 eventsFormatted: [{ event: today }, { date_break: 'September 22, 2021' }, { event: yesterday }],
             })
         })
+
+        it('can build the export URL when there are no properties or filters', async () => {
+            await expectLogic(logic, () => {}).toMatchValues({
+                exportUrl: '/api/event.csv?properties=%5B%7B%7D%5D&orderBy=%5B%22-timestamp%22%5D',
+            })
+        })
+
+        it('can build the export URL when there are properties or filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([{ key: 'value' }])
+            }).toMatchValues({
+                exportUrl:
+                    '/api/event.csv?properties=%5B%7B%22key%22%3A%22value%22%7D%5D&orderBy=%5B%22-timestamp%22%5D',
+            })
+        })
+
+        it('can build the export URL when orderby changes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.flipSort()
+            }).toMatchValues({
+                exportUrl: '/api/event.csv?properties=%5B%7B%7D%5D&orderBy=%5B%22timestamp%22%5D',
+            })
+        })
+
+        // TODO test columnConfig reads from userLogic
     })
 })
