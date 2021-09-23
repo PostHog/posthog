@@ -132,6 +132,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             hideDeleteBtn,
             disabled,
             renderRow,
+            hideRename,
+            onRenameClick: () => setModalOpen(true),
         }
 
         return (
@@ -168,8 +170,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 singleFilter={singleFilter}
                                 showOr={showOr}
                                 hideFilter={hideFilter}
-                                hideRename={hideRename}
-                                onRenameClick={() => setModalOpen(true)}
                                 horizontalUI={horizontalUI}
                                 filterCount={localFilters.length}
                                 showNestedArrow={showNestedArrow}

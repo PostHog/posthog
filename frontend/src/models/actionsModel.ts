@@ -9,7 +9,6 @@ export const actionsModel = kea<actionsModelType>({
             __default: [] as ActionType[],
             loadActions: async () => {
                 const response = await api.get(`api/action/?${props.params ? props.params : ''}`)
-                console.log('ACTIONS', response)
                 return response.results
             },
         },

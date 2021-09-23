@@ -4,10 +4,8 @@ import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
-import { FEATURE_FLAGS, MATHS } from 'lib/constants'
+import { MATHS } from 'lib/constants'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 
 export enum IconSize {
@@ -31,6 +29,7 @@ interface InsightsLabelProps {
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
+    useCustomName?: boolean // Whether to show new custom name (FF `6063-rename-filters`). `{custom_name} ({id})`.
 }
 
 function MathTag({ math, mathProperty }: Record<string, string | undefined>): JSX.Element {
@@ -70,11 +69,13 @@ export function InsightLabel({
     hasMultipleSeries,
     showCountedByTag,
     allowWrap = false,
+    useCustomName = false,
 }: InsightsLabelProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const showEventName = !breakdownValue || hasMultipleSeries
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
+
+    console.log('ACTION', action)
 
     return (
         <Row className="insights-label" wrap={false}>
@@ -93,7 +94,7 @@ export function InsightLabel({
                         }}
                     />
                 )}
-                {hasMultipleSeries && action?.order !== undefined && (
+                {hasMultipleSeries && !hideIcon && action?.order !== undefined && (
                     <SeriesLetter
                         seriesIndex={action.order}
                         seriesColor={seriesColor}
@@ -103,7 +104,7 @@ export function InsightLabel({
                 <div className={allowWrap ? '' : 'protect-width'}>
                     {showEventName && (
                         <>
-                            {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && action ? (
+                            {useCustomName && action ? (
                                 <EntityFilterInfo filter={action} />
                             ) : (
                                 <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />

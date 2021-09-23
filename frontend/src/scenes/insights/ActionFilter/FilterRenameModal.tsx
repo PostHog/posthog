@@ -25,7 +25,7 @@ export function FilterRenameModal({ visible, setModalOpen }: Props): JSX.Element
         setModalOpen(false)
     }
 
-    console.log('SELECTED FILTER,', selectedFilter)
+    console.log('SELECTED FILTER,', selectedFilter, visible)
 
     return (
         <Modal

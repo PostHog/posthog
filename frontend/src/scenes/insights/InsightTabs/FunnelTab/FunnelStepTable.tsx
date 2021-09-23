@@ -15,6 +15,7 @@ import { ChartParams, FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import {
     EmptyValue,
+    getActionFilterFromFunnelStep,
     getStepColor,
     isBreakdownChildType,
     renderColumnTitle,
@@ -361,6 +362,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
             render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
                 const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
                 const color = getStepColor(step, !!filters.breakdown)
+
+                console.log('RENDER LABEL', step, filters)
                 return (
                     <InsightLabel
                         seriesColor={color}
@@ -368,6 +371,11 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             isBreakdownChild && isBreakdownChildType(step.breakdown)
                                 ? formatBreakdownLabel(step.breakdown, cohorts)
                                 : step.name
+                        }
+                        action={
+                            isBreakdownChild && isBreakdownChildType(step.breakdown)
+                                ? undefined
+                                : getActionFilterFromFunnelStep(step)
                         }
                         hasMultipleSeries={steps.length > 1}
                         breakdownValue={
@@ -382,6 +390,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         iconStyle={{ marginRight: 12 }}
                         hideIcon={!isBreakdownChild}
                         allowWrap
+                        useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
                     />
                 )
             },

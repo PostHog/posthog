@@ -836,6 +836,7 @@ export interface FunnelStep {
     average_conversion_time: number | null
     count: number
     name: string
+    custom_name?: string
     order: number
     people?: string[]
     type: EntityType

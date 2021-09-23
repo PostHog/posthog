@@ -1,4 +1,9 @@
-import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown, FunnelStepWithConversionMetrics } from '~/types'
+import {
+    ActionFilter,
+    FlattenedFunnelStep,
+    FlattenedFunnelStepByBreakdown,
+    FunnelStepWithConversionMetrics,
+} from '~/types'
 import { getReferenceStep, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { RenderedCell } from 'rc-table/lib/interface'
 import React from 'react'
@@ -196,4 +201,15 @@ export const renderGraphAndHeader = (
         return headerElement
     }
     return defaultElement
+}
+
+export function getActionFilterFromFunnelStep(step: FlattenedFunnelStep): ActionFilter {
+    return {
+        type: step.type,
+        id: step.action_id,
+        name: step.name,
+        custom_name: step.custom_name,
+        order: step.order,
+        properties: [],
+    }
 }
