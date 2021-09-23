@@ -23,7 +23,9 @@ export const toDispatchActions: ExpectFunction<ActionToDispatch[]> = {
             if (notFound) {
                 await Promise.race([
                     delay(ASYNC_ACTION_WAIT_TIMEOUT).then(() => {
-                        throw new Error(`Timed out waiting for action: ${notFound} in logic ${logic?.pathString}`)
+                        throw new Error(
+                            `Timed out waiting for action: ${JSON.stringify(notFound)} in logic ${logic?.pathString}`
+                        )
                     }),
                     typeof notFound === 'string'
                         ? waitForAction(logic.actionTypes[notFound] || notFound)
