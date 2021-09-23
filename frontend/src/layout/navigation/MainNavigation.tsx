@@ -357,7 +357,7 @@ function MenuItems(): JSX.Element {
 
 export function MainNavigation(): JSX.Element {
     const { menuCollapsed, toolbarModalOpen, hotkeyNavigationEngaged } = useValues(navigationLogic)
-    const { mayCurrentTeamBeAvailable } = useValues(teamLogic)
+    const { isCurrentTeamUnavailable } = useValues(teamLogic)
     const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setHotkeyNavigationEngaged } = useActions(
         navigationLogic
     )
@@ -408,7 +408,7 @@ export function MainNavigation(): JSX.Element {
                             </Link>
                         }
                     </div>
-                    {mayCurrentTeamBeAvailable && <MenuItems />}
+                    {!isCurrentTeamUnavailable && <MenuItems />}
                     <div className={`scroll-indicator ${canScroll ? '' : 'hide'}`} onClick={scrollToBottom}>
                         <DownOutlined />
                     </div>

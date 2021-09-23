@@ -80,10 +80,16 @@ export const teamLogic = kea<teamLogicType>({
         ],
     }),
     selectors: ({ selectors }) => ({
-        mayCurrentTeamBeAvailable: [
-            () => [selectors.currentTeam, selectors.currentTeamLoading],
+        isCurrentTeamUnavailable: [
+            () => [
+                selectors.currentTeam,
+                selectors.currentTeamLoading,
+                userLogic.selectors.user,
+                userLogic.selectors.userLoading,
+            ],
             // If project has been loaded and is still null, it means the user just doesn't have access.
-            (currentTeam, currentTeamLoading): boolean => !!currentTeam || !!currentTeamLoading,
+            (currentTeam, currentTeamLoading, user, userLoading): boolean =>
+                !!user && !userLoading && !currentTeam && !currentTeamLoading,
         ],
     }),
     listeners: ({ actions }) => ({

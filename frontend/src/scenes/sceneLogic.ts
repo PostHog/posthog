@@ -327,9 +327,9 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
             },
         ],
         activeScene: [
-            (selectors) => [selectors.loadingScene, selectors.scene, teamLogic.selectors.mayCurrentTeamBeAvailable],
-            (loadingScene, scene, mayCurrentTeamBeAvailable) =>
-                mayCurrentTeamBeAvailable ? loadingScene || scene : Scene.ErrorProjectUnavailable,
+            (selectors) => [selectors.loadingScene, selectors.scene, teamLogic.selectors.isCurrentTeamUnavailable],
+            (loadingScene, scene, isCurrentTeamUnavailable) =>
+                isCurrentTeamUnavailable ? Scene.ErrorProjectUnavailable : loadingScene || scene,
         ],
     },
     urlToAction: ({ actions }) => {
