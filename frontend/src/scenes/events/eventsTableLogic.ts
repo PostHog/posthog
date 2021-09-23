@@ -365,9 +365,13 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableEvent, Event
         fetchNextEvents: async () => {
             const { events, orderBy } = values
 
-            actions.fetchEvents({
-                [orderBy === 'timestamp' ? 'after' : 'before']: events[events.length - 1].timestamp,
-            })
+            if (events.length === 0) {
+                actions.fetchEvents()
+            } else {
+                actions.fetchEvents({
+                    [orderBy === 'timestamp' ? 'after' : 'before']: events[events.length - 1].timestamp,
+                })
+            }
         },
         fetchEvents: [
             async (_, breakpoint) => {

@@ -18,6 +18,8 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): Events
     action: { name: randomString(), id: randomString() },
 })
 
+// TODO test columnConfig reads from userLogic
+
 describe('eventsTableLogic', () => {
     let logic: BuiltLogic<eventsTableLogicType<EventsTableEvent, EventsTableLogicProps>>
 
@@ -388,47 +390,84 @@ describe('eventsTableLogic', () => {
                 exportUrl: '/api/event.csv?properties=%5B%7B%7D%5D&orderBy=%5B%22timestamp%22%5D',
             })
         })
+    })
 
-        // TODO test columnConfig reads from userLogic
+    it('writes autoload toggle to the URL', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.toggleAutomaticLoad(true)
+        })
+        expect(router.values.searchParams).toHaveProperty('autoload', true)
+    })
 
-        it('writes autoload toggle to the URL', async () => {
+    it('writes properties to the URL', async () => {
+        const value = randomString()
+        await expectLogic(logic, () => {
+            logic.actions.setProperties([{ key: value }])
+        })
+        expect(router.values.searchParams).toHaveProperty('properties', [{ key: value }])
+    })
+
+    it('reads autoload from the URL', async () => {
+        router.actions.push(router.values.location.pathname, { autoload: true })
+        await expectLogic(logic, () => {}).toMatchValues({ automaticLoadEnabled: true })
+    })
+
+    it('reads properties from the URL', async () => {
+        const value = randomString()
+        router.actions.push(router.values.location.pathname, { properties: [{ key: value }] })
+        await expectLogic(logic, () => {}).toMatchValues({ properties: [{ key: value }] })
+    })
+
+    it('writes event filter to the URL', async () => {
+        const eventFilter = randomString()
+        await expectLogic(logic, () => {
+            logic.actions.setEventFilter(eventFilter)
+        })
+        expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+    })
+
+    it('reads event filter from the URL', async () => {
+        const eventFilter = randomString()
+        router.actions.push(router.values.location.pathname, { eventFilter })
+        await expectLogic(logic, () => {}).toMatchValues({ eventFilter })
+    })
+
+    describe('the listeners', () => {
+        it('triggers fetch events on set properties', async () => {
             await expectLogic(logic, () => {
-                logic.actions.toggleAutomaticLoad(true)
-            })
-            expect(router.values.searchParams).toHaveProperty('autoload', true)
+                logic.actions.setProperties([])
+            }).toDispatchActions(['fetchEvents'])
         })
 
-        it('writes properties to the URL', async () => {
-            const value = randomString()
+        it('triggers fetch events on flipsort', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setProperties([{ key: value }])
-            })
-            expect(router.values.searchParams).toHaveProperty('properties', [{ key: value }])
+                logic.actions.flipSort()
+            }).toDispatchActions(['fetchEvents'])
         })
 
-        it('reads autoload from the URL', async () => {
-            router.actions.push(router.values.location.pathname, { autoload: true })
-            await expectLogic(logic, () => {}).toMatchValues({ automaticLoadEnabled: true })
-        })
-
-        it('reads properties from the URL', async () => {
-            const value = randomString()
-            router.actions.push(router.values.location.pathname, { properties: [{ key: value }] })
-            await expectLogic(logic, () => {}).toMatchValues({ properties: [{ key: value }] })
-        })
-
-        it('writes event filter to the URL', async () => {
-            const eventFilter = randomString()
+        it('triggers fetch events on set event filter', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setEventFilter(eventFilter)
-            })
-            expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+                logic.actions.setEventFilter(randomString())
+            }).toDispatchActions(['fetchEvents'])
         })
 
-        it('reads event filter from the URL', async () => {
-            const eventFilter = randomString()
-            router.actions.push(router.values.location.pathname, { eventFilter })
-            await expectLogic(logic, () => {}).toMatchValues({ eventFilter })
+        it('triggers fetch events with no arguments on fetchNextEvents when there are no existing events', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchNextEvents()
+            }).toDispatchActions([logic.actionCreators.fetchEvents()])
+        })
+
+        it('triggers fetch events with before timestamp on fetchNextEvents when there are existing events', async () => {
+            const event = makeEvent('1', randomString())
+
+            await expectLogic(logic, () => {
+                logic.actions.fetchEventsSuccess({
+                    events: [event],
+                    hasNext: false,
+                    isNext: false,
+                })
+                logic.actions.fetchNextEvents()
+            }).toDispatchActions([logic.actionCreators.fetchEvents({ before: event.timestamp })])
         })
     })
 })
