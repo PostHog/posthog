@@ -413,9 +413,9 @@ export class DB {
     public async fetchPerson(teamId: number, distinctId: string): Promise<Person | undefined> {
         const selectResult = await this.postgresQuery(
             `SELECT
-                posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
-                posthog_person.is_user_id, posthog_person.is_identified, posthog_person.uuid,
-                posthog_persondistinctid.team_id AS persondistinctid__team_id,
+                posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties, 
+                posthog_person.properties_last_updated_at, posthog_person.is_user_id, posthog_person.is_identified, 
+                posthog_person.uuid, posthog_persondistinctid.team_id AS persondistinctid__team_id,
                 posthog_persondistinctid.distinct_id AS persondistinctid__distinct_id
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
@@ -445,8 +445,8 @@ export class DB {
 
         const person = await this.postgresTransaction(async (client) => {
             const insertResult = await client.query(
-                'INSERT INTO posthog_person (created_at, properties, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-                [createdAt.toISO(), JSON.stringify(properties), teamId, isUserId, isIdentified, uuid]
+                'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, team_id, is_user_id, is_identified, uuid) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+                [createdAt.toISO(), JSON.stringify(properties), '{}', teamId, isUserId, isIdentified, uuid]
             )
             const personCreated = insertResult.rows[0] as RawPerson
             const person = {

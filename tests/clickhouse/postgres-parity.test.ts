@@ -85,6 +85,7 @@ describe('postgres parity', () => {
                 properties: {
                     userProp: 'propValue',
                 },
+                properties_last_updated_at: {},
                 team_id: 2,
                 is_user_id: null,
                 is_identified: true,
