@@ -61,12 +61,11 @@ describe('entityFilterLogic', () => {
             name: '$pageview',
             custom_name: 'Custom event name',
             order: 0,
-            index: 0,
         }
 
         await expectLogic(logic, () => {
-            logic.actions.updateFilter(filterWithCustomName)
-        }).toDispatchActions(['updateFilter', 'setFilters'])
+            logic.actions.renameFilter(filterWithCustomName)
+        }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
 
         expect(logic.props.setFilters).toBeCalledWith(
             expect.objectContaining({
