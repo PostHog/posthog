@@ -21,7 +21,7 @@ class SessionRecordingSerializer(serializers.Serializer):
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
     distinct_id = serializers.CharField()
-    email = serializers.CharField()
+    email = serializers.CharField(required=False, allow_null=True)
 
     def to_representation(self, instance):
         to_return = {
@@ -39,11 +39,15 @@ class SessionRecordingSerializer(serializers.Serializer):
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
+    def get_session_recording_list(self, filter):
+        return query_sessions_in_range(self.team, filter.date_from, filter.date_to + timedelta(days=1), filter)
+
+    def get_session_recording(self, session_recording_id):
+        return SessionRecording().run(team=self.team, session_recording_id=session_recording_id)
+
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionsFilter(request=request)
-        session_recordings = query_sessions_in_range(
-            self.team, filter.date_from, filter.date_to + timedelta(days=1), filter
-        )
+        session_recordings = self.get_session_recording_list(filter)
 
         distinct_ids = map(lambda x: x["distinct_id"], session_recordings)
         person_distinct_ids = PersonDistinctId.objects.filter(
@@ -52,6 +56,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         distinct_id_to_email = {}
         for person_distinct_id in person_distinct_ids:
             distinct_id_to_email[person_distinct_id.distinct_id] = person_distinct_id.person.properties.get("email")
+
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
         viewed_session_recordings = set(
@@ -78,9 +83,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
-        session_recording = SessionRecording().run(
-            team=self.team, filter=Filter(request=request), session_recording_id=session_recording_id
-        )
+        session_recording = self.get_session_recording(session_recording_id)
 
         if request.GET.get("save_view"):
             SessionRecordingViewed.objects.get_or_create(

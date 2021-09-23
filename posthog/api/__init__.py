@@ -60,9 +60,6 @@ project_plugins_configs_router.register(
 projects_router.register(
     r"feature_flag_overrides", feature_flag.FeatureFlagOverrideViewset, "project_feature_flag_overrides", ["team_id"]
 )
-projects_router.register(
-    r"session_recordings", session_recording.SessionRecordingViewSet, "project_session_recordings", ["team_id"],
-)
 
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 organization_plugins_router = organizations_router.register(
@@ -103,6 +100,7 @@ if is_clickhouse_enabled():
         from ee.clickhouse.views.insights import ClickhouseInsightsViewSet
         from ee.clickhouse.views.paths import ClickhousePathsViewSet
         from ee.clickhouse.views.person import ClickhousePersonViewSet
+        from ee.clickhouse.views.session_recordings import ClickhouseSessionRecordingViewSet
     except ImportError as e:
         print("ClickHouse enabled but missing enterprise capabilities. Defaulting to Postgres.")
         print(e)
@@ -117,6 +115,9 @@ if is_clickhouse_enabled():
         router.register(r"cohort", ClickhouseCohortViewSet, basename="cohort")
         # nested endpoints
         projects_router.register(r"actions", ClickhouseActionsViewSet, "project_actions", ["team_id"])
+        projects_router.register(
+            r"session_recordings", ClickhouseSessionRecordingViewSet, "project_session_recordings", ["team_id"],
+        )
 else:
     # legacy endpoints (to be removed eventually)
     router.register(r"insight", insight.InsightViewSet)
@@ -128,3 +129,6 @@ else:
     router.register(r"cohort", cohort.CohortViewSet)
     # nested endpoints
     projects_router.register(r"actions", action.ActionViewSet, "project_actions", ["team_id"])
+    projects_router.register(
+        r"session_recordings", session_recording.SessionRecordingViewSet, "project_session_recordings", ["team_id"],
+    )
