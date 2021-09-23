@@ -1,22 +1,31 @@
 import React from 'react'
-import { Table, Button, Dropdown, Menu, Tooltip } from 'antd'
+import { Table, Button, Dropdown, Menu, Tooltip, Modal } from 'antd'
 import { useValues, useActions } from 'kea'
-import { teamMembersLogic } from './teamMembersLogic'
-import { DownOutlined, CrownFilled, UpOutlined } from '@ant-design/icons'
+import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
+import {
+    DownOutlined,
+    CrownFilled,
+    UpOutlined,
+    CloseCircleOutlined,
+    LogoutOutlined,
+    ExclamationCircleOutlined,
+} from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationMembershipLevel, organizationMembershipLevelToName, TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { TeamType, UserType, FusedTeamMemberType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from '../../teamLogic'
-import { getReasonForAccessLevelChangeProhibition } from '../../../lib/utils/permissioning'
+import {
+    getReasonForAccessLevelChangeProhibition,
+    membershipLevelToName,
+    teamMembershipLevelIntegers,
+} from '../../../lib/utils/permissioning'
+import { AddMembersModalWithButton } from './AddMembersModal'
+import { RestrictedArea, RestrictionScope } from '../../../lib/components/RestrictedArea'
 
-const membershipLevelIntegers = Object.values(TeamMembershipLevel).filter(
-    (value) => typeof value === 'number'
-) as TeamMembershipLevel[]
-
-export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
+function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { changeUserAccessLevel } = useActions(teamMembersLogic)
@@ -35,7 +44,7 @@ export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null 
     }
 
     const isImplicit = member.organization_level >= OrganizationMembershipLevel.Admin
-    const levelName = organizationMembershipLevelToName.get(member.level) ?? `unknown (${member.level})`
+    const levelName = membershipLevelToName.get(member.level) ?? `unknown (${member.level})`
 
     const levelButton = (
         <Button
@@ -48,7 +57,7 @@ export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null 
         </Button>
     )
 
-    const allowedLevels = membershipLevelIntegers.filter(
+    const allowedLevels = teamMembershipLevelIntegers.filter(
         (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
     )
     const disallowedReason = isImplicit
@@ -67,12 +76,12 @@ export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null 
                                 {listLevel > member.level ? (
                                     <>
                                         <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                        Upgrade to {organizationMembershipLevelToName.get(listLevel)}
+                                        Upgrade to project {membershipLevelToName.get(listLevel)}
                                     </>
                                 ) : (
                                     <>
                                         <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                        Downgrade to {organizationMembershipLevelToName.get(listLevel)}
+                                        Downgrade to project {membershipLevelToName.get(listLevel)}
                                     </>
                                 )}
                             </a>
@@ -84,6 +93,50 @@ export function LevelComponent(member: FusedTeamMemberType): JSX.Element | null 
             {levelButton}
         </Dropdown>
     )
+}
+
+function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
+    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { removeMember } = useActions(teamMembersLogic)
+
+    if (!user) {
+        return null
+    }
+
+    function handleClick(): void {
+        Modal.confirm({
+            title: `${
+                member.user.uuid == user?.uuid
+                    ? 'Leave'
+                    : `Remove ${member.user.first_name} (${member.user.email}) from`
+            } project ${currentTeam?.name}?`,
+            icon: <ExclamationCircleOutlined />,
+            okText: member.user.uuid == user?.uuid ? 'Leave' : 'Remove',
+            okType: 'danger',
+            onOk() {
+                removeMember({ member })
+            },
+        })
+    }
+
+    const allowDeletion =
+        // You can leave, but only project admins can remove others
+        ((currentTeam?.effective_membership_level &&
+            currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
+            member.user.uuid === user.uuid) &&
+        // Only members without implicit access can leave or be removed
+        member.organization_level < MINIMUM_IMPLICIT_ACCESS_LEVEL
+
+    return allowDeletion ? (
+        <a className="text-danger" onClick={handleClick} data-attr="delete-team-membership">
+            {member.user.uuid !== user.uuid ? (
+                <CloseCircleOutlined title="Remove from project" />
+            ) : (
+                <LogoutOutlined title="Leave project" />
+            )}
+        </a>
+    ) : null
 }
 
 export interface MembersProps {
@@ -132,19 +185,23 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
             sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
             defaultSortOrder: 'ascend',
         },
-        /*{
+        {
             key: 'actions',
             align: 'center',
             render: function ActionsRender(_, member) {
                 return ActionsComponent(member)
             },
-        },*/
+        },
     ]
-
     return (
         <>
-            <h2 className="subtitle" id="members-with-project-access">
+            <h2 className="subtitle" id="members-with-project-access" style={{ justifyContent: 'space-between' }}>
                 Members with Project Access
+                <RestrictedArea
+                    Component={AddMembersModalWithButton}
+                    minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                    scope={RestrictionScope.Project}
+                />
             </h2>
             <Table
                 dataSource={allMembers}

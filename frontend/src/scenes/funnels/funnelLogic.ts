@@ -844,30 +844,25 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             }
         },
     }),
-    urlToAction: ({ actions, values, props }) => ({
+    urlToAction: ({ actions, props }) => ({
         '/insights': (_, searchParams: Partial<FilterType>) => {
             if (props.dashboardItemId) {
                 return
             }
             if (searchParams.insight === ViewType.FUNNELS) {
-                const currentParams = cleanFunnelParams(values.filters, true)
-                const paramsToCheck = cleanFunnelParams(searchParams, true)
-
-                if (!equal(currentParams, paramsToCheck)) {
-                    const cleanedParams = cleanFunnelParams(searchParams)
-                    if (isStepsEmpty(cleanedParams)) {
-                        const event = getDefaultEventName()
-                        cleanedParams.events = [
-                            {
-                                id: event,
-                                name: event,
-                                type: EntityTypes.EVENTS,
-                                order: 0,
-                            },
-                        ]
-                    }
-                    actions.setFilters(cleanedParams, true, false)
+                const cleanedParams = cleanFunnelParams(searchParams)
+                if (isStepsEmpty(cleanedParams)) {
+                    const event = getDefaultEventName()
+                    cleanedParams.events = [
+                        {
+                            id: event,
+                            name: event,
+                            type: EntityTypes.EVENTS,
+                            order: 0,
+                        },
+                    ]
                 }
+                actions.setFilters(cleanedParams, true, false)
             }
         },
     }),

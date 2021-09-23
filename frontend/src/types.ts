@@ -96,7 +96,8 @@ export interface OrganizationType extends OrganizationBasicType {
     membership_level: OrganizationMembershipLevel | null
 }
 
-interface BaseMemberType {
+/** Member properties relevant at both organization and project level. */
+export interface BaseMemberType {
     id: string
     user: UserBasicType
     joined_at: string
@@ -122,7 +123,11 @@ export interface ExplicitTeamMemberType extends BaseMemberType {
  * this interface is only used in the frontend for fusing the data from these models together.
  */
 export interface FusedTeamMemberType extends BaseMemberType {
-    /** Level at which the user explicitly is in the project (unset if membership is implicit). */
+    /**
+     * Level at which the user explicitly is in the project.
+     * Null means that membership is implicit (when showing permitted members)
+     * or that there's no membership at all (when showing addable members).
+     */
     explicit_team_level: TeamMembershipLevel | null
     /** Level at which the user is in the organization. */
     organization_level: OrganizationMembershipLevel

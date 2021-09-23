@@ -143,6 +143,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             render: function RenderPeriod({}, item: IndexedTrendResult) {
                 return maybeAddCommasToInteger(item.data[index])
             },
+            sorter: (a, b) => a.data[index] - b.data[index],
             align: 'center',
         }))
 
