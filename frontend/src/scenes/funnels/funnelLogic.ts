@@ -27,6 +27,7 @@ import {
     FunnelStepRangeEntityFilter,
     DashboardItemLogicProps,
     FlattenedFunnelStepByBreakdown,
+    FunnelAPIResponse,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -132,7 +133,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
-        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
+        setCachedResults: (filters: Partial<FilterType>, results: FunnelAPIResponse) => ({ filters, results }),
         toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
@@ -148,10 +149,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             { results: [], filters: {} } as LoadedRawFunnelResults,
             {
                 setCachedResults: ({ results, filters }) => {
-                    return {
-                        results: results as FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins,
-                        filters: filters,
-                    }
+                    return { results, filters }
                 },
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
                     const { apiParams, eventCount, actionCount, interval, filters } = values

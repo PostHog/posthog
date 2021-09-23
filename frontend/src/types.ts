@@ -888,8 +888,10 @@ export interface FunnelRequestParams extends FilterType {
     funnel_window_days?: number
 }
 
+export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+
 export interface LoadedRawFunnelResults {
-    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+    results: FunnelAPIResponse
     filters: Partial<FilterType>
 }
 
