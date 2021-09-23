@@ -7,6 +7,7 @@ export const toMatchValues: ExpectFunction<Record<string, any>> = {
         const currentState = ranActions
             ? recordedHistory[historyIndex || 0]?.afterState || getContext().store.getState()
             : getContext().store.getState()
+        console.log('LOGIC SELECTORS', logic.selectors, values)
         for (const [key, value] of Object.entries(values)) {
             if (!(key in logic.selectors)) {
                 throw new Error(`Count not find value with key "${key}" in logic "${logic.pathString}"`)

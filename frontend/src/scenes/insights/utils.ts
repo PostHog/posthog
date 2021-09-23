@@ -1,5 +1,5 @@
 import { BuiltLogic, Logic } from 'kea'
-import { DashboardItemLogicProps, InsightType, ViewType } from '~/types'
+import { ActionFilter, DashboardItemLogicProps, EntityFilter, InsightType, ViewType } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -18,4 +18,13 @@ export const getLogicFromInsight = (
     } else {
         return trendsLogic(logicProps)
     }
+}
+
+export const getDisplayNameFromEntityFilter = (
+    filter: EntityFilter | ActionFilter | null,
+    isCustom = true
+): string | null => {
+    const customName = (filter?.custom_name ?? '').trim() === '' ? null : filter?.custom_name
+
+    return (isCustom ? customName : null) ?? filter?.name ?? (filter?.id ? `${filter?.id}` : null)
 }

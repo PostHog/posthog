@@ -396,11 +396,11 @@ export function LineGraph({
                             evt.target.style.cursor = 'default'
                         }
                     }
-                    if (evt.type === 'mouseout') {
-                        setTooltipVisible(false)
-                    } else {
-                        setTooltipVisible(true)
-                    }
+                    // if (evt.type === 'mouseout') {
+                    //     setTooltipVisible(false)
+                    // } else {
+                    setTooltipVisible(true)
+                    // }
                 },
             },
             onClick: (_, [point]) => {

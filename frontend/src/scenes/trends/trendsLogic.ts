@@ -255,6 +255,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             >,
             {
                 setFilters: (state, { filters, mergeFilters }) => {
+                    console.log('SET FILTERS', state, filters, mergeFilters)
                     const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
                     return cleanFilters({
                         ...(mergeFilters ? newState : {}),
@@ -343,6 +344,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
+                console.log('LOAD RESULTS SUCCESS', insightLogic.values.insight, values.filters)
                 if (!insightLogic.values.insight.id) {
                     insightHistoryLogic.actions.createInsight({
                         ...values.filters,

@@ -73,7 +73,9 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             index: filter.index,
             id: filter.id,
             name: filter.name,
+            custom_name: filter.custom_name,
         }),
+        renameFilter: (filter: EntityFilter) => ({ filter }),
         removeLocalFilter: (
             filter: Partial<EntityFilter> & {
                 index: number
@@ -95,6 +97,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
         setFilters: (filters: LocalFilter[]) => ({ filters }),
         setLocalFilters: (filters: FilterType) => ({ filters }),
         setEntityFilterVisibility: (index: number, value: boolean) => ({ index, value }),
+        renameLocalFilter: (index: number, custom_name: string) => ({ index, custom_name }),
     }),
 
     reducers: ({ props }) => ({
@@ -138,10 +141,26 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
     },
 
     listeners: ({ actions, values, props }) => ({
-        updateFilter: async ({ type, index, name, id }) => {
-            eventUsageLogic.actions.reportInsightFilterUpdated(index, name)
+        renameFilter: async ({ filter }) => {
+            console.log('RENAME', filter)
+            actions.updateFilter({
+                ...filter,
+                index: filter.order as number,
+            })
+        },
+        updateFilter: async ({ type, index, name, id, custom_name }) => {
             actions.setFilters(
-                values.localFilters.map((filter, i) => (i === index ? { ...filter, id, name, type } : filter))
+                values.localFilters.map((filter, i) =>
+                    i === index
+                        ? {
+                              ...filter,
+                              id: id ?? filter.id,
+                              name: name ?? filter.name,
+                              type: type ?? filter.type,
+                              custom_name: custom_name ?? filter.custom_name,
+                          }
+                        : filter
+                )
             )
             !props.singleMode && actions.selectFilter(null)
         },
@@ -156,15 +175,14 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             )
         },
         removeLocalFilter: async ({ index }) => {
-            eventUsageLogic.actions.reportInsightFilterRemoved(index)
             const newFilters = values.localFilters.filter((_, i) => i !== index)
             actions.setFilters(newFilters)
             actions.setLocalFilters(toFilters(newFilters))
+            eventUsageLogic.actions.reportInsightFilterRemoved(index)
         },
         addFilter: async () => {
             const previousLength = values.localFilters.length
             const newLength = previousLength + 1
-            eventUsageLogic.actions.reportInsightFilterAdded(newLength)
             if (values.localFilters.length > 0) {
                 const lastFilter: LocalFilter = values.localFilters[previousLength - 1]
                 const order = lastFilter.order + 1
@@ -181,13 +199,15 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                     },
                 ])
             }
+            eventUsageLogic.actions.reportInsightFilterAdded(newLength)
         },
         setFilters: async ({ filters }) => {
-            const sanitizedFilters = filters?.map(({ id, type }) => ({ id, type }))
-            eventUsageLogic.actions.reportInsightFilterSet(sanitizedFilters)
             if (typeof props.setFilters === 'function') {
+                console.log('ENTITY SET FILTERS', filters, toFilters(filters))
                 props.setFilters(toFilters(filters))
             }
+            const sanitizedFilters = filters?.map(({ id, type }) => ({ id, type }))
+            eventUsageLogic.actions.reportInsightFilterSet(sanitizedFilters)
         },
         setEntityFilterVisibility: async ({ index, value }) => {
             eventUsageLogic.actions.reportEntityFilterVisibilitySet(index, value)

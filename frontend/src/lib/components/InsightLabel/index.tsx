@@ -4,8 +4,11 @@ import { ActionFilter } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
-import { MATHS } from 'lib/constants'
+import { FEATURE_FLAGS, MATHS } from 'lib/constants'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 
 export enum IconSize {
     Small = 'small',
@@ -68,6 +71,7 @@ export function InsightLabel({
     showCountedByTag,
     allowWrap = false,
 }: InsightsLabelProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const showEventName = !breakdownValue || hasMultipleSeries
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
@@ -98,7 +102,13 @@ export function InsightLabel({
                 )}
                 <div className={allowWrap ? '' : 'protect-width'}>
                     {showEventName && (
-                        <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
+                        <>
+                            {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && action ? (
+                                <EntityFilterInfo filter={action} />
+                            ) : (
+                                <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
+                            )}
+                        </>
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (

@@ -1,6 +1,6 @@
 import './ActionFilter.scss'
-import React, { useEffect } from 'react'
-import { useActions, useValues } from 'kea'
+import React, { useEffect, useState } from 'react'
+import { useActions, useValues, BindLogic } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
@@ -9,6 +9,7 @@ import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, FunnelStepRangeEntityFilter, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FilterRenameModal } from 'scenes/insights/ActionFilter/FilterRenameModal'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -96,6 +97,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         const { localFilters } = useValues(logic)
         const { addFilter, setLocalFilters } = useActions(logic)
 
+        const [modalOpen, setModalOpen] = useState(false)
+
         // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
         // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
         useEffect(() => {
@@ -131,10 +134,16 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             renderRow,
         }
 
-        console.log('LOCAL FILTERS', localFilters)
-
         return (
             <div ref={ref}>
+                {!hideRename && (
+                    <BindLogic
+                        logic={entityFilterLogic}
+                        props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}
+                    >
+                        <FilterRenameModal visible={modalOpen} setModalOpen={setModalOpen} />
+                    </BindLogic>
+                )}
                 {localFilters ? (
                     sortable ? (
                         <SortableContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>
@@ -160,6 +169,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                 showOr={showOr}
                                 hideFilter={hideFilter}
                                 hideRename={hideRename}
+                                onRenameClick={() => setModalOpen(true)}
                                 horizontalUI={horizontalUI}
                                 filterCount={localFilters.length}
                                 showNestedArrow={showNestedArrow}
