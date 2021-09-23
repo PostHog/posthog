@@ -69,7 +69,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             map(
                 lambda x: {
                     **x,
-                    "email": distinct_id_to_email[x["distinct_id"]],
+                    "email": distinct_id_to_email.get(x["distinct_id"]),
                     "viewed": x["session_id"] in viewed_session_recordings,
                 },
                 session_recordings,
