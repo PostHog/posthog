@@ -247,8 +247,10 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response = self.client.post(f"/api/projects/{new_team.id}/explicit_members/", {"user_uuid": new_user.uuid,})
         response_data = response.json()
 
-        self.assertDictEqual(self.not_found_response("Project not found."), response_data)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertDictEqual(
+            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_add_member_to_project_that_is_not_organization_member_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

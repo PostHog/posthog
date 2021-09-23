@@ -26,6 +26,8 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(self.organization.teams.count(), 2)
 
     def test_non_admin_cannot_create_project(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         count = Team.objects.count()
         response = self.client.post("/api/projects/", {"name": "Test"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -61,6 +63,8 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
     def test_no_delete_team_not_administrating_organization(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         team = Team.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/projects/{team.id}")
         self.assertEqual(response.status_code, 403)

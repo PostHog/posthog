@@ -48,10 +48,8 @@ class TeamMemberAccessPermission(BasePermission):
     message = "You don't have access to the relevant project."
 
     def has_permission(self, request, view) -> bool:
-        url_name = request.resolver_match.url_name
-        print(url_name)
         try:
-            if url_name == "team-detail":
+            if request.resolver_match.url_name == "team-detail":
                 team = view.get_object()
             else:
                 team = view.team
@@ -71,10 +69,7 @@ class TeamMemberManagementPermission(BasePermission):
 
     def has_permission(self, request, view) -> bool:
         team = view.team
-        try:
-            requesting_team_membership = get_ephemeral_requesting_team_membership(team, cast(User, request.user))
-        except OrganizationMembership.DoesNotExist:
-            return True  # This will be handled as a 404 too
+        requesting_team_membership = get_ephemeral_requesting_team_membership(team, cast(User, request.user))
         if requesting_team_membership is None:
             return False
         if (

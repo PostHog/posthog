@@ -116,25 +116,15 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
-        if self.request.method == "POST" or self.request.method == "DELETE":
+        base_permissions = [permission() for permission in self.permission_classes]
+        if self.action in ("create", "destroy"):
             organization = getattr(self.request.user, "organization", None)
-
             if not organization:
                 raise exceptions.ValidationError("You need to belong to an organization.")
             # To be used later by OrganizationAdminWritePermissions and TeamSerializer
             self.organization = organization
-
-            return [
-                permission()
-                for permission in [
-                    permissions.IsAuthenticated,
-                    PremiumMultiprojectPermissions,
-                    OrganizationAdminWritePermissions,
-                    TeamMemberAccessPermission,
-                ]
-            ]
-        base_permissions = [permission() for permission in self.permission_classes]
-        if self.action != "list":
+            base_permissions.append(OrganizationAdminWritePermissions())
+        if self.action not in ("list", "create"):
             # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
             base_permissions.append(TeamMemberAccessPermission())
         return base_permissions
