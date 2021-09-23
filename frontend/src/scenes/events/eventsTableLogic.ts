@@ -10,7 +10,11 @@ import { FixedFilters } from 'scenes/events/EventsTable'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 const POLL_TIMEOUT = 5000
 
-const formatEvents = (events: any[], newEvents: any[], apiUrl: string): any[] => {
+const formatEvents = (
+    events: EventsTableEvent[],
+    newEvents: EventsTableEvent[],
+    apiUrl: string
+): EventsTableEvent[] => {
     let eventsFormatted: any[] = []
     if (!apiUrl) {
         eventsFormatted = [...events.map((event) => ({ event }))]
@@ -43,15 +47,28 @@ export interface EventsTableLogicProps {
     key?: string
 }
 
+interface EventsTableAction {
+    name: string
+    id: string
+}
+
 export interface EventsTableEvent {
     id: string
+    event?: EventsTableEvent
+    action: EventsTableAction
+}
+
+interface OnFetchEventsSuccess {
+    events: EventsTableEvent[]
+    hasNext: boolean
+    isNext: boolean
 }
 
 // props:
 // - fixedFilters
 // - apiUrl = 'api/event/'
 // - live = false
-export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>({
+export const eventsTableLogic = kea<eventsTableLogicType<EventsTableEvent, EventsTableLogicProps>>({
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
@@ -65,19 +82,23 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>
 
     actions: () => ({
         setProperties: (properties: []) => {
-            if (Array.isArray(properties) && properties.length === 0) {
-                return { properties: [{}] }
+            // there seem to be multiple representations of "empty" properties
+            // the page does not work with some of those representations
+            // this action normalises them
+            if (Array.isArray(properties)) {
+                if (properties.length === 0) {
+                    return { properties: [{}] }
+                } else {
+                    return { properties }
+                }
+            } else {
+                return { properties: [properties] }
             }
-            return { properties }
         },
         setColumnConfig: (columnConfig: string[]) => ({ columnConfig }),
         setColumnConfigSaving: (saving: boolean) => ({ saving }),
         fetchEvents: (nextParams = null) => ({ nextParams }),
-        fetchEventsSuccess: (events: EventsTableEvent[], hasNext: boolean = false, isNext = false) => ({
-            events,
-            hasNext,
-            isNext,
-        }),
+        fetchEventsSuccess: (x: OnFetchEventsSuccess) => x,
         fetchNextEvents: true,
         fetchOrPollFailure: (error: Error) => ({ error }),
         flipSort: true,
@@ -87,7 +108,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>
         setSelectedEvent: (selectedEvent: EventsTableEvent) => ({ selectedEvent }),
         setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
         setDelayedLoading: true,
-        setEventFilter: (event: EventsTableEvent) => ({ event }),
+        setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
     }),
 
@@ -98,19 +119,26 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>
         properties: [
             [],
             {
-                setProperties: (_: [], { properties }: { properties: [] }) => properties,
+                setProperties: (
+                    _: [],
+                    {
+                        properties,
+                    }: {
+                        properties: []
+                    }
+                ) => properties,
             },
         ],
         eventFilter: [
             '',
             {
-                setEventFilter: (_, { event }) => event,
+                setEventFilter: (_: string, { event }: { event: string }) => event,
             },
         ],
         isLoading: [
             false,
             {
-                fetchEvents: (state, { nextParams }) => (nextParams ? state : state || false),
+                fetchEvents: (state: boolean) => state,
                 setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
                 fetchOrPollFailure: () => false,
@@ -126,14 +154,16 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>
         events: [
             [] as EventsTableEvent[],
             {
-                fetchEventsSuccess: (
+                fetchEventsSuccess: (state: EventsTableEvent[], { events, isNext }: OnFetchEventsSuccess) =>
+                    isNext ? [...state, ...events] : events,
+                prependNewEvents: (
                     state: EventsTableEvent[],
-                    { events, isNext }: { events: EventsTableEvent[]; isNext: boolean }
-                ) => (isNext ? [...state, ...events] : events),
-                prependNewEvents: (state: EventsTableEvent[], { events }: { events: EventsTableEvent[] }) => [
-                    ...events,
-                    ...state,
-                ],
+                    {
+                        events,
+                    }: {
+                        events: EventsTableEvent[]
+                    }
+                ) => [...events, ...state],
             },
         ],
 
@@ -142,21 +172,29 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>
             {
                 fetchEvents: () => false,
                 fetchNextEvents: () => false,
-                fetchEventsSuccess: (_, { hasNext }) => !!hasNext, //the server sends a URL but we use its truthiness
+                fetchEventsSuccess: (_: boolean, { hasNext }: OnFetchEventsSuccess) => hasNext,
             },
         ],
         orderBy: ['-timestamp', { flipSort: (state: string) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
         selectedEvent: [
             (null as unknown) as EventsTableEvent,
             {
-                setSelectedEvent: (_, { selectedEvent }) => selectedEvent,
+                setSelectedEvent: (_: EventsTableEvent, { selectedEvent }: { selectedEvent: EventsTableEvent }) =>
+                    selectedEvent,
             },
         ],
         newEvents: [
             [] as EventsTableEvent[],
             {
                 setProperties: () => [],
-                pollEventsSuccess: (_: EventsTableEvent[], { events }: { events: EventsTableEvent[] }) => events || [],
+                pollEventsSuccess: (
+                    _: EventsTableEvent[],
+                    {
+                        events,
+                    }: {
+                        events: EventsTableEvent[]
+                    }
+                ) => events || [],
                 prependNewEvents: () => [],
             },
         ],
@@ -164,7 +202,14 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>
             {} as Record<string, boolean>,
             {
                 pollEventsSuccess: () => ({}),
-                prependNewEvents: (_: Record<string, boolean>, { events }: { events: EventsTableEvent[] }) => {
+                prependNewEvents: (
+                    _: Record<string, boolean>,
+                    {
+                        events,
+                    }: {
+                        events: EventsTableEvent[]
+                    }
+                ) => {
                     return events.reduce((highlightEvents, event) => {
                         highlightEvents[event.id] = true
                         return highlightEvents
@@ -175,20 +220,40 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>
         pollTimeout: [
             -1,
             {
-                setPollTimeout: (_: number, { pollTimeout }: { pollTimeout: number }) => pollTimeout,
+                setPollTimeout: (
+                    _: number,
+                    {
+                        pollTimeout,
+                    }: {
+                        pollTimeout: number
+                    }
+                ) => pollTimeout,
             },
         ],
         columnConfigSaving: [
             false,
             {
-                setColumnConfigSaving: (_: boolean, { saving }: { saving: boolean }) => saving,
+                setColumnConfigSaving: (
+                    _: boolean,
+                    {
+                        saving,
+                    }: {
+                        saving: boolean
+                    }
+                ) => saving,
             },
         ],
         automaticLoadEnabled: [
             false,
             {
-                toggleAutomaticLoad: (_: boolean, { automaticLoadEnabled }: { automaticLoadEnabled: boolean }) =>
-                    automaticLoadEnabled,
+                toggleAutomaticLoad: (
+                    _: boolean,
+                    {
+                        automaticLoadEnabled,
+                    }: {
+                        automaticLoadEnabled: boolean
+                    }
+                ) => automaticLoadEnabled,
             },
         ],
     }),
@@ -313,7 +378,11 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableLogicProps>>
                 }
 
                 breakpoint()
-                actions.fetchEventsSuccess(apiResponse.results, apiResponse.next, !!nextParams)
+                actions.fetchEventsSuccess({
+                    events: apiResponse.results,
+                    hasNext: !!apiResponse.next,
+                    isNext: !!nextParams,
+                })
 
                 actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
             },
