@@ -23,8 +23,14 @@ export const toDispatchActions: ExpectFunction<ActionToDispatch[]> = {
             if (notFound) {
                 await Promise.race([
                     delay(ASYNC_ACTION_WAIT_TIMEOUT).then(() => {
+                        const { recordedHistory } = testUtilsContext()
                         throw new Error(
-                            `Timed out waiting for action: ${JSON.stringify(notFound)} in logic ${logic?.pathString}`
+                            `Timed out waiting for action: ${JSON.stringify(notFound)} in logic ${
+                                logic?.pathString
+                            }\n At timeout had received these actions: ${recordedHistory
+                                .map((x) => ({ type: x.action.type, payload: x.action.payload }))
+                                .map((x) => JSON.stringify(x))
+                                .join('\n')}`
                         )
                     }),
                     typeof notFound === 'string'
