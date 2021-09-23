@@ -21,14 +21,14 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
     action: { name: randomString(), id: randomString() },
     elements: [],
     elements_hash: '',
-    event: {},
+    event: '',
     properties: {},
 })
 
 // TODO test interactions with userLogic
 
 describe('eventsTableLogic', () => {
-    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventType, EventsTableLogicProps, OnFetchEventsSuccess>>
+    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>
 
     mockAPI(async () => ({ results: [], count: 0 }))
 

@@ -101,7 +101,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         pollEventsSuccess: (events: EventType[]) => ({ events }),
         prependNewEvents: (events: EventType[]) => ({ events }),
         setSelectedEvent: (selectedEvent: EventType) => ({ selectedEvent }),
-        setPollTimeout: (pollTimeout: ReturnType<typeof setTimeout>) => ({ pollTimeout }),
+        setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
         setDelayedLoading: true,
         setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
@@ -408,7 +408,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                     isNext: !!nextParams,
                 })
 
-                actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
+                // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
+                const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
+                actions.setPollTimeout(timeout)
             },
         ],
         pollEvents: async (_, breakpoint) => {
@@ -447,7 +449,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 actions.pollEventsSuccess(apiResponse.results)
             }
 
-            actions.setPollTimeout(setTimeout(actions.pollEvents, POLL_TIMEOUT))
+            // uses window setTimeout because typegen had a hard time with NodeJS.Timeout
+            const timeout = window.setTimeout(actions.pollEvents, POLL_TIMEOUT)
+            actions.setPollTimeout(timeout)
         },
         fetchOrPollFailure: ({ error }: { error: ApiError }) => {
             errorToast(
