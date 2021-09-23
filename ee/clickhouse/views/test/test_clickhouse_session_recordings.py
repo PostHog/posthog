@@ -13,5 +13,5 @@ def _create_session_recording_event(**kwargs):
     )
 
 
-class ClickhouseTestSessionRecordingsAPI(factory_test_session_recordings_api(_create_session_recording_event)):
+class ClickhouseTestSessionRecordingsAPI(factory_test_session_recordings_api(_create_session_recording_event)):  # type: ignore
     pass
