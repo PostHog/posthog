@@ -16,12 +16,26 @@ export function PropertyFilterButton({ item, onClick, setRef }: Props): JSX.Elem
     const { cohorts } = useValues(cohortsModel)
 
     return (
+        <FilterButton onClick={onClick} setRef={setRef}>
+            {formatPropertyLabel(item, cohorts, keyMapping)}
+        </FilterButton>
+    )
+}
+
+interface FilterRowProps {
+    onClick?: () => void
+    setRef?: (ref: HTMLElement) => void
+    children: string | JSX.Element
+}
+
+export function FilterButton({ onClick, setRef, children }: FilterRowProps): JSX.Element {
+    return (
         <Button type="primary" shape="round" style={{ maxWidth: '75%' }} onClick={onClick} ref={setRef}>
             <span
                 className="ph-no-capture property-filter-button-label"
                 style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
             >
-                {formatPropertyLabel(item, cohorts, keyMapping)}
+                {children}
             </span>
         </Button>
     )
