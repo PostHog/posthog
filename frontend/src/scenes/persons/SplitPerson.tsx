@@ -5,33 +5,34 @@ import Modal from 'antd/lib/modal/Modal'
 import { PersonType } from '~/types'
 import { toast } from 'react-toastify'
 import posthog from 'posthog-js'
+import { router } from 'kea-router'
 
-export function SplitPerson({
-    person,
-    onPersonChange,
-    closeModal,
-}: {
-    person: PersonType
-    onPersonChange: CallableFunction
-    closeModal: () => void
-}): JSX.Element {
+export function SplitPerson({ person, closeModal }: { person: PersonType; closeModal: () => void }): JSX.Element {
     const [selectedDistinctId, setSelectedDistinctId] = useState(false as false | string | number)
+    const [isLoading, setIsLoading] = useState(false)
 
     return (
         <Modal
             visible
-            title={'Merge ' + person.name}
+            title={'Split ' + person.name}
             onCancel={closeModal}
             okText="Split person"
+            okButtonProps={{
+                loading: isLoading,
+            }}
             onOk={async () => {
-                const newPerson = await api.create('api/person/' + person.id + '/split/', {
+                setIsLoading(true)
+                const splitAction = await api.create('api/person/' + person.id + '/split/', {
                     ...(selectedDistinctId ? { main_distinct_id: selectedDistinctId } : {}),
                 })
-                if (newPerson.id) {
-                    toast('Persons succesfully split.')
-                    posthog.capture('split person completed', { merge_count: person.distinct_ids.length })
+                setIsLoading(false)
+                if (splitAction.success) {
+                    toast(
+                        'We are in the process of splitting this person. It may take up to a couple of minutes to complete.'
+                    )
+                    posthog.capture('split person started', { merge_count: person.distinct_ids.length })
                     closeModal()
-                    onPersonChange(newPerson)
+                    router.actions.push('/persons')
                 }
             }}
         >
@@ -56,7 +57,11 @@ export function SplitPerson({
                     </Select.Option>
                 ))}
             </Select>
-            <div className="mt text-danger">This action is not reversible. Please be sure before continuing.</div>
+            <div className="mt text-danger">
+                This will create <strong>{person.distinct_ids.length - 1}</strong> new person
+                {person.distinct_ids.length - 1 != 1 && 's'}. This might change the numbers in your charts, even
+                historically. Please be sure before continuing.
+            </div>
         </Modal>
     )
 }

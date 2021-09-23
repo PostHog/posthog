@@ -10,6 +10,7 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property, Team
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -17,7 +18,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     PERSON_TABLE_ALIAS = "person"
     EVENT_TABLE_ALIAS = "e"
 
-    _filter: Union[Filter, PathFilter]
+    _filter: Union[Filter, PathFilter, RetentionFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _should_join_distinct_ids = False
@@ -28,7 +29,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter],
+        filter: Union[Filter, PathFilter, RetentionFilter],
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,

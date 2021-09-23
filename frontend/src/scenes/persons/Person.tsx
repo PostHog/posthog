@@ -198,9 +198,7 @@ export function Person(): JSX.Element {
             {mergeModalOpen && person && (
                 <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
             )}
-            {splitModalOpen && person && (
-                <SplitPerson person={person} onPersonChange={setPerson} closeModal={() => setSplitModalOpen(false)} />
-            )}
+            {splitModalOpen && person && <SplitPerson person={person} closeModal={() => setSplitModalOpen(false)} />}
         </div>
     )
 }

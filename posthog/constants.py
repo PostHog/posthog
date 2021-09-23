@@ -6,6 +6,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 class AvailableFeature(str, Enum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
+    PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
     GOOGLE_LOGIN = "google_login"
     SAML = "saml"
     DASHBOARD_COLLABORATION = "dashboard_collaboration"
@@ -122,6 +123,9 @@ PATHS_EXCLUDE_EVENTS = "exclude_events"
 FUNNEL_PATH_AFTER_STEP = "funneL_path_after_step"
 FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
 FUNNEL_PATH_BETWEEN_STEPS = "funneL_path_between_steps"
+PATH_GROUPINGS = "path_groupings"
+PATH_START_KEY = "path_start_key"
+PATH_END_KEY = "path_end_key"
 
 
 class FunnelOrderType(str, Enum):
@@ -152,3 +156,9 @@ MONTHLY_ACTIVE = "monthly_active"
 
 ENVIRONMENT_TEST = "test"
 ENVIRONMENT_PRODUCTION = "production"
+
+
+class RetentionQueryType(str, Enum):
+    RETURNING = "returning"
+    TARGET = "target"
+    TARGET_FIRST_TIME = "target_first_time"

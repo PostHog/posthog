@@ -13,9 +13,7 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
 )
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
-from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.util import ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest
@@ -28,21 +26,7 @@ def _create_event(**kwargs):
     return pk
 
 
-class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
-    def setUp(self):
-        super().setUp()
-        sync_execute(DROP_EVENTS_TABLE_SQL)
-        sync_execute(EVENTS_TABLE_SQL)
-        sync_execute(DROP_PERSON_TABLE_SQL)
-        sync_execute(PERSONS_TABLE_SQL)
-
-    def tearDown(self):
-        super().tearDown()
-        sync_execute(DROP_EVENTS_TABLE_SQL)
-        sync_execute(EVENTS_TABLE_SQL)
-        sync_execute(DROP_PERSON_TABLE_SQL)
-        sync_execute(PERSONS_TABLE_SQL)
-
+class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest):
     def test_get_columns_default(self):
         self.assertCountEqual(get_materialized_columns("events"), [])
         self.assertCountEqual(get_materialized_columns("person"), [])

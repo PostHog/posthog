@@ -20,7 +20,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType } from '~/types'
+import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType, FilterType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -48,6 +48,7 @@ interface Props {
     setDiveDashboard?: (id: number, dashboardId: number | null) => void
     loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
+    isReloading?: boolean
     dashboardMode: DashboardMode | null
     isOnEditMode: boolean
     setEditMode?: () => void
@@ -152,6 +153,16 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     },
 }
 
+export function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
+    return (filters.insight === ViewType.RETENTION
+        ? 'RetentionContainer'
+        : filters.insight === ViewType.PATHS
+        ? 'PathsViz'
+        : filters.insight === ViewType.FUNNELS
+        ? 'FunnelViz'
+        : filters.display || 'ActionsLineGraph') as DisplayedType
+}
+
 const dashboardDiveLink = (dive_dashboard: number, dive_source_id: number): string => {
     return combineUrl(`/dashboard/${dive_dashboard}`, { dive_source_id: dive_source_id.toString() }).url
 }
@@ -163,6 +174,7 @@ export function DashboardItem({
     setDiveDashboard,
     loadDashboardItems,
     isDraggingRef,
+    isReloading,
     dashboardMode,
     isOnEditMode,
     setEditMode,
@@ -182,14 +194,7 @@ export function DashboardItem({
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const _type: DisplayedType =
-        item.filters.insight === ViewType.RETENTION
-            ? 'RetentionContainer'
-            : item.filters.insight === ViewType.PATHS
-            ? 'PathsViz'
-            : item.filters.insight === ViewType.FUNNELS
-            ? 'FunnelViz'
-            : item.filters.display || 'ActionsLineGraph'
+    const _type = getDisplayedType(item.filters)
 
     const insightTypeDisplayName =
         item.filters.insight === ViewType.RETENTION
@@ -285,7 +290,7 @@ export function DashboardItem({
             } ph-no-capture`}
             {...longPressProps}
             data-attr={'dashboard-item-' + index}
-            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined }}
+            style={{ border: isHighlighted ? '2px solid var(--primary)' : undefined, opacity: isReloading ? 0.5 : 1 }}
         >
             <div className={`dashboard-item-container ${className}`}>
                 <div className="dashboard-item-header" style={{ cursor: isOnEditMode ? 'move' : 'inherit' }}>
@@ -597,6 +602,7 @@ export function DashboardItem({
                             ) : (
                                 <Element
                                     dashboardItemId={item.id}
+                                    cachedResults={item.result}
                                     filters={filters}
                                     color={color}
                                     theme={color === 'white' ? 'light' : 'dark'}

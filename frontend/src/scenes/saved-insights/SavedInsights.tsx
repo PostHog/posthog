@@ -1,10 +1,10 @@
-import { Button, Col, Dropdown, Input, Menu, Row, Select, Table, Tabs } from 'antd'
+import { Col, Dropdown, Input, Menu, Row, Select, Table, Tabs, Radio } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { deleteWithUndo, humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
-import { DashboardItemType, LayoutView, SavedInsightsTabs, ViewType } from '~/types'
+import { DashboardItemType, LayoutView, SavedInsightsTabs } from '~/types'
 import { savedInsightsLogic } from './savedInsightsLogic'
 import {
     StarOutlined,
@@ -25,7 +25,7 @@ import {
 } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { DashboardItem, DisplayedType, displayMap } from 'scenes/dashboard/DashboardItem'
+import { DashboardItem, displayMap, getDisplayedType } from 'scenes/dashboard/DashboardItem'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -33,6 +33,8 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+
 const { TabPane } = Tabs
 
 interface InsightType {
@@ -104,26 +106,22 @@ export function SavedInsights(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function renderName(
-                name: string,
-                {
-                    short_id,
-                    id,
-                    description,
-                    favorited,
-                }: { short_id: string; id: number; description?: string; favorited?: boolean }
-            ) {
+            render: function renderName(name: string, insight: DashboardItemType) {
+                const link = displayMap[getDisplayedType(insight.filters)].link(insight)
+
                 return (
                     <Col>
                         <Row>
-                            <Link to={`/i/${short_id}`} style={{ marginRight: 12 }}>
-                                <strong>{name || `Insight #${id}`}</strong>
+                            <Link to={link} style={{ marginRight: 12 }}>
+                                <strong>{name || `Insight #${insight.id}`}</strong>
                             </Link>
                             <div
                                 style={{ cursor: 'pointer', width: 'fit-content' }}
-                                onClick={() => updateFavoritedInsight({ id, favorited: !favorited })}
+                                onClick={() =>
+                                    updateFavoritedInsight({ id: insight.id, favorited: !insight.favorited })
+                                }
                             >
-                                {favorited ? (
+                                {insight.favorited ? (
                                     <StarFilled className="text-warning" />
                                 ) : (
                                     <StarOutlined className="star-outlined" />
@@ -131,7 +129,7 @@ export function SavedInsights(): JSX.Element {
                             </div>
                         </Row>
                         {hasDashboardCollaboration && (
-                            <div className="text-muted-alt">{description || 'No description provided'}</div>
+                            <div className="text-muted-alt">{insight.description || 'No description provided'}</div>
                         )}
                     </Col>
                 )
@@ -251,7 +249,7 @@ export function SavedInsights(): JSX.Element {
     return (
         <div className="saved-insights">
             <Row style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <PageHeader style={{ marginTop: 0 }} title={'Insights'} />
+                <PageHeader title={'Insights'} />
                 <Dropdown
                     overlay={
                         <Menu style={{ maxWidth: 320, border: '1px solid var(--primary)' }}>
@@ -345,98 +343,103 @@ export function SavedInsights(): JSX.Element {
                 <Row className="list-or-card-layout">
                     Showing {paginationCount()} - {nextResult ? offset : count} of {count} insights
                     <div>
-                        <Button
-                            type={layoutView === LayoutView.List ? 'primary' : 'default'}
-                            onClick={() => setLayoutView(LayoutView.List)}
+                        <Radio.Group
+                            onChange={(e) => setLayoutView(e.target.value)}
+                            value={layoutView}
+                            buttonStyle="solid"
                         >
-                            <UnorderedListOutlined />
-                            List
-                        </Button>
-                        <Button
-                            type={layoutView === LayoutView.Card ? 'primary' : 'default'}
-                            onClick={() => setLayoutView(LayoutView.Card)}
-                        >
-                            <AppstoreFilled />
-                            Card
-                        </Button>
+                            <Radio.Button value={LayoutView.List}>
+                                <UnorderedListOutlined className="mr-05" />
+                                List
+                            </Radio.Button>
+                            <Radio.Button value={LayoutView.Card}>
+                                <AppstoreFilled className="mr-05" />
+                                Card
+                            </Radio.Button>
+                        </Radio.Group>
                     </div>
                 </Row>
             )}
-            {layoutView === LayoutView.List ? (
-                <Table
-                    loading={insightsLoading}
-                    columns={columns}
-                    dataSource={insights.results}
-                    pagination={false}
-                    rowKey="id"
-                    footer={() => (
-                        <Row className="footer-pagination">
-                            <span className="text-muted-alt">
-                                {insights.count > 0 &&
-                                    `Showing ${paginationCount()} - ${
-                                        nextResult ? offset : count
-                                    } of ${count} insights`}
-                            </span>
-                            <LeftOutlined
-                                style={{ paddingRight: 16 }}
-                                className={`${!previousResult ? 'paginate-disabled' : ''}`}
-                                onClick={() => {
-                                    previousResult && loadPaginatedInsights(previousResult)
-                                }}
-                            />
-                            <RightOutlined
-                                className={`${!nextResult ? 'paginate-disabled' : ''}`}
-                                onClick={() => {
-                                    nextResult && loadPaginatedInsights(nextResult)
-                                }}
-                            />
+            {!insightsLoading && insights.count < 1 ? (
+                <SavedInsightsEmptyState />
+            ) : (
+                <>
+                    {layoutView === LayoutView.List ? (
+                        <Table
+                            loading={insightsLoading}
+                            columns={columns}
+                            dataSource={insights.results}
+                            pagination={false}
+                            rowKey="id"
+                            footer={() => (
+                                <Row className="footer-pagination">
+                                    <span className="text-muted-alt">
+                                        {insights.count > 0 &&
+                                            `Showing ${paginationCount()} - ${
+                                                nextResult ? offset : count
+                                            } of ${count} insights`}
+                                    </span>
+                                    <LeftOutlined
+                                        style={{ paddingRight: 16 }}
+                                        className={`${!previousResult ? 'paginate-disabled' : ''}`}
+                                        onClick={() => {
+                                            previousResult && loadPaginatedInsights(previousResult)
+                                        }}
+                                    />
+                                    <RightOutlined
+                                        className={`${!nextResult ? 'paginate-disabled' : ''}`}
+                                        onClick={() => {
+                                            nextResult && loadPaginatedInsights(nextResult)
+                                        }}
+                                    />
+                                </Row>
+                            )}
+                        />
+                    ) : (
+                        <Row gutter={[16, 16]}>
+                            {insights &&
+                                insights.results.map((insight: DashboardItemType, index: number) => (
+                                    <Col
+                                        xs={24}
+                                        sm={12}
+                                        md={insights.results.length > 1 ? 8 : 12}
+                                        key={insight.id}
+                                        style={{ height: 270 }}
+                                    >
+                                        <DashboardItem
+                                            item={{ ...insight, color: null }}
+                                            key={insight.id + '_user'}
+                                            loadDashboardItems={() => {
+                                                loadInsights()
+                                            }}
+                                            dashboardMode={null}
+                                            onClick={() => {
+                                                const _type = getDisplayedType(insight.filters)
+                                                if (_type) {
+                                                    window.open(displayMap[_type].link(insight))
+                                                }
+                                            }}
+                                            preventLoading={true}
+                                            index={index}
+                                            isOnEditMode={false}
+                                            footer={
+                                                <div className="dashboard-item-footer">
+                                                    {
+                                                        <>
+                                                            Saved {dayjs(insight.created_at).fromNow()} by{' '}
+                                                            {insight.created_by?.first_name ||
+                                                                insight.created_by?.email ||
+                                                                'unknown'}
+                                                        </>
+                                                    }
+                                                </div>
+                                            }
+                                        />
+                                    </Col>
+                                ))}
                         </Row>
                     )}
-                />
-            ) : (
-                <Row gutter={[16, 16]}>
-                    {insights &&
-                        insights.results.map((insight: DashboardItemType, index: number) => (
-                            <Col
-                                xs={24}
-                                sm={12}
-                                md={insights.results.length > 1 ? 8 : 12}
-                                key={insight.id}
-                                style={{ height: 270 }}
-                            >
-                                <DashboardItem
-                                    item={{ ...insight, color: null }}
-                                    key={insight.id + '_user'}
-                                    loadDashboardItems={() => {
-                                        loadInsights()
-                                    }}
-                                    dashboardMode={null}
-                                    onClick={() => {
-                                        const _type: DisplayedType =
-                                            insight.filters.insight === ViewType.RETENTION
-                                                ? 'RetentionContainer'
-                                                : insight.filters.display
-                                        window.open(displayMap[_type].link(insight))
-                                    }}
-                                    preventLoading={true}
-                                    index={index}
-                                    isOnEditMode={false}
-                                    footer={
-                                        <div className="dashboard-item-footer">
-                                            {
-                                                <>
-                                                    Saved {dayjs(insight.created_at).fromNow()} by{' '}
-                                                    {insight.created_by?.first_name ||
-                                                        insight.created_by?.email ||
-                                                        'unknown'}
-                                                </>
-                                            }
-                                        </div>
-                                    }
-                                />
-                            </Col>
-                        ))}
-                </Row>
+                </>
             )}
         </div>
     )

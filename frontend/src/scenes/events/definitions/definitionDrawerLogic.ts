@@ -151,15 +151,6 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                 setGraphResults: (_, { results }) => results,
             },
         ],
-        visibilityMap: [
-            {} as Record<number, any>,
-            {
-                setVisibilityById: (state: Record<number, any>, { entry }) => ({
-                    ...state,
-                    ...entry,
-                }),
-            },
-        ],
     }),
     selectors: () => ({
         eventDefinitionTags: [

@@ -48,7 +48,12 @@ export const eventsTableLogic = kea({
         props.key,
 
     actions: () => ({
-        setProperties: (properties) => ({ properties }),
+        setProperties: (properties) => {
+            if (Array.isArray(properties) && properties.length === 0) {
+                return { properties: {} }
+            }
+            return { properties }
+        },
         setColumnConfig: (columnConfig) => ({ columnConfig }),
         setColumnConfigSaving: (saving) => ({ saving }), // Type: boolean
         fetchEvents: (nextParams = null) => ({ nextParams }),
@@ -63,6 +68,7 @@ export const eventsTableLogic = kea({
         setPollTimeout: (pollTimeout) => ({ pollTimeout }),
         setDelayedLoading: true,
         setEventFilter: (event) => ({ event }),
+        toggleAutomaticLoad: (automaticLoadEnabled) => ({ automaticLoadEnabled }),
     }),
 
     reducers: () => ({
@@ -153,6 +159,12 @@ export const eventsTableLogic = kea({
                 setColumnConfigSaving: (_, { saving }) => saving,
             },
         ],
+        automaticLoadEnabled: [
+            false,
+            {
+                toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
+            },
+        ],
     }),
 
     selectors: ({ selectors, props }) => ({
@@ -161,6 +173,16 @@ export const eventsTableLogic = kea({
             (events, newEvents) => formatEvents(events, newEvents, props.apiUrl),
         ],
         columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
+        exportUrl: [
+            () => [selectors.eventFilter, selectors.orderBy, selectors.properties],
+            (eventFilter, orderBy, properties) =>
+                `/api/event.csv?${toParams({
+                    properties,
+                    ...(props.fixedFilters || {}), // this never changes, the logic instance is keyed on this value
+                    ...(eventFilter ? { event: eventFilter } : {}),
+                    orderBy: [orderBy],
+                })}`,
+        ],
     }),
 
     events: ({ values }) => ({
@@ -178,7 +200,18 @@ export const eventsTableLogic = kea({
                     ...router.values.searchParams,
                     properties: values.properties,
                 },
-                window.location.hash,
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
+        toggleAutomaticLoad: () => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    autoload: values.automaticLoadEnabled,
+                },
+                router.values.hashParams,
                 { replace: true },
             ]
         },
@@ -198,8 +231,13 @@ export const eventsTableLogic = kea({
             }
 
             const isFirstRedirect = hashParams.backTo // first time we've navigated here from another page
+
             if (!objectsEqual(searchParams.properties || {}, values.properties) || isFirstRedirect) {
                 actions.setProperties(searchParams.properties || {})
+            }
+
+            if (searchParams.autoload) {
+                actions.toggleAutomaticLoad(searchParams.autoload)
             }
         },
     }),
@@ -284,7 +322,7 @@ export const eventsTableLogic = kea({
 
             breakpoint()
 
-            if (props.live) {
+            if (values.automaticLoadEnabled || props.live) {
                 actions.prependNewEvents(events.results)
             } else {
                 actions.pollEventsSuccess(events.results)
@@ -306,6 +344,11 @@ export const eventsTableLogic = kea({
         },
         [userLogic.actionTypes.updateUserFailure]: () => {
             actions.setColumnConfigSaving(false)
+        },
+        toggleAutomaticLoad: ({ automaticLoadEnabled }) => {
+            if (automaticLoadEnabled && values.newEvents.length > 0) {
+                actions.prependNewEvents(values.newEvents)
+            }
         },
     }),
 })

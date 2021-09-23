@@ -1,16 +1,15 @@
 /* Only styles that are shared across multiple components (i.e. global) should go here, trying to keep this file
 nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
-style files without adding already imported styles. */
+style files without adding already imported styles.
+
+Font weights: only `normal` (400), `medium` (500) or `bold` (700) should be used.
+
+*/
 
 // Global components
 @import 'react-toastify/dist/ReactToastify';
 @import '~/vars';
-
-@font-face {
-    font-family: 'GoshaSans-Bold';
-    src: url('../../public/GoshaSans-Bold.woff2') format('woff2'),
-        url('../../public/GoshaSans-Bold.woff') format('woff');
-}
+@import 'fonts';
 
 :root {
     --primary: #{$primary};
@@ -22,6 +21,7 @@ style files without adding already imported styles. */
     --bg-mid: #{$bg_mid};
     --bg-charcoal: #{$bg_charcoal};
     --text-default: #{$text_default};
+    --text-muted: #{$text_muted};
     --text-light: #{$text_light};
     --muted: #{$text_muted};
     --muted-alt: #{$text_muted_alt};
@@ -88,9 +88,7 @@ style files without adding already imported styles. */
     font-size: 28px;
     line-height: 34px;
     margin-top: 0.5em;
-    font-weight: 700;
-    color: $text_default;
-    font-family: $gosha_sans;
+    font-weight: bold;
 }
 
 .page-caption {
@@ -109,7 +107,7 @@ style files without adding already imported styles. */
     margin-top: 12px;
     font-size: 22px;
     line-height: 26px;
-    font-weight: 700;
+    font-weight: bold;
 
     &.highlighted {
         padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
@@ -119,18 +117,18 @@ style files without adding already imported styles. */
 .l3 {
     /* Level 3 title (ideally H3) */
     font-size: 16px;
-    font-weight: 700;
+    font-weight: bold;
     line-height: 19px;
 }
 
 .l4 {
     font-size: 14px;
-    font-weight: 700;
+    font-weight: bold;
 }
 
 .l5 {
     font-size: 13px;
-    font-weight: 700;
+    font-weight: bold;
 }
 
 .text-right {
@@ -450,7 +448,7 @@ code.code {
 }
 
 .ant-form-item-label {
-    font-weight: bold;
+    font-weight: medium;
 }
 
 // Button styles
