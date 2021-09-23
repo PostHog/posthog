@@ -89,6 +89,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -101,6 +102,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -113,6 +115,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "buy",
                         "name": "buy",
+                        "custom_name": None,
                         "order": 2,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -132,6 +135,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person2.uuid, person3.uuid]
                         if Funnel == ClickhouseFunnel
@@ -146,6 +150,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -158,6 +163,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "buy",
                         "name": "buy",
+                        "custom_name": None,
                         "order": 2,
                         "people": [],
                         "count": 0,
@@ -270,6 +276,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         # popped people because flakey ordering for assertEqual
                         "count": 3,
@@ -282,6 +289,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -294,6 +302,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "buy",
                         "name": "buy",
+                        "custom_name": None,
                         "order": 2,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -316,6 +325,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person2.uuid, person3.uuid]
                         if Funnel == ClickhouseFunnel
@@ -330,6 +340,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -342,6 +353,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "buy",
                         "name": "buy",
+                        "custom_name": None,
                         "order": 2,
                         "people": [],
                         "count": 0,
@@ -428,6 +440,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -440,6 +453,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -452,6 +466,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "buy",
                         "name": "buy",
+                        "custom_name": None,
                         "order": 2,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -471,6 +486,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person2.uuid, person3.uuid]
                         if Funnel == ClickhouseFunnel
@@ -485,6 +501,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -497,6 +514,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "buy",
                         "name": "buy",
+                        "custom_name": None,
                         "order": 2,
                         "people": [],
                         "count": 0,
@@ -575,6 +593,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -587,6 +606,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -599,6 +619,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "buy",
                         "name": "buy",
+                        "custom_name": None,
                         "order": 2,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -619,6 +640,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -631,6 +653,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [person2.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -643,6 +666,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "buy",
                         "name": "buy",
+                        "custom_name": None,
                         "order": 2,
                         "people": [],
                         "count": 0,
@@ -912,6 +936,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -931,6 +956,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -950,6 +976,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -969,6 +996,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -1035,6 +1063,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -1047,6 +1076,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [],
                         "count": 0,
@@ -1067,6 +1097,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "sign up",
                         "name": "sign up",
+                        "custom_name": None,
                         "order": 0,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -1079,6 +1110,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                     {
                         "action_id": "play movie",
                         "name": "play movie",
+                        "custom_name": None,
                         "order": 1,
                         "people": [person1.uuid] if Funnel == ClickhouseFunnel else [],  # backwards compatibility
                         "count": 1,
@@ -1223,6 +1255,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             "count": 1,
                             "median_conversion_time": None,
                             "name": "user signed up",
+                            "custom_name": None,
                             "order": 0,
                             "people": [UUID(bytes=person.uuid.bytes)],
                             "type": "events",
@@ -1235,6 +1268,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             "count": 1,
                             "median_conversion_time": 691200.0,
                             "name": "paid",
+                            "custom_name": None,
                             "order": 1,
                             "people": [UUID(bytes=person.uuid.bytes)],
                             "type": "events",
@@ -1310,6 +1344,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             "count": 1,
                             "median_conversion_time": None,
                             "name": "user signed up",
+                            "custom_name": None,
                             "order": 0,
                             "people": [UUID(bytes=person.uuid.bytes)],
                             "type": "actions",
@@ -1322,6 +1357,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                             "count": 1,
                             "median_conversion_time": 691200.0,
                             "name": "paid",
+                            "custom_name": None,
                             "order": 1,
                             "people": [UUID(bytes=person.uuid.bytes)],
                             "type": "events",
