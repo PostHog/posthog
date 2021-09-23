@@ -142,7 +142,6 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
 
     listeners: ({ actions, values, props }) => ({
         renameFilter: async ({ filter }) => {
-            console.log('RENAME', filter)
             actions.updateFilter({
                 ...filter,
                 index: filter.order as number,
@@ -203,7 +202,6 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
         },
         setFilters: async ({ filters }) => {
             if (typeof props.setFilters === 'function') {
-                console.log('ENTITY SET FILTERS', filters, toFilters(filters))
                 props.setFilters(toFilters(filters))
             }
             const sanitizedFilters = filters?.map(({ id, type }) => ({ id, type }))

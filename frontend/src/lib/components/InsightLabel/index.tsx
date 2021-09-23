@@ -75,8 +75,6 @@ export function InsightLabel({
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
     const iconSizePx = iconSize === IconSize.Large ? 14 : iconSize === IconSize.Medium ? 12 : 10
 
-    console.log('ACTION', action)
-
     return (
         <Row className="insights-label" wrap={false}>
             <Col style={{ display: 'flex', alignItems: 'center' }} flex="auto">

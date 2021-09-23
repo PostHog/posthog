@@ -372,7 +372,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                 const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
                 const color = getStepColor(step, !!filters.breakdown)
 
-                console.log('RENDER LABEL', step, filters)
                 return (
                     <InsightLabel
                         seriesColor={color}
