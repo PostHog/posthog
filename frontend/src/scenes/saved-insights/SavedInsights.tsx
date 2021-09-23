@@ -34,6 +34,7 @@ import '../insights/InsightHistoryPanel/InsightHistoryPanel.scss'
 import dayjs from 'dayjs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+
 const { TabPane } = Tabs
 
 interface InsightType {

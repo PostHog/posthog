@@ -21,6 +21,7 @@ Font weights: only `normal` (400), `medium` (500) or `bold` (700) should be used
     --bg-mid: #{$bg_mid};
     --bg-charcoal: #{$bg_charcoal};
     --text-default: #{$text_default};
+    --text-muted: #{$text_muted};
     --text-light: #{$text_light};
     --muted: #{$text_muted};
     --muted-alt: #{$text_muted_alt};
@@ -447,7 +448,7 @@ code.code {
 }
 
 .ant-form-item-label {
-    font-weight: bold;
+    font-weight: medium;
 }
 
 // Button styles

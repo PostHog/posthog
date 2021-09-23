@@ -492,9 +492,9 @@ export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, wit
         formatString = '[Yesterday] h:mm'
     }
     if (withSeconds) {
-        formatString += ':ss a'
+        formatString += ':ss A'
     } else {
-        formatString += ' a'
+        formatString += ' A'
     }
     return parsedDate.format(formatString)
 }

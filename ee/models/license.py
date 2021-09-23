@@ -56,6 +56,7 @@ class License(models.Model):
     ENTERPRISE_FEATURES = [
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
+        AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.GOOGLE_LOGIN,
         AvailableFeature.SAML,
         AvailableFeature.DASHBOARD_COLLABORATION,
