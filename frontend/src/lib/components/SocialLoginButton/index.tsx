@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './index.scss'
-import { GoogleOutlined, GithubOutlined, GitlabOutlined, LoginOutlined } from '@ant-design/icons'
+import { GoogleOutlined, GithubOutlined, GitlabOutlined, KeyOutlined } from '@ant-design/icons'
 import clsx from 'clsx'
 
 enum SocialAuthProviders {
@@ -45,7 +45,7 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
         } else if (provider === SocialAuthProviders.GitLab) {
             return <GitlabOutlined />
         } else if (provider === SocialAuthProviders.SAML) {
-            return <LoginOutlined />
+            return <KeyOutlined />
         }
     }, [provider])
 
