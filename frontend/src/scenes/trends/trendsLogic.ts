@@ -136,7 +136,6 @@ export const trendsLogic = kea<trendsLogicType>({
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
-        setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
         loadMoreBreakdownValues: true,
@@ -242,12 +241,6 @@ export const trendsLogic = kea<trendsLogicType>({
                 setCachedResults: (_, { filters }) => filters,
             },
         ],
-        indexedResults: [
-            [] as IndexedTrendResult[],
-            {
-                setIndexedResults: ({}, { results }) => results,
-            },
-        ],
         toggledLifecycles: [
             ['new', 'resurrecting', 'returning', 'dormant'],
             {
@@ -255,8 +248,7 @@ export const trendsLogic = kea<trendsLogicType>({
                     if (state.includes(lifecycleName)) {
                         return state.filter((lifecycles) => lifecycles !== lifecycleName)
                     }
-                    state.push(lifecycleName)
-                    return state
+                    return [...state, lifecycleName]
                 },
             },
         ],
@@ -309,13 +301,15 @@ export const trendsLogic = kea<trendsLogicType>({
         ],
         indexedResults: [
             (s) => [s.filters, s.results, s.toggledLifecycles],
-            (filters, results, toggledLifecycles) => {
-                if (filters.insight === ViewType.LIFECYCLE) {
+            (filters, results, toggledLifecycles): IndexedTrendResult[] => {
+                if (!results) {
+                    return []
+                } else if (filters.insight === ViewType.LIFECYCLE) {
                     return results
-                        ?.filter((result) => toggledLifecycles.includes(String(result.status)))
+                        .filter((result) => toggledLifecycles.includes(String(result.status)))
                         .map((result, idx) => ({ ...result, id: idx }))
                 } else {
-                    return results?.map((element, index) => ({ ...element, id: index }))
+                    return results.map((element, index) => ({ ...element, id: index }))
                 }
             },
         ],
@@ -324,12 +318,6 @@ export const trendsLogic = kea<trendsLogicType>({
     listeners: ({ actions, values, props }) => ({
         setDisplay: async ({ display }) => {
             actions.setFilters({ display })
-        },
-        toggleLifecycle: () => {
-            const toggledResults = values.results
-                .filter((result) => values.toggledLifecycles.includes(String(result.status)))
-                .map((result, idx) => ({ ...result, id: idx }))
-            actions.setIndexedResults(toggledResults)
         },
         setFilters: async () => {
             if (!props.dashboardItemId) {
