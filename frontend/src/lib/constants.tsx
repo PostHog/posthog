@@ -245,6 +245,7 @@ export const FEATURE_FLAGS = {
     SPLIT_PERSON: '5898-split-persons',
     TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
     REMOVE_SESSIONS: 'remove-sessions',
+    FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
