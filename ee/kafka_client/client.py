@@ -18,7 +18,7 @@ class TestKafkaProducer:
     def __init__(self):
         pass
 
-    def send(self, topic: str, data: Any):
+    def send(self, topic: str, key: Any, data: Any):
         return
 
     def flush(self):
