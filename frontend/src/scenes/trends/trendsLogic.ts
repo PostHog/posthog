@@ -148,7 +148,7 @@ export const trendsLogic = kea<trendsLogicType>({
         _results: {
             __default: {} as TrendResponse,
             setCachedResults: ({ results, filters }) => {
-                return { results, filters }
+                return { result: results, filters }
             },
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
@@ -302,6 +302,18 @@ export const trendsLogic = kea<trendsLogicType>({
             (selectors) => [selectors.filters],
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
+        indexedResults: [
+            (s) => [s.filters, s.results, s.toggledLifecycles],
+            (filters, results, toggledLifecycles) => {
+                if (filters.insight === ViewType.LIFECYCLE) {
+                    return results
+                        ?.filter((result) => toggledLifecycles.includes(String(result.status)))
+                        .map((result, idx) => ({ ...result, id: idx }))
+                } else {
+                    return results?.map((element, index) => ({ ...element, id: index }))
+                }
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -318,6 +330,13 @@ export const trendsLogic = kea<trendsLogicType>({
             insightLogic.actions.setAllFilters(values.filters)
             actions.loadResults()
         },
+        setCachedResultsSuccess: () => {
+            actions.setFilters(values.loadedFilters)
+            // TODO: this is duplicated below and could go in a reducer
+            values.indexedResults.forEach((_, idx) => {
+                actions.setVisibilityById({ [`${idx}`]: true })
+            })
+        },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
                 if (!insightLogic.values.insight.id) {
@@ -329,22 +348,10 @@ export const trendsLogic = kea<trendsLogicType>({
                     insightLogic.actions.updateInsightFilters(values.filters)
                 }
             }
-
-            let indexedResults
-            if (values.filters.insight !== ViewType.LIFECYCLE) {
-                indexedResults = values.results?.map((element, index) => {
-                    actions.setVisibilityById({ [`${index}`]: true })
-                    return { ...element, id: index }
-                })
-            } else {
-                indexedResults = values.results
-                    .filter((result) => values.toggledLifecycles.includes(String(result.status)))
-                    .map((result, idx) => {
-                        actions.setVisibilityById({ [`${idx}`]: true })
-                        return { ...result, id: idx }
-                    })
-            }
-            actions.setIndexedResults(indexedResults)
+            // TODO: this is duplicated above and could go in a reducer
+            values.indexedResults.forEach((_, idx) => {
+                actions.setVisibilityById({ [`${idx}`]: true })
+            })
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {
