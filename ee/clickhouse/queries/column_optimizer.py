@@ -8,6 +8,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.property import Property, PropertyName, PropertyType
 from posthog.models.team import Team
 
@@ -19,7 +20,7 @@ class ColumnOptimizer:
     This speeds up queries since clickhouse ends up selecting less data.
     """
 
-    def __init__(self, filter: Union[Filter, PathFilter], team_id: int):
+    def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter], team_id: int):
         self.filter = filter
         self.team_id = team_id
 
