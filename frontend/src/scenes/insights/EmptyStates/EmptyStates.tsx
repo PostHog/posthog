@@ -3,11 +3,13 @@ import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined } from '@ant-design/icons'
-import { IllustrationDanger } from 'lib/components/icons'
+import { IllustrationDanger, TrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { SavedInsightsTabs } from '~/types'
 
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
@@ -245,6 +247,50 @@ export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
                         Learn more about funnels in our support documentation.
                     </a>
                 </div>
+            </div>
+        </div>
+    )
+}
+
+const SAVED_INSIGHTS_COPY = {
+    [`${SavedInsightsTabs.All}`]: {
+        title: 'There are no insights for this project',
+        description: 'Once you create an insight, it will show up here.',
+    },
+    [`${SavedInsightsTabs.Yours}`]: {
+        title: "You haven't created insights for this project",
+        description: 'Once you create an insight, it will show up here.',
+    },
+    [`${SavedInsightsTabs.Favorites}`]: {
+        title: 'There are no favorited insights for this project',
+        description: 'Once you favorite an insight, it will show up here.',
+    },
+}
+
+export function SavedInsightsEmptyState(): JSX.Element {
+    const { addGraph } = useActions(savedInsightsLogic)
+    const { tab } = useValues(savedInsightsLogic)
+
+    return (
+        <div className="saved-insight-empty-state">
+            <div className="insight-empty-state__wrapper">
+                <div className="illustration-main">
+                    <TrendUp />
+                </div>
+                <h2 className="empty-state__title">{SAVED_INSIGHTS_COPY[tab].title}</h2>
+                <p className="empty-state__description">{SAVED_INSIGHTS_COPY[tab].description}</p>
+                {tab !== SavedInsightsTabs.Favorites && (
+                    <Button
+                        size="large"
+                        type="primary"
+                        onClick={() => addGraph('Trends')} // Add trends graph by default
+                        data-attr="add-insight-button-empty-state"
+                        icon={<PlusCircleOutlined />}
+                        className="add-insight-button"
+                    >
+                        New Insight
+                    </Button>
+                )}
             </div>
         </div>
     )
