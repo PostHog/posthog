@@ -6,8 +6,11 @@ from posthog.constants import (
     END_POINT,
     FUNNEL_PATHS,
     PAGEVIEW_EVENT,
+    PATH_EDGE_LIMIT,
     PATH_END_KEY,
     PATH_GROUPINGS,
+    PATH_MAX_EDGE_WEIGHT,
+    PATH_MIN_EDGE_WEIGHT,
     PATH_START_KEY,
     PATH_TYPE,
     PATHS_EXCLUDE_EVENTS,
@@ -179,5 +182,36 @@ class PathPersonsMixin(BaseParamMixin):
 
         if self.path_end_key:
             result[PATH_END_KEY] = self.path_end_key
+
+        return result
+
+
+class PathLimitsMixin(BaseParamMixin):
+    @cached_property
+    def edge_limit(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_EDGE_LIMIT, None)
+        return int(raw_value) if raw_value else None
+
+    @cached_property
+    def min_edge_weight(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_MIN_EDGE_WEIGHT, None)
+        return int(raw_value) if raw_value else None
+
+    @cached_property
+    def max_edge_weight(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_MAX_EDGE_WEIGHT, None)
+        return int(raw_value) if raw_value else None
+
+    @include_dict
+    def path_edge_limit_to_dict(self):
+        result = {}
+        if self.edge_limit:
+            result[PATH_EDGE_LIMIT] = self.edge_limit
+
+        if self.min_edge_weight:
+            result[PATH_MIN_EDGE_WEIGHT] = self.min_edge_weight
+
+        if self.max_edge_weight:
+            result[PATH_MAX_EDGE_WEIGHT] = self.max_edge_weight
 
         return result

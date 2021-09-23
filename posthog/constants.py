@@ -126,6 +126,9 @@ FUNNEL_PATH_BETWEEN_STEPS = "funneL_path_between_steps"
 PATH_GROUPINGS = "path_groupings"
 PATH_START_KEY = "path_start_key"
 PATH_END_KEY = "path_end_key"
+PATH_MIN_EDGE_WEIGHT = "min_edge_weight"
+PATH_MAX_EDGE_WEIGHT = "max_edge_weight"
+PATH_EDGE_LIMIT = "edge_limit"
 
 
 class FunnelOrderType(str, Enum):

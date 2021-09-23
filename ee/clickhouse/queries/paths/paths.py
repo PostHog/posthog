@@ -1,3 +1,4 @@
+from collections import defaultdict
 from re import escape
 from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
@@ -7,7 +8,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
-from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT
+from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 
@@ -38,6 +39,9 @@ class ClickhousePaths:
         if not self._filter.limit:
             self._filter = self._filter.with_data({LIMIT: 100})
 
+        if not self._filter.edge_limit:
+            self._filter = self._filter.with_data({PATH_EDGE_LIMIT: 100})
+
         if self._filter.path_groupings:
             regex_groupings = []
             for grouping in self._filter.path_groupings:
@@ -51,7 +55,7 @@ class ClickhousePaths:
 
     def run(self, *args, **kwargs):
 
-        results = self._exec_query()
+        results = self.validate_results(self._exec_query())
         return self._format_results(results)
 
     def _format_results(self, results):
@@ -100,6 +104,11 @@ class ClickhousePaths:
 
         paths_per_person_query = self.get_paths_per_person_query()
 
+        self.params["edge_limit"] = self._filter.edge_limit
+
+        edge_weight_filter, edge_weight_params = self.get_edge_weight_clause()
+        self.params.update(edge_weight_params)
+
         return f"""
             SELECT last_path_key as source_event,
                 path_key as target_event,
@@ -109,10 +118,11 @@ class ClickhousePaths:
             WHERE source_event IS NOT NULL
             GROUP BY source_event,
                     target_event
+            {edge_weight_filter}
             ORDER BY event_count DESC,
                     source_event,
                     target_event
-            LIMIT 30
+            LIMIT %(edge_limit)s
         """
 
     def get_path_query_funnel_cte(self, funnel_filter: Filter):
@@ -140,6 +150,24 @@ class ClickhousePaths:
             return f"WHERE target_index > 0"
         else:
             return ""
+
+    def get_edge_weight_clause(self) -> Tuple[str, Dict]:
+        params: Dict[str, Union[str, None]] = {}
+
+        conditions = []
+
+        if self._filter.min_edge_weight:
+            params["min_edge_weight"] = self._filter.min_edge_weight
+            conditions.append("event_count >= %(min_edge_weight)s")
+
+        if self._filter.max_edge_weight:
+            params["max_edge_weight"] = self._filter.max_edge_weight
+            conditions.append("event_count <= %(max_edge_weight)s")
+
+        if conditions:
+            return f"HAVING {' AND '.join(conditions)}", params
+
+        return "", params
 
     def get_target_clause(self) -> Tuple[str, Dict]:
         params: Dict[str, Union[str, None]] = {"target_point": None, "secondary_target_point": None}
@@ -192,3 +220,28 @@ class ClickhousePaths:
                 "arraySlice(filtered_path, 1, %(event_in_session_limit)s)",
                 "arraySlice(filtered_timings, 1, %(event_in_session_limit)s)",
             )
+
+    def validate_results(self, results):
+        seen = set()  # source nodes that've been traversed
+        edges = defaultdict(list)
+        validated_results = []
+        starting_nodes_stack = []
+
+        for result in results:
+            edges[result[0]].append(result[1])
+            if result[0].startswith("1_"):
+                starting_nodes_stack.append(result[0])
+
+        while starting_nodes_stack:
+            current_node = starting_nodes_stack.pop()
+            seen.add(current_node)
+
+            for node in edges[current_node]:
+                if node not in seen:
+                    starting_nodes_stack.append(node)
+
+        for result in results:
+            if result[0] in seen:
+                validated_results.append(result)
+
+        return validated_results
