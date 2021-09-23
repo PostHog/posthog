@@ -10,6 +10,14 @@ jest.mock('lib/api')
 
 const randomBool = (): boolean => Math.random() < 0.5
 
+const randomString = (): string => Math.random().toString(36).substr(2, 5)
+
+const makeEvent = (id: string = '1', timestamp: string = randomString()): EventsTableEvent => ({
+    id: id,
+    timestamp,
+    action: { name: randomString(), id: randomString() },
+})
+
 describe('eventsTableLogic', () => {
     let logic: BuiltLogic<eventsTableLogicType<EventsTableEvent, EventsTableLogicProps>>
 
@@ -339,6 +347,33 @@ describe('eventsTableLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([{ key: 'value' }])
                 }).toMatchValues({ properties: [{ key: 'value' }] })
+            })
+        })
+    })
+
+    describe('the selectors', () => {
+        it('can format events when there are events', async () => {
+            const event = makeEvent()
+            await expectLogic(logic, () => {
+                logic.actions.fetchEventsSuccess({ events: [event], hasNext: false, isNext: false })
+            }).toMatchValues({ eventsFormatted: [{ event }] })
+        })
+
+        it('can format events where there are new events', async () => {
+            const event = makeEvent()
+            await expectLogic(logic, () => {
+                logic.actions.fetchEventsSuccess({ events: [event], hasNext: false, isNext: false })
+                logic.actions.pollEventsSuccess([makeEvent('2')])
+            }).toMatchValues({ eventsFormatted: [{ new_events: true }, { event }] })
+        })
+
+        it('can format events to include day markers', async () => {
+            const yesterday = makeEvent('yesterday', '2021-09-22T10:35:39.875Z')
+            const today = makeEvent('today', '2021-09-23T10:35:39.875Z')
+            await expectLogic(logic, () => {
+                logic.actions.fetchEventsSuccess({ events: [today, yesterday], hasNext: false, isNext: false })
+            }).toMatchValues({
+                eventsFormatted: [{ event: today }, { date_break: 'September 22, 2021' }, { event: yesterday }],
             })
         })
     })
