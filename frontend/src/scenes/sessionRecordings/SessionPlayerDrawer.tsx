@@ -6,8 +6,15 @@ import { useActions } from 'kea'
 import { ArrowTopLeftOutlined } from 'lib/components/icons'
 import { sessionRecordingsTableLogic } from './sessionRecordingsLogic'
 
-export function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }): JSX.Element {
-    const { closeSessionPlayer } = useActions(sessionRecordingsTableLogic)
+interface SessionPlayerDrawerProps {
+    personIds?: string[]
+    isPersonPage?: boolean
+}
+
+export function SessionPlayerDrawer({ personIds, isPersonPage = false }: SessionPlayerDrawerProps): JSX.Element {
+    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personIds })
+
+    const { closeSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
     return (
         <Drawer destroyOnClose visible width="100%" onClose={closeSessionPlayer}>
             <>

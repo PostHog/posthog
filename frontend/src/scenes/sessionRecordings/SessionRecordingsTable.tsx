@@ -21,7 +21,6 @@ export function SessionRecordingsTable({ personIds, isPersonPage = false }: Sess
     )
     const { setSessionRecordingId } = useActions(sessionRecordingsTableLogicInstance)
     const { tableScrollX } = useIsTableScrolling('lg')
-    console.log(sessionRecordingId)
 
     const columns = [
         {
@@ -89,7 +88,7 @@ export function SessionRecordingsTable({ personIds, isPersonPage = false }: Sess
                 scroll={{ x: tableScrollX }}
             />
             <div style={{ marginTop: '5rem' }} />
-            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}
+            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} personIds={personIds} />}
         </div>
     )
 }

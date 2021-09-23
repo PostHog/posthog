@@ -7,6 +7,8 @@ import { sessionsTableLogicType } from './sessionsTableLogicType'
 import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 type SessionRecordingId = string
 
@@ -302,7 +304,14 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
 
         return {
             '/sessions': urlToAction,
-            '/person/*': urlToAction,
+            '/person/*': (_: any, params: Params) => {
+                // Needed while the REMOVE_SESSIONS feature flag exists. Otherwise, this logic and
+                // the sessionRecordingsLogic both try to set the sessionRecordingId
+                // query param, and we end up with multiple navigations to the player page
+                if (!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]) {
+                    urlToAction(_, params)
+                }
+            },
         }
     },
 })
