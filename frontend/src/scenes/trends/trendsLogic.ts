@@ -13,9 +13,7 @@ import {
     DashboardItemLogicProps,
     EntityTypes,
     FilterType,
-    PersonType,
     PropertyFilter,
-    TrendResult,
     ViewType,
 } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
@@ -23,28 +21,7 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
-
-interface TrendResponse {
-    result: TrendResult[]
-    filters: FilterType
-    next?: string
-}
-
-export interface IndexedTrendResult extends TrendResult {
-    id: number
-}
-
-export interface TrendPeople {
-    people: PersonType[]
-    count: number
-    day: string | number
-    label: string
-    action: ActionFilter | 'session'
-    breakdown_value?: string | number
-    next?: string
-    loadingMore?: boolean
-    funnelStep?: number
-}
+import { IndexedTrendResult, TrendResponse } from 'scenes/trends/types'
 
 interface PeopleParamType {
     action: ActionFilter | 'session'
@@ -144,7 +121,7 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
 // - dashboardItemId
 // - cachedResults
 // - filters
-export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse>>({
+export const trendsLogic = kea<trendsLogicType>({
     props: {} as DashboardItemLogicProps,
 
     key: (props) => {
@@ -154,6 +131,18 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
     connect: {
         values: [actionsModel, ['actions']],
     },
+
+    actions: () => ({
+        setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
+        setDisplay: (display) => ({ display }),
+        setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
+        toggleVisibility: (index: number) => ({ index }),
+        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
+        loadMoreBreakdownValues: true,
+        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
+        toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
+    }),
 
     loaders: ({ cache, values, props }) => ({
         _results: {
@@ -232,18 +221,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 return { ...response, filters }
             },
         },
-    }),
-
-    actions: () => ({
-        setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
-        setDisplay: (display) => ({ display }),
-        setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
-        toggleVisibility: (index: number) => ({ index }),
-        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
-        loadMoreBreakdownValues: true,
-        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
-        toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
-        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
 
     reducers: ({ props }) => ({
