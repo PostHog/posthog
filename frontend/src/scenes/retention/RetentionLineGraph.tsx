@@ -50,7 +50,9 @@ export function RetentionLineGraph({
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId || fromItem}
+                dashboardItemId={
+                    dashboardItemId || fromItem /* used only for annotations, not to init any other logic */
+                }
                 inSharedMode={inSharedMode}
                 percentage={true}
                 onClick={
