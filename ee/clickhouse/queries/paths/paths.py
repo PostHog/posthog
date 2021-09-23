@@ -7,7 +7,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
-from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS
+from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 
@@ -34,6 +34,9 @@ class ClickhousePaths:
 
         if self._filter.include_all_custom_events and self._filter.custom_events:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
+
+        if not self._filter.limit:
+            self._filter = self._filter.with_data({LIMIT: 100})
 
         if self._filter.path_groupings:
             regex_groupings = []

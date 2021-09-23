@@ -1085,7 +1085,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     @test_with_materialized_columns(["$current_url"])
     def test_paths_start_and_end(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"])
+        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"])
         _create_event(
             properties={"$current_url": "/1"},
             distinct_id="person_1",
@@ -1136,7 +1136,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             timestamp="2021-05-01 00:07:00",
         )
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"])
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"])
         _create_event(
             properties={"$current_url": "/5"},
             distinct_id="person_2",
@@ -1152,7 +1152,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             timestamp="2021-05-01 00:02:00",
         )
 
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_3"])
+        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_3"])
         _create_event(
             properties={"$current_url": "/3"},
             distinct_id="person_3",
@@ -1195,6 +1195,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertEqual(
             response, [{"source": "1_/5", "target": "2_/about", "value": 2, "average_conversion_time": 60000.0}]
         )
+        self.assertCountEqual(self._get_people_at_path(filter, "1_/5", "2_/about"), [p1.uuid, p2.uuid])
 
     def test_properties_queried_using_path_filter(self):
         def should_query_list(filter) -> Tuple[bool, bool]:

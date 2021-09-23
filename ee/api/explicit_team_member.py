@@ -74,11 +74,18 @@ class TeamMemberManagementPermission(BasePermission):
             return True  # This will be handled as a 404 too
         if requesting_team_membership is None:
             return False
-        minimum_level = (
-            ExplicitTeamMembership.Level.MEMBER
-            if request.method in SAFE_METHODS
-            else ExplicitTeamMembership.Level.ADMIN
-        )
+        if (
+            view.kwargs.get("parent_membership__user__uuid") == str(getattr(request.user, "uuid"))
+            and request.method == "DELETE"
+        ):
+            # Special check to allow all project members to leave projects, not just admins
+            minimum_level = ExplicitTeamMembership.Level.MEMBER
+        else:
+            minimum_level = (
+                ExplicitTeamMembership.Level.MEMBER
+                if request.method in SAFE_METHODS
+                else ExplicitTeamMembership.Level.ADMIN
+            )
         return requesting_team_membership.effective_level >= minimum_level
 
 
