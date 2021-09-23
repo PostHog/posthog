@@ -44,7 +44,10 @@ class Entity(PropertyMixin):
             order_provided = int(order_provided)
         self.order = order_provided
         self.name = data.get("name")
-        self.custom_name = data.get("custom_name")
+        custom_name = data.get("custom_name")
+        if custom_name is not None:
+            custom_name = str(custom_name).strip() or None
+        self.custom_name = custom_name
         self.math = data.get("math")
         self.math_property = data.get("math_property")
 
