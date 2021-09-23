@@ -88,11 +88,9 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
         result = _calculate_funnel(filter, key, team_id)
     else:
         result = _calculate_by_filter(filter, key, team_id, cache_type)
+    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
 
     dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
-
-    if result:
-        cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
 
 
 def update_dashboard_items_cache(dashboard: Dashboard) -> None:

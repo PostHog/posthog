@@ -106,6 +106,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         if self.context["request"].GET.get("refresh"):
             update_dashboard_items_cache(dashboard)
+            dashboard.refresh_from_db()
 
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
@@ -228,7 +229,8 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return result.get("result")
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
-        if self.get_result(dashboard_item):
+        result = self.get_result(dashboard_item)
+        if result is not None:
             return dashboard_item.last_refresh
         dashboard_item.last_refresh = None
         dashboard_item.save()
@@ -237,6 +239,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         if self.context["request"].GET.get("refresh"):
             update_dashboard_item_cache(instance, None)
+            instance.refresh_from_db()
 
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
