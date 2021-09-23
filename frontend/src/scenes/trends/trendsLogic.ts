@@ -238,6 +238,7 @@ export const trendsLogic = kea<trendsLogicType>({
                         ...filters,
                     })
                 },
+                setCachedResults: (_, { filters }) => filters,
             },
         ],
         indexedResults: [
@@ -333,7 +334,6 @@ export const trendsLogic = kea<trendsLogicType>({
             actions.loadResults()
         },
         setCachedResultsSuccess: () => {
-            actions.setFilters(values.loadedFilters)
             // TODO: this is duplicated below and could go in a reducer
             values.indexedResults.forEach((_, idx) => {
                 actions.setVisibilityById({ [`${idx}`]: true })
