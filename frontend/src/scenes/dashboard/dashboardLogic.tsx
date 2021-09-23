@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
@@ -12,6 +12,7 @@ import { DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
+import { getLogicFromInsight } from 'scenes/insights/utils'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
@@ -239,6 +240,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 return allItemsLoading || Object.values(refreshStatus).some((s) => s.loading)
             },
         ],
+        isRefreshing: [
+            () => [selectors.refreshStatus],
+            (refreshStatus) => (id: number) => !!refreshStatus[id]?.loading,
+        ],
         lastRefreshed: [
             () => [selectors.items],
             (items) => {
@@ -459,37 +464,61 @@ export const dashboardLogic = kea<dashboardLogicType>({
             if (!values?.items || values?.items.length === 0) {
                 return
             }
-            await breakpoint(100)
 
-            // Refreshing dashboard items from now on should be done without short-circuiting
-            const fetchItemPromises = values.items.map((dashboardItem) => async () => {
+            let breakpointTriggered = false
+            for (const dashboardItem of values.items) {
+                actions.setRefreshStatus(dashboardItem.id, true)
+            }
+
+            // array of functions that reload each item
+            const fetchItemFunctions = values.items.map((dashboardItem) => async () => {
                 try {
-                    actions.setRefreshStatus(dashboardItem.id, true)
+                    breakpoint()
                     const refreshedDashboardItem = await api.get(
                         `api/dashboard_item/${dashboardItem.id}/?${toParams({
                             share_token: props.shareToken,
                             refresh: true,
                         })}`
                     )
+                    breakpoint()
+
+                    // reload the cached results inside the insight's logic
+                    if (dashboardItem.filters.insight) {
+                        const itemResultLogic = getLogicFromInsight(dashboardItem.filters.insight, {
+                            dashboardItemId: dashboardItem.id,
+                            filters: dashboardItem.filters,
+                            cachedResults: refreshedDashboardItem.result,
+                        })
+                        itemResultLogic.actions.setCachedResults(dashboardItem.filters, refreshedDashboardItem.result)
+                    }
+
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)
                     actions.setRefreshStatus(dashboardItem.id)
                 } catch (e) {
-                    actions.setRefreshError(dashboardItem.id)
+                    if (isBreakpoint(e)) {
+                        breakpointTriggered = true
+                    } else {
+                        actions.setRefreshError(dashboardItem.id)
+                    }
                 }
-                breakpoint()
             })
 
-            fetchItemPromises.forEach((fetchItem) => {
-                fetchItem()
-            })
+            // run 4 item reloaders in parallel
+            function loadNextPromise(): void {
+                if (!breakpointTriggered && fetchItemFunctions.length > 0) {
+                    fetchItemFunctions.shift()?.().then(loadNextPromise)
+                }
+            }
+            for (let i = 0; i < 4; i++) {
+                void loadNextPromise()
+            }
 
-            dashboardItemsModel.actions.refreshAllDashboardItems({})
             eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
             actions.updateDashboard(values.filters)
-            dashboardItemsModel.actions.refreshAllDashboardItems(values.filters)
+            actions.refreshAllDashboardItems()
         },
         setDates: ({ dateFrom, dateTo, reloadDashboard }) => {
             if (reloadDashboard) {

@@ -25,7 +25,7 @@ services:
             - .:/workspace:cached
 
             # Uncomment the next line to use Docker from inside the container. See https://aka.ms/vscode-remote/samples/docker-from-docker-compose for details.
-            # - /var/run/docker.sock:/var/run/docker.sock
+            - /var/run/docker.sock:/var/run/docker.sock
 
         # Uncomment the next four lines if you will use a ptrace-based debugger like C++, Go, and Rust.
         # cap_add:

@@ -4,12 +4,13 @@ import api from 'lib/api'
 import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
 import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import {
     ActionFilter,
     ChartDisplayType,
+    DashboardItemLogicProps,
     EntityTypes,
     FilterType,
     PersonType,
@@ -18,11 +19,8 @@ import {
     ViewType,
 } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
@@ -144,8 +142,11 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
 
 // props:
 // - dashboardItemId
+// - cachedResults
 // - filters
 export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse>>({
+    props: {} as DashboardItemLogicProps,
+
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
     },
@@ -157,6 +158,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
     loaders: ({ cache, values, props }) => ({
         _results: {
             __default: {} as TrendResponse,
+            setCachedResults: ({ results, filters }) => {
+                return { results, filters }
+            },
             loadResults: async (refresh = false, breakpoint) => {
                 if (props.cachedResults && !refresh && values.filters === props.filters) {
                     return { result: props.cachedResults } as TrendResponse
@@ -173,7 +177,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 cache.abortController = new AbortController()
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId as number | undefined
+                const dashboardItemId = props.dashboardItemId
                 insightLogic.actions.startQuery(queryId)
                 dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
 
@@ -239,6 +243,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
 
     reducers: ({ props }) => ({
@@ -312,15 +317,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
     }),
 
     selectors: () => ({
-        filtersLoading: [
-            () => [
-                featureFlagLogic.selectors.featureFlags,
-                eventDefinitionsModel.selectors.loaded,
-                propertyDefinitionsModel.selectors.loaded,
-            ],
-            (featureFlags, eventsLoaded, propertiesLoaded) =>
-                !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && (!eventsLoaded || !propertiesLoaded),
-        ],
         loadedFilters: [(selectors) => [selectors._results], (response) => response.filters],
         results: [(selectors) => [selectors._results], (response) => response.result],
         resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
@@ -347,10 +343,14 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
-                insightHistoryLogic.actions.createInsight({
-                    ...values.filters,
-                    insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
-                })
+                if (!insightLogic.values.insight.id) {
+                    insightHistoryLogic.actions.createInsight({
+                        ...values.filters,
+                        insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
+                    })
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filters)
+                }
             }
 
             let indexedResults
@@ -368,11 +368,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     })
             }
             actions.setIndexedResults(indexedResults)
-        },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
-            if (props.dashboardItemId) {
-                actions.setFilters(filters, true)
-            }
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {

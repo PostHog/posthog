@@ -288,6 +288,10 @@ class Event(models.Model):
             models.Index(fields=["timestamp", "team_id", "event"]),
             # Separately managed:
             # models.Index(fields=["created_at"]),
+            # NOTE: The below index has been added as a manual migration in
+            # `posthog/migrations/0024_add_event_distinct_id_index.py, but I'm
+            # adding this here to improve visibility.
+            # models.Index(fields=["distinct_id"], name="idx_distinct_id"),
         ]
 
     def _can_use_cached_query(self, last_updated_action_ts):

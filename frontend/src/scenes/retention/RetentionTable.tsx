@@ -19,11 +19,7 @@ dayjs.extend(utc)
 import { ColumnsType } from 'antd/lib/table'
 import clsx from 'clsx'
 
-export function RetentionTable({
-    dashboardItemId = null,
-}: {
-    dashboardItemId?: string | number | null
-}): JSX.Element | null {
+export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const logic = retentionTableLogic({ dashboardItemId })
     const {
         results: _results,

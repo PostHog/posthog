@@ -1,6 +1,14 @@
 @import '~/vars';
 
 .saved-insights {
+    .new-insight-dropdown-btn {
+        height: 40px;
+        background-color: $primary;
+        padding: 8px 12px 8px 16px;
+        border: 1px solid $border;
+        border-radius: 4px;
+        color: white;
+    }
     .insight-dropdown-actions {
         font-size: 24px;
         &:hover {

@@ -26,7 +26,7 @@ const insightRouterLogic = kea<insightRouterLogicType>({
             const response = await api.get(`api/insight/?short_id=${id}`)
             if (response.results.length) {
                 const item = response.results[0] as DashboardItemType
-                eventUsageLogic.actions.reportInsightShortUrlVisited(true, item.filters.insight)
+                eventUsageLogic.actions.reportInsightShortUrlVisited(true, item.filters.insight || null)
                 router.actions.push(
                     combineUrl('/insights', item.filters, {
                         fromItem: item.id,

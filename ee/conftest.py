@@ -10,6 +10,7 @@ from posthog.settings import (
     CLICKHOUSE_VERIFY,
 )
 from posthog.test.base import TestMixin
+from posthog.utils import is_clickhouse_enabled
 
 
 def reset_clickhouse_tables():
@@ -42,44 +43,40 @@ def reset_clickhouse_tables():
         (DROP_COHORTPEOPLE_TABLE_SQL, CREATE_COHORTPEOPLE_TABLE_SQL),
     ]
     for item in TABLES_TO_CREATE_DROP:
-        try:
-            sync_execute(item[0])
-        except Exception as e:
-            pass
-        try:
-            sync_execute(item[1])
-        except Exception as e:
-            pass
+        sync_execute(item[0])
+        sync_execute(item[1])
 
 
-@pytest.fixture(scope="package")
-def django_db_setup(django_db_setup, django_db_keepdb):
-    database = Database(
-        CLICKHOUSE_DATABASE,
-        db_url=CLICKHOUSE_HTTP_URL,
-        username=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        verify_ssl_cert=CLICKHOUSE_VERIFY,
-    )
+if is_clickhouse_enabled():
 
-    if not django_db_keepdb:
-        try:
-            database.drop_database()
-        except:
-            pass
+    @pytest.fixture(scope="package")
+    def django_db_setup(django_db_setup, django_db_keepdb):
+        database = Database(
+            CLICKHOUSE_DATABASE,
+            db_url=CLICKHOUSE_HTTP_URL,
+            username=CLICKHOUSE_USER,
+            password=CLICKHOUSE_PASSWORD,
+            verify_ssl_cert=CLICKHOUSE_VERIFY,
+        )
 
-    if not django_db_keepdb or not database.db_exists:
-        database.create_database()
+        if not django_db_keepdb:
+            try:
+                database.drop_database()
+            except:
+                pass
 
-    reset_clickhouse_tables()
+        if not django_db_keepdb or not database.db_exists:
+            database.create_database()
 
-    yield
+        reset_clickhouse_tables()
 
-    if not django_db_keepdb:
-        try:
-            database.drop_database()
-        except:
-            pass
+        yield
+
+        if not django_db_keepdb:
+            try:
+                database.drop_database()
+            except:
+                pass
 
 
 @pytest.fixture

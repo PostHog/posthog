@@ -23,6 +23,7 @@ import {
     IconCohorts,
     IconDashboard,
     IconEvents,
+    IconExplore,
     IconFeatureFlags,
     IconInsights,
     IconPerson,
@@ -57,9 +58,19 @@ interface MenuItemProps {
     hotkey?: HotKeys
     tooltip?: string
     onClick?: () => void
+    hideTooltip?: boolean
 }
 
-const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: MenuItemProps): JSX.Element => {
+const MenuItem = ({
+    title,
+    icon,
+    identifier,
+    to,
+    hotkey,
+    tooltip,
+    onClick,
+    hideTooltip = false,
+}: MenuItemProps): JSX.Element => {
     const { activeScene } = useValues(sceneLogic)
     const { hotkeyNavigationEngaged } = useValues(navigationLogic)
     const { collapseMenu, setHotkeyNavigationEngaged } = useActions(navigationLogic)
@@ -102,7 +113,7 @@ const MenuItem = ({ title, icon, identifier, to, hotkey, tooltip, onClick }: Men
     )
     return (
         <Link to={to} onClick={handleClick}>
-            {tooltip ? (
+            {!hideTooltip && (tooltip || hotkey) ? (
                 <Tooltip
                     title={
                         !isMobile() ? (
@@ -265,13 +276,31 @@ export function MainNavigation(): JSX.Element {
                     {featureFlags[FEATURE_FLAGS.PROJECT_HOME] && (
                         <MenuItem title="Home" icon={<HomeOutlined />} identifier="home" to={urls.home()} />
                     )}
+                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                        <MenuItem
+                            title="Explore"
+                            icon={<IconExplore />}
+                            identifier="insights"
+                            to={urls.insightView(ViewType.TRENDS)}
+                            hotkey="x"
+                            tooltip="Answers to all your analytics questions"
+                        />
+                    )}
                     <MenuItem
                         title="Insights"
                         icon={<IconInsights />}
-                        identifier="insights"
-                        to={urls.insightView(ViewType.TRENDS)}
+                        identifier={featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? 'savedInsights' : 'insights'}
+                        to={
+                            featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                                ? urls.savedInsights()
+                                : urls.insightView(ViewType.TRENDS)
+                        }
                         hotkey="i"
-                        tooltip="Answers to all your analytics questions."
+                        tooltip={
+                            featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                                ? 'See your saved insights'
+                                : 'Answers to all your analytics questions'
+                        }
                     />
                     <Popover
                         content={PinnedDashboards}
@@ -290,6 +319,7 @@ export function MainNavigation(): JSX.Element {
                                 to={urls.dashboards()}
                                 onClick={() => setPinnedDashboardsVisible(false)}
                                 hotkey="d"
+                                hideTooltip
                             />
                         </div>
                     </Popover>
@@ -330,6 +360,14 @@ export function MainNavigation(): JSX.Element {
                     />
                     <div className="divider" />
                     <MenuItem
+                        title="Annotations"
+                        icon={<MessageOutlined />}
+                        identifier="annotations"
+                        to={urls.annotations()}
+                        hotkey="a"
+                    />
+                    <div className="divider" />
+                    <MenuItem
                         title="Feat. Flags"
                         icon={<IconFeatureFlags />}
                         identifier="featureFlags"
@@ -348,13 +386,6 @@ export function MainNavigation(): JSX.Element {
                             tooltip="Extend your analytics functionality"
                         />
                     )}
-                    <MenuItem
-                        title="Annotations"
-                        icon={<MessageOutlined />}
-                        identifier="annotations"
-                        to={urls.annotations()}
-                        hotkey="a"
-                    />
                     <MenuItem
                         title="Project"
                         icon={<ProjectFilled />}

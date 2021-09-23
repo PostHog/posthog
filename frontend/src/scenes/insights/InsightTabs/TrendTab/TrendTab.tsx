@@ -2,29 +2,26 @@ import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
-import { Row, Skeleton, Checkbox, Col, Button } from 'antd'
+import { Row, Checkbox, Col, Button } from 'antd'
 import { BreakdownFilter } from '../../BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { InfoCircleOutlined, PlusCircleOutlined } from '@ant-design/icons'
 import { trendsLogic } from '../../../trends/trendsLogic'
-import { BreakdownType, FilterType, ViewType } from '~/types'
+import { FilterType, ViewType } from '~/types'
 import { Formula } from './Formula'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './TrendTab.scss'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { InsightTitle } from '../InsightTitle'
-import { InsightActionBar } from '../InsightActionBar'
-import { BaseTabProps } from 'scenes/insights/Insights'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export interface TrendTabProps extends BaseTabProps {
+export interface TrendTabProps {
     view: string
 }
 
-export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Element {
-    const { filters, filtersLoading } = useValues(trendsLogic({ dashboardItemId: null, view }))
+export function TrendTab({ view }: TrendTabProps): JSX.Element {
+    const { filters } = useValues(trendsLogic({ dashboardItemId: null, view }))
     const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view }))
     const { preflight } = useValues(preflightLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
@@ -45,38 +42,23 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
         <>
             <Row gutter={16}>
                 <Col md={16} xs={24}>
-                    <InsightTitle
-                        actionBar={
-                            <InsightActionBar
-                                filters={filters}
-                                annotations={annotationsToCreate}
-                                insight={filters.insight}
-                            />
+                    <ActionFilter
+                        horizontalUI
+                        filters={filters}
+                        setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
+                        typeKey={'trends_' + view}
+                        buttonCopy="Add graph series"
+                        showSeriesIndicator
+                        singleFilter={filters.insight === ViewType.LIFECYCLE}
+                        hideMathSelector={filters.insight === ViewType.LIFECYCLE}
+                        customRowPrefix={
+                            filters.insight === ViewType.LIFECYCLE ? (
+                                <>
+                                    Showing <b>Unique users</b> who did
+                                </>
+                            ) : undefined
                         }
                     />
-                    {filtersLoading ? (
-                        <div data-test-filters-loading>
-                            <Skeleton active />
-                        </div>
-                    ) : (
-                        <ActionFilter
-                            horizontalUI
-                            filters={filters}
-                            setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
-                            typeKey={'trends_' + view}
-                            buttonCopy="Add graph series"
-                            showSeriesIndicator
-                            singleFilter={filters.insight === ViewType.LIFECYCLE}
-                            hideMathSelector={filters.insight === ViewType.LIFECYCLE}
-                            customRowPrefix={
-                                filters.insight === ViewType.LIFECYCLE ? (
-                                    <>
-                                        Showing <b>Unique users</b> who did
-                                    </>
-                                ) : undefined
-                            }
-                        />
-                    )}
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     {filters.insight === ViewType.LIFECYCLE && (
@@ -85,99 +67,87 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             <hr />
                             <h4 className="secondary">Lifecycle Toggles</h4>
-                            {filtersLoading ? (
-                                <div data-test-filters-loading>
-                                    <Skeleton active />
-                                </div>
-                            ) : (
-                                <div className="toggles">
-                                    {lifecycles.map((lifecycle, idx) => (
-                                        <div key={idx}>
-                                            {lifecycle.name}{' '}
-                                            <div>
-                                                <Checkbox
-                                                    defaultChecked
-                                                    className={lifecycle.name}
-                                                    onChange={() => toggleLifecycle(lifecycle.name)}
-                                                />
-                                                <Tooltip title={lifecycle.tooltip}>
-                                                    <InfoCircleOutlined className="info-indicator" />
-                                                </Tooltip>
-                                            </div>
+                            <div className="toggles">
+                                {lifecycles.map((lifecycle, idx) => (
+                                    <div key={idx}>
+                                        {lifecycle.name}{' '}
+                                        <div>
+                                            <Checkbox
+                                                defaultChecked
+                                                className={lifecycle.name}
+                                                onChange={() => toggleLifecycle(lifecycle.name)}
+                                            />
+                                            <Tooltip title={lifecycle.tooltip}>
+                                                <InfoCircleOutlined className="info-indicator" />
+                                            </Tooltip>
                                         </div>
-                                    ))}
-                                </div>
-                            )}
+                                    </div>
+                                ))}
+                            </div>
                         </>
                     )}
                     {filters.insight !== ViewType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle />
-                            {filtersLoading ? (
-                                <Skeleton active paragraph={{ rows: 2 }} />
-                            ) : (
+                            <PropertyFilters pageKey="trends-filters" />
+                            <TestAccountFilter filters={filters} onChange={setFilters} />
+                            {formulaAvailable && (
                                 <>
-                                    <PropertyFilters pageKey="trends-filters" />
-                                    <TestAccountFilter filters={filters} onChange={setFilters} />
-                                    {formulaAvailable && (
-                                        <>
-                                            <hr />
-                                            <h4 className="secondary">
-                                                Formula{' '}
-                                                <Tooltip
-                                                    title={
-                                                        <>
-                                                            Apply math operations to your series. You can do operations
-                                                            among series (e.g. <code>A / B</code>) or simple arithmetic
-                                                            operations on a single series (e.g. <code>A / 100</code>)
-                                                        </>
-                                                    }
-                                                >
-                                                    <InfoCircleOutlined />
-                                                </Tooltip>
-                                            </h4>
-                                            {isUsingFormulas ? (
-                                                <Row align="middle" gutter={4}>
-                                                    <Col>
-                                                        <CloseButton
-                                                            onClick={() => {
-                                                                setIsUsingFormulas(false)
-                                                                setFilters({ formula: undefined })
-                                                            }}
-                                                        />
-                                                    </Col>
-                                                    <Col>
-                                                        <Formula
-                                                            filters={filters}
-                                                            onChange={(formula: string): void => {
-                                                                setFilters({ formula })
-                                                            }}
-                                                            autoFocus
-                                                            allowClear={false}
-                                                        />
-                                                    </Col>
-                                                </Row>
-                                            ) : (
-                                                <Tooltip
-                                                    title={
-                                                        !formulaEnabled
-                                                            ? 'Please add at least one graph series to use formulas'
-                                                            : undefined
-                                                    }
-                                                >
-                                                    <Button
-                                                        onClick={() => setIsUsingFormulas(true)}
-                                                        disabled={!formulaEnabled}
-                                                        type="link"
-                                                        style={{ paddingLeft: 0 }}
-                                                        icon={<PlusCircleOutlined />}
-                                                        data-attr="btn-add-formula"
-                                                    >
-                                                        Add formula
-                                                    </Button>
-                                                </Tooltip>
-                                            )}
-                                        </>
+                                    <hr />
+                                    <h4 className="secondary">
+                                        Formula{' '}
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    Apply math operations to your series. You can do operations among
+                                                    series (e.g. <code>A / B</code>) or simple arithmetic operations on
+                                                    a single series (e.g. <code>A / 100</code>)
+                                                </>
+                                            }
+                                        >
+                                            <InfoCircleOutlined />
+                                        </Tooltip>
+                                    </h4>
+                                    {isUsingFormulas ? (
+                                        <Row align="middle" gutter={4}>
+                                            <Col>
+                                                <CloseButton
+                                                    onClick={() => {
+                                                        setIsUsingFormulas(false)
+                                                        setFilters({ formula: undefined })
+                                                    }}
+                                                />
+                                            </Col>
+                                            <Col>
+                                                <Formula
+                                                    filters={filters}
+                                                    onChange={(formula: string): void => {
+                                                        setFilters({ formula })
+                                                    }}
+                                                    autoFocus
+                                                    allowClear={false}
+                                                />
+                                            </Col>
+                                        </Row>
+                                    ) : (
+                                        <Tooltip
+                                            title={
+                                                !formulaEnabled
+                                                    ? 'Please add at least one graph series to use formulas'
+                                                    : undefined
+                                            }
+                                        >
+                                            <Button
+                                                onClick={() => setIsUsingFormulas(true)}
+                                                disabled={!formulaEnabled}
+                                                type="link"
+                                                style={{ paddingLeft: 0 }}
+                                                icon={<PlusCircleOutlined />}
+                                                data-attr="btn-add-formula"
+                                            >
+                                                Add formula
+                                            </Button>
+                                        </Tooltip>
                                     )}
                                 </>
                             )}
@@ -195,12 +165,10 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                                     <InfoCircleOutlined className="info-indicator" />
                                 </Tooltip>
                             </h4>
-                            {filtersLoading ? (
-                                <Skeleton paragraph={{ rows: 0 }} active />
-                            ) : filters.breakdown_type === 'cohort' && filters.breakdown ? (
+                            {filters.breakdown_type === 'cohort' && filters.breakdown ? (
                                 <BreakdownFilter
                                     filters={filters}
-                                    onChange={(breakdown: string, breakdown_type: BreakdownType): void =>
+                                    onChange={(breakdown, breakdown_type): void =>
                                         setFilters({ breakdown, breakdown_type })
                                     }
                                 />
@@ -208,7 +176,7 @@ export function TrendTab({ view, annotationsToCreate }: TrendTabProps): JSX.Elem
                                 <Row align="middle">
                                     <BreakdownFilter
                                         filters={filters}
-                                        onChange={(breakdown: string, breakdown_type: string): void =>
+                                        onChange={(breakdown, breakdown_type): void =>
                                             setFilters({ breakdown, breakdown_type })
                                         }
                                     />

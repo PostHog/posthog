@@ -15,16 +15,35 @@ from posthog.api.test.test_event_definition import (
     create_user,
 )
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
-from posthog.models.person import Person, PersonDistinctId
+from posthog.utils import is_clickhouse_enabled
 
 
-def identify(distinct_id: str, team_id: int):
+def identify(
+    distinct_id: str,
+    team_id: int,
+    # TODO: I believe the handling of properties here isn't totally true to how
+    # it is handled in reality. We could update for `identify` to reflect
+    # reality, but I think really we should update to use the `/e/` endpoint and
+    # remove any room for discrepancies.
+    properties: Optional[Dict[str, Any]] = None,
+):
     """
     Simulate what is being done in the plugin-server, so we end up with the
     database in the right state
     """
-    person = Person.objects.create(team_id=team_id)
-    PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
+    properties = properties or {}
+
+    if is_clickhouse_enabled():
+        from ee.clickhouse.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team_id, properties=properties)
+        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
+    else:
+        from posthog.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team_id, properties=properties)
+        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
+
     capture_event(
         event=EventData(
             event="$identify",
