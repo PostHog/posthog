@@ -109,6 +109,7 @@ describe('ingestEvent', () => {
                     created_at: expect.any(String),
                     team_id: 2,
                     properties: {},
+                    properties_last_updated_at: {},
                     is_user_id: null,
                     is_identified: false,
                     uuid: expect.any(String),
