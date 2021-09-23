@@ -1,8 +1,8 @@
 ---
-name: Sprint Planning + Retro
-about: This template is for creating new sprints
-labels: sprint_planning
-title: Sprint planning 1.--.0 1/2 - Sep 20 - Oct 1
+name: Sprint planning with retrospective
+about: (internal)
+labels: sprint
+title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 ---
 
 # Global Sprint Planning
