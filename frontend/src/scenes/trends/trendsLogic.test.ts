@@ -26,47 +26,107 @@ describe('trendsLogic', () => {
         ) {
             return { results: [] }
         } else if (['api/insight/session/', 'api/insight/trend/'].includes(pathname)) {
-            return { result: [] }
+            return { result: ['result from api'] }
         } else {
             debugger
             throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
     })
 
-    initKeaTestLogic({
-        logic: trendsLogic,
-        props: {},
-        onLogic: (l) => (logic = l),
-    })
-
     describe('core assumptions', () => {
+        initKeaTestLogic({
+            logic: trendsLogic,
+            props: {},
+            onLogic: (l) => (logic = l),
+        })
+
         it('loads results on mount', async () => {
             await expectLogic(logic).toDispatchActions(['loadResults'])
         })
     })
 
-    describe('setCachedResults', () => {
-        it('sets results and filters', async () => {
-            await expectLogic(logic)
-                .toDispatchActions(['loadResultsSuccess'])
-                .toMatchValues({
-                    results: [],
-                    loadedFilters: expect.objectContaining({ properties: [] }),
-                    filters: expect.objectContaining({ properties: [] }),
-                })
+    describe('as dashboard item', () => {
+        describe('props with filters and cached results', () => {
+            initKeaTestLogic({
+                logic: trendsLogic,
+                props: {
+                    dashboardItemId: 123,
+                    cachedResults: ['cached result'],
+                    filters: {
+                        events: [{ id: 2 }],
+                        properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
+                    },
+                },
+                onLogic: (l) => (logic = l),
+            })
 
-            logic.actions.setCachedResults(
-                { properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }] },
-                ['result']
-            )
+            it('no query to load results', async () => {
+                await expectLogic(logic)
+                    .toMatchValues({
+                        results: ['cached result'],
+                        filters: expect.objectContaining({
+                            events: [{ id: 2 }],
+                            properties: [expect.objectContaining({ type: 'lol' })],
+                        }),
+                    })
+                    .toDispatchActions(['loadResultsSuccess']) // this took the cached results
+                    .toMatchValues({
+                        results: ['cached result'], // should not have changed
+                        filters: expect.objectContaining({
+                            events: [{ id: 2 }],
+                            properties: [expect.objectContaining({ value: 'lol' })],
+                        }),
+                    })
+            })
+        })
 
-            await expectLogic(logic)
-                .toDispatchActions(['setCachedResults', 'setCachedResultsSuccess', 'setFilters'])
-                .toMatchValues({
-                    results: ['result'],
-                    loadedFilters: expect.objectContaining({ properties: [expect.objectContaining({ type: 'lol' })] }),
-                    filters: expect.objectContaining({ properties: [expect.objectContaining({ type: 'lol' })] }),
-                })
+        describe('props with filters, no cached results', () => {
+            initKeaTestLogic({
+                logic: trendsLogic,
+                props: {
+                    dashboardItemId: 123,
+                    cachedResults: undefined,
+                    filters: {
+                        events: [{ id: 3 }],
+                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                    },
+                },
+                onLogic: (l) => (logic = l),
+            })
+
+            it('makes a query to load the results', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadResultsSuccess'])
+                    .toMatchValues({
+                        results: ['result from api'],
+                        filters: expect.objectContaining({
+                            events: [{ id: 3 }],
+                            properties: [expect.objectContaining({ value: 'a' })],
+                        }),
+                    })
+            })
+
+            it('setCachedResults sets results directly', async () => {
+                await expectLogic(logic).toDispatchActions(['loadResultsSuccess'])
+
+                logic.actions.setCachedResults(
+                    {
+                        events: [{ id: 3 }],
+                        properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
+                    },
+                    ['result']
+                )
+
+                await expectLogic(logic)
+                    .toDispatchActions(['setCachedResults', 'setCachedResultsSuccess'])
+                    .toMatchValues({
+                        results: ['result'],
+                        filters: expect.objectContaining({
+                            events: [{ id: 3 }],
+                            properties: [expect.objectContaining({ type: 'lol' })],
+                        }),
+                    })
+            })
         })
     })
 })
