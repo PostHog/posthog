@@ -523,7 +523,9 @@ export function Insights(): JSX.Element {
                                     >
                                         <div>
                                             <Row
-                                                className="insights-graph-header"
+                                                className={clsx('insights-graph-header', {
+                                                    funnels: activeView === ViewType.FUNNELS,
+                                                })}
                                                 align="top"
                                                 justify="space-between"
                                                 style={{
