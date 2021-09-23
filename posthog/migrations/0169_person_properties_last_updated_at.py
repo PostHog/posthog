@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="person", name="properties_last_updated_at", field=models.JSONField(default=dict),
+            model_name="person",
+            name="properties_last_updated_at",
+            field=models.JSONField(blank=True, default=dict, null=True),
         ),
     ]
