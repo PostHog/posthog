@@ -1,6 +1,7 @@
 import { Col, Row, Form, Input, Button, Alert } from 'antd'
 import React from 'react'
 import cloudLogo from 'public/posthog-logo-cloud.svg'
+import selfHostedLogo from 'public/posthog-logo-selfhosted.svg'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
@@ -26,7 +27,7 @@ export function Login(): JSX.Element {
                 <Col span={24} className="auth-main-content">
                     <a href={`https://posthog.com?${UTM_TAGS}`}>
                         <div className="header-logo">
-                            <img src={cloudLogo} alt="PostHog Cloud" />
+                            <img src={preflight?.cloud ? cloudLogo : selfHostedLogo} alt="PostHog Cloud" />
                         </div>
                     </a>
                     <div className="inner">
