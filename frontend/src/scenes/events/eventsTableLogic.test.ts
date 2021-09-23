@@ -4,6 +4,7 @@ import { EventsTableEvent, eventsTableLogic, EventsTableLogicProps } from 'scene
 import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { truth } from '~/test/kea-test-utils/jest'
+import { router } from 'kea-router'
 
 jest.mock('lib/api')
 
@@ -389,5 +390,31 @@ describe('eventsTableLogic', () => {
         })
 
         // TODO test columnConfig reads from userLogic
+
+        it('writes autoload toggle to the URL', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleAutomaticLoad(true)
+            })
+            expect(router.values.searchParams).toHaveProperty('autoload', true)
+        })
+
+        it('writes properties to the URL', async () => {
+            const value = randomString()
+            await expectLogic(logic, () => {
+                logic.actions.setProperties([{ key: value }])
+            })
+            expect(router.values.searchParams).toHaveProperty('properties', [{ key: value }])
+        })
+
+        it('reads autoload from the URL', async () => {
+            router.actions.push(router.values.location.pathname, { autoload: true })
+            await expectLogic(logic, () => {}).toMatchValues({ automaticLoadEnabled: true })
+        })
+
+        it('reads properties from the URL', async () => {
+            const value = randomString()
+            router.actions.push(router.values.location.pathname, { properties: [{ key: value }] })
+            await expectLogic(logic, () => {}).toMatchValues({ properties: [{ key: value }] })
+        })
     })
 })
