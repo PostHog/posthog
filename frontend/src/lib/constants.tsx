@@ -18,6 +18,11 @@ export enum OrganizationMembershipLevel {
     Owner = 15,
 }
 
+export enum TeamMembershipLevel {
+    Member = 1,
+    Admin = 8,
+}
+
 /** See posthog/api/organization.py for details. */
 export enum PluginsAccessLevel {
     None = 0,
@@ -25,12 +30,6 @@ export enum PluginsAccessLevel {
     Install = 6,
     Root = 9,
 }
-
-export const organizationMembershipLevelToName = new Map<number, string>([
-    [OrganizationMembershipLevel.Member, 'member'],
-    [OrganizationMembershipLevel.Admin, 'administrator'],
-    [OrganizationMembershipLevel.Owner, 'owner'],
-])
 
 export const annotationScopeToName = new Map<string, string>([
     [AnnotationScope.DashboardItem, 'dashboard item'],
@@ -230,18 +229,22 @@ export const FEATURE_FLAGS = {
     PAPERCUPS_ENABLED: 'papercups-enabled',
     INGESTION_GRID: 'ingestion-grid-exp-3',
     PROJECT_HOME: 'project-home-exp-5',
-    FORMULAS: '3275-formulas',
     TRAILING_WAU_MAU: '3638-trailing-wau-mau',
     EVENT_COLUMN_CONFIG: '4141-event-columns',
     NPS_PROMPT: '4562-nps',
     INGESTION_TAXONOMY: '4267-event-property-taxonomy',
-    ENGAGEMENT_COHORTS: 'engagement-cohorts-4349',
     PLUGIN_METRICS: '4871-plugin-metrics',
-    FUNNEL_BAR_VIZ: '4535-funnel-bar-viz', // Nail Funnels #4785
     SESSIONS_TABLE: '4964-sessions-table', // Expand/collapse all in sessions table (performance consideration)
-    TAXONOMIC_PROPERTY_FILTER: '4267-taxonomic-property-filter',
     INGESTION_HELP_BUTTON: '112-ingestion-help-button',
     SAVED_INSIGHTS: '3408-saved-insights',
+    MULTIVARIATE_SUPPORT: '5440-multivariate-support',
+    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
+    PLUGINS_UI_JOBS: '5720-plugins-ui-jobs',
+    DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
+    PROJECT_BASED_PERMISSIONING: 'project-based-permissioning',
+    SPLIT_PERSON: '5898-split-persons',
+    TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
+    FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

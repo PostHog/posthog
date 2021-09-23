@@ -1,13 +1,16 @@
 import datetime
+import unittest
+from unittest import mock
 
 import pytz
 
-from posthog.models import Action, ActionStep, Cohort, Event, Person
+from posthog.models import Action, ActionStep, Event, Person
 from posthog.test.base import BaseTest
 
 
 class TestPerson(BaseTest):
-    def test_merge_people(self):
+    @mock.patch("posthog.api.capture.capture_internal")
+    def test_merge_people(self, mock_capture_internal):
         person0 = Person.objects.create(distinct_ids=["person_0"], team=self.team, properties={"$os": "Microsoft"})
         person0.created_at = datetime.datetime(2020, 1, 1, tzinfo=pytz.UTC)
         person0.save()
@@ -26,24 +29,41 @@ class TestPerson(BaseTest):
         )
         person3 = Person.objects.create(distinct_ids=["person_3"], team=self.team, properties={"$os": "PlayStation"})
 
-        cohort = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 7}])
-        cohort.calculate_people()
-        self.assertEqual([p for p in cohort.people.all()], [person1])
-
         self.assertEqual(len(Person.objects.all()), 4)
 
         person0.merge_people([person1, person2, person3])
 
-        self.assertEqual(len(Person.objects.all()), 1)
-
-        person0.refresh_from_db()
-        self.assertEqual(person0.properties, {"$os": "Microsoft", "$browser": "MS Edge"})
-        self.assertEqual(person0.distinct_ids, ["person_0", "person_1", "person_2", "person_3"])
-        self.assertEqual([p for p in cohort.people.all()], [person0])
-
-        self.assertEqual(
-            person0.created_at, datetime.datetime(2019, 7, 1, tzinfo=pytz.UTC),
-        )  # oldest created_at is kept
+        mock_capture_internal.assert_has_calls(
+            [
+                mock.call(
+                    {"event": "$create_alias", "properties": {"alias": "person_1"}},
+                    "person_0",
+                    None,
+                    None,
+                    unittest.mock.ANY,
+                    unittest.mock.ANY,
+                    self.team.id,
+                ),
+                mock.call(
+                    {"event": "$create_alias", "properties": {"alias": "person_2"}},
+                    "person_0",
+                    None,
+                    None,
+                    unittest.mock.ANY,
+                    unittest.mock.ANY,
+                    self.team.id,
+                ),
+                mock.call(
+                    {"event": "$create_alias", "properties": {"alias": "person_3"}},
+                    "person_0",
+                    None,
+                    None,
+                    unittest.mock.ANY,
+                    unittest.mock.ANY,
+                    self.team.id,
+                ),
+            ]
+        )
 
     def test_person_is_identified(self):
         person_identified = Person.objects.create(team=self.team, is_identified=True)

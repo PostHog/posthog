@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
+from ee.clickhouse.queries import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import (
@@ -24,6 +24,7 @@ from posthog.constants import (
     INSIGHT_PATHS,
     INSIGHT_SESSIONS,
     INSIGHT_STICKINESS,
+    PATHS_INCLUDE_EVENT_TYPES,
     TRENDS_STICKINESS,
     FunnelOrderType,
     FunnelVizType,
@@ -37,7 +38,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
-    @cached_function()
+    @cached_function
     def calculate_trends(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
@@ -54,7 +55,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         self._refresh_dashboard(request=request)
         return {"result": result}
 
-    @cached_function()
+    @cached_function
     def calculate_session(self, request: Request) -> Dict[str, Any]:
         return {
             "result": ClickhouseSessions().run(
@@ -62,11 +63,15 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             )
         }
 
-    @cached_function()
+    @cached_function
     def calculate_path(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
-        resp = ClickhousePaths().run(filter=filter, team=team)
+
+        #  backwards compatibility
+        if filter.path_type:
+            filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
+        resp = ClickhousePaths(filter=filter, team=team).run()
         return {"result": resp}
 
     @action(methods=["GET", "POST"], detail=False)
@@ -74,7 +79,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         response = self.calculate_funnel(request)
         return Response(response)
 
-    @cached_function()
+    @cached_function
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
@@ -98,7 +103,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         else:
             return {"result": funnel_order_class(team=team, filter=filter).run()}
 
-    @cached_function()
+    @cached_function
     def calculate_retention(self, request: Request) -> Dict[str, Any]:
         team = self.team
         data = {}

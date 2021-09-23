@@ -3,18 +3,14 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
 import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
-import { useValues } from 'kea'
-
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     allFilters: FilterType
@@ -46,7 +42,7 @@ const showChartFilter = function (activeView: ViewType): boolean {
         case ViewType.RETENTION:
             return true
         case ViewType.FUNNELS:
-            return !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
+            return false
         case ViewType.LIFECYCLE:
         case ViewType.PATHS:
             return false
@@ -82,12 +78,10 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
 export function InsightDisplayConfig({
     allFilters,
     activeView,
-    annotationsToCreate,
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const dateFilterDisabled = activeView === ViewType.FUNNELS && isFunnelEmpty(allFilters)
-    const showFunnelBarOptions = activeView === ViewType.FUNNELS && featureFlags[FEATURE_FLAGS.FUNNEL_BAR_VIZ]
+    const showFunnelBarOptions = activeView === ViewType.FUNNELS
+    const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(allFilters)
 
     return (
         <div className="display-config-inner">
@@ -136,17 +130,6 @@ export function InsightDisplayConfig({
                             )}
                         />
                     </>
-                )}
-
-                {activeView === ViewType.FUNNELS && (
-                    <SaveToDashboard
-                        item={{
-                            entity: {
-                                filters: allFilters,
-                                annotations: annotationsToCreate,
-                            },
-                        }}
-                    />
                 )}
 
                 {showComparePrevious[activeView] && <CompareFilter />}

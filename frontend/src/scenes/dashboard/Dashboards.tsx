@@ -8,7 +8,7 @@ import { AppstoreAddOutlined, DeleteOutlined, PlusOutlined, PushpinFilled, Pushp
 import { NewDashboard } from 'scenes/dashboard/NewDashboard'
 import { PageHeader } from 'lib/components/PageHeader'
 import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
-import { DashboardType } from '~/types'
+import { AvailableFeature, DashboardType } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { ColumnType } from 'antd/lib/table'
@@ -42,6 +42,15 @@ export function Dashboards(): JSX.Element {
                     </span>
                 )
             },
+            sorter: {
+                multiple: 20,
+                compare: (a, b) => {
+                    const aAsInt = a.pinned ? 1 : 0
+                    const bAsInt = b.pinned ? 1 : 0
+                    return aAsInt + bAsInt !== 1 ? 0 : aAsInt < bAsInt ? -1 : 1
+                },
+            },
+            defaultSortOrder: 'descend',
         },
         {
             title: 'Dashboard',
@@ -54,6 +63,11 @@ export function Dashboards(): JSX.Element {
                     </Link>
                 )
             },
+            sorter: {
+                multiple: 10,
+                compare: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
+            },
+            defaultSortOrder: 'ascend',
         },
         {
             title: 'Description',
@@ -100,7 +114,7 @@ export function Dashboards(): JSX.Element {
     ]
 
     useEffect(() => {
-        if (!user?.organization?.available_features.includes('dashboard_collaboration')) {
+        if (!user?.organization?.available_features.includes(AvailableFeature.DASHBOARD_COLLABORATION)) {
             setDisplayedColumns(
                 columns.filter((col) => !col.dataIndex || !['description', 'tags'].includes(col.dataIndex.toString()))
             )

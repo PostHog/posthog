@@ -14,6 +14,9 @@ describe('Actions', () => {
         cy.get('[data-attr=edit-action-input]').type(name)
         cy.get('.ant-radio-group > :nth-child(3)').click()
         cy.get('[data-attr=edit-action-url-input]').type(Cypress.config().baseUrl)
+        cy.wait(300)
+        cy.focused().should('have.attr', 'data-attr', 'edit-action-url-input')
+
         cy.get('[data-attr=save-action-button]').click()
 
         cy.contains('Action saved').should('exist')

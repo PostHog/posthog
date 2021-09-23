@@ -1,5 +1,6 @@
 import React from 'react'
-import { Dropdown, Menu, Table, Tooltip } from 'antd'
+import { Dropdown, Menu, Skeleton, Table } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
@@ -29,7 +30,7 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 }
 
 export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
-    const { indexedResults, visibilityMap, filters } = useValues(trendsLogic)
+    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic)
     const { toggleVisibility } = useActions(trendsLogic)
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
@@ -39,10 +40,6 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
-
-    if (indexedResults.length === 0 || !indexedResults?.[0]?.data) {
-        return null
-    }
 
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
@@ -70,11 +67,10 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     if (isLegend) {
         columns.push({
             title: '',
-            render: function RenderCheckbox({}, item: IndexedTrendResult, index: number) {
-                // legend will always be on insight page where the background is white
+            render: function RenderCheckbox({}, item: IndexedTrendResult) {
                 return (
                     <PHCheckbox
-                        color={colorList[index]}
+                        color={colorList[item.id]}
                         checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={isSingleEntity}
@@ -100,16 +96,21 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             },
             fixed: 'left',
             width: 150,
+            sorter: (a, b) => {
+                const labelA = formatBreakdownLabel(a.breakdown_value, cohorts)
+                const labelB = formatBreakdownLabel(b.breakdown_value, cohorts)
+                return labelA.localeCompare(labelB)
+            },
         })
     }
 
     columns.push({
         title: 'Event or Action',
-        render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
+        render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
             return (
                 <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
                     <InsightLabel
-                        seriesColor={colorList[index]}
+                        seriesColor={colorList[item.id]}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}
@@ -123,9 +124,14 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         },
         fixed: 'left',
         width: 200,
+        sorter: (a, b) => {
+            const labelA = a.action?.name || a.label || ''
+            const labelB = b.action?.name || b.label || ''
+            return labelA.localeCompare(labelB)
+        },
     })
 
-    if (indexedResults && indexedResults.length > 0) {
+    if (indexedResults?.length > 0 && indexedResults[0].data) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
                 <DateDisplay
@@ -137,6 +143,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             render: function RenderPeriod({}, item: IndexedTrendResult) {
                 return maybeAddCommasToInteger(item.data[index])
             },
+            sorter: (a, b) => a.data[index] - b.data[index],
             align: 'center',
         }))
 
@@ -146,7 +153,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     if (showTotalCount) {
         columns.push({
             title: (
-                <Dropdown overlay={calcColumnMenu} trigger={['click']}>
+                <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]} <DownOutlined />
                     </span>
@@ -163,16 +170,12 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         filters.display === ACTIONS_TABLE ||
                         filters.display === ACTIONS_PIE_CHART)
                 ) {
-                    // Special handling because `count` will contain the last amount, instead of the cumulative sum.
-                    return (
-                        item.aggregated_value?.toLocaleString() ||
-                        item.data.reduce((acc, val) => acc + val, 0).toLocaleString()
-                    )
+                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
                 }
                 return (
                     <>
                         {count.toLocaleString()}
-                        {item.action && item.action.math === 'dau' && (
+                        {item.action && item.action?.math === 'dau' && (
                             <Tooltip title="Keep in mind this is just the sum of all values in the row, not the unique users across the entire time period (i.e. this number may contain duplicate users).">
                                 <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--primary-alt)' }} />
                             </Tooltip>
@@ -180,11 +183,17 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                     </>
                 )
             },
+            defaultSortOrder: 'descend',
+            sorter: (a, b) => a.count - b.count,
             dataIndex: 'count',
             fixed: 'right',
-            width: 100,
+            width: 120,
             align: 'center',
         })
+    }
+
+    if (resultsLoading) {
+        return <Skeleton active paragraph={{ rows: 4 }} />
     }
 
     return (
@@ -195,7 +204,11 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
-            scroll={indexedResults && indexedResults.length > 0 ? { x: indexedResults[0].data.length * 160 } : {}}
+            scroll={
+                indexedResults && indexedResults.length > 0 && indexedResults[0].data
+                    ? { x: indexedResults[0].data.length * 160 }
+                    : {}
+            }
             data-attr="insights-table-graph"
         />
     )

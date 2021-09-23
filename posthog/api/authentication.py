@@ -2,7 +2,11 @@ from typing import Any, Dict, Optional, cast
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login
+from django.contrib.auth import views as auth_views
 from django.http import JsonResponse
+from django.shortcuts import redirect
+from django.views.decorators.csrf import csrf_protect
+from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -11,7 +15,23 @@ from posthog.event_usage import report_user_logged_in
 from posthog.models import User
 
 
-def axess_logout(*args, **kwargs):
+@csrf_protect
+def logout(request):
+    if request.user.is_authenticated:
+        request.user.temporary_token = None
+        request.user.save()
+
+    if is_impersonated_session(request):
+        restore_original_login(request)
+        return redirect("/admin/")
+
+    response = auth_views.logout_then_login(request)
+    response.delete_cookie(settings.TOOLBAR_COOKIE_NAME, "/")
+
+    return response
+
+
+def axes_locked_out(*args, **kwargs):
     return JsonResponse(
         {
             "type": "authentication_error",
@@ -32,6 +52,9 @@ class LoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def create(self, validated_data: Dict[str, str]) -> Any:
+        if getattr(settings, "SAML_ENFORCED", False):
+            raise serializers.ValidationError("This instance only allows SAML login.", code="saml_enforced")
+
         request = self.context["request"]
         user = cast(
             Optional[User], authenticate(request, email=validated_data["email"], password=validated_data["password"])

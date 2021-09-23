@@ -1,5 +1,7 @@
 @import '~/vars';
 
+$funnel_canvas_background: #fafafa;
+
 .insights-page {
     .top-bar {
         .ant-tabs,
@@ -12,6 +14,17 @@
 
         .ant-tabs-tab {
             padding: 0; // More compact tabs to save vertical space
+        }
+    }
+
+    .insight-history-button {
+        padding-right: 0;
+        padding-left: 0;
+        border-radius: 0;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        &.active {
+            border-bottom: 2px solid $primary;
         }
     }
 
@@ -165,6 +178,12 @@
         }
     }
 
+    &.action-message {
+        .illustration-main {
+            color: $primary;
+        }
+    }
+
     .insight-empty-state__wrapper {
         max-width: 600px;
 
@@ -197,23 +216,20 @@
 }
 
 .funnel-insights-container {
+    padding: 24px;
+    background-color: $funnel_canvas_background;
+
+    &.no-padding {
+        padding: 0;
+    }
+
     &.non-empty-state {
-        height: 300px;
+        min-height: 400px;
         position: relative;
         margin-bottom: 0;
     }
-    &.dirty-state {
-        position: relative;
-        .dirty-label {
-            position: absolute;
-            width: 100%;
-            top: 10px;
-            z-index: 2;
-        }
-        .funnel-bar-graph {
-            z-index: 1;
-            opacity: 0.5;
-        }
+    .ant-table-wrapper {
+        margin-top: 0 !important;
     }
 }
 

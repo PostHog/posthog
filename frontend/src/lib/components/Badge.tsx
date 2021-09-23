@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { CheckOutlined, WarningOutlined } from '@ant-design/icons'
-import { Tooltip } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface BadgeProps {
     icon?: JSX.Element
@@ -23,7 +23,7 @@ export function Badge({ icon, type, className, onClick, tooltip, ...props }: Bad
     }, [type])
 
     return (
-        <Tooltip title={tooltip} color={type ? `var(--${type})` : undefined} placement="bottom">
+        <Tooltip title={tooltip} color={type ? `var(--${type})` : undefined} placement="top">
             <div
                 className={`badge${className ? ` ${className}` : ''}${onClick ? ' cursor-pointer' : ''}`}
                 style={type ? { backgroundColor: `var(--${type})` } : {}}

@@ -104,9 +104,9 @@ export function BulkInviteModal({ visible, onClose }: { visible: boolean; onClos
                     showIcon
                     message={
                         <>
-                            You've hit the limit of users you can invite to your PostHog instance given your license.
-                            Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to upgrade your
-                            license.
+                            You've hit the limit of team members you can invite to your PostHog instance given your
+                            license. Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to upgrade
+                            your license.
                         </>
                     }
                 />

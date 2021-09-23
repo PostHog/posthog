@@ -10,21 +10,21 @@ describe('Cohorts', () => {
 
         // go to create a new cohort
         cy.get('[data-attr="create-cohort"]').click()
-        cy.get('[data-attr="cohort-choice-definition"]').click()
-        cy.get('[data-attr="cohort-name"]').type('Test Cohort')
 
         // select "add filter" and "property"
-        cy.get('.ant-radio-group > :nth-child(2)').click()
-        cy.get('[data-attr="new-prop-filter-cohort_0"]').click()
+        cy.get('[data-attr="property-filter-0"] button').first().click()
 
         // select the first property
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').type('is_demo')
         cy.get('[data-attr=prop-filter-person_properties-0]').click({ force: true })
-
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr="cohort-name"]').click()
+
+        // set cohort name & description
+        cy.get('[data-attr="cohort-name"]').type('Test Cohort')
+        cy.get('[data-attr="cohort-description"]').type('This is my new cohort.')
 
         // save
         cy.get('[data-attr="save-cohort"]').click()

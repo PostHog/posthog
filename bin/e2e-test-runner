@@ -7,6 +7,7 @@ DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py
 DEBUG=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py setup_dev &
 yarn add cypress@6.7.0 cypress-terminal-report@2.1.0 @cypress/react@4.16.4 @cypress/webpack-preprocessor@5.7.0
 
+NO_RESTART_LOOP=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test ./bin/plugin-server &
 # Only start webpack if not already running
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
 

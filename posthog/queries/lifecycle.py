@@ -380,7 +380,7 @@ def get_trunc_func(period: str) -> Tuple[str, str]:
 class LifecycleTrend:
     def _serialize_lifecycle(self, entity: Entity, filter: Filter, team_id: int) -> List[Dict[str, Any]]:
 
-        period = filter.interval or "day"
+        period = filter.interval
         num_intervals, prev_date_from, date_from, date_to, after_date_to = get_time_diff(
             period, filter.date_from, filter.date_to, team_id
         )
@@ -447,7 +447,7 @@ class LifecycleTrend:
         limit: int = 100,
     ):
         entity = filter.entities[0]
-        period = filter.interval or "day"
+        period = filter.interval
         num_intervals, prev_date_from, date_from, date_to, after_date_to = get_time_diff(
             period, filter.date_from, filter.date_to, team_id
         )
@@ -512,12 +512,6 @@ class LifecycleTrend:
 
 def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
     counts = stats[1]
-    dates = [
-        ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
-            "%Y-%m-%d{}".format(", %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
-        )
-        for item in stats[0]
-    ]
     labels = [
         ((item - timedelta(days=1)) if filter.interval == "month" else item).strftime(
             "%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" or filter.interval == "minute" else "")
@@ -533,7 +527,6 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     return {
         "data": counts,
         "count": sum(counts),
-        "dates": dates,
         "labels": labels,
         "days": days,
         **additional_values,

@@ -47,7 +47,8 @@ jobs:
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8
-            - uses: syphar/restore-virtualenv@v1
+
+            - uses: syphar/restore-virtualenv@v1.2
               id: cache-virtualenv
               with:
                   requirement_files: requirements.txt # this is optional

@@ -9,7 +9,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.constants import RDBMS
+from posthog.constants import AnalyticsDBMS
 from posthog.models import (
     Action,
     ActionStep,
@@ -51,7 +51,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
             )
 
-            expected_queries = 3 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 10
+            expected_queries = 3 if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE else 10
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?distinct_id=2").json()
@@ -74,7 +74,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
 
-            expected_queries = 3 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 7
+            expected_queries = 3 if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE else 7
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?event=event_name").json()
@@ -91,7 +91,7 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
             )
 
-            expected_queries = 3 if settings.PRIMARY_DB == RDBMS.CLICKHOUSE else 7
+            expected_queries = 3 if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE else 7
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get(
@@ -306,12 +306,17 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertIn("http://testserver/api/event/?distinct_id=1&before=", response["next"])
 
             page2 = self.client.get(response["next"]).json()
-            from posthog.ee import is_clickhouse_enabled
+            from posthog.utils import is_clickhouse_enabled
 
             if is_clickhouse_enabled():
                 from ee.clickhouse.client import sync_execute
 
-                self.assertEqual(sync_execute("select count(*) from events")[0][0], 150)
+                self.assertEqual(
+                    sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk})[
+                        0
+                    ][0],
+                    150,
+                )
 
             self.assertEqual(len(page2["results"]), 50)
 
@@ -440,22 +445,56 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(response["result"][0]["event"], "2nd action")
             self.assertEqual(response["result"][1]["event"], "3rd action")
 
-        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_LIMIT", 1000)
-        def test_events_csv_export_with_limit(self):
+        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
+        def test_events_csv_export_with_param_limit(self):
             with freeze_time("2012-01-15T04:01:34.000Z"):
-                for _ in range(1234):
+                for _ in range(12):
+                    event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+                response = self.client.get("/api/event.csv?limit=5")
+            self.assertEqual(
+                len(response.content.splitlines()), 6, "CSV export should return up to limit=5 events (+ headers row)",
+            )
+
+        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_DEFAULT_LIMIT", 10)
+        def test_events_csv_export_default_limit(self):
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                for _ in range(12):
                     event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
                 response = self.client.get("/api/event.csv")
             self.assertEqual(
                 len(response.content.splitlines()),
-                1001,
-                "CSV export should return up to CSV_EXPORT_LIMIT events (+ headers row)",
+                11,
+                "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
+            )
+
+        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
+        def test_events_csv_export_maximum_limit(self):
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                for _ in range(12):
+                    event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+                response = self.client.get("/api/event.csv")
+            self.assertEqual(
+                len(response.content.splitlines()),
+                11,
+                "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
+            )
+
+        @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
+        def test_events_csv_export_over_maximum_limit(self):
+            with freeze_time("2012-01-15T04:01:34.000Z"):
+                for _ in range(12):
+                    event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
+                response = self.client.get("/api/event.csv?limit=100")
+            self.assertEqual(
+                len(response.content.splitlines()),
+                11,
+                "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
             )
 
         def test_get_event_by_id(self):
             event_id: Union[str, int] = 12345
 
-            if settings.PRIMARY_DB == RDBMS.CLICKHOUSE:
+            if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
                 from ee.clickhouse.models.event import create_event
 
                 event_id = "01793986-dc4b-0000-93e8-1fb646df3a93"

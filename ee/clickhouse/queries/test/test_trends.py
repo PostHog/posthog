@@ -1,11 +1,11 @@
 from uuid import uuid4
 
-from django.conf import settings
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.models.person import create_person, create_person_distinct_id
+from ee.clickhouse.models.person import create_person_distinct_id
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import TRENDS_BAR_VALUE
@@ -15,7 +15,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
-from posthog.settings import SHELL_PLUS_PRINT_SQL
+from posthog.test.base import test_with_materialized_columns
 
 
 def _create_action(**kwargs):
@@ -45,6 +45,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
     maxDiff = None
 
+    @test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -65,6 +66,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         # don't return none option when empty
         self.assertEqual(response[0]["breakdown_value"], "val")
 
+    @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_limit(self):
         self._create_breakdown_events()
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -80,8 +82,9 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             )
         self.assertEqual(len(response), 25)  # We fetch 25 to see if there are more ethan 20 values
 
+    @test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property(self):
-        person1, person2, person3, person4 = self._create_multiple_people()
+        self._create_multiple_people()
         action = _create_action(name="watched movie", team=self.team)
 
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -125,6 +128,47 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             event_response, action_response,
         )
 
+    @test_with_materialized_columns(event_properties=["order"], person_properties=["name"])
+    def test_breakdown_with_person_property_filter(self):
+        self._create_multiple_people()
+        action = _create_action(name="watched movie", team=self.team)
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "order",
+                        "actions": [{"id": action.pk, "type": "actions", "order": 0}],
+                        "properties": [{"key": "name", "value": "person2", "type": "person"}],
+                    }
+                ),
+                self.team,
+            )
+            event_response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "date_from": "-14d",
+                        "breakdown": "order",
+                        "events": [
+                            {
+                                "id": "watched movie",
+                                "name": "watched movie",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [{"key": "name", "value": "person2", "type": "person"}],
+                            }
+                        ],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2",}, event_response[0])
+        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1",}, event_response[1])
+        self.assertEntityResponseEqual(event_response, action_response)
+
+    @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering(self):
         self._create_events()
         # test breakdown filtering
@@ -153,6 +197,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(sum(response[2]["data"]), 1)
         self.assertEqual(sum(response[3]["data"]), 1)
 
+    @test_with_materialized_columns(person_properties=["email"])
     def test_breakdown_filtering_persons(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -181,6 +226,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(response[2]["count"], 1)
 
     # ensure that column names are properly handled when subqueries and person subquery share properties column
+    @test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     def test_breakdown_filtering_persons_with_action_props(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
@@ -213,6 +259,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(response[1]["count"], 1)
         self.assertEqual(response[2]["count"], 1)
 
+    @test_with_materialized_columns(["$current_url", "$os", "$browser"])
     def test_breakdown_filtering_with_properties(self):
         with freeze_time("2020-01-03T13:01:01Z"):
             _create_event(
@@ -272,6 +319,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(sum(response[1]["data"]), 1)
         self.assertEqual(response[1]["breakdown_value"], "second url")
 
+    @test_with_materialized_columns(["$some_property"])
     def test_dau_with_breakdown_filtering(self):
         sign_up_action, _ = self._create_events()
         with freeze_time("2020-01-02T13:01:01Z"):
@@ -297,6 +345,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(event_response[2]["data"][5], 1)
         self.assertEntityResponseEqual(action_response, event_response)
 
+    @test_with_materialized_columns(["$os", "$some_property"])
     def test_dau_with_breakdown_filtering_with_prop_filter(self):
         sign_up_action, _ = self._create_events()
         with freeze_time("2020-01-02T13:01:01Z"):
@@ -335,7 +384,42 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
 
         self.assertEntityResponseEqual(action_response, event_response)
 
+    @test_with_materialized_columns(event_properties=["$host"], person_properties=["$some_prop"])
+    def test_against_clashing_entity_and_property_filter_naming(self):
+        # Regression test for https://github.com/PostHog/posthog/issues/5814
+        Person.objects.create(
+            team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="blabla",
+            properties={"$host": "app.example.com"},
+            timestamp="2020-01-03T12:00:00Z",
+        )
+
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "properties": [{"key": "$host", "operator": "icontains", "value": ".com"}],
+                            }
+                        ],
+                        "properties": [{"key": "$host", "value": ["app.example.com", "another.com"]}],
+                        "breakdown": "$some_prop",
+                        "breakdown_type": "person",
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["count"], 1)
+
     # this ensures that the properties don't conflict when formatting params
+    @test_with_materialized_columns(["$current_url"])
     def test_action_with_prop(self):
         person = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
@@ -367,6 +451,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         # if the params were shared it would be 1 because action would take precedence
         self.assertEqual(action_response[0]["count"], 0)
 
+    @test_with_materialized_columns(["$current_url"], verify_no_jsonextract=False)
     def test_combine_all_cohort_and_icontains(self):
         # This caused some issues with SQL parsing
         sign_up_action, _ = self._create_events()
@@ -384,13 +469,14 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
         self.assertEqual(action_response[0]["count"], 0)
 
+    @test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     def test_breakdown_user_props_with_filter(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"email": "test@posthog.com"})
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "test@gmail.com"})
         person = Person.objects.create(
             team_id=self.team.pk, distinct_ids=["person3"], properties={"email": "test@gmail.com"}
         )
-        create_person_distinct_id(person.id, self.team.pk, "person1", str(person.uuid))
+        create_person_distinct_id(self.team.pk, "person1", str(person.uuid))
 
         _create_event(event="sign up", distinct_id="person1", team=self.team, properties={"key": "val"})
         _create_event(event="sign up", distinct_id="person2", team=self.team, properties={"key": "val"})
@@ -409,6 +495,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             ),
             self.team,
         )
+
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["breakdown_value"], "test@gmail.com")
 
@@ -488,6 +575,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         result = ClickhouseTrends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [3.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
+    @test_with_materialized_columns(["key"])
     def test_breakdown_active_user_math(self):
 
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
@@ -540,6 +628,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         result = ClickhouseTrends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
+    @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
     def test_filter_test_accounts(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
@@ -560,22 +649,22 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
         self.team.test_account_filters = [{"key": "name", "value": "p1", "operator": "is_not", "type": "person"}]
         self.team.save()
-        data = {
-            "date_from": "2020-01-01T00:00:00Z",
-            "date_to": "2020-01-12T00:00:00Z",
-            "events": [{"id": "$pageview", "type": "events", "order": 0}],
-            "filter_test_accounts": "true",
-        }
-        filter = Filter(data=data)
-        filter_2 = Filter(data={**data, "filter_test_accounts": "false",})
-        filter_3 = Filter(data={**data, "breakdown": "key"})
+        filter = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                "filter_test_accounts": "true",
+            }
+        )
         result = ClickhouseTrends().run(filter, self.team,)
         self.assertEqual(result[0]["count"], 1)
-        result = ClickhouseTrends().run(filter_2, self.team,)
+        result = ClickhouseTrends().run(filter.with_data({"filter_test_accounts": "false"}), self.team,)
         self.assertEqual(result[0]["count"], 2)
-        result = ClickhouseTrends().run(filter_3, self.team,)
+        result = ClickhouseTrends().run(filter.with_data({"breakdown": "key"}), self.team,)
         self.assertEqual(result[0]["count"], 1)
 
+    @test_with_materialized_columns(["$some_property"])
     def test_breakdown_filtering_bar_chart_by_value(self):
         self._create_events()
 
@@ -610,6 +699,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             ],
         )
 
+    @test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
     def test_breakdown_multiple_cohorts(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(
@@ -638,8 +728,16 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             properties={"key": "val"},
         )
 
-        cohort1 = _create_cohort(team=self.team, name="cohort_1", groups=[{"properties": {"key": "value"}}])
-        cohort2 = _create_cohort(team=self.team, name="cohort_2", groups=[{"properties": {"key_2": "value_2"}}])
+        cohort1 = _create_cohort(
+            team=self.team,
+            name="cohort_1",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
+        cohort2 = _create_cohort(
+            team=self.team,
+            name="cohort_2",
+            groups=[{"properties": [{"key": "key_2", "value": "value_2", "type": "person"}]}],
+        )
 
         cohort1.calculate_people()
         cohort1.calculate_people_ch()
@@ -665,6 +763,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         self.assertEqual(res[0]["count"], 1)
         self.assertEqual(res[1]["count"], 2)
 
+    @test_with_materialized_columns(person_properties=["key", "key_2"], verify_no_jsonextract=False)
     def test_breakdown_single_cohort(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(
@@ -693,7 +792,11 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
             properties={"key": "val"},
         )
 
-        cohort1 = _create_cohort(team=self.team, name="cohort_1", groups=[{"properties": {"key": "value"}}])
+        cohort1 = _create_cohort(
+            team=self.team,
+            name="cohort_1",
+            groups=[{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
+        )
 
         cohort1.calculate_people()
         cohort1.calculate_people_ch()
@@ -714,3 +817,45 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
                 )
 
         self.assertEqual(res[0]["count"], 1)
+
+    @test_with_materialized_columns(["key", "$current_url"])
+    def test_filtering_with_action_props(self):
+        _create_event(
+            event="sign up",
+            distinct_id="person1",
+            team=self.team,
+            properties={"key": "val", "$current_url": "/some/page"},
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person2",
+            team=self.team,
+            properties={"key": "val", "$current_url": "/some/page"},
+        )
+        _create_event(
+            event="sign up",
+            distinct_id="person3",
+            team=self.team,
+            properties={"key": "val", "$current_url": "/another/page"},
+        )
+
+        action = Action.objects.create(name="sign up", team=self.team)
+        ActionStep.objects.create(
+            action=action,
+            event="sign up",
+            url="/some/page",
+            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        )
+
+        response = ClickhouseTrends().run(
+            Filter(data={"date_from": "-14d", "actions": [{"id": action.pk, "type": "actions", "order": 0}],}),
+            self.team,
+        )
+
+        self.assertEqual(response[0]["count"], 2)
+
+    def test_trends_math_without_math_property(self):
+        with self.assertRaises(ValidationError):
+            ClickhouseTrends().run(
+                Filter(data={"events": [{"id": "sign up", "math": "sum"}]}), self.team,
+            )

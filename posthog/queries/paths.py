@@ -1,12 +1,11 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from django.db import connection
 from django.db.models import F, OuterRef, Q
 from django.db.models.expressions import Window
 from django.db.models.functions import Lag
 
-from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Event, Filter, Team
+from posthog.models import Event, Team
 from posthog.models.filters.path_filter import PathFilter
 from posthog.queries.base import properties_to_Q
 from posthog.utils import request_to_date_query
@@ -15,6 +14,9 @@ from .base import BaseQuery
 
 
 class Paths(BaseQuery):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__()
+
     def _event_subquery(self, event: str, key: str):
         return Event.objects.filter(pk=OuterRef(event)).values(key)[:1]
 
@@ -83,9 +85,6 @@ class Paths(BaseQuery):
         )
 
         sessions_sql, sessions_sql_params = sessions.query.sql_with_params()
-
-        if event == "$autocapture":
-            sessions_sql = self._add_elements(query_string=sessions_sql)
 
         events_notated = "\
         SELECT *, CASE WHEN EXTRACT('EPOCH' FROM (timestamp - previous_timestamp)) >= (60 * 30) OR previous_timestamp IS NULL THEN 1 ELSE 0 END AS new_session\

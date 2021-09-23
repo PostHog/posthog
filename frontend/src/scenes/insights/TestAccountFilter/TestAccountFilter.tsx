@@ -1,10 +1,11 @@
-import { Row, Switch, Tooltip } from 'antd'
+import { Row, Switch } from 'antd'
 import { useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import React from 'react'
 import { FilterType } from '~/types'
 import { SettingOutlined } from '@ant-design/icons'
 import { teamLogic } from 'scenes/teamLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 //import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function TestAccountFilter({

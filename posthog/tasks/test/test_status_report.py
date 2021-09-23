@@ -6,8 +6,10 @@ from freezegun import freeze_time
 
 from posthog.models import Event, Organization, Person, Plugin, Team
 from posthog.models.plugin import PluginConfig
+from posthog.models.utils import UUIDT
 from posthog.tasks.status_report import status_report
 from posthog.test.base import APIBaseTest
+from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
 
@@ -135,6 +137,63 @@ class TestStatusReport(APIBaseTest):
 
         self.assertEqual(report["plugins_installed"], {"Installed but not enabled": 1, "Installed and enabled": 1})
         self.assertEqual(report["plugins_enabled"], {"Installed and enabled": 1})
+
+    # CH only
+    def test_status_report_duplicate_distinct_ids(self) -> None:
+        if is_clickhouse_enabled():
+            from ee.clickhouse.models.person import create_person_distinct_id
+
+            create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
+            create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))
+            create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
+            create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
+            create_person_distinct_id(self.team.id, "duplicate_id2", str(UUIDT()))
+
+            with freeze_time("2020-01-01T00:00:00Z"):
+                create_person_distinct_id(self.team.id, "duplicate_id_old", str(UUIDT()))
+                create_person_distinct_id(self.team.id, "duplicate_id_old", str(UUIDT()))
+
+            report = status_report(dry_run=True).get("teams")[self.team.id]  # type: ignore
+
+            duplicate_ids_report = report["duplicate_distinct_ids"]
+
+            expected_result = {
+                "prev_total_ids_with_duplicates": 2,
+                "prev_total_extra_distinct_id_rows": 3,
+                "new_total_ids_with_duplicates": 1,
+                "new_total_extra_distinct_id_rows": 1,
+            }
+
+            self.assertEqual(duplicate_ids_report, expected_result)
+
+    # CH only
+    def test_status_report_multiple_ids_per_person(self) -> None:
+        if is_clickhouse_enabled():
+            from ee.clickhouse.models.person import create_person_distinct_id
+
+            person_id1 = str(UUIDT())
+            person_id2 = str(UUIDT())
+
+            create_person_distinct_id(self.team.id, "id1", person_id1)
+            create_person_distinct_id(self.team.id, "id2", person_id1)
+            create_person_distinct_id(self.team.id, "id3", person_id1)
+            create_person_distinct_id(self.team.id, "id4", person_id1)
+            create_person_distinct_id(self.team.id, "id5", person_id1)
+
+            create_person_distinct_id(self.team.id, "id6", person_id2)
+            create_person_distinct_id(self.team.id, "id7", person_id2)
+            create_person_distinct_id(self.team.id, "id8", person_id2)
+
+            report = status_report(dry_run=True).get("teams")[self.team.id]  # type: ignore
+
+            multiple_ids_report = report["multiple_ids_per_person"]
+
+            expected_result = {
+                "total_persons_with_more_than_2_ids": 2,
+                "max_distinct_ids_for_one_person": 5,
+            }
+
+            self.assertEqual(multiple_ids_report, expected_result)
 
     @staticmethod
     def create_person(distinct_id: str, team: Team) -> None:

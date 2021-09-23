@@ -17,6 +17,7 @@ export const toolbarLogic = kea<toolbarLogicType>({
         clearUserIntent: true,
         showButton: true,
         hideButton: true,
+        updateFeatureFlags: (flags: Record<string, string | boolean>) => ({ flags }),
     }),
 
     reducers: ({ props }: { props: EditorProps }) => ({
@@ -27,6 +28,10 @@ export const toolbarLogic = kea<toolbarLogicType>({
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
         dataAttributes: [(props.dataAttributes || []) as string[]],
+        featureFlags: [
+            (props.featureFlags || {}) as Record<string, string | boolean>,
+            { updateFeatureFlags: (_, { flags }) => flags },
+        ],
     }),
 
     selectors: ({ selectors }) => ({
@@ -58,7 +63,10 @@ export const toolbarLogic = kea<toolbarLogicType>({
     events: ({ props, actions, values }) => ({
         async afterMount() {
             if (props.instrument) {
-                posthog.identify((props as EditorProps).distinctId || null, { email: props.userEmail })
+                const distinctId = props.distinctId
+                if (distinctId) {
+                    posthog.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
+                }
                 posthog.optIn()
             }
             if (props.userIntent) {

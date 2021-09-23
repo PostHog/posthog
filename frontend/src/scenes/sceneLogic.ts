@@ -8,9 +8,7 @@ import posthog from 'posthog-js'
 import { sceneLogicType } from './sceneLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from './PreflightCheck/logic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { ViewType } from '~/types'
+import { AvailableFeature, ViewType } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
 
@@ -262,8 +260,22 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         setScene: (scene: Scene, params: Params) => ({ scene, params }),
         setLoadedScene: (scene: Scene, loadedScene: LoadedScene) => ({ scene, loadedScene }),
         showUpgradeModal: (featureName: string, featureCaption: string) => ({ featureName, featureCaption }),
+        guardAvailableFeature: (
+            featureKey: AvailableFeature,
+            featureName: string,
+            featureCaption: string,
+            featureAvailableCallback?: () => void,
+            guardOn: {
+                cloud: boolean
+                selfHosted: boolean
+            } = {
+                cloud: true,
+                selfHosted: true,
+            }
+        ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
         hideUpgradeModal: true,
         takeToPricing: true,
+        setPageTitle: (title: string) => ({ title }),
     },
     reducers: {
         scene: [
@@ -311,12 +323,10 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
     },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}
-        const { featureFlags } = featureFlagLogic.values
 
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params) => {
-                const redirect =
-                    path === '/' && featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? '/saved_insights' : redirects[path]
+                const redirect = redirects[path]
                 router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
             }
         }
@@ -332,6 +342,25 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
+        guardAvailableFeature: ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }) => {
+            const { preflight } = preflightLogic.values
+            const { user } = userLogic.values
+            let featureAvailable: boolean
+            if (!preflight || !user) {
+                featureAvailable = false
+            } else if (!guardOn.cloud && preflight.cloud) {
+                featureAvailable = true
+            } else if (!guardOn.selfHosted && !preflight.cloud) {
+                featureAvailable = true
+            } else {
+                featureAvailable = !!user.organization?.available_features.includes(featureKey)
+            }
+            if (featureAvailable) {
+                featureAvailableCallback?.()
+            } else {
+                actions.showUpgradeModal(featureName, featureCaption)
+            }
+        },
         takeToPricing: () => {
             posthog.capture('upgrade modal pricing interaction')
             if (preflightLogic.values.preflight?.cloud) {
@@ -342,7 +371,7 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         },
         setScene: () => {
             posthog.capture('$pageview')
-            document.title = values.scene ? `${identifierToHuman(values.scene)} • PostHog` : 'PostHog'
+            actions.setPageTitle(identifierToHuman(values.scene || ''))
         },
         openScene: ({ scene, params }) => {
             const sceneConfig = sceneConfigurations[scene] || {}
@@ -480,6 +509,9 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 await delay(500)
                 unmount()
             }
+        },
+        setPageTitle: ({ title }) => {
+            document.title = title ? `${title} • PostHog` : 'PostHog'
         },
     }),
 })

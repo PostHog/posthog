@@ -48,6 +48,7 @@ $funnel_background: #e7e8ee;
 $funnel_axis_zero: $bg_depth;
 $funnel_axis: $border_dark;
 $funnel_axis_label: $text_muted;
+$antd_table_background_dark: #fafafa;
 
 .bg-mid {
     background-color: $bg_mid !important;
@@ -81,17 +82,15 @@ $dusk_sky: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
 $night_sky: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
 $space: linear-gradient(180deg, #0a092a 0%, #271955 100%);
 
-// Fonts
-$gosha_sans: 'GoshaSans-Bold', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue';
-
 // Additional style configurations
 .mixin-base-bordered-card {
     border-radius: 4px;
     box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.04);
 }
 
-.mixin-elevated {
-    box-shadow: 0px 80px 80px rgba(0, 0, 0, 0.075), 0px 10px 10px rgba(0, 0, 0, 0.035) !important;
+%mixin-elevated {
+    box-shadow: 0 2px 3px rgba(0, 0, 0, 0.02), 0 5px 7px rgba(0, 0, 0, 0.03), 0 11px 16px rgba(0, 0, 0, 0.03),
+        0 32px 48px rgba(0, 0, 0, 0.05) !important;
 }
 
 .mixin-gradient-overlay {
@@ -115,8 +114,7 @@ $gosha_sans: 'GoshaSans-Bold', -apple-system, BlinkMacSystemFont, 'Segoe UI', Ro
 }
 
 $default_spacing: 16px;
-$radius: 2px;
-$button_radius: 4px;
+$radius: 4px;
 $top_nav_height: 50px;
 
 .text-ellipsis {
@@ -136,10 +134,9 @@ $z_ant_modal_wrap: 1060;
 $z_ant_modal_mask: 1050;
 $z_popup: 1060;
 $z_plugins-popconfirm: 1001;
-$z_drawer: 1000;
 $z_pinned_dashboards_popup: 962;
 $z_graph_tooltip: 951;
-$z_plugin_metrics_drawer: 950;
+$z_drawer: 950;
 $z_main_nav: 948;
 $z_mobile_nav_overlay: 931;
 $z_top_navigation: 800;

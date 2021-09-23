@@ -1,7 +1,7 @@
 from ee.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine, ttl_period
+from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, kafka_engine, table_engine, ttl_period
 
 SESSION_RECORDING_EVENTS_TABLE = "session_recording_events"
 
@@ -64,4 +64,6 @@ INSERT_SESSION_RECORDING_EVENT_SQL = """
 INSERT INTO session_recording_events SELECT %(uuid)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(session_id)s, %(snapshot_data)s, %(created_at)s, now(), 0
 """
 
-DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = f"DROP TABLE {SESSION_RECORDING_EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = (
+    f"DROP TABLE IF EXISTS {SESSION_RECORDING_EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+)

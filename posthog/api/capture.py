@@ -15,13 +15,12 @@ from statshog.defaults.django import statsd
 from posthog.api.utils import get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
-from posthog.ee import is_clickhouse_enabled
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.utils import cors_response, get_ip_address, load_data_from_request
+from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled, load_data_from_request
 
 if is_clickhouse_enabled():
     from ee.kafka_client.client import KafkaProducer
@@ -108,7 +107,10 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
 def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, distinct_id: str):
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
-        event["properties"]["$active_feature_flags"] = get_active_feature_flags(team, distinct_id)
+        flags = get_active_feature_flags(team, distinct_id)
+        event["properties"]["$active_feature_flags"] = list(flags.keys())
+        for k, v in flags.items():
+            event["properties"][f"$feature/{k}"] = v
 
 
 @csrf_exempt

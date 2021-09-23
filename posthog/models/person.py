@@ -1,7 +1,8 @@
-from typing import Any, List
+from typing import Any, List, Optional
 
 from django.apps import apps
 from django.db import models, transaction
+from django.utils import timezone
 
 from posthog.models.utils import UUIDT
 
@@ -41,35 +42,32 @@ class Person(models.Model):
             self.add_distinct_id(distinct_id)
 
     def merge_people(self, people_to_merge: List["Person"]):
-        CohortPeople = apps.get_model(app_label="posthog", model_name="CohortPeople")
+        from posthog.api.capture import capture_internal
 
-        first_seen = self.created_at
-
-        # merge the properties
         for other_person in people_to_merge:
-            self.properties = {**other_person.properties, **self.properties}
-            if other_person.created_at < first_seen:
-                # Keep the oldest created_at (i.e. the first time we've seen this person)
-                first_seen = other_person.created_at
-        self.created_at = first_seen
-        self.save()
+            now = timezone.now()
+            event = {"event": "$create_alias", "properties": {"alias": other_person.distinct_ids[-1]}}
 
-        # merge the distinct_ids
-        for other_person in people_to_merge:
-            other_person_distinct_ids = PersonDistinctId.objects.filter(person=other_person, team_id=self.team_id)
-            for person_distinct_id in other_person_distinct_ids:
-                person_distinct_id.person = self
-                person_distinct_id.save()
+            capture_internal(event, self.distinct_ids[-1], None, None, now, now, self.team.id)
 
-            other_person_cohort_ids = CohortPeople.objects.filter(person=other_person)
-            for person_cohort_id in other_person_cohort_ids:
-                person_cohort_id.person = self
-                person_cohort_id.save()
+    def split_person(self, main_distinct_id: Optional[str]):
+        distinct_ids = Person.objects.get(pk=self.pk).distinct_ids
+        if not main_distinct_id:
+            self.properties = {}
+            self.save()
+            main_distinct_id = distinct_ids[0]
 
-            other_person.delete()
+        for distinct_id in distinct_ids:
+            if not distinct_id == main_distinct_id:
+                with transaction.atomic():
+                    PersonDistinctId.objects.filter(person=self, distinct_id=distinct_id).delete()
+                    Person.objects.create(team_id=self.team_id, distinct_ids=[distinct_id])
 
     objects = PersonManager()
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+
+    # used to prevent race conditions with set and set_once
+    properties_last_updated_at: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     properties: models.JSONField = models.JSONField(default=dict)
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)

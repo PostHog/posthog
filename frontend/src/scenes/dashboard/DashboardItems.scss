@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .dashboard-item {
     display: block;
     background: white;
@@ -43,15 +45,6 @@
         }
         .dashboard-item-settings {
             white-space: nowrap;
-            .anticon {
-                margin-left: 10px;
-                background: hsl(210, 8%, 95%);
-                border-radius: 100%;
-                padding: 4px;
-                &:hover {
-                    background: hsl(210, 8%, 90%);
-                }
-            }
         }
     }
     .dashboard-item-content {
@@ -125,26 +118,18 @@
         .dashboard-item-header .dashboard-item-title a {
             color: white;
         }
-        .dashboard-item-header .dashboard-item-settings .anticon {
+        .dashboard-item-header .dashboard-item-settings *:not(a) .anticon {
             color: rgba(255, 255, 255, 0.8);
             background: var(--item-darker);
             &:hover {
                 background: var(--item-darkest);
             }
         }
-        .svg-funnel-js__label .label__title {
-            opacity: 0.8;
-        }
-        .svg-funnel-js:not(.svg-funnel-js--vertical) .svg-funnel-js__label:not(:first-child) {
-            border-left: 1px solid rgba(255, 255, 255, 0.4);
-        }
-        .svg-funnel-js__container path {
-            fill: var(--item-lighter);
-            stroke: var(--item-lighter);
-        }
+
         h1 {
             color: rgba(255, 255, 255, 0.9);
         }
+
         .ant-table {
             background: none;
             table {
@@ -163,21 +148,26 @@
         }
     }
 
-    .sample-dasbhoard-overlay {
-        background-color: rgba(0, 0, 0, 0.7);
-        position: absolute;
-        padding: 32px;
-        right: 0;
-        bottom: 0;
-        left: 0;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 100;
-    }
-
-    &:hover .sample-dasbhoard-overlay {
+    .insight-empty-state {
         display: flex;
+        height: 100%;
+        align-items: center;
+
+        .illustration-main,
+        .ant-btn {
+            display: none;
+        }
+
+        h2 {
+            font-size: 1.1rem !important;
+        }
+
+        span,
+        p,
+        a {
+            font-size: 0.9rem !important;
+            line-height: 1.2rem;
+        }
     }
 }
 
@@ -363,4 +353,18 @@
 // All dropdowns must be below top navigation
 .ant-dropdown {
     z-index: 700;
+}
+
+.dive-btn {
+    margin-right: 0.5rem;
+
+    &.dive-btn-dive {
+        border-color: $primary;
+        color: $primary;
+
+        &:hover {
+            border-color: darken($primary, 30%);
+            color: darken($primary, 30%);
+        }
+    }
 }

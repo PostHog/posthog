@@ -3,7 +3,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 from .clickhouse import COLLAPSING_MERGE_TREE, table_engine
 
 CALCULATE_COHORT_PEOPLE_SQL = """
-SELECT distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) where {query}
+SELECT {id_column} FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE {query}
 """
 
 CREATE_COHORTPEOPLE_TABLE_SQL = """
@@ -20,7 +20,7 @@ Order By (team_id, cohort_id, person_id)
     cluster=CLICKHOUSE_CLUSTER, engine=table_engine("cohortpeople", "sign", COLLAPSING_MERGE_TREE), storage_policy=""
 )
 
-DROP_COHORTPEOPLE_TABLE_SQL = f"DROP TABLE cohortpeople ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_COHORTPEOPLE_TABLE_SQL = f"DROP TABLE IF EXISTS cohortpeople ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL = """
 INSERT INTO cohortpeople
@@ -43,9 +43,9 @@ INSERT INTO cohortpeople
         SELECT id, argMax(properties, person._timestamp) as properties, sum(is_deleted) as is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
     ) as person
     LEFT JOIN (
-        SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s
+        SELECT person_id, sum(sign) AS sign FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s GROUP BY person_id
     ) as cohortpeople ON (person.id = cohortpeople.person_id)
-    WHERE cohortpeople.person_id = '00000000-0000-0000-0000-000000000000'
+    WHERE (cohortpeople.person_id = '00000000-0000-0000-0000-000000000000' OR sign = 0)
     AND person.is_deleted = 0
     AND id IN ({cohort_filter})
 """

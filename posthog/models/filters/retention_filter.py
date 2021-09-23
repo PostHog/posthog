@@ -20,6 +20,8 @@ from posthog.models.entity import Entity
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.common import (
+    BreakdownMixin,
+    BreakdownTypeMixin,
     DisplayDerivedMixin,
     FilterTestAccountsMixin,
     InsightMixin,
@@ -46,6 +48,8 @@ class RetentionFilter(
     PropertyMixin,
     DisplayDerivedMixin,
     FilterTestAccountsMixin,
+    BreakdownMixin,
+    BreakdownTypeMixin,
     InsightMixin,
     OffsetMixin,
     BaseFilter,

@@ -1,17 +1,18 @@
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from django.utils import timezone
+from rest_framework import exceptions
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.columns import ColumnName, get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
-from posthog.models.property import Property
+from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyName, PropertyType
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
@@ -21,9 +22,10 @@ def parse_prop_clauses(
     team_id: Optional[int],
     prepend: str = "global",
     table_name: str = "",
-    allow_denormalized_props: bool = False,
+    allow_denormalized_props: bool = True,
     filter_test_accounts=False,
     is_person_query=False,
+    person_properties_column: Optional[str] = None,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -41,7 +43,7 @@ def parse_prop_clauses(
             try:
                 cohort = Cohort.objects.get(pk=prop.value, team_id=team_id)
             except Cohort.DoesNotExist:
-                final.append("AND 0 = 1")  # If cohort doesn't exist, nothing can match
+                final.append("AND 0 = 13")  # If cohort doesn't exist, nothing can match
             else:
                 person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                 params = {**params, **cohort_filter_params}
@@ -49,10 +51,18 @@ def parse_prop_clauses(
                     "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
                 )
         elif prop.type == "person":
+            # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
+            #   to materialized columns
+            # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
+            is_direct_query = is_person_query or person_properties_column is not None
             filter_query, filter_params = prop_filter_json_extract(
-                prop, idx, "{}person".format(prepend), allow_denormalized_props=allow_denormalized_props
+                prop,
+                idx,
+                "{}person".format(prepend),
+                prop_var=(person_properties_column or "properties") if is_direct_query else "properties",
+                allow_denormalized_props=allow_denormalized_props and is_direct_query,
             )
-            if is_person_query:
+            if is_direct_query:
                 final.append(filter_query)
                 params.update(filter_params)
             else:
@@ -64,9 +74,12 @@ def parse_prop_clauses(
                 )
                 params.update(filter_params)
         elif prop.type == "element":
-            query, filter_params = filter_element({prop.key: prop.value}, prepend="{}_".format(idx))
-            final.append("AND {}".format(query[0]))
-            params.update(filter_params)
+            query, filter_params = filter_element(
+                {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
+            )
+            if query:
+                final.append(f" AND {query}")
+                params.update(filter_params)
         else:
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
@@ -84,38 +97,31 @@ def parse_prop_clauses(
 def prop_filter_json_extract(
     prop: Property, idx: int, prepend: str = "", prop_var: str = "properties", allow_denormalized_props: bool = False
 ) -> Tuple[str, Dict[str, Any]]:
-    # Once all queries are migrated over we can get rid of allow_denormalized_props
-    json_extract = "trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s))".format(
-        idx=idx, prepend=prepend, prop_var=prop_var
+    # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
+    property_expr, is_denormalized = get_property_string_expr(
+        property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
     )
-    denormalized_column = get_denormalized_property_column(prop, allow_denormalized_props)
     operator = prop.operator
     params: Dict[str, Any] = {}
 
     if operator == "is_not":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (
-            "AND NOT has(%(v{prepend}_{idx})s, {left})".format(
-                idx=idx, prepend=prepend, left=denormalized_column or json_extract
-            ),
+            "AND NOT has(%(v{prepend}_{idx})s, {left})".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator == "icontains":
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND {left} LIKE %(v{prepend}_{idx})s".format(
-                idx=idx, prepend=prepend, left=denormalized_column or json_extract
-            ),
+            "AND {left} ILIKE %(v{prepend}_{idx})s".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator == "not_icontains":
         value = "%{}%".format(prop.value)
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): value}
         return (
-            "AND NOT ({left} LIKE %(v{prepend}_{idx})s)".format(
-                idx=idx, prepend=prepend, left=denormalized_column or json_extract
-            ),
+            "AND NOT ({left} ILIKE %(v{prepend}_{idx})s)".format(idx=idx, prepend=prepend, left=property_expr),
             params,
         )
     elif operator in ("regex", "not_regex"):
@@ -129,15 +135,15 @@ def prop_filter_json_extract(
                 regex_function="match" if operator == "regex" else "NOT match",
                 idx=idx,
                 prepend=prepend,
-                left=denormalized_column or json_extract,
+                left=property_expr,
             ),
             params,
         )
     elif operator == "is_set":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
-        if denormalized_column:
+        if is_denormalized:
             return (
-                "AND NOT isNull({left})".format(left=denormalized_column),
+                "AND notEmpty({left})".format(left=property_expr),
                 params,
             )
         return (
@@ -146,14 +152,14 @@ def prop_filter_json_extract(
         )
     elif operator == "is_not_set":
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
-        if denormalized_column:
+        if is_denormalized:
             return (
-                "AND isNull({left})".format(left=denormalized_column),
+                "AND empty({left})".format(left=property_expr),
                 params,
             )
         return (
             "AND (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
-                idx=idx, prepend=prepend, prop_var=prop_var, left=json_extract
+                idx=idx, prepend=prepend, prop_var=prop_var, left=property_expr
             ),
             params,
         )
@@ -161,13 +167,7 @@ def prop_filter_json_extract(
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
             "AND toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) > %(v{prepend}_{idx})s".format(
-                idx=idx,
-                prepend=prepend,
-                left=denormalized_column
-                if denormalized_column
-                else "visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s)".format(
-                    idx=idx, prepend=prepend, prop_var=prop_var,
-                ),
+                idx=idx, prepend=prepend, left=property_expr,
             ),
             params,
         )
@@ -175,18 +175,12 @@ def prop_filter_json_extract(
         params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): prop.value}
         return (
             "AND toFloat64OrNull(trim(BOTH '\"' FROM replaceRegexpAll({left}, ' ', ''))) < %(v{prepend}_{idx})s".format(
-                idx=idx,
-                prepend=prepend,
-                left=denormalized_column
-                if denormalized_column
-                else "visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s)".format(
-                    idx=idx, prepend=prepend, prop_var=prop_var,
-                ),
+                idx=idx, prepend=prepend, left=property_expr,
             ),
             params,
         )
     else:
-        if is_json(prop.value) and not denormalized_column:
+        if is_json(prop.value) and not is_denormalized:
             clause = "AND has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
             params = {
                 "k{}_{}".format(prepend, idx): prop.key,
@@ -196,9 +190,33 @@ def prop_filter_json_extract(
             clause = "AND has(%(v{prepend}_{idx})s, {left})"
             params = {"k{}_{}".format(prepend, idx): prop.key, "v{}_{}".format(prepend, idx): box_value(prop.value)}
         return (
-            clause.format(left=denormalized_column or json_extract, idx=idx, prepend=prepend, prop_var=prop_var),
+            clause.format(left=property_expr, idx=idx, prepend=prepend, prop_var=prop_var),
             params,
         )
+
+
+def property_table(property: Property) -> TableWithProperties:
+    if property.type == "event":
+        return "events"
+    elif property.type == "person":
+        return "person"
+    else:
+        raise ValueError(f"Property type does not have a table: {property.type}")
+
+
+def get_property_string_expr(
+    table: TableWithProperties,
+    property_name: PropertyName,
+    var: str,
+    prop_var: str,
+    allow_denormalized_props: bool = True,
+) -> Tuple[str, bool]:
+    materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
+
+    if allow_denormalized_props and property_name in materialized_columns:
+        return materialized_columns[property_name], True
+
+    return f"trim(BOTH '\"' FROM JSONExtractRaw({prop_var}, {var}))", False
 
 
 def box_value(value: Any, remove_spaces=False) -> List[Any]:
@@ -223,64 +241,97 @@ def get_property_values_for_key(key: str, team: Team, value: Optional[str] = Non
     )
 
 
-def get_denormalized_property_column(prop, allow_denormalized_props: bool) -> Optional[ColumnName]:
-    columns = {}
-    # :TODO: Handle denormalized properties in person table
-    if allow_denormalized_props and prop.type == "event":
-        columns = get_materialized_columns("events")
+def filter_element(filters: Dict, *, operator: Optional[OperatorType] = None, prepend: str = "") -> Tuple[str, Dict]:
+    if not operator:
+        operator = "exact"
 
-    return columns.get(prop.key)
-
-
-def filter_element(filters: Dict, prepend: str = "") -> Tuple[List[str], Dict]:
     params = {}
-    conditions = []
+    final_conditions = []
 
-    if filters.get("selector"):
-        or_conditions = []
+    if filters.get("selector") is not None:
+        if operator not in ("exact", "is_not"):
+            raise exceptions.ValidationError(
+                'Filtering by element selector only supports operators "equals" and "doesn\'t equal" currently.'
+            )
         selectors = filters["selector"] if isinstance(filters["selector"], list) else [filters["selector"]]
-        for idx, query in enumerate(selectors):
-            selector = Selector(query, escape_slashes=False)
-            key = f"{prepend}_{idx}_selector_regex"
-            params[key] = _create_regex(selector)
-            or_conditions.append(f"match(elements_chain, %({key})s)")
-        if len(or_conditions) > 0:
-            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+        if selectors:
+            combination_conditions = []
+            for idx, query in enumerate(selectors):
+                if not query:  # Skip empty selectors
+                    continue
+                selector = Selector(query, escape_slashes=False)
+                key = f"{prepend}_{idx}_selector_regex"
+                params[key] = build_selector_regex(selector)
+                combination_conditions.append(f"match(elements_chain, %({key})s)")
+            if combination_conditions:
+                final_conditions.append(f"({' OR '.join(combination_conditions)})")
+        elif operator not in NEGATED_OPERATORS:
+            # If a non-negated filter has an empty selector list provided, it can't match anything
+            return "0 = 191", {}
 
-    if filters.get("tag_name"):
-        or_conditions = []
+    if filters.get("tag_name") is not None:
+        if operator not in ("exact", "is_not"):
+            raise exceptions.ValidationError(
+                'Filtering by element tag only supports operators "equals" and "doesn\'t equal" currently.'
+            )
         tag_names = filters["tag_name"] if isinstance(filters["tag_name"], list) else [filters["tag_name"]]
-        for idx, tag_name in enumerate(tag_names):
-            key = f"{prepend}_{idx}_tag_name_regex"
-            params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
-            or_conditions.append(f"match(elements_chain, %({key})s)")
-        if len(or_conditions) > 0:
-            conditions.append("(" + (" OR ".join(or_conditions)) + ")")
+        if tag_names:
+            combination_conditions = []
+            for idx, tag_name in enumerate(tag_names):
+                key = f"{prepend}_{idx}_tag_name_regex"
+                params[key] = rf"(^|;){tag_name}(\.|$|;|:)"
+                combination_conditions.append(f"match(elements_chain, %({key})s)")
+            final_conditions.append(f"({' OR '.join(combination_conditions)})")
+        elif operator not in NEGATED_OPERATORS:
+            # If a non-negated filter has an empty tag_name list provided, it can't match anything
+            return "0 = 192", {}
 
     attributes: Dict[str, List] = {}
-
     for key in ["href", "text"]:
-        vals = filters.get(key)
-        if filters.get(key):
-            attributes[key] = [re.escape(vals)] if isinstance(vals, str) else [re.escape(text) for text in filters[key]]
+        if filters.get(key) is not None:
+            attributes[key] = process_ok_values(filters[key], operator)
+    if attributes:
+        for key, ok_values in attributes.items():
+            if ok_values:
+                combination_conditions = []
+                for idx, value in enumerate(ok_values):
+                    optional_flag = "(?i)" if operator.endswith("icontains") else ""
+                    params[f"{prepend}_{key}_{idx}_attributes_regex"] = f'{optional_flag}({key}="{value}")'
+                    combination_conditions.append(f"match(elements_chain, %({prepend}_{key}_{idx}_attributes_regex)s)")
+                final_conditions.append(f"({' OR '.join(combination_conditions)})")
+            elif operator not in NEGATED_OPERATORS:
+                # If a non-negated filter has an empty href or text list provided, it can't match anything
+                return "0 = 193", {}
 
-    if len(attributes.keys()) > 0:
-        or_conditions = []
-        for key, value_list in attributes.items():
-            for idx, value in enumerate(value_list):
-                params["{}_{}_{}_attributes_regex".format(prepend, key, idx)] = ".*?({}).*?".format(
-                    ".*?".join(['{}="{}"'.format(key, value)])
-                )
-                or_conditions.append("match(elements_chain, %({}_{}_{}_attributes_regex)s)".format(prepend, key, idx))
-            if len(or_conditions) > 0:
-                conditions.append("(" + (" OR ".join(or_conditions)) + ")")
-
-    return (conditions, params)
+    if final_conditions:
+        return f"{'NOT ' if operator in NEGATED_OPERATORS else ''}({' AND '.join(final_conditions)})", params
+    else:
+        return "", {}
 
 
-def _create_regex(selector: Selector) -> str:
+def process_ok_values(ok_values: Any, operator: OperatorType) -> List[str]:
+    if operator.endswith("_set"):
+        return [r'[^"]+']
+    else:
+        # Make sure ok_values is a list
+        ok_values = cast(List[str], [str(val) for val in ok_values]) if isinstance(ok_values, list) else [ok_values]
+        # Escape double quote characters, since e.g. text 'foo="bar"' is represented as text="foo=\"bar\""
+        # in the elements chain
+        ok_values = [text.replace('"', r"\"") for text in ok_values]
+        if operator.endswith("icontains"):
+            # Process values for case-insensitive-contains matching by way of regex,
+            # making sure matching scope is limited to between double quotes
+            return [rf'[^"]*{re.escape(text)}[^"]*' for text in ok_values]
+        if operator.endswith("regex"):
+            # Use values as-is in case of regex matching
+            return ok_values
+        # For all other operators escape regex-meaningful sequences
+        return [re.escape(text) for text in ok_values]
+
+
+def build_selector_regex(selector: Selector) -> str:
     regex = r""
-    for idx, tag in enumerate(selector.parts):
+    for tag in selector.parts:
         if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str):
             if tag.data["tag_name"] == "*":
                 regex += ".+"
@@ -296,3 +347,7 @@ def _create_regex(selector: Selector) -> str:
         if tag.direct_descendant:
             regex += ".*"
     return regex
+
+
+def extract_tables_and_properties(props: List[Property]) -> Set[Tuple[PropertyName, PropertyType]]:
+    return set((prop.key, prop.type) for prop in props)

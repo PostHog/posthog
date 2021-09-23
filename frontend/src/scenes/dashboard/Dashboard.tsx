@@ -109,8 +109,8 @@ function DashboardView(): JSX.Element {
                                 <DateFilter
                                     defaultValue="Custom"
                                     showCustom
-                                    dateFrom={dashboardFilters?.date_from}
-                                    dateTo={dashboardFilters?.date_to}
+                                    dateFrom={dashboardFilters?.date_from ?? undefined}
+                                    dateTo={dashboardFilters?.date_to ?? undefined}
                                     onChange={setDates}
                                     makeLabel={(key) => (
                                         <>

@@ -7,15 +7,27 @@ import React from 'react'
 import { toast } from 'react-toastify'
 import { dashboardsModelType } from './dashboardsModelType'
 import { DashboardItemType, DashboardType } from '~/types'
-import { urls } from 'scenes/sceneLogic'
+import { sceneLogic, urls } from 'scenes/sceneLogic'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     actions: () => ({
         delayedDeleteDashboard: (id: number) => ({ id }),
+        setDiveSourceId: (id: number | null) => ({ id }),
         setLastDashboardId: (id: number) => ({ id }),
         // this is moved out of dashboardLogic, so that you can click "undo" on a item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
         updateDashboardItem: (item: DashboardItemType) => ({ item }),
+        // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
+        // to dashboard items in dashboards
+        updateDashboardRefreshStatus: (
+            id: number | undefined | null,
+            refreshing: boolean | null,
+            last_refresh: string | null
+        ) => ({
+            id,
+            refreshing,
+            last_refresh,
+        }),
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         loadDashboards: true,
@@ -70,6 +82,9 @@ export const dashboardsModel = kea<dashboardsModelType>({
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
                     )
+                    if (updatedAttribute === 'name') {
+                        sceneLogic.actions.setPageTitle(response.name ? `${response.name} • Dashboard` : 'Dashboard')
+                    }
                 }
                 return response
             },
@@ -126,6 +141,13 @@ export const dashboardsModel = kea<dashboardsModelType>({
             { persist: true },
             {
                 setLastDashboardId: (_, { id }) => id,
+            },
+        ],
+        diveSourceId: [
+            null as null | number,
+            { persist: true },
+            {
+                setDiveSourceId: (_, { id }) => id,
             },
         ],
     },
@@ -200,9 +222,14 @@ export const dashboardsModel = kea<dashboardsModelType>({
     }),
 
     urlToAction: ({ actions }) => ({
-        '/dashboard/:id': ({ id }) => {
+        '/dashboard/:id': ({ id }, { dive_source_id: diveSourceId }) => {
             if (id) {
                 actions.setLastDashboardId(parseInt(id))
+            }
+            if (diveSourceId !== undefined && diveSourceId !== null) {
+                actions.setDiveSourceId(diveSourceId)
+            } else {
+                actions.setDiveSourceId(null)
             }
         },
     }),

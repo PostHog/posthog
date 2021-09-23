@@ -14,7 +14,8 @@
                     "generator": "secret"
                 },
                 "DEPLOYMENT": "Heroku Review App",
-                "AUTO_LOGIN": true
+                "AUTO_LOGIN": true,
+                "SAML_DISABLED": true
             },
             "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
             "formation": {
@@ -31,13 +32,6 @@
                     "quantity": 0
                 }
             }
-        },
-        "test": {
-            "addons": ["heroku-postgresql:in-dyno"],
-            "scripts": {
-                "test": "python manage.py test --keepdb -v 2"
-            },
-            "buildpacks": [{ "url": "heroku/python" }]
         }
     },
     "buildpacks": [{ "url": "heroku/nodejs" }, { "url": "heroku/python" }],
@@ -68,6 +62,7 @@
         "SECRET_KEY": {
             "generator": "secret"
         },
-        "DEPLOYMENT": "Heroku"
+        "DEPLOYMENT": "Heroku",
+        "SAML_DISABLED": true
     }
 }

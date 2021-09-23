@@ -1,3 +1,4 @@
+import re
 from typing import Optional, Tuple
 
 from rest_framework import request
@@ -34,20 +35,21 @@ def format_next_url(request: request.Request, offset: int, page_size: int):
     return next_url
 
 
-def format_next_absolute_url(request: request.Request, offset: int, page_size: int):
-    next_url = request.get_raw_uri()
+OFFSET_REGEX = re.compile(r"([&?]offset=)(\d+)")
 
-    if not next_url:
+
+def format_offset_absolute_url(request: request.Request, offset: int):
+    url_to_format = request.get_raw_uri()
+
+    if not url_to_format:
         return None
 
-    new_offset = str(offset + page_size)
-
-    if "offset" in next_url:
-        next_url = next_url.replace(f"offset={str(offset)}", f"offset={new_offset}")
+    if OFFSET_REGEX.match(url_to_format):
+        url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
     else:
-        next_url = next_url + ("&" if "?" in next_url else "?") + f"offset={new_offset}"
+        url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"offset={offset}"
 
-    return next_url
+    return url_to_format
 
 
 def get_token(data, request) -> Tuple[Optional[str], bool]:

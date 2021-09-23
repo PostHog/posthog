@@ -5,23 +5,18 @@ import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { FilterType, PathType, PropertyFilter, ViewType } from '~/types'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { DashboardItemLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
     [PathType.Screen]: 'Screen views (Mobile)',
-    [PathType.AutoCapture]: 'Autocaptured events',
     [PathType.CustomEvent]: 'Custom events',
 }
 
 export const pathOptionsToProperty = {
     [PathType.PageView]: '$current_url',
     [PathType.Screen]: '$screen_name',
-    [PathType.AutoCapture]: 'autocaptured_event',
     [PathType.CustomEvent]: 'custom_event',
 }
 
@@ -46,40 +41,58 @@ interface PathResult {
 
 interface PathNode {
     target: string
-    target_id: number
     source: string
-    source_id: number
     value: number
 }
 
 export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
+    props: {} as DashboardItemLogicProps,
     key: (props) => {
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
     connect: {
         actions: [insightHistoryLogic, ['createInsight']],
     },
+    actions: () => ({
+        setProperties: (properties) => ({ properties }),
+        setFilter: (filter) => filter,
+        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
+    }),
     loaders: ({ values, props }) => ({
         results: {
             __default: { paths: [], filter: {} } as PathResult,
+            setCachedResults: ({ results, filters }) => {
+                return {
+                    paths: results,
+                    filters: filters,
+                }
+            },
             loadResults: async (refresh = false, breakpoint) => {
                 const filter = { ...values.filter, properties: values.properties }
                 if (!refresh && (props.cachedResults || props.preventLoading) && values.filter === props.filters) {
                     return { paths: props.cachedResults, filter }
                 }
                 const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
-                let paths
+
                 const queryId = uuid()
+                const dashboardItemId = props.dashboardItemId as number | undefined
                 insightLogic.actions.startQuery(queryId)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+
+                let paths
                 try {
                     paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
+                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, paths.last_refresh)
+
                 return { paths: paths.result, filter }
             },
         },
@@ -87,9 +100,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     reducers: ({ props }) => ({
         filter: [
             (props.filters
-                ? cleanPathParams(props.filters as Partial<FilterType>)
-                : (state: Record<string, any>) =>
-                      cleanPathParams(router.selectors.searchParams(state)) as Record<string, any>) as Partial<
+                ? cleanPathParams(props.filters)
+                : (state: Record<string, any>) => cleanPathParams(router.selectors.searchParams(state))) as Partial<
                 FilterType
             >,
             {
@@ -98,17 +110,13 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         ],
         properties: [
             (props.filters
-                ? (props.filters as Partial<FilterType>).properties || []
+                ? props.filters.properties || []
                 : (state: Record<string, any>) =>
                       router.selectors.searchParams(state).properties || []) as PropertyFilter[],
             {
                 setProperties: (_, { properties }) => properties,
             },
         ],
-    }),
-    actions: () => ({
-        setProperties: (properties) => ({ properties }),
-        setFilter: (filter) => filter,
     }),
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
@@ -120,12 +128,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         loadResults: () => {
             insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
             if (!props.dashboardItemId) {
-                actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
-            }
-        },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters: Record<string, any>) => {
-            if (props.dashboardItemId) {
-                actions.setFilter(filters)
+                if (!insightLogic.values.insight.id) {
+                    actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+                } else {
+                    insightLogic.actions.updateInsightFilters(values.filter)
+                }
             }
         },
     }),
@@ -138,10 +145,10 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 const nodes: Record<string, any> = {}
                 for (const path of paths) {
                     if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source, id: path.source_id }
+                        nodes[path.source] = { name: path.source }
                     }
                     if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target, id: path.target_id }
+                        nodes[path.target] = { name: path.target }
                     }
                 }
 
@@ -176,10 +183,6 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
 
                 return Object.keys(result).length === 0 ? '' : result
             },
-        ],
-        filtersLoading: [
-            () => [featureFlagLogic.selectors.featureFlags, propertyDefinitionsModel.selectors.loaded],
-            (featureFlags, loaded) => !featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER] && !loaded,
         ],
     },
     actionToUrl: ({ values, props }) => ({

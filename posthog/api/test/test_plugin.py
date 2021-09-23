@@ -2,6 +2,7 @@ import base64
 import json
 from typing import Dict, cast
 from unittest import mock
+from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from semantic_version import Version
@@ -295,6 +296,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
                 "metrics": {},
+                "public_jobs": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -330,6 +332,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
                 "metrics": {},
+                "public_jobs": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -366,6 +369,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
                 "metrics": {},
+                "public_jobs": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -478,6 +482,7 @@ class TestPluginAPI(APIBaseTest):
                 "organization_name": self.CONFIG_ORGANIZATION_NAME,
                 "capabilities": {},
                 "metrics": {},
+                "public_jobs": {},
             },
         )
         self.assertEqual(Plugin.objects.count(), 1)
@@ -860,6 +865,34 @@ class TestPluginAPI(APIBaseTest):
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
         self.assertEqual(plugin_config.config, {"bar": "a new very secret value"})
+
+    @patch("posthog.api.plugin.celery_app.send_task")
+    def test_job_trigger(self, patch_trigger_plugin_job, mock_get, mock_reload):
+        response = self.client.post(
+            "/api/organizations/@current/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"}
+        )
+        plugin_id = response.json()["id"]
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin_id, "enabled": True, "order": 0, "config": json.dumps({"bar": "moop"})},
+            format="multipart",
+        )
+        plugin_config_id = response.json()["id"]
+        response = self.client.post(
+            "/api/plugin_config/{}/job".format(plugin_config_id),
+            {"job": {"type": "myJob", "payload": {"a": 1}, "operation": "stop"}},
+            format="json",
+        )
+
+        patch_trigger_plugin_job.assert_has_calls(
+            [
+                mock.call(
+                    name="posthog.tasks.plugins.plugin_job",
+                    queue="posthog-plugins",
+                    args=[self.team.pk, plugin_config_id, "myJob", "stop", {"a": 1}],
+                )
+            ]
+        )
 
 
 class TestPluginsAccessLevelAPI(APIBaseTest):

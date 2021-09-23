@@ -1,5 +1,5 @@
 import datetime
-from typing import Dict, Optional, Union
+from typing import Dict, Literal, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -24,7 +24,7 @@ from posthog.constants import (
     FunnelOrderType,
     FunnelVizType,
 )
-from posthog.models.filters.mixins.base import BaseParamMixin
+from posthog.models.filters.mixins.base import BaseParamMixin, IntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -84,7 +84,7 @@ class FunnelWindowMixin(BaseParamMixin):
         return _amt
 
     @cached_property
-    def funnel_window_interval_unit(self) -> Optional[str]:
+    def funnel_window_interval_unit(self) -> Optional[IntervalType]:
         _unit = self._data.get(FUNNEL_WINDOW_INTERVAL_UNIT, None)
         return _unit.lower() if _unit is not None else _unit
 
@@ -97,7 +97,7 @@ class FunnelWindowMixin(BaseParamMixin):
             dict_part[FUNNEL_WINDOW_INTERVAL_UNIT] = self.funnel_window_interval_unit
         return dict_part
 
-    def funnel_window_interval_unit_ch(self) -> str:
+    def funnel_window_interval_unit_ch(self) -> Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]:
         if self.funnel_window_interval_unit is None:
             return "DAY"
 
@@ -142,7 +142,7 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
 
 class FunnelLayoutMixin(BaseParamMixin):
     @cached_property
-    def layout(self) -> Optional[str]:
+    def layout(self) -> Optional[Literal["horizontal", "vertical"]]:
         return self._data.get(FUNNEL_LAYOUT)
 
     @include_dict

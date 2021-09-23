@@ -1,12 +1,15 @@
 import React, { CSSProperties, useMemo, useState } from 'react'
 
 import { keyMapping, PropertyKeyInfo } from './PropertyKeyInfo'
-import { Dropdown, Input, Menu, Popconfirm, Table, Tooltip } from 'antd'
+import { Dropdown, Input, Menu, Popconfirm, Table } from 'antd'
 import { NumberOutlined, BulbOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons'
 import { isURL } from 'lib/utils'
-import { IconExternalLink, IconText } from 'lib/components/icons'
-import './PropertiesTable.scss'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { IconExternalLink, IconText } from 'lib/components/icons'
+import { Tooltip } from 'lib/components/Tooltip'
+import './PropertiesTable.scss'
+import { CopyOutlined } from '@ant-design/icons'
+import { copyToClipboard } from 'lib/utils'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -111,7 +114,15 @@ function ValueDisplay({ value, rootKey, onEdit, nestingLevel }: ValueDisplayType
                             {canEdit && boolNullTypes.includes(valueType) ? (
                                 <Dropdown overlay={boolNullSelect}>{valueComponent}</Dropdown>
                             ) : (
-                                <>{valueComponent}</>
+                                <>
+                                    {valueComponent}
+                                    <CopyOutlined
+                                        style={{ marginLeft: 4, color: 'var(--primary)' }}
+                                        onClick={() => {
+                                            copyToClipboard(value)
+                                        }}
+                                    />
+                                </>
                             )}
 
                             {isURL(value) && (
@@ -144,7 +155,7 @@ export function PropertiesTable({
     sortProperties = false,
     nestingLevel = 0,
     onDelete,
-    className = '',
+    className,
 }: PropertiesTableType): JSX.Element {
     const objectProperties = useMemo(() => {
         if (!(properties instanceof Object)) {

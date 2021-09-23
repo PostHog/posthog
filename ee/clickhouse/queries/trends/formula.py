@@ -3,6 +3,7 @@ from itertools import accumulate
 from typing import Any, Dict, List
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.queries.breakdown_props import get_breakdown_cohort_name
 from ee.clickhouse.queries.trends.util import parse_response
 from posthog.constants import TRENDS_CUMULATIVE, TRENDS_DISPLAY_BY_VALUE
 from posthog.models.cohort import Cohort
@@ -86,8 +87,6 @@ class ClickhouseTrendsFormula:
     def _label(self, filter: Filter, item: List, team_id: int) -> str:
         if filter.breakdown:
             if filter.breakdown_type == "cohort":
-                if item[2] == 0:
-                    return "all users"
-                return Cohort.objects.get(team=team_id, pk=item[2]).name
+                return get_breakdown_cohort_name(item[2])
             return item[2]
         return "Formula ({})".format(filter.formula)

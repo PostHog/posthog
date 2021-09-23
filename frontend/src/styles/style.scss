@@ -92,7 +92,7 @@ pre.code {
     font-size: 13px;
     letter-spacing: 1px;
     opacity: 0.7;
-    font-weight: 500;
+    font-weight: medium;
     text-transform: uppercase;
     border: 0;
     background: none;
@@ -138,8 +138,8 @@ label.disabled {
 }
 
 .property-key-info {
+    display: inline-block;
     line-height: 19px;
-    width: 100%;
 }
 
 .property-key-info-logo {

@@ -73,23 +73,23 @@ class TestFiltering(
 
         prop_clause, prop_clause_params = parse_prop_clauses(filter.properties, self.team.pk)
         query = """
-        SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
+        SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(
             prop_clause=prop_clause
         )
         # get distinct_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][1]
+        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][0]
         self.assertEqual(result, person1_distinct_id)
 
         # test cohort2 with negation
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],})
         prop_clause, prop_clause_params = parse_prop_clauses(filter.properties, self.team.pk)
         query = """
-        SELECT * FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
+        SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(
             prop_clause=prop_clause
         )
         # get distinct_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][1]
+        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][0]
 
         self.assertEqual(result, person2_distinct_id)

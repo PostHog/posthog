@@ -64,13 +64,13 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                         <li>
                             <a
                                 data-attr="insight-timeout-upgrade-to-clickhouse"
-                                href="https://posthog.com/pricing?o=enterprise&utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
+                                href="https://posthog.com/docs/self-host#deployment-options?utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
                                 rel="noopener"
                                 target="_blank"
                             >
-                                Upgrade PostHog to Enterprise Edition
+                                Switch to Clickhouse backend
                             </a>{' '}
-                            and get access to a backend engineered for scale using the ClickHouse database.
+                            (engineered for scale, and you'll get more features)
                         </li>
                     )}
                     <li>
@@ -217,6 +217,34 @@ export function FunnelEmptyState(): JSX.Element {
                 <p className="funnels-empty-state__description">
                     Try changing dates or pick another action, event, or breakdown.
                 </p>
+            </div>
+        </div>
+    )
+}
+
+export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
+    return (
+        <div className="insight-empty-state funnels-empty-state info-message">
+            <div className="insight-empty-state__wrapper">
+                <div className="illustration-main">
+                    <IllustrationDanger />
+                </div>
+                <h2 className="funnels-empty-state__title">
+                    Exclusion filters cannot exclude events or actions in the funnel steps.
+                </h2>
+                <p className="funnels-empty-state__description">
+                    Try changing your funnel step filters, or removing the overlapping exclusion event.
+                </p>
+                <div className="funnels-empty-state__help">
+                    <a
+                        data-attr="insight-funnels-emptystate-help"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        Learn more about funnels in our support documentation.
+                    </a>
+                </div>
             </div>
         </div>
     )

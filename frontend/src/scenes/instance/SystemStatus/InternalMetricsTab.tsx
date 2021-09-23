@@ -6,9 +6,11 @@ import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { QuerySummary } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
+import { AnalyzeQueryModal } from 'scenes/instance/SystemStatus/AnalyzeQueryModal'
+import { Link } from 'lib/components/Link'
 
 export function InternalMetricsTab(): JSX.Element {
-    const { openSections, systemStatus, queries, queriesLoading } = useValues(systemStatusLogic)
+    const { openSections, systemStatus, queries, queriesLoading, showAnalyzeQueryButton } = useValues(systemStatusLogic)
     const { setOpenSections, loadQueries } = useActions(systemStatusLogic)
 
     const [showIdle, setShowIdle] = useState(false)
@@ -55,7 +57,11 @@ export function InternalMetricsTab(): JSX.Element {
                                 <ReloadOutlined /> Reload Queries
                             </Button>
                         </div>
-                        <QueryTable queries={queries?.clickhouse_running} loading={queriesLoading} />
+                        <QueryTable
+                            queries={queries?.clickhouse_running}
+                            loading={queriesLoading}
+                            showAnalyze={showAnalyzeQueryButton}
+                        />
                     </Collapse.Panel>
                 ) : null}
                 {queries?.clickhouse_slow_log != undefined ? (
@@ -65,19 +71,27 @@ export function InternalMetricsTab(): JSX.Element {
                                 <ReloadOutlined /> Reload Queries
                             </Button>
                         </div>
-                        <QueryTable queries={queries?.clickhouse_slow_log} loading={queriesLoading} />
+                        <QueryTable
+                            queries={queries?.clickhouse_slow_log}
+                            loading={queriesLoading}
+                            showAnalyze={showAnalyzeQueryButton}
+                        />
                     </Collapse.Panel>
                 ) : null}
             </Collapse>
+
+            <AnalyzeQueryModal />
         </Card>
     )
 }
 
 function QueryTable(props: {
+    showAnalyze?: boolean
     queries?: QuerySummary[]
     loading: boolean
     columnExtra?: Record<string, any>
 }): JSX.Element {
+    const { openAnalyzeModalWithQuery } = useActions(systemStatusLogic)
     const columns: ColumnsType<QuerySummary> = [
         {
             title: 'duration',
@@ -88,6 +102,16 @@ function QueryTable(props: {
         {
             title: 'query',
             dataIndex: 'query',
+            render: function RenderAnalyze({}, item: QuerySummary) {
+                if (!props.showAnalyze) {
+                    return item.query
+                }
+                return (
+                    <Link to="#" onClick={() => openAnalyzeModalWithQuery(item.query)}>
+                        {item.query}
+                    </Link>
+                )
+            },
             key: 'query',
         },
     ]

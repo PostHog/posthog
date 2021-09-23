@@ -15,7 +15,14 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
         response_data = response.json()
-        self.assertEqual(response_data.get("name"), "Test")
+        self.assertDictContainsSubset(
+            {
+                "name": "Test",
+                "access_control": False,
+                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+            },
+            response_data,
+        )
         self.assertEqual(self.organization.teams.count(), 2)
 
     def test_non_admin_cannot_create_project(self):

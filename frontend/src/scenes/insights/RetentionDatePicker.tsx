@@ -5,7 +5,7 @@ import generatePicker from 'antd/es/date-picker/generatePicker'
 import { useActions, useValues } from 'kea'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { CalendarOutlined } from '@ant-design/icons'
-import { Tooltip } from 'antd'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 

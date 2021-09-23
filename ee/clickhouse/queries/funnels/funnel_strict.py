@@ -20,10 +20,11 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         steps_per_person_query = self.get_step_counts_without_aggregation_query()
         max_steps = len(self._filter.entities)
         breakdown_clause = self._get_breakdown_prop()
+        inner_timestamps, outer_timestamps = self._get_timestamp_selects()
 
         return f"""
-            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} FROM (
-                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} FROM (
+            SELECT person_id, steps {self._get_step_time_avgs(max_steps, inner_query=True)} {self._get_step_time_median(max_steps, inner_query=True)} {breakdown_clause} {outer_timestamps} FROM (
+                SELECT person_id, steps, max(steps) over (PARTITION BY person_id {breakdown_clause}) as max_steps {self._get_step_time_names(max_steps)} {breakdown_clause} {inner_timestamps} FROM (
                         {steps_per_person_query}
                 )
             ) GROUP BY person_id, steps {breakdown_clause}
@@ -35,7 +36,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
 
         partition_select = self._get_partition_cols(1, max_steps)
         sorting_condition = self._get_sorting_condition(max_steps, max_steps)
-        breakdown_clause = self._get_breakdown_prop()
+        breakdown_clause = self._get_breakdown_prop(group_remaining=True)
 
         inner_query = f"""
             SELECT 

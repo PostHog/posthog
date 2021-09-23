@@ -7,6 +7,9 @@ $glyph_height: 22px;
 $funnel_canvas_background: #fafafa;
 
 .funnel-bar-graph {
+    background-color: $funnel_canvas_background;
+    min-height: 100%;
+
     .ant-popover {
         .ant-popover-content {
             background: #fafafa;
@@ -27,14 +30,6 @@ $funnel_canvas_background: #fafafa;
             background: #fafafa;
         }
     }
-
-    background-color: $funnel_canvas_background;
-    margin-left: -24px; // negative margins to account for padding of .ant-card
-    margin-right: -24px;
-    margin-bottom: -24px;
-    padding: 12px 24px;
-    border-top: 1px solid $border_light;
-    min-height: 100%;
 
     // Layout: horizontal bars
     .funnel-step {
@@ -192,7 +187,7 @@ $funnel_canvas_background: #fafafa;
                 position: absolute;
                 top: 8px;
                 line-height: 16px;
-                font-weight: 500;
+                font-weight: bold;
                 color: #fff;
 
                 &.inside {
@@ -251,7 +246,7 @@ $funnel_canvas_background: #fafafa;
                     .value-inspector-button-icon {
                         background-color: $funnel_canvas_background; // Ensures the series line gets cut off
                         padding: 4px 0;
-                        margin-right: 12px;
+                        margin-right: 1rem;
                     }
                 }
 
@@ -268,6 +263,7 @@ $funnel_canvas_background: #fafafa;
                 .ant-btn.funnel-inspect-button {
                     padding: 0;
                     height: unset;
+                    padding-right: 0.25rem;
                 }
             }
 
@@ -328,18 +324,24 @@ $funnel_canvas_background: #fafafa;
 
     &.horizontal {
         .funnel-step {
+            .step-stat {
+                display: flex;
+                align-items: baseline;
+            }
+
             .funnel-conversion-metadata {
                 display: flex;
                 align-items: center;
+                justify-content: space-between;
 
                 .funnel-inspect-button {
-                    padding: 0;
+                    padding: 0 4px 0 0;
                     .value-inspector-button-icon {
                         padding-right: 8px;
                     }
                 }
                 .conversion-metadata-caption {
-                    padding-left: 4px;
+                    padding-left: 3px;
                 }
             }
         }

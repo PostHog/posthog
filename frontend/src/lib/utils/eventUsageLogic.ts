@@ -1,6 +1,6 @@
 /* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMapping } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogicType } from './eventUsageLogicType'
@@ -16,6 +16,7 @@ import {
     DashboardItemType,
     ViewType,
     InsightType,
+    PropertyFilter,
 } from '~/types'
 import { Dayjs } from 'dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -31,9 +32,32 @@ export enum DashboardEventSource {
     InputEnter = 'input_enter',
     Toast = 'toast',
     Browser = 'browser',
-    AddDescription = 'add_description',
+    AddDescription = 'add_dashboard_description',
     MainNavigation = 'main_nav',
     DashboardsList = 'dashboards_list',
+}
+
+export enum InsightEventSource {
+    LongPress = 'long_press',
+    MoreDropdown = 'more_dropdown',
+    InsightHeader = 'insight_header',
+    Hotkey = 'hotkey',
+    InputEnter = 'input_enter',
+    Toast = 'toast',
+    Browser = 'browser',
+    AddDescription = 'add_insight_description',
+}
+
+function flattenProperties(properties: PropertyFilter[]): string[] {
+    const output = []
+    for (const prop of properties || []) {
+        if (isPostHogProp(prop.key)) {
+            output.push(prop.key)
+        } else {
+            output.push('redacted') // Custom property names are not reported
+        }
+    }
+    return output
 }
 
 /*
@@ -52,6 +76,22 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         funnel_from_step,
         funnel_to_step,
     } = filters
+
+    let properties_local: string[] = []
+
+    const events = Array.isArray(filters.events) ? filters.events : []
+    for (const event of events) {
+        properties_local = properties_local.concat(flattenProperties(event.properties || []))
+    }
+
+    const actions = Array.isArray(filters.actions) ? filters.actions : []
+    for (const action of actions) {
+        properties_local = properties_local.concat(flattenProperties(action.properties || []))
+    }
+
+    const properties = Array.isArray(filters.properties) ? filters.properties : []
+    const properties_global = flattenProperties(properties)
+
     return {
         insight,
         display,
@@ -60,12 +100,17 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         date_to,
         filter_test_accounts,
         formula,
-        filters_count: filters.properties?.length || 0,
-        events_count: filters.events?.length || 0,
-        actions_count: filters.actions?.length || 0,
+        filters_count: properties?.length || 0,
+        events_count: events?.length || 0,
+        actions_count: actions?.length || 0,
         funnel_viz_type,
         funnel_from_step,
         funnel_to_step,
+        properties_global,
+        properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
+        properties_local,
+        properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
+        properties_all: properties_global.concat(properties_local), // Global and local properties together
     }
 }
 
@@ -108,12 +153,14 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             eventCount: number,
             actionCount: number,
             interval: string,
+            funnelVizType: string | undefined,
             success: boolean,
             error?: string
         ) => ({
             eventCount,
             actionCount,
             interval,
+            funnelVizType,
             success,
             error,
         }),
@@ -386,12 +433,13 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 instance_email_available: instanceEmailAvailable,
             })
         },
-        reportFunnelCalculated: async ({ eventCount, actionCount, interval, success, error }) => {
+        reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {
                 event_count: eventCount,
                 action_count: actionCount,
                 total_count_actions_events: eventCount + actionCount,
                 interval: interval,
+                funnel_viz_type: funnelVizType,
                 success: success,
                 error: error,
             })

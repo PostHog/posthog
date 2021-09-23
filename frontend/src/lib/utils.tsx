@@ -3,7 +3,7 @@ import api from './api'
 import { toast } from 'react-toastify'
 import { Button, Spin } from 'antd'
 import dayjs from 'dayjs'
-import { EventType, FilterType, ActionFilter, IntervalType } from '~/types'
+import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './logic/featureFlagLogic'
@@ -12,17 +12,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS, WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
-
-const SI_PREFIXES: { value: number; symbol: string }[] = [
-    { value: 1e18, symbol: 'E' },
-    { value: 1e15, symbol: 'P' },
-    { value: 1e12, symbol: 'T' },
-    { value: 1e9, symbol: 'G' },
-    { value: 1e6, symbol: 'M' },
-    { value: 1e3, symbol: 'k' },
-    { value: 1, symbol: '' },
-]
-const TRAILING_ZERO_REGEX = /\.0+$|(\.[0-9]*[1-9])0+$/
+import { DashboardEventSource } from './utils/eventUsageLogic'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -63,15 +53,27 @@ export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
-        (parseInt(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (parseInt(c) / 4)))).toString(16)
+        (
+            parseInt(c) ^
+            ((typeof window?.crypto !== 'undefined' // in node tests, jsdom doesn't implement window.crypto
+                ? window.crypto.getRandomValues(new Uint8Array(1))[0]
+                : Math.floor(Math.random() * 256)) &
+                (15 >> (parseInt(c) / 4)))
+        ).toString(16)
     )
 }
 
-export function isObjectEmpty(obj: Record<string, any>): boolean {
-    return obj && Object.keys(obj).length === 0 && obj.constructor === Object
+export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
+    return (
+        !!obj && typeof obj === 'object' && !Object.values(obj).some((x) => x !== null && x !== '' && x !== undefined)
+    )
 }
 
 export function toParams(obj: Record<string, any>): string {
+    if (!obj) {
+        return ''
+    }
+
     function handleVal(val: any): string {
         if (dayjs.isDayjs(val)) {
             return encodeURIComponent(val.format('YYYY-MM-DD'))
@@ -109,6 +111,30 @@ export function percentage(division: number): string {
               maximumFractionDigits: 2,
           })
         : ''
+}
+
+export function editingToast(
+    item: string,
+    setItemMode:
+        | ((mode: DashboardMode | null, source: DashboardEventSource) => void)
+        | ((mode: ItemMode | null, source: DashboardEventSource) => void)
+): any {
+    return toast(
+        <>
+            <h1>{item} edit mode</h1>
+            <p>Tap below when finished.</p>
+            <div className="text-right">
+                <Button>Finish editing</Button>
+            </div>
+        </>,
+        {
+            type: 'info',
+            autoClose: false,
+            onClick: () => setItemMode(null, DashboardEventSource.Toast),
+            closeButton: false,
+            className: 'drag-items-toast accent-border',
+        }
+    )
 }
 
 export function errorToast(title?: string, message?: string, errorDetail?: string, errorCode?: string): void {
@@ -413,6 +439,11 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
+// Number to number with commas (e.g. 1234 -> 1,234)
+export function humanFriendlyNumber(d: number): string {
+    return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
@@ -423,7 +454,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
-    const s = Math.floor((d % 3600) % 60)
+    const s = Math.round((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
@@ -461,9 +492,9 @@ export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, wit
         formatString = '[Yesterday] h:mm'
     }
     if (withSeconds) {
-        formatString += ':ss a'
+        formatString += ':ss A'
     } else {
-        formatString += ' a'
+        formatString += ' A'
     }
     return parsedDate.format(formatString)
 }
@@ -501,6 +532,7 @@ export function colonDelimitedDuration(d: string | number | null | undefined, nu
         m = Math.floor(s / 60)
         s -= m * 60
     }
+    s = Math.round(s)
 
     const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
 
@@ -590,20 +622,25 @@ export function determineDifferenceType(
     }
 }
 
-export const dateMapping: Record<string, string[]> = {
-    Custom: [],
-    Today: ['dStart'],
-    Yesterday: ['-1d', 'dStart'],
-    'Last 24 hours': ['-24h'],
-    'Last 48 hours': ['-48h'],
-    'Last 7 days': ['-7d'],
-    'Last 14 days': ['-14d'],
-    'Last 30 days': ['-30d'],
-    'Last 90 days': ['-90d'],
-    'This month': ['mStart'],
-    'Previous month': ['-1mStart', '-1mEnd'],
-    'Year to date': ['yStart'],
-    'All time': ['all'],
+interface dateMappingOption {
+    inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
+    values: string[]
+}
+
+export const dateMapping: Record<string, dateMappingOption> = {
+    Custom: { values: [] },
+    Today: { values: ['dStart'] },
+    Yesterday: { values: ['-1d', 'dStart'] },
+    'Last 24 hours': { values: ['-24h'] },
+    'Last 48 hours': { values: ['-48h'], inactive: true },
+    'Last 7 days': { values: ['-7d'] },
+    'Last 14 days': { values: ['-14d'] },
+    'Last 30 days': { values: ['-30d'] },
+    'Last 90 days': { values: ['-90d'] },
+    'This month': { values: ['mStart'], inactive: true },
+    'Previous month': { values: ['-1mStart', '-1mEnd'], inactive: true },
+    'Year to date': { values: ['yStart'] },
+    'All time': { values: ['all'] },
 }
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
@@ -618,34 +655,36 @@ export function dateFilterToText(
     }
     dateFrom = (dateFrom || undefined) as string | undefined
     dateTo = (dateTo || undefined) as string | undefined
+
     if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
         return `${dateFrom} - ${dateTo}`
     }
+
     if (dateFrom === 'dStart') {
+        // Changed to "last 24 hours" but this is backwards compatibility
         return 'Today'
-    } // Changed to "last 24 hours" but this is backwards compatibility
+    }
+
+    if (isDate.test(dateFrom || '') && !isDate.test(dateTo || '')) {
+        const days = dayjs().diff(dayjs(dateFrom), 'days')
+        if (days > 366) {
+            return `${dateFrom} - Today`
+        } else if (days > 0) {
+            return `Last ${days} days`
+        } else if (days === 0) {
+            return `Today`
+        } else {
+            return `Starting from ${dateFrom}`
+        }
+    }
+
     let name = defaultValue
-    Object.entries(dateMapping).map(([key, value]) => {
-        if (value[0] === dateFrom && value[1] === dateTo && key !== 'Custom') {
+    Object.entries(dateMapping).map(([key, { values }]) => {
+        if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
             name = key
         }
     })[0]
     return name
-}
-
-export function humanizeNumber(number: number | null, digits: number = 1): string {
-    if (number === null) {
-        return '-'
-    }
-    // adapted from https://stackoverflow.com/a/9462382/624476
-    let matchingPrefix = SI_PREFIXES[SI_PREFIXES.length - 1]
-    for (const currentPrefix of SI_PREFIXES) {
-        if (number >= currentPrefix.value) {
-            matchingPrefix = currentPrefix
-            break
-        }
-    }
-    return (number / matchingPrefix.value).toFixed(digits).replace(TRAILING_ZERO_REGEX, '$1') + matchingPrefix.symbol
 }
 
 export function copyToClipboard(value: string, description?: string): boolean {
@@ -878,7 +917,11 @@ export function pluralize(count: number, singular: string, plural?: string, incl
 /** Return a number in a compact format, with a SI suffix if applicable.
  *  Server-side equivalent: utils.py#compact_number.
  */
-export function compactNumber(value: number): string {
+export function compactNumber(value: number | null): string {
+    if (value === null) {
+        return '-'
+    }
+
     value = parseFloat(value.toPrecision(3))
     let magnitude = 0
     while (Math.abs(value) >= 1000) {
@@ -1026,4 +1069,13 @@ export function median(input: number[]): number {
 
 export function sum(input: number[]): number {
     return input.reduce((a, b) => a + b, 0)
+}
+
+export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+    try {
+        JSON.parse(value)
+        return Promise.resolve()
+    } catch (error) {
+        return Promise.reject('Not valid JSON!')
+    }
 }

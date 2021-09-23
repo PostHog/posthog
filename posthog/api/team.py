@@ -1,13 +1,16 @@
 from typing import Any, Dict, Optional, Type, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.shared import TeamBasicSerializer
+from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Organization, Team
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token, generate_random_token_project
 from posthog.permissions import CREATE_METHODS, OrganizationAdminWritePermissions, ProjectMembershipNecessaryPermissions
@@ -24,7 +27,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
             (user.organization is None)
             or (
                 user.organization.teams.exclude(is_demo=True).count() >= 1
-                and not user.organization.is_feature_available("organizations_projects")
+                and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             )
         ):
             return False
@@ -32,6 +35,8 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
 
 class TeamSerializer(serializers.ModelSerializer):
+    effective_membership_level = serializers.SerializerMethodField()
+
     class Meta:
         model = Team
         fields = (
@@ -53,6 +58,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "data_attributes",
             "session_recording_opt_in",
             "session_recording_retention_period_days",
+            "effective_membership_level",
+            "access_control",
         )
         read_only_fields = (
             "id",
@@ -63,7 +70,11 @@ class TeamSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "ingested_event",
+            "effective_membership_level",
         )
+
+    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+        return team.get_effective_membership_level(self.context["request"].user)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
@@ -78,7 +89,7 @@ class TeamSerializer(serializers.ModelSerializer):
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     serializer_class = TeamSerializer
-    queryset = Team.objects.all()
+    queryset = Team.objects.all().select_related("organization")
     permission_classes = [
         permissions.IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
