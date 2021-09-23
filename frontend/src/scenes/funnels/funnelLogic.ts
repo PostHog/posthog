@@ -277,6 +277,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                         : [],
                 }),
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
+                setCachedResultsSuccess: (_, { rawResults }) => rawResults.filters,
             },
         ],
         people: {
