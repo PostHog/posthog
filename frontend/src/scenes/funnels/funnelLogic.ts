@@ -207,7 +207,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     }
 
                     const queryId = uuid()
-                    const dashboardItemId = props.dashboardItemId as number | undefined
+                    const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
 
                     insightLogic.actions.startQuery(queryId)
                     if (dashboardItemId) {

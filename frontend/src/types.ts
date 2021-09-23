@@ -935,6 +935,7 @@ export interface ChartParams {
 
 export interface DashboardItemLogicProps {
     dashboardItemId?: number | null
+    fromDashboardItemId?: number | null
     cachedResults?: any
     filters?: Partial<FilterType> | null
     preventLoading?: boolean

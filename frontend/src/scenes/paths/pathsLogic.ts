@@ -75,9 +75,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId as number | undefined
+                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
                 insightLogic.actions.startQuery(queryId)
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                if (dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                }
 
                 let paths
                 try {
@@ -85,13 +87,17 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                    if (dashboardItemId) {
+                        dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                    }
 
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, paths.last_refresh)
+                if (dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, paths.last_refresh)
+                }
 
                 return { paths: paths.result, filter }
             },

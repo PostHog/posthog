@@ -101,7 +101,7 @@ export function Insights(): JSX.Element {
     const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
     const logicFromInsight = getLogicFromInsight(activeView as InsightType, {
-        dashboardItemId: fromItem || null,
+        fromDashboardItemId: fromItem || null,
         filters: allFilters,
     })
     const { loadResults } = useActions(logicFromInsight)

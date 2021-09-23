@@ -118,10 +118,6 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
     return {}
 }
 
-// props:
-// - dashboardItemId
-// - cachedResults
-// - filters
 export const trendsLogic = kea<trendsLogicType>({
     props: {} as DashboardItemLogicProps,
 
@@ -166,9 +162,11 @@ export const trendsLogic = kea<trendsLogicType>({
                 cache.abortController = new AbortController()
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId
+                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
                 insightLogic.actions.startQuery(queryId)
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                if (dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                }
 
                 const { filters } = values
 
@@ -206,7 +204,9 @@ export const trendsLogic = kea<trendsLogicType>({
                         null,
                         e
                     )
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                    if (dashboardItemId) {
+                        dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                    }
                     return []
                 }
                 breakpoint()
@@ -216,7 +216,9 @@ export const trendsLogic = kea<trendsLogicType>({
                     (values.filters.insight as ViewType) || ViewType.TRENDS,
                     response.last_refresh
                 )
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, response.last_refresh)
+                if (dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, response.last_refresh)
+                }
 
                 return { ...response, filters }
             },
