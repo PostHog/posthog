@@ -222,9 +222,6 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters_hash:
             return None
 
-        if self.context["request"].GET.get("refresh"):
-            update_dashboard_item_cache(dashboard_item, None)
-
         result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
@@ -238,6 +235,9 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return None
 
     def to_representation(self, instance):
+        if self.context["request"].GET.get("refresh"):
+            update_dashboard_item_cache(instance, None)
+
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
         return representation
