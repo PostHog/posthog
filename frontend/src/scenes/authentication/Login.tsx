@@ -10,6 +10,7 @@ import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
 import { ERROR_MESSAGES } from 'lib/constants'
 import { ExclamationCircleFilled } from '@ant-design/icons'
+import clsx from 'clsx'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=login-header'
 
@@ -85,20 +86,16 @@ export function Login(): JSX.Element {
                                 </Button>
                             </Form.Item>
                         </Form>
-                        <div className="text-center">
-                            &nbsp;
+                        <div className={clsx('helper-links', { cloud: preflight?.cloud })}>
                             {preflight?.cloud && (
-                                <Link to="/signup" data-attr="signup" style={{ float: 'left' }}>
+                                <Link to="/signup" data-attr="signup" className="lhs">
                                     Create an account
                                 </Link>
                             )}
-                            <a
-                                href="/accounts/password_reset/"
-                                data-attr="forgot-password"
-                                style={preflight?.cloud ? { float: 'right' } : {}}
-                            >
+                            <a href="/accounts/password_reset/" data-attr="forgot-password" className="rhs">
                                 Forgot your password?
                             </a>
+                            &nbsp;
                         </div>
                         <SocialLoginButtons caption="Or log in with" />
                     </div>

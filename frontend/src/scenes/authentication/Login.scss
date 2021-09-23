@@ -7,4 +7,30 @@
         min-height: 100vh;
         padding-bottom: 64px;
     }
+
+    .helper-links {
+        text-align: center;
+        .lhs {
+            float: left;
+        }
+        &.cloud {
+            .rhs {
+                float: right;
+            }
+        }
+    }
+
+    @media screen and (max-width: $sm) {
+        .helper-links {
+            .lhs,
+            .rhs {
+                float: unset;
+            }
+            a {
+                display: block;
+                width: 100%;
+                padding-top: 4px;
+            }
+        }
+    }
 }
