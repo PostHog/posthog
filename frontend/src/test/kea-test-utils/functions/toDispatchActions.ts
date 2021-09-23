@@ -1,6 +1,5 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
 import { ActionToDispatch, ExpectFunction, testUtilsContext } from '~/test/kea-test-utils'
-import { Action as ReduxAction } from 'redux'
 import { delay, objectsEqual } from 'lib/utils'
 import { waitForAction, waitForCondition } from 'kea-waitfor'
 
@@ -39,10 +38,7 @@ export const toDispatchActions: ExpectFunction<ActionToDispatch[]> = {
     },
 }
 
-function tryToSearchActions(
-    logic: LogicWrapper | BuiltLogic,
-    actions: ActionToDispatch[]
-): (string | ReduxAction | ((action: ReduxAction) => boolean))[] {
+function tryToSearchActions(logic: LogicWrapper | BuiltLogic, actions: ActionToDispatch[]): ActionToDispatch[] {
     const actionsToSearch = [...actions]
     const { recordedHistory, historyIndex } = testUtilsContext()
     const actionPointer = historyIndex || -1
