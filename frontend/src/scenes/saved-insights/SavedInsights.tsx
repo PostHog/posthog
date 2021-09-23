@@ -360,7 +360,7 @@ export function SavedInsights(): JSX.Element {
                     </div>
                 </Row>
             )}
-            {insights.count < 1 ? (
+            {!insightsLoading && insights.count < 1 ? (
                 <SavedInsightsEmptyState />
             ) : (
                 <>

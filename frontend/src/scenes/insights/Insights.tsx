@@ -17,7 +17,6 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PersonModal } from 'scenes/trends/PersonModal'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
@@ -49,14 +48,12 @@ export function Insights(): JSX.Element {
         saveInsight,
     } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
-    const { showingPeople } = useValues(personsModalLogic)
-    const { saveCohortWithFilters } = useActions(personsModalLogic)
+    const { cohortModalVisible } = useValues(personsModalLogic)
+    const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
-    const { cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
@@ -152,14 +149,6 @@ export function Insights(): JSX.Element {
                 </>
             ) : (
                 <>
-                    <PersonModal
-                        visible={showingPeople && !cohortModalVisible}
-                        view={ViewType.FUNNELS}
-                        filters={allFilters}
-                        onSaveCohort={() => {
-                            setCohortModalVisible(true)
-                        }}
-                    />
                     <SaveCohortModal
                         visible={cohortModalVisible}
                         onOk={(title: string) => {
