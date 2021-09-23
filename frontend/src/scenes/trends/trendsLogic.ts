@@ -14,6 +14,7 @@ import {
     EntityTypes,
     FilterType,
     PropertyFilter,
+    TrendResult,
     ViewType,
 } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
@@ -141,7 +142,7 @@ export const trendsLogic = kea<trendsLogicType>({
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
-        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
+        setCachedResults: (filters: Partial<FilterType>, results: TrendResult[]) => ({ filters, results }),
     }),
 
     loaders: ({ cache, values, props }) => ({
@@ -284,6 +285,9 @@ export const trendsLogic = kea<trendsLogicType>({
                     ...state,
                     [`${index}`]: !state[index],
                 }),
+                loadResultsSuccess: (_, { _results }) => Object.fromEntries(_results.result.map((__, i) => [i, true])),
+                setCachedResultsSuccess: (_, { _results }) =>
+                    Object.fromEntries(_results.result.map((__, i) => [i, true])),
             },
         ],
         breakdownValuesLoading: [
@@ -333,12 +337,6 @@ export const trendsLogic = kea<trendsLogicType>({
             }
             actions.loadResults()
         },
-        setCachedResultsSuccess: () => {
-            // TODO: this is duplicated below and could go in a reducer
-            values.indexedResults.forEach((_, idx) => {
-                actions.setVisibilityById({ [`${idx}`]: true })
-            })
-        },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
                 if (!insightLogic.values.insight.id) {
@@ -350,10 +348,6 @@ export const trendsLogic = kea<trendsLogicType>({
                     insightLogic.actions.updateInsightFilters(values.filters)
                 }
             }
-            // TODO: this is duplicated above and could go in a reducer
-            values.indexedResults.forEach((_, idx) => {
-                actions.setVisibilityById({ [`${idx}`]: true })
-            })
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {

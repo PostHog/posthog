@@ -3,7 +3,7 @@ import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { trendsLogicType } from 'scenes/trends/trendsLogicType'
-import { PropertyOperator } from '~/types'
+import { PropertyOperator, TrendResult } from '~/types'
 
 jest.mock('lib/api')
 
@@ -41,6 +41,39 @@ describe('trendsLogic', () => {
 
         it('loads results on mount', async () => {
             await expectLogic(logic).toDispatchActions(['loadResults'])
+        })
+    })
+
+    describe('reducers', () => {
+        initKeaTestLogic({
+            logic: trendsLogic,
+            props: {},
+            onLogic: (l) => (logic = l),
+        })
+
+        it('visibilityMap', async () => {
+            const r = {} as TrendResult
+
+            expectLogic(logic, () => {
+                logic.actions.setVisibilityById({ '1': true, '2': false })
+                logic.actions.setVisibilityById({ '8': true, '2': true })
+            }).toMatchValues({ visibilityMap: { 1: true, 2: true, 8: true } })
+
+            expectLogic(logic, () => {
+                logic.actions.setCachedResultsSuccess({ result: [r, r, r, r, r], filters: {} })
+            }).toMatchValues({ visibilityMap: { 0: true, 1: true, 2: true, 3: true, 4: true } })
+
+            expectLogic(logic, () => {
+                logic.actions.loadResultsSuccess({ result: [r, r], filters: {} })
+            }).toMatchValues({ visibilityMap: { 0: true, 1: true } })
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ visibilityMap: { 0: true, 1: false } })
+
+            expectLogic(logic, () => {
+                logic.actions.toggleVisibility(1)
+            }).toMatchValues({ visibilityMap: { 0: true, 1: true } })
         })
     })
 
@@ -113,7 +146,7 @@ describe('trendsLogic', () => {
                         events: [{ id: 3 }],
                         properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
                     },
-                    ['result']
+                    [('result' as any) as TrendResult]
                 )
 
                 await expectLogic(logic)
