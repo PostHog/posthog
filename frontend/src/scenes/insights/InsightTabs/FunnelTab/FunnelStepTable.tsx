@@ -48,6 +48,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
     function getColumns(): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
         if (isNewVertical) {
             const _columns: ColumnsType<FlattenedFunnelStepByBreakdown> = []
+            const useCustomName = !!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]
 
             _columns.push({
                 render: function RenderCheckbox({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
@@ -96,7 +97,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         />,
                         showLabels,
                         undefined,
-                        dashboardItemId
+                        dashboardItemId,
+                        useCustomName
                     )
                 },
                 fixed: 'left',
@@ -124,7 +126,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         renderColumnTitle('Breakdown'),
                         showLabels,
                         undefined,
-                        dashboardItemId
+                        dashboardItemId,
+                        useCustomName
                     )
                 },
                 fixed: 'left',
@@ -141,7 +144,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         renderSubColumnTitle('Comp. rate'),
                         showLabels,
                         undefined,
-                        dashboardItemId
+                        dashboardItemId,
+                        useCustomName
                     )
                 },
                 fixed: 'left',
@@ -178,7 +182,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             renderSubColumnTitle('Completed'),
                             showLabels,
                             step,
-                            dashboardItemId
+                            dashboardItemId,
+                            useCustomName
                         )
                     },
                     width: 80,
@@ -203,7 +208,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             renderSubColumnTitle('Rate'),
                             showLabels,
                             step,
-                            dashboardItemId
+                            dashboardItemId,
+                            useCustomName
                         )
                     },
                     width: 80,
@@ -237,7 +243,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 renderSubColumnTitle('Dropped'),
                                 showLabels,
                                 step,
-                                dashboardItemId
+                                dashboardItemId,
+                                useCustomName
                             )
                         },
                         width: 80,
@@ -262,7 +269,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 renderSubColumnTitle('Rate'),
                                 showLabels,
                                 step,
-                                dashboardItemId
+                                dashboardItemId,
+                                useCustomName
                             )
                         },
                         width: 80,
@@ -287,7 +295,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 renderSubColumnTitle('Avg. time'),
                                 showLabels,
                                 step,
-                                dashboardItemId
+                                dashboardItemId,
+                                useCustomName
                             )
                         },
                         width: 80,

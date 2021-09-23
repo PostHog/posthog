@@ -29,6 +29,8 @@ import { ChartParams, StepOrderValue, FunnelStepWithConversionMetrics } from '~/
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 
 interface BarProps {
     percentage: number
@@ -493,6 +495,8 @@ export function FunnelBarGraph({
                                 <div className="funnel-step-title">
                                     {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
                                         <span>Completed {humanizeOrder(step.order)} steps</span>
+                                    ) : featureFlags[FEATURE_FLAGS.RENAME_FILTERS] ? (
+                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     ) : (
                                         <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
                                     )}
