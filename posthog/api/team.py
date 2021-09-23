@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Type, cast
+from typing import Any, Dict, List, Optional, Type, cast
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -98,7 +98,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         permissions.IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         PremiumMultiprojectPermissions,
-        TeamMemberAccessPermission,
     ]
     lookup_field = "id"
     ordering = "-created_by"
@@ -113,7 +112,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             return TeamBasicSerializer
         return super().get_serializer_class()
 
-    def get_permissions(self):
+    def get_permissions(self) -> List:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
@@ -122,20 +121,23 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
             if not organization:
                 raise exceptions.ValidationError("You need to belong to an organization.")
-            self.organization = (
-                organization  # to be used later by `OrganizationAdminWritePermissions` and `TeamSerializer`
-            )
+            # To be used later by OrganizationAdminWritePermissions and TeamSerializer
+            self.organization = organization
 
             return [
                 permission()
                 for permission in [
                     permissions.IsAuthenticated,
                     PremiumMultiprojectPermissions,
-                    OrganizationAdminWritePermissions,  # Using current org so we don't need to validate membership
+                    OrganizationAdminWritePermissions,
+                    TeamMemberAccessPermission,
                 ]
             ]
-
-        return super().get_permissions()
+        base_permissions = [permission() for permission in self.permission_classes]
+        if self.action != "list":
+            # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
+            base_permissions.append(TeamMemberAccessPermission())
+        return base_permissions
 
     def get_object(self):
         lookup_value = self.kwargs[self.lookup_field]

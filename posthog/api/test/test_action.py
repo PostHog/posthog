@@ -154,7 +154,9 @@ def factory_test_action_api(event_factory):
             )
 
             # test queries
-            with self.assertNumQueries(5):
+            with self.assertNumQueries(6):
+                # Django session, PostHog user, PostHog team, PostHog org membership,
+                # PostHog action, PostHog action step
                 self.client.get("/api/action/")
 
         def test_update_action_remove_all_steps(self, *args):

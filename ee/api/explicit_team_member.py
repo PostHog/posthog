@@ -17,9 +17,13 @@ from posthog.models.user import User
 def get_ephemeral_requesting_team_membership(team: Team, user: User) -> Optional[ExplicitTeamMembership]:
     """Return an ExplicitTeamMembership instance only for permission checking.
     None returned if the user has no explicit membership and organization access is too low for implicit membership."""
-    requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
-        "organization"
-    ).get(organization_id=team.organization_id, user=user)
+    try:
+        requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
+            "organization"
+        ).get(organization_id=team.organization_id, user=user)
+    except OrganizationMembership.DoesNotExist:
+        # If the user does not belong to the organization at all, they of course have no access
+        return None
     if team.access_control and requesting_parent_membership.organization.is_feature_available(
         AvailableFeature.PROJECT_BASED_PERMISSIONING
     ):
@@ -44,11 +48,13 @@ class TeamMemberAccessPermission(BasePermission):
     message = "You don't have access to the relevant project."
 
     def has_permission(self, request, view) -> bool:
+        url_name = request.resolver_match.url_name
+        print(url_name)
         try:
-            if request.resolver_match.url_name == "team-detail":
+            if url_name == "team-detail":
                 team = view.get_object()
             else:
-                team = Team.objects.get(id=view.get_parents_query_dict()["team_id"])
+                team = view.team
         except Team.DoesNotExist:
             return True  # This will be handled as a 404 in the viewset
         requesting_team_membership = get_ephemeral_requesting_team_membership(team, cast(User, request.user))
@@ -64,10 +70,7 @@ class TeamMemberManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in this project."
 
     def has_permission(self, request, view) -> bool:
-        try:
-            team = Team.objects.get(id=view.get_parents_query_dict()["team_id"])
-        except Team.DoesNotExist:
-            return True  # This will be handled as a 404 in the viewset
+        team = view.team
         try:
             requesting_team_membership = get_ephemeral_requesting_team_membership(team, cast(User, request.user))
         except OrganizationMembership.DoesNotExist:
