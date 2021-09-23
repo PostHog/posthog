@@ -25,6 +25,12 @@ describe('toParams', () => {
         expect(toParams(undefined)).toEqual('')
         expect(toParams(null)).toEqual('')
     })
+
+    it('is tolerant of empty objects', () => {
+        const left = toParams({ a: 'b', ...{}, b: 'c' })
+        const right = toParams({ a: 'b', ...{}, ...{}, b: 'c' })
+        expect(left).toEqual(right)
+    })
 })
 
 describe('capitalizeFirstLetter()', () => {

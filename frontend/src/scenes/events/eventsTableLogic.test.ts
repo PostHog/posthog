@@ -1,10 +1,19 @@
 import { BuiltLogic } from 'kea'
 import { eventsTableLogicType } from 'scenes/events/eventsTableLogicType'
-import { EventsTableEvent, eventsTableLogic, EventsTableLogicProps } from 'scenes/events/eventsTableLogic'
+import {
+    ApiError,
+    EventsTableEvent,
+    eventsTableLogic,
+    EventsTableLogicProps,
+    OnFetchEventsSuccess,
+} from 'scenes/events/eventsTableLogic'
 import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { truth } from '~/test/kea-test-utils/jest'
 import { router } from 'kea-router'
+import * as utils from 'lib/utils'
+
+const toastSpy = jest.spyOn(utils, 'errorToast')
 
 jest.mock('lib/api')
 
@@ -18,10 +27,10 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): Events
     action: { name: randomString(), id: randomString() },
 })
 
-// TODO test columnConfig reads from userLogic
+// TODO test interactions with userLogic
 
 describe('eventsTableLogic', () => {
-    let logic: BuiltLogic<eventsTableLogicType<EventsTableEvent, EventsTableLogicProps>>
+    let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableEvent, EventsTableLogicProps, OnFetchEventsSuccess>>
 
     mockAPI(async () => ({ results: [], count: 0 }))
 
@@ -85,7 +94,7 @@ describe('eventsTableLogic', () => {
 
         it('does call prependNewEvents when there are new events', async () => {
             await expectLogic(logic, () => {
-                logic.actions.pollEventsSuccess([{}, {}, {}])
+                logic.actions.pollEventsSuccess([makeEvent(), makeEvent(), makeEvent()])
                 logic.actions.toggleAutomaticLoad(true)
             })
                 .toMatchValues({
@@ -96,7 +105,7 @@ describe('eventsTableLogic', () => {
 
         it('does not call prependNewEvents when there are new events but loading is off', async () => {
             await expectLogic(logic, () => {
-                logic.actions.pollEventsSuccess([{}, {}, {}])
+                logic.actions.pollEventsSuccess([makeEvent(), makeEvent(), makeEvent()])
                 logic.actions.toggleAutomaticLoad(false)
             }).toMatchValues({
                 automaticLoadEnabled: false,
@@ -105,7 +114,7 @@ describe('eventsTableLogic', () => {
 
         it('can mark that column config is saving', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setColumnConfig(true)
+                logic.actions.setColumnConfigSaving(true)
             }).toMatchValues({
                 columnConfigSaving: true,
             })
@@ -121,7 +130,7 @@ describe('eventsTableLogic', () => {
 
         it('can highlight new events', async () => {
             await expectLogic(logic, () => {
-                logic.actions.prependNewEvents([{ id: 'potato' }])
+                logic.actions.prependNewEvents([makeEvent('potato')])
             }).toMatchValues({
                 highlightEvents: { potato: true },
             })
@@ -130,15 +139,15 @@ describe('eventsTableLogic', () => {
         //TODO why does it?
         it('can clear highlighted events when poll is successful', async () => {
             await expectLogic(logic, () => {
-                logic.actions.prependNewEvents([{ id: 'potato' }])
-                logic.actions.pollEventsSuccess()
+                logic.actions.prependNewEvents([makeEvent('potato')])
+                logic.actions.pollEventsSuccess([])
             }).toMatchValues({
                 highlightEvents: {},
             })
         })
 
         it('sets new events when polling succeeds', async () => {
-            const apiResponse = [{ id: 'potato' }]
+            const apiResponse = [makeEvent('potato')]
             await expectLogic(logic, () => {
                 logic.actions.pollEventsSuccess(apiResponse)
             }).toMatchValues({
@@ -147,7 +156,7 @@ describe('eventsTableLogic', () => {
         })
 
         it('clears new events when setting properties', async () => {
-            const apiResponse = [{ id: 'potato' }]
+            const apiResponse = [makeEvent('potato')]
             await expectLogic(logic, () => {
                 logic.actions.pollEventsSuccess(apiResponse)
                 logic.actions.setProperties([])
@@ -157,7 +166,7 @@ describe('eventsTableLogic', () => {
         })
 
         it('clears new events when prepending new events', async () => {
-            const apiResponse = [{ id: 'potato' }]
+            const apiResponse = [makeEvent('potato')]
             await expectLogic(logic, () => {
                 logic.actions.pollEventsSuccess(apiResponse)
                 logic.actions.prependNewEvents([])
@@ -169,15 +178,15 @@ describe('eventsTableLogic', () => {
         // TODO but nothing uses this action
         it('can select an event', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setSelectedEvent({ id: 4 })
+                logic.actions.setSelectedEvent(makeEvent('4'))
             }).toMatchValues({
-                selectedEvent: expect.objectContaining({ id: 4 }),
+                selectedEvent: expect.objectContaining({ id: '4' }),
             })
         })
 
         it('can flip the sorting order', async () => {
             await expectLogic(logic, () => {
-                logic.actions.flipSort('-timestamp')
+                logic.actions.flipSort()
             }).toMatchValues({
                 orderBy: 'timestamp',
             })
@@ -185,8 +194,8 @@ describe('eventsTableLogic', () => {
 
         it('can flip the sorting order back', async () => {
             await expectLogic(logic, () => {
-                logic.actions.flipSort('-timestamp')
-                logic.actions.flipSort('timestamp')
+                logic.actions.flipSort()
+                logic.actions.flipSort()
             }).toMatchValues({
                 orderBy: '-timestamp',
             })
@@ -194,7 +203,7 @@ describe('eventsTableLogic', () => {
 
         it('fetch events success can set hasNext (which is the URL of the next page of results, that we do not use)', async () => {
             await expectLogic(logic, () => {
-                logic.actions.fetchEventsSuccess({ events: '', hasNext: true, isNext: false })
+                logic.actions.fetchEventsSuccess({ events: [], hasNext: true, isNext: false })
             }).toMatchValues({
                 hasNext: true,
             })
@@ -202,7 +211,7 @@ describe('eventsTableLogic', () => {
 
         it('fetch events clears the has next flag', async () => {
             await expectLogic(logic, () => {
-                logic.actions.fetchEventsSuccess({ events: '', hasNext: true, isNext: false })
+                logic.actions.fetchEventsSuccess({ events: [], hasNext: true, isNext: false })
                 logic.actions.fetchEvents()
             }).toMatchValues({
                 hasNext: false,
@@ -211,7 +220,7 @@ describe('eventsTableLogic', () => {
 
         it('fetch next events clears the has next flag', async () => {
             await expectLogic(logic, () => {
-                logic.actions.fetchEventsSuccess({ events: '', hasNext: true, isNext: false })
+                logic.actions.fetchEventsSuccess({ events: [], hasNext: true, isNext: false })
                 logic.actions.fetchNextEvents()
             }).toMatchValues({
                 hasNext: false,
@@ -219,7 +228,7 @@ describe('eventsTableLogic', () => {
         })
 
         it('sets events when preprendNewEvents is called', async () => {
-            const events = [{ id: 'potato' }, { id: 'tomato' }]
+            const events = [makeEvent('potato'), makeEvent('tomato')]
             await expectLogic(logic, () => {
                 logic.actions.prependNewEvents(events)
             }).toMatchValues({
@@ -228,8 +237,8 @@ describe('eventsTableLogic', () => {
         })
 
         it('replaces events when not loading a new "page"', async () => {
-            const originalEvents = [{ id: 'potato' }, { id: 'tomato' }]
-            const subsequentEvents = [{ id: 'apple' }, { id: 'melon' }]
+            const originalEvents = [makeEvent('potato'), makeEvent('tomato')]
+            const subsequentEvents = [makeEvent('apple'), makeEvent('melon')]
             await expectLogic(logic, () => {
                 logic.actions.fetchEventsSuccess({ events: originalEvents, hasNext: false, isNext: false })
                 logic.actions.fetchEventsSuccess({ events: subsequentEvents, hasNext: false, isNext: false })
@@ -239,8 +248,8 @@ describe('eventsTableLogic', () => {
         })
 
         it('adds events when loading a new "page"', async () => {
-            const originalEvents = [{ id: 'potato' }, { id: 'tomato' }]
-            const subsequentEvents = [{ id: 'apple' }, { id: 'melon' }]
+            const originalEvents = [makeEvent('potato'), makeEvent('tomato')]
+            const subsequentEvents = [makeEvent('apple'), makeEvent('melon')]
             await expectLogic(logic, () => {
                 logic.actions.fetchEventsSuccess({ events: originalEvents, hasNext: false, isNext: false })
                 logic.actions.fetchEventsSuccess({ events: subsequentEvents, hasNext: false, isNext: true })
@@ -280,7 +289,7 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({ isLoading: false })
                 await expectLogic(logic, () => {
                     logic.actions.setDelayedLoading()
-                    logic.actions.fetchOrPollFailure(new Error())
+                    logic.actions.fetchOrPollFailure({})
                 }).toMatchValues({ isLoading: false })
             })
 
@@ -326,6 +335,7 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({ properties: [{}] })
 
                 await expectLogic(logic, () => {
+                    // @ts-ignore
                     logic.actions.setProperties({})
                 }).toMatchValues({ properties: [{}] })
 
@@ -469,5 +479,23 @@ describe('eventsTableLogic', () => {
                 logic.actions.fetchNextEvents()
             }).toDispatchActions([logic.actionCreators.fetchEvents({ before: event.timestamp })])
         })
+
+        it('calls prepend new when autoload is toggled and there are new events', async () => {
+            const event = makeEvent('1', randomString())
+
+            await expectLogic(logic, () => {
+                logic.actions.pollEventsSuccess([event])
+                logic.actions.toggleAutomaticLoad(true)
+            }).toDispatchActions([logic.actionCreators.prependNewEvents([event])])
+        })
+
+        it('calls error toast on fetch failure', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.fetchOrPollFailure({})
+            })
+            expect(toastSpy).toHaveBeenCalled()
+        })
+
+        describe('calling the API', () => {})
     })
 })
