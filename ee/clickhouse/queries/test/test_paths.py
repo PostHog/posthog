@@ -1599,3 +1599,6 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         self.assertEqual(
             response, [{"source": "1_/5", "target": "2_/about", "value": 2, "average_conversion_time": 60000.0}]
         )
+
+        # TODO: fix test, complete validation conditions: doesn't need to happen every time. And figure out what to do with UI.
+        # Separate from the edge weight limit mods
