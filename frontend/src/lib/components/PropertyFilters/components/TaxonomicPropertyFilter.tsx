@@ -63,7 +63,7 @@ export function TaxonomicPropertyFilter({
     )
 
     return (
-        <div className={`taxonomic-property-filter${!disablePopover ? ' in-dropdown' : ' row-on-page'}`}>
+        <div className={`taxonomic-property-filter${!disablePopover ? ' in-dropdown large' : ' row-on-page'}`}>
             {showInitialSearchInline ? (
                 taxonomicFilter
             ) : (

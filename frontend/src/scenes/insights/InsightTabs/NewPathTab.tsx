@@ -15,8 +15,6 @@ import { Popup } from 'lib/components/Popup/Popup'
 import { PlusCircleOutlined } from '@ant-design/icons'
 
 export function NewPathTab(): JSX.Element {
-    const [visible, setVisible] = useState(false)
-    const { customEventNames } = useValues(eventDefinitionsModel)
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
 
@@ -50,28 +48,28 @@ export function NewPathTab(): JSX.Element {
                                     console.log(val)
                                 }}
                                 tokenSeparators={[',', ' ']}
-                             />
+                            />
                         </Row>
                         <Row align="middle">
                             <Col span={9}>
                                 <span>Starting at</span>
                             </Col>
                             <Col span={15}>
-                                <PropertyValue
-                                    outerOptions={
-                                        filter.path_type === PathType.CustomEvent
-                                            ? customEventNames.map((name) => ({
-                                                  name,
-                                              }))
-                                            : undefined
-                                    }
-                                    onSet={(value: string | number): void => setFilter({ start_point: value })}
-                                    propertyKey={pathOptionsToProperty[filter.path_type || PathType.PageView]}
-                                    type="event"
-                                    value={filter.start_point}
-                                    placeholder={'Select start element'}
-                                    autoFocus={false}
-                                />
+                                <PathItemSelector
+                                    pathItem={{ type: filter.path_type || PathType.PageView, item: filter.start_point }}
+                                    index={0}
+                                    onChange={() => {}}
+                                >
+                                    <Button
+                                        className="new-prop-filter"
+                                        data-attr={'new-prop-filter-' + 1}
+                                        type="link"
+                                        style={{ paddingLeft: 0 }}
+                                        icon={<PlusCircleOutlined />}
+                                    >
+                                        Add start point
+                                    </Button>
+                                </PathItemSelector>
                             </Col>
                         </Row>
                         <Row align="middle">
@@ -79,83 +77,21 @@ export function NewPathTab(): JSX.Element {
                                 <span>Ending at</span>
                             </Col>
                             <Col span={15}>
-                                <Popup
-                                    visible={visible}
-                                    placement={'bottom-end'}
-                                    fallbackPlacements={['bottom-start']}
-                                    onClickOutside={() => setVisible(false)}
-                                    overlay={
-                                        <div className={`taxonomic-property-filter in-dropdown`}>
-                                            <div className="taxonomic-filter-row">
-                                                <Col>
-                                                    <span>Event type:</span>
-                                                </Col>
-                                                <Col>
-                                                    <Select
-                                                        value={filter?.path_type || PathType.PageView}
-                                                        defaultValue={PathType.PageView}
-                                                        dropdownMatchSelectWidth={false}
-                                                        onChange={(value): void =>
-                                                            setFilter({ path_type: value, start_point: null })
-                                                        }
-                                                        style={{ paddingTop: 2 }}
-                                                    >
-                                                        {Object.entries(pathOptionsToLabels).map(
-                                                            ([value, name], index) => {
-                                                                return (
-                                                                    <Select.Option key={index} value={value}>
-                                                                        {name}
-                                                                    </Select.Option>
-                                                                )
-                                                            }
-                                                        )}
-                                                    </Select>
-                                                </Col>
-                                                <Col>event:</Col>
-                                                <Col>
-                                                    <PropertyValue
-                                                        outerOptions={
-                                                            filter.path_type === PathType.CustomEvent
-                                                                ? customEventNames.map((name) => ({
-                                                                      name,
-                                                                  }))
-                                                                : undefined
-                                                        }
-                                                        onSet={(value: string | number): void =>
-                                                            setFilter({ start_point: value })
-                                                        }
-                                                        propertyKey={
-                                                            pathOptionsToProperty[filter.path_type || PathType.PageView]
-                                                        }
-                                                        type="event"
-                                                        style={{ width: 200, paddingTop: 2 }}
-                                                        value={filter.start_point}
-                                                        placeholder={'Select start element'}
-                                                        autoFocus={false}
-                                                    />
-                                                </Col>
-                                            </div>
-                                        </div>
-                                    }
+                                <PathItemSelector
+                                    pathItem={{ type: filter.path_type || PathType.PageView, item: filter.start_point }}
+                                    index={1}
+                                    onChange={() => {}}
                                 >
-                                    {({ setRef }) => {
-                                        return (
-                                            <>
-                                                <Button
-                                                    ref={setRef}
-                                                    onClick={() => setVisible(true)}
-                                                    className="new-prop-filter"
-                                                    data-attr={'new-prop-filter-' + 1}
-                                                    type="link"
-                                                    style={{ paddingLeft: 0 }}
-                                                    icon={<PlusCircleOutlined />}
-                                                >
-                                                    Add end point
-                                                </Button>
-                                            </>
-                                        )
-                                    }}
-                                </Popup>
+                                    <Button
+                                        className="new-prop-filter"
+                                        data-attr={'new-prop-filter-' + 1}
+                                        type="link"
+                                        style={{ paddingLeft: 0 }}
+                                        icon={<PlusCircleOutlined />}
+                                    >
+                                        Add end point
+                                    </Button>
+                                </PathItemSelector>
                             </Col>
                         </Row>
                     </Col>
@@ -167,5 +103,89 @@ export function NewPathTab(): JSX.Element {
                 </Col>
             </Row>
         </>
+    )
+}
+
+interface PathItem {
+    type: PathType
+    item: string | undefined
+}
+
+interface PathItemSelectorProps {
+    pathItem: PathItem
+    onChange: (item: PathItem) => void
+    children: JSX.Element
+    index: number
+}
+
+function PathItemSelector({ pathItem, onChange, children }: PathItemSelectorProps): JSX.Element {
+    const { customEventNames } = useValues(eventDefinitionsModel)
+    const [visible, setVisible] = useState(false)
+
+    return (
+        <Popup
+            visible={visible}
+            placement={'bottom-end'}
+            fallbackPlacements={['bottom-start']}
+            onClickOutside={() => setVisible(false)}
+            overlay={
+                <div className={`taxonomic-property-filter in-dropdown small`}>
+                    <div className="taxonomic-filter-row">
+                        <Col className={'taxonomic-where'}>
+                            <span>Type:</span>
+                        </Col>
+                        <Col className={'taxonomic-button'}>
+                            <Select
+                                value={pathItem.type}
+                                defaultValue={PathType.PageView}
+                                dropdownMatchSelectWidth={false}
+                                onChange={(value): void => onChange({ type: value, item: undefined })}
+                                style={{ paddingTop: 2 }}
+                            >
+                                {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
+                                    return (
+                                        <Select.Option key={index} value={value}>
+                                            {name}
+                                        </Select.Option>
+                                    )
+                                })}
+                            </Select>
+                        </Col>
+                        <Col className={'taxonomic-operator'}>event:</Col>
+                        <Col className={'taxonomic-value-select'}>
+                            <PropertyValue
+                                outerOptions={
+                                    pathItem.type === PathType.CustomEvent
+                                        ? customEventNames.map((name) => ({
+                                              name,
+                                          }))
+                                        : undefined
+                                }
+                                onSet={(value: string): void =>
+                                    onChange({
+                                        ...pathItem,
+                                        item: value,
+                                    })
+                                }
+                                propertyKey={pathOptionsToProperty[pathItem.type || PathType.PageView]}
+                                type="event"
+                                style={{ paddingTop: 2 }}
+                                value={pathItem.item}
+                                placeholder={'Select start element'}
+                                autoFocus={false}
+                            />
+                        </Col>
+                    </div>
+                </div>
+            }
+        >
+            {({ setRef }) => {
+                return (
+                    <div ref={setRef} onClick={() => setVisible(true)}>
+                        {children}
+                    </div>
+                )
+            }}
+        </Popup>
     )
 }

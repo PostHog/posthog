@@ -3,8 +3,15 @@
 
     &.in-dropdown {
         min-width: 300px;
-        max-width: calc(100vw - 25px);
         background: white;
+    }
+
+    &.large {
+        max-width: calc(100vw - 25px);
+    }
+
+    &.small {
+        max-width: calc(50vw - 25px);
     }
 
     .taxonomic-filter-row {
