@@ -263,7 +263,17 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                                     Completed
                                                 </span>{' '}
                                                 <span style={{ color: 'var(--primary)' }}>
-                                                    {completedValue(pathItemCard.sourceLinks)}
+                                                    {completedValue(pathItemCard.sourceLinks)}{' '}
+                                                    {pathItemCard.targetLinks.length > 0 && (
+                                                        <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
+                                                            {(
+                                                                (completedValue(pathItemCard.sourceLinks) /
+                                                                    pathItemCard.targetLinks[0]?.source.value) *
+                                                                100
+                                                            ).toFixed(1)}
+                                                            %
+                                                        </span>
+                                                    )}
                                                 </span>
                                             </Menu.Item>
                                             {dropOffValue(pathItemCard) > 0 && (
@@ -281,8 +291,17 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                                         </span>{' '}
                                                         Dropped off
                                                     </span>{' '}
+                                                    <span style={{ color: 'var(--primary)' }} />
                                                     <span style={{ color: 'var(--primary)' }}>
-                                                        {dropOffValue(pathItemCard)}
+                                                        {dropOffValue(pathItemCard)}{' '}
+                                                        <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
+                                                            {(
+                                                                (dropOffValue(pathItemCard) /
+                                                                    pathItemCard.targetLinks[0]?.source.value) *
+                                                                100
+                                                            ).toFixed(1)}
+                                                            %
+                                                        </span>
                                                     </span>
                                                 </Menu.Item>
                                             )}
