@@ -111,7 +111,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/
+                  pytest -m "not ee" posthog/ --cov --cov-report=xml:coverage-postgres.xml
             - name: Run EE tests
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -125,7 +125,12 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest ee -m "not saml_only"
+                  pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml
+            - uses: codecov/codecov-action@v2
+              with:
+                  files: ./coverage-postgres.xml,./coverage-clickhouse.xml
+                  fail_ci_if_error: false
+                  verbose: true
 
     saml:
         name: Django tests – with SAML
