@@ -28,7 +28,6 @@ describe('trendsLogic', () => {
         } else if (['api/insight/session/', 'api/insight/trend/'].includes(pathname)) {
             return { result: ['result from api'] }
         } else {
-            debugger
             throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
     })
