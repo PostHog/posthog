@@ -314,6 +314,17 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableEvent, Event
                 { replace: true },
             ]
         },
+        setEventFilter: () => {
+            return [
+                router.values.location.pathname,
+                {
+                    ...router.values.searchParams,
+                    eventFilter: values.eventFilter,
+                },
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
     }),
 
     urlToAction: ({ actions, values }) => ({
@@ -335,6 +346,10 @@ export const eventsTableLogic = kea<eventsTableLogicType<EventsTableEvent, Event
 
             if (searchParams.autoload) {
                 actions.toggleAutomaticLoad(searchParams.autoload)
+            }
+
+            if (searchParams.eventFilter) {
+                actions.setEventFilter(searchParams.eventFilter)
             }
         },
     }),

@@ -416,5 +416,19 @@ describe('eventsTableLogic', () => {
             router.actions.push(router.values.location.pathname, { properties: [{ key: value }] })
             await expectLogic(logic, () => {}).toMatchValues({ properties: [{ key: value }] })
         })
+
+        it('writes event filter to the URL', async () => {
+            const eventFilter = randomString()
+            await expectLogic(logic, () => {
+                logic.actions.setEventFilter(eventFilter)
+            })
+            expect(router.values.searchParams).toHaveProperty('eventFilter', eventFilter)
+        })
+
+        it('reads event filter from the URL', async () => {
+            const eventFilter = randomString()
+            router.actions.push(router.values.location.pathname, { eventFilter })
+            await expectLogic(logic, () => {}).toMatchValues({ eventFilter })
+        })
     })
 })
