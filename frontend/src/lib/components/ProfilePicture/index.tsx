@@ -23,6 +23,7 @@ export function ProfilePicture({ name, email, size, style }: ProfilePictureProps
                 onError={() => setDidImageError(true)}
                 title={`This is ${email}'s Gravatar.`}
                 alt=""
+                style={style}
             />
         )
     }

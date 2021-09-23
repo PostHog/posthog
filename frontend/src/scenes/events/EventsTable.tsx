@@ -315,7 +315,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 </Col>
                 <Col flex="0">
                     {exportUrl && (
-                        <Tooltip title="Export up to 100,000 latest events." placement="left">
+                        <Tooltip title="Export up to 10,000 latest events." placement="left">
                             <Button icon={<DownloadOutlined />} href={exportUrl}>
                                 Export events
                             </Button>
