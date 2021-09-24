@@ -13,8 +13,7 @@ from posthog.models.filters.path_filter import PathFilter
 
 class ClickhousePathsViewSet(PathsViewSet):
     @action(methods=["GET"], detail=False)
-    def elements(self, request: request.Request, **kwargs):
-
+    def elements(self, request: request.Request, **kwargs):  # type: ignore
         team = self.team
         response = sync_execute(ELEMENT_TAG_COUNT, {"team_id": team.pk, "limit": 20})
 

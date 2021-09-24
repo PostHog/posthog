@@ -75,7 +75,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         return {"result": resp}
 
     @action(methods=["GET", "POST"], detail=False)
-    def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
         response = self.calculate_funnel(request)
         return Response(response)
 

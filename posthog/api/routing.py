@@ -1,7 +1,7 @@
-from typing import Any, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
-from rest_framework_extensions.mixins import NestedViewSetMixin
+from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
@@ -9,6 +9,11 @@ from posthog.api.utils import get_token
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+
+if TYPE_CHECKING:
+    _GenericViewSet = GenericViewSet
+else:
+    _GenericViewSet = object
 
 
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
@@ -19,7 +24,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
         self.trailing_slash = r"/?"
 
 
-class StructuredViewSetMixin:
+class StructuredViewSetMixin(_GenericViewSet):
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     legacy_team_compatibility: bool = False
@@ -41,7 +46,8 @@ class StructuredViewSetMixin:
             return team_from_token.id
 
         if self.legacy_team_compatibility:
-            team = self.request.user.team
+            user = cast(User, self.request.user)
+            team = user.team
             assert team is not None
             return team.id
         return self.get_parents_query_dict()["team_id"]
