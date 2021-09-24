@@ -7,14 +7,15 @@ import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 jest.mock('lib/api')
 
 describe('sessionRecordingsTableLogic', () => {
-    let logic: BuiltLogic<sessionRecordingsTableLogicType<string>>
-
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === 'api/projects/@current/session_recordings' && searchParams['distinct_id'] === '') {
             return {
                 results: ['List of recordings from server'],
             }
-        } else if (pathname === 'api/projects/@current/session_recordings' && searchParams['distinct_id'] !== '') {
+        } else if (
+            pathname === 'api/projects/@current/session_recordings' &&
+            searchParams['distinct_id'] === 'cool_user_99'
+        ) {
             return {
                 results: ["List of specific user's recordings from server"],
             }
@@ -23,42 +24,46 @@ describe('sessionRecordingsTableLogic', () => {
         }
     })
 
-    initKeaTestLogic({
-        logic: sessionRecordingsTableLogic,
-        onLogic: (l) => (logic = l),
-    })
+    describe('global logic', () => {
+        let globalLogic: BuiltLogic<sessionRecordingsTableLogicType<string>>
 
-    describe('core assumptions', () => {
-        it('loads session recordings after mounting', async () => {
-            await expectLogic(logic)
-                .toDispatchActions(['getSessionRecordingsSuccess'])
-                .toMatchValues({ sessionRecordings: ['List of recordings from server'] })
+        initKeaTestLogic({
+            logic: sessionRecordingsTableLogic,
+            onLogic: (l) => (globalLogic = l),
+        })
+
+        describe('core assumptions', () => {
+            it('loads session recordings after mounting', async () => {
+                await expectLogic(globalLogic)
+                    .toDispatchActions(['getSessionRecordingsSuccess'])
+                    .toMatchValues({ sessionRecordings: ['List of recordings from server'] })
+            })
+        })
+
+        describe('sessionRecordingId', () => {
+            it('starts as null', () => {
+                expectLogic(globalLogic).toMatchValues({ sessionRecordingId: null })
+            })
+            it('is set by setSessionRecordingId and cleared by closeSessionPlayer', async () => {
+                globalLogic.actions.setSessionRecordingId('abc')
+                await expectLogic(globalLogic).toMatchValues({ sessionRecordingId: 'abc' })
+                globalLogic.actions.closeSessionPlayer()
+                await expectLogic(globalLogic).toMatchValues({ sessionRecordingId: null })
+            })
         })
     })
-
-    describe('sessionRecordingId', () => {
-        it('starts as null', () => {
-            expectLogic(logic).toMatchValues({ sessionRecordingId: null })
+    describe('person specific logic', () => {
+        let personSpecificLogic: BuiltLogic<sessionRecordingsTableLogicType<string>>
+        initKeaTestLogic({
+            logic: sessionRecordingsTableLogic,
+            props: {
+                personIds: ['cool_user_99'],
+            },
+            onLogic: (l) => (personSpecificLogic = l),
         })
-        it('is set by setSessionRecordingId and cleared by closeSessionPlayer', async () => {
-            logic.actions.setSessionRecordingId('abc')
-            await expectLogic(logic).toMatchValues({ sessionRecordingId: 'abc' })
-            logic.actions.closeSessionPlayer()
-            await expectLogic(logic).toMatchValues({ sessionRecordingId: null })
-        })
-    })
 
-    initKeaTestLogic({
-        logic: sessionRecordingsTableLogic,
-        props: {
-            personIds: ['abc'],
-        },
-        onLogic: (l) => (logic = l),
-    })
-
-    describe('logic with distinct_id param', () => {
         it('loads session recordings for a specific user', async () => {
-            await expectLogic(logic)
+            await expectLogic(personSpecificLogic)
                 .toDispatchActions(['getSessionRecordingsSuccess'])
                 .toMatchValues({ sessionRecordings: ["List of specific user's recordings from server"] })
         })
