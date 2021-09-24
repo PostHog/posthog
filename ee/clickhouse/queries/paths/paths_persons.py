@@ -67,3 +67,7 @@ class ClickhousePathsPersons(ClickhousePaths):
         from posthog.api.person import PersonSerializer
 
         return PersonSerializer(people, many=True).data, len(results) > cast(int, self._filter.limit) - 1
+
+    def run(self, *args, **kwargs):
+        results = self._exec_query()
+        return self._format_results(results)

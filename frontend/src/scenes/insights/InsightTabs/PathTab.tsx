@@ -99,6 +99,8 @@ export function PathTab(): JSX.Element {
                         <InputNumber
                             style={{ paddingTop: 2, width: '80px', marginLeft: 5, marginRight: 5 }}
                             size="small"
+                            min={0}
+                            max={100000}
                             onChange={(value): void =>
                                 setLocalEdgeParameters((state) => ({
                                     ...state,
@@ -120,6 +122,8 @@ export function PathTab(): JSX.Element {
                                     max_edge_weight: Number(value),
                                 }))
                             }
+                            min={0}
+                            max={100000}
                             onBlur={updateEdgeParameters}
                             onPressEnter={updateEdgeParameters}
                         />

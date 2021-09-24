@@ -39,12 +39,9 @@ class ClickhousePaths:
         if not self._filter.limit:
             self._filter = self._filter.with_data({LIMIT: 100})
 
-        if self._filter.edge_limit is None:
-            if self._filter.start_point and self._filter.end_point:
-                # no edge restriction when both start and end points are defined
-                self._filter = self._filter.with_data({PATH_EDGE_LIMIT: 0})
-            else:
-                self._filter = self._filter.with_data({PATH_EDGE_LIMIT: 100})
+        if self._filter.edge_limit is None and not (self._filter.start_point and self._filter.end_point):
+            # no edge restriction when both start and end points are defined
+            self._filter = self._filter.with_data({PATH_EDGE_LIMIT: 100})
 
         if self._filter.max_edge_weight and self._filter.min_edge_weight:
             if self._filter.max_edge_weight < self._filter.min_edge_weight:
@@ -132,7 +129,7 @@ class ClickhousePaths:
             ORDER BY event_count DESC,
                     source_event,
                     target_event
-            LIMIT %(edge_limit)s
+            {'LIMIT %(edge_limit)s' if self._filter.edge_limit else ''}
         """
 
     def get_path_query_funnel_cte(self, funnel_filter: Filter):
