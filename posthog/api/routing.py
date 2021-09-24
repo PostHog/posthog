@@ -19,7 +19,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
         self.trailing_slash = r"/?"
 
 
-class StructuredViewSetMixin(NestedViewSetMixin):
+class StructuredViewSetMixin:
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     legacy_team_compatibility: bool = False
@@ -29,6 +29,10 @@ class StructuredViewSetMixin(NestedViewSetMixin):
     filter_rewrite_rules: Dict[str, str] = {}
 
     _parents_query_dict: Optional[Dict[str, Any]]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return self.filter_queryset_by_parents_lookups(queryset)
 
     @property
     def team_id(self) -> int:

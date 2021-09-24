@@ -6,12 +6,12 @@ from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.permissions import TeamMemberStrictManagementPermission, get_ephemeral_requesting_team_membership
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import TeamMemberStrictManagementPermission, get_effective_level
 
 
 class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
@@ -60,30 +60,30 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
         requesting_user: User = self.context["request"].user
         membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
         try:
-            requesting_membership = get_ephemeral_requesting_team_membership(self.context["team"], requesting_user)
+            requesting_level = get_effective_level(self.context["team"], requesting_user)
         except OrganizationMembership.DoesNotExist:
             # Requesting user does not belong to the project's organization, so we spoof a 404 for enhanced security
             raise exceptions.NotFound("Project not found.")
 
         new_level = attrs.get("level")
 
-        if requesting_membership is None:
+        if requesting_level is None:
             raise exceptions.PermissionDenied("You do not have the required access to this project.")
 
         if attrs.get("user_uuid") == requesting_user.uuid:
             # Create-only check
             raise exceptions.PermissionDenied("You can't explicitly add yourself to projects.")
 
-        if new_level is not None and new_level > requesting_membership.effective_level:
+        if new_level is not None and new_level > requesting_level:
             raise exceptions.PermissionDenied("You can only set access level to lower or equal to your current one.")
 
         if membership_being_accessed is not None:
             # Update-only checks
-            if membership_being_accessed.parent_membership.user_id != requesting_membership.parent_membership.user_id:
+            if membership_being_accessed.parent_membership.user_id != requesting_user.id:
                 # Requesting user updating someone else
-                if membership_being_accessed.team.organization_id != requesting_membership.team.organization_id:
-                    raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-                if membership_being_accessed.level > requesting_membership.effective_level:
+                # if membership_being_accessed.team.organization_id != requesting_membership.team.organization_id:
+                #    raise exceptions.PermissionDenied("You both need to belong to the same organization.")
+                if membership_being_accessed.level > requesting_level:
                     raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
             else:
                 # Requesting user updating themselves

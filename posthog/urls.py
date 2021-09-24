@@ -60,13 +60,10 @@ def is_input_valid(inp_type, val):
 
 # Try to include EE endpoints
 ee_urlpatterns: List[Any] = []
-try:
+if settings.EE_AVAILABLE:
     from ee.urls import extend_api_router
     from ee.urls import urlpatterns as ee_urlpatterns
 
-except ImportError:
-    pass
-else:
     extend_api_router(router, projects_router=projects_router)
 
 

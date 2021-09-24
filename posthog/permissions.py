@@ -1,12 +1,12 @@
-from typing import cast
+from typing import Optional, cast
 
 from django.conf import settings
 from django.db.models import Model
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
-from posthog.models import Organization, OrganizationMembership
-from posthog.models.user import User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
@@ -155,19 +155,96 @@ class OrganizationAdminAnyPermissions(BasePermission):
         )
 
 
-if settings.EE_AVAILABLE:
-    from ee.permissions import (
-        TeamMemberAccessPermission,
-        TeamMemberLightManagementPermission,
-        TeamMemberStrictManagementPermission,
-    )
-else:
+def get_effective_level(team: Team, user: User) -> Optional[OrganizationMembership.Level]:
+    """Return an effective membership level.
+    None returned if the user has no explicit membership and organization access is too low for implicit membership.
+    """
+    try:
+        requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
+            "organization"
+        ).get(organization_id=team.organization_id, user=user)
+    except OrganizationMembership.DoesNotExist:
+        return None
+    if (
+        not settings.EE_AVAILABLE
+        or not requesting_parent_membership.organization.is_feature_available(
+            AvailableFeature.PROJECT_BASED_PERMISSIONING
+        )
+        or not team.access_control
+    ):
+        return requesting_parent_membership.level
+    from ee.models import ExplicitTeamMembership
 
-    class TeamMemberAccessPermission(BasePermission):  # type: ignore
-        """If EE features are not available, this class is a just dummy."""
+    try:
+        return (
+            ExplicitTeamMembership.objects.select_related("team", "parent_membership", "parent_membership__user")
+            .get(team=team, parent_membership=requesting_parent_membership)
+            .effective_level
+        )
+    except ExplicitTeamMembership.DoesNotExist:
+        # Only organizations admins and above get implicit project membership
+        if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
+            return None
+        return requesting_parent_membership.level
 
-    class TeamMemberLightManagementPermission(BasePermission):  # type: ignore
-        """If EE features are not available, this class is a just dummy."""
 
-    class TeamMemberStrictManagementPermission(BasePermission):  # type: ignore
-        """If EE features are not available, this class is a just dummy."""
+class TeamMemberAccessPermission(BasePermission):
+    """Require effective project membership for any access at all."""
+
+    message = "You don't have access to the project."
+
+    def has_permission(self, request, view) -> bool:
+        try:
+            team = view.team
+        except Team.DoesNotExist:
+            return True  # This will be handled as a 404 in the viewset
+        requesting_level = get_effective_level(team, cast(User, request.user))
+        return requesting_level is not None
+
+
+class TeamMemberLightManagementPermission(BasePermission):
+    """
+    Require effective project membership for any access at all,
+    and at least admin effective project access level for write/delete.
+    """
+
+    message = "You don't have sufficient permissions in the project."
+
+    def has_permission(self, request, view) -> bool:
+        try:
+            if request.resolver_match.url_name == "team-detail":
+                # /projects/ endpoint handling
+                team = view.get_object()
+            else:
+                team = view.team
+        except Team.DoesNotExist:
+            return True  # This will be handled as a 404 in the viewset
+        requesting_level = get_effective_level(team, cast(User, request.user))
+        print(requesting_level)
+        if requesting_level is None:
+            return False
+        minimum_level = (
+            OrganizationMembership.Level.MEMBER if request.method != "DELETE" else OrganizationMembership.Level.ADMIN
+        )
+        return requesting_level >= minimum_level
+
+
+class TeamMemberStrictManagementPermission(BasePermission):
+    """
+    Require effective project membership for any access at all,
+    and at least admin effective project access level for write/delete.
+    """
+
+    message = "You don't have sufficient permissions in the project."
+
+    def has_permission(self, request, view) -> bool:
+        team = view.team
+        requesting_level = get_effective_level(team, cast(User, request.user))
+        if requesting_level is None:
+            return False
+        minimum_level = (
+            OrganizationMembership.Level.MEMBER
+            if request.method in SAFE_METHODS
+            else OrganizationMembership.Level.ADMIN
+        )
+        return requesting_level >= minimum_level

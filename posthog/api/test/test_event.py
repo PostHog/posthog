@@ -559,7 +559,6 @@ def factory_test_event_api(event_factory, person_factory, _):
 
         def test_get_events_with_specified_token(self):
             _, _, user2 = User.objects.bootstrap("Test", "team2@posthog.com", None)
-            print(user2.organization_memberships.all())
             assert user2.team is not None
             assert self.team is not None
 
@@ -579,6 +578,8 @@ def factory_test_event_api(event_factory, person_factory, _):
 
             response_team2_event2 = self.client.get(f"/api/event/{event2.id}/", data={"token": user2.team.api_token})
 
+            self.assertEqual(response_team1.status_code, status.HTTP_200_OK)
+            self.assertEqual(response_team1_token.status_code, status.HTTP_200_OK)
             self.assertEqual(response_team1.json(), response_team1_token.json())
             self.assertNotEqual(response_team1.json(), response_team2_event2.json())
             self.assertEqual(response_team2_event1.status_code, status.HTTP_403_FORBIDDEN)
