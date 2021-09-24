@@ -115,12 +115,12 @@ class StructuredViewSetMixin(NestedViewSetMixin):
                     if query_lookup == "team_id":
                         project = self.request.user.team
                         if project is None:
-                            raise NotFound("Current project not found.")
+                            raise NotFound("Project not found.")
                         query_value = project.id
                     elif query_lookup == "organization_id":
                         organization = self.request.user.organization
                         if organization is None:
-                            raise NotFound("Current organization not found.")
+                            raise NotFound("Organization not found.")
                         query_value = organization.id
                 elif query_lookup == "team_id":
                     try:
