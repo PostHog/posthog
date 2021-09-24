@@ -78,7 +78,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             // this action normalises them
             if (Array.isArray(properties)) {
                 if (properties.length === 0) {
-                    return { properties: {} }
+                    return { properties: [{}] }
                 } else {
                     return { properties }
                 }

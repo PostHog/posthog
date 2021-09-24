@@ -330,7 +330,7 @@ describe('eventsTableLogic', () => {
             it('can set the properties when empty', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([])
-                }).toMatchValues({ properties: {} })
+                }).toMatchValues({ properties: [{}] })
 
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([{}])
