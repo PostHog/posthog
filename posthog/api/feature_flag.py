@@ -130,8 +130,8 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
 
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
-        if not request.user.is_authenticated:  # for mypy
-            raise exceptions.NotAuthenticated()
+        if not request.user.is_authenticated:
+            return Response([])
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
             .prefetch_related(
