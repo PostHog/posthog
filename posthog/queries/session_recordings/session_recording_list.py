@@ -2,17 +2,18 @@ from typing import Any, Dict, List
 
 from django.db import connection
 
-from posthog.models import Filter, Person, Team
+from posthog.models import Person, Team
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.utils import namedtuplefetchall, sane_repr
 from posthog.queries.base import BaseQuery
 
 
 class SessionRecordingList(BaseQuery):
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
-    _filter: Filter
+    _filter: SessionRecordingsFilter
     _team: Team
 
-    def __init__(self, filter: Filter, team: Team) -> None:
+    def __init__(self, filter: SessionRecordingsFilter, team: Team) -> None:
         self._filter = filter
         self._team = team
 
@@ -56,7 +57,7 @@ class SessionRecordingList(BaseQuery):
             team_id=self._team.pk, distinct_id_clause=distinct_id_clause, limit=self.SESSION_RECORDINGS_DEFAULT_LIMIT
         )
 
-    def data_to_return(self, results: List[Person]) -> List[Dict[str, Any]]:
+    def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
         return [row._asdict() for row in results]
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:

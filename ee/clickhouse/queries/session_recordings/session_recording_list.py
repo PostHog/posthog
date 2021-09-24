@@ -1,7 +1,6 @@
 from typing import Any, Dict, List
 
 from ee.clickhouse.client import sync_execute
-from posthog.models import Person
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
@@ -31,9 +30,9 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     LIMIT {limit}
     """
 
-    def data_to_return(self, results: List[Person]) -> List[Dict[str, Any]]:
+    def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
         return [dict(zip(["session_id", "distinct_id", "start_time", "end_time", "duration"], row)) for row in results]
 
-    def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self) -> List[Dict[str, Any]]:
         results = sync_execute(self._build_query())
         return self.data_to_return(results)
