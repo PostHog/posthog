@@ -41,8 +41,8 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
 
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
-    apiUrl?: string
-    live?: boolean
+    apiUrl?: string // = 'api/event/'
+    live?: boolean // = false
     key?: string
 }
 
@@ -59,10 +59,6 @@ export interface ApiError {
     statusText?: string
 }
 
-// props:
-// - fixedFilters
-// - apiUrl = 'api/event/'
-// - live = false
 export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.
@@ -82,7 +78,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             // this action normalises them
             if (Array.isArray(properties)) {
                 if (properties.length === 0) {
-                    return { properties: [{}] }
+                    return { properties: {} }
                 } else {
                     return { properties }
                 }
