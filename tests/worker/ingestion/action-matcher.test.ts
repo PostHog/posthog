@@ -916,6 +916,11 @@ describe('ActionMatcher', () => {
                     selector: 'main > a[href="https://example.com/"]',
                 },
             ])
+            const actionDefinitionArraySelectorProp: Action = await createTestAction([
+                {
+                    properties: [{ type: 'element', key: 'selector', value: ['main h1.headline'] }],
+                },
+            ])
             const actionDefinitionEmptySelectorProp: Action = await createTestAction([
                 {
                     properties: [{ type: 'element', key: 'selector', value: '' }],
@@ -946,6 +951,7 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(event, undefined, elementsHrefProperNondirect)).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectHref,
+                actionDefinitionArraySelectorProp,
             ])
             expect(await actionMatcher.match(event, undefined, elementsHrefWrongClassNondirect)).toEqual([
                 actionDefinitionDirectHref,
@@ -953,6 +959,7 @@ describe('ActionMatcher', () => {
             expect(await actionMatcher.match(event, undefined, elementsHrefProperDirect)).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectDescendant,
+                actionDefinitionArraySelectorProp,
             ])
         })
 
