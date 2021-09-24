@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { DashboardItemLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
+import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const pathOptionsToLabels = {
@@ -46,7 +46,7 @@ interface PathNode {
 }
 
 export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
-    props: {} as DashboardItemLogicProps,
+    props: {} as SharedInsightLogicProps,
     key: (props) => {
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
