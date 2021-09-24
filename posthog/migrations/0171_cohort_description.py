@@ -11,6 +11,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="cohort", name="description", field=models.CharField(blank=True, max_length=400),
+            model_name="cohort", name="description", field=models.CharField(blank=True, max_length=1000),
         ),
     ]
