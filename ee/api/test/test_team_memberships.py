@@ -61,7 +61,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+            self.permission_denied_response("You don't have sufficient permissions in the project."), response_data
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -77,7 +77,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+            self.permission_denied_response("You don't have sufficient permissions in the project."), response_data
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -114,7 +114,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+            self.permission_denied_response("You don't have sufficient permissions in the project."), response_data
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -194,7 +194,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+            self.permission_denied_response("You don't have sufficient permissions in the project."), response_data
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -248,7 +248,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data
+            self.permission_denied_response("You don't have sufficient permissions in the project."), response_data
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -317,7 +317,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertDictEqual(
-            self.permission_denied_response("You don't have sufficient permissions in this project."), response_data,
+            self.permission_denied_response("You don't have sufficient permissions in the project."), response_data,
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 

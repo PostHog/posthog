@@ -156,8 +156,18 @@ class OrganizationAdminAnyPermissions(BasePermission):
 
 
 if settings.EE_AVAILABLE:
-    from ee.api.explicit_team_member import TeamMemberAccessPermission
+    from ee.permissions import (
+        TeamMemberAccessPermission,
+        TeamMemberLightManagementPermission,
+        TeamMemberStrictManagementPermission,
+    )
 else:
 
     class TeamMemberAccessPermission(BasePermission):  # type: ignore
+        """If EE features are not available, this class is a just dummy."""
+
+    class TeamMemberLightManagementPermission(BasePermission):  # type: ignore
+        """If EE features are not available, this class is a just dummy."""
+
+    class TeamMemberStrictManagementPermission(BasePermission):  # type: ignore
         """If EE features are not available, this class is a just dummy."""

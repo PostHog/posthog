@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
+from ee.permissions import TeamMemberLightManagementPermission
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
@@ -14,9 +15,9 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
+    OrganizationAdminAnyPermissions,
     OrganizationAdminWritePermissions,
     ProjectMembershipNecessaryPermissions,
-    TeamMemberAccessPermission,
 )
 
 
@@ -80,10 +81,26 @@ class TeamSerializer(serializers.ModelSerializer):
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         return team.get_effective_membership_level(self.context["request"].user)
 
+    def validate(self, attrs: Any) -> Any:
+        if "access_control" in attrs:
+            # Only organization-wide admins and above should be allowed to switch the project between open and private
+            # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
+            request = self.context["request"]
+            if self.instance is not None:
+                organization_id = self.instance.organization_id
+            else:
+                organization_id = self.context["view"].organization
+            org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
+                organization_id=organization_id, user=request.user
+            )
+            if org_membership.level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(OrganizationAdminAnyPermissions.message)
+        return super().validate(attrs)
+
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
-        organization = self.context["view"].organization  # use the org we used to validate permissions
+        organization = self.context["view"].organization  # Use the org we used to validate permissions
         with transaction.atomic():
             team = Team.objects.create_with_data(**validated_data, organization=organization)
             request.user.current_team = team
@@ -117,16 +134,16 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
         base_permissions = [permission() for permission in self.permission_classes]
-        if self.action in ("create", "destroy"):
+        if self.action == "create":
             organization = getattr(self.request.user, "organization", None)
             if not organization:
                 raise exceptions.ValidationError("You need to belong to an organization.")
             # To be used later by OrganizationAdminWritePermissions and TeamSerializer
             self.organization = organization
             base_permissions.append(OrganizationAdminWritePermissions())
-        if self.action not in ("list", "create"):
+        else:
             # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
-            base_permissions.append(TeamMemberAccessPermission())
+            base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
 
     def get_object(self):
