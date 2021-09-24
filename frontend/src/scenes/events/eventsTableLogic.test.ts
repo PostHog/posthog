@@ -333,11 +333,6 @@ describe('eventsTableLogic', () => {
                 }).toMatchValues({ properties: {} })
 
                 await expectLogic(logic, () => {
-                    // @ts-ignore
-                    logic.actions.setProperties({})
-                }).toMatchValues({ properties: [{}] })
-
-                await expectLogic(logic, () => {
                     logic.actions.setProperties([{}])
                 }).toMatchValues({ properties: [{}] })
             })
