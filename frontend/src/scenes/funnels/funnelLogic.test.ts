@@ -264,7 +264,6 @@ describe('funnelLogic', () => {
 
                 await expectLogic(logic)
                     .toDispatchActions(['setCachedResults', 'setCachedResultsSuccess'])
-                    .printActions({ compact: true })
                     .toMatchValues({
                         results: ['cached result'],
                         filters: expect.objectContaining({
