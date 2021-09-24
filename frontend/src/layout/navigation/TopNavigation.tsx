@@ -283,7 +283,7 @@ export function TopNavigation(): JSX.Element {
                     )
                 }
                 style={{
-                    cursor: isProjectCreationForbidden ? 'default' : undefined,
+                    cursor: isProjectCreationForbidden ? 'default' : 'not-allowed',
                     color: isProjectCreationForbidden ? 'var(--text-muted)' : undefined,
                 }}
             >
