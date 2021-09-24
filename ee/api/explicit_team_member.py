@@ -72,18 +72,11 @@ class TeamMemberManagementPermission(BasePermission):
         requesting_team_membership = get_ephemeral_requesting_team_membership(team, cast(User, request.user))
         if requesting_team_membership is None:
             return False
-        if (
-            view.kwargs.get("parent_membership__user__uuid") == str(getattr(request.user, "uuid"))
-            and request.method == "DELETE"
-        ):
-            # Special check to allow all project members to leave projects, not just admins
-            minimum_level = ExplicitTeamMembership.Level.MEMBER
-        else:
-            minimum_level = (
-                ExplicitTeamMembership.Level.MEMBER
-                if request.method in SAFE_METHODS
-                else ExplicitTeamMembership.Level.ADMIN
-            )
+        minimum_level = (
+            ExplicitTeamMembership.Level.MEMBER
+            if request.method in SAFE_METHODS
+            else ExplicitTeamMembership.Level.ADMIN
+        )
         return requesting_team_membership.effective_level >= minimum_level
 
 
@@ -183,6 +176,16 @@ class ExplicitTeamMemberViewSet(
         except Team.DoesNotExist:
             raise exceptions.NotFound("Project not found.")
         return serializer_context
+
+    def get_permissions(self):
+        if (
+            self.action == "destroy"
+            and self.request.user.is_authenticated
+            and self.kwargs.get("parent_membership__user__uuid") == str(self.request.user.uuid)
+        ):
+            # Special case: allow already authenticated users to leave projects
+            return []
+        return super().get_permissions()
 
     def get_object(self) -> ExplicitTeamMembership:
         queryset = self.filter_queryset(self.get_queryset())
