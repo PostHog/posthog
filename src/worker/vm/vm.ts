@@ -56,6 +56,9 @@ export async function createPluginConfigVM(
 
     vm.freeze(RetryError, 'RetryError')
 
+    // Bring some useful globals into scope
+    vm.freeze(URL, 'URL')
+
     // Creating this outside the vm (so not in a babel plugin for example)
     // because `setTimeout` is not available inside the vm... and we don't want to
     // make it available for now, as it makes it easier to create malicious code
