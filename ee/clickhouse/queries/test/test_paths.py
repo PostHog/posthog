@@ -351,6 +351,89 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             0, len(self._get_people_at_path(path_filter, "4_step branch", "3_step dropoff2", funnel_filter))
         )
 
+    def test_path_by_funnel_after_step_respects_conversion_window(self):
+        # note events happen after 1 day
+        for i in range(5):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(
+                event="between_step_1_a", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-02 00:00:00"
+            )
+            _create_event(
+                event="between_step_1_b", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00"
+            )
+            _create_event(
+                event="between_step_1_c", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-04 00:00:00"
+            )
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-06 00:00:00")
+
+        for i in range(15, 35):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(
+                event="step dropoff1", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-02 00:00:00"
+            )
+            _create_event(
+                event="step dropoff2", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00"
+            )
+            if i % 2 == 0:
+                _create_event(
+                    event="step branch", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-04 00:00:00"
+                )
+
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": -2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePaths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {
+                    "source": "1_step one",
+                    "target": "2_step dropoff1",
+                    "value": 20,
+                    "average_conversion_time": ONE_MINUTE * 60 * 24,
+                },
+                {
+                    "source": "2_step dropoff1",
+                    "target": "3_step dropoff2",
+                    "value": 20,
+                    "average_conversion_time": ONE_MINUTE * 60 * 24,
+                },
+                {
+                    "source": "3_step dropoff2",
+                    "target": "4_step branch",
+                    "value": 10,
+                    "average_conversion_time": ONE_MINUTE * 60 * 24,
+                },
+            ],
+        )
+        self.assertEqual(20, len(self._get_people_at_path(path_filter, "1_step one", "2_step dropoff1", funnel_filter)))
+        self.assertEqual(
+            20, len(self._get_people_at_path(path_filter, "2_step dropoff1", "3_step dropoff2", funnel_filter))
+        )
+        self.assertEqual(
+            10, len(self._get_people_at_path(path_filter, "3_step dropoff2", "4_step branch", funnel_filter))
+        )
+        self.assertEqual(
+            0, len(self._get_people_at_path(path_filter, "4_step branch", "3_step dropoff2", funnel_filter))
+        )
+
     def test_path_by_funnel_after_step(self):
         self._create_sample_data_multiple_dropoffs()
         data = {
@@ -390,7 +473,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ],
         )
 
-    def test_path_by_funneL_before_dropoff(self):
+    def test_path_by_funnel_before_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
         data = {
             "insight": INSIGHT_FUNNELS,
@@ -819,7 +902,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             {
                 "include_event_types": ["$pageview", "$screen", "custom_event"],
                 "include_custom_events": [],
-                "exclude_events": ["/custom1", "$pageview"],
+                "exclude_events": ["/custom1", "/1", "/2", "/3"],
             }
         )
         response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -1196,6 +1279,20 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             response, [{"source": "1_/5", "target": "2_/about", "value": 2, "average_conversion_time": 60000.0}]
         )
         self.assertCountEqual(self._get_people_at_path(filter, "1_/5", "2_/about"), [p1.uuid, p2.uuid])
+
+        # test aggregation for long paths
+        filter = filter.with_data({"start_point": "/2", "step_limit": 4})
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/2", "target": "2_/3", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/3", "target": "3_...", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "3_...", "target": "4_/5", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "4_/5", "target": "5_/about", "value": 1, "average_conversion_time": ONE_MINUTE},
+            ],
+        )
+        self.assertCountEqual(self._get_people_at_path(filter, "3_...", "4_/5"), [p1.uuid])
 
     def test_properties_queried_using_path_filter(self):
         def should_query_list(filter) -> Tuple[bool, bool]:
