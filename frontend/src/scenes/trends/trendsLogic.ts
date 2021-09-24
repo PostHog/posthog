@@ -303,16 +303,12 @@ export const trendsLogic = kea<trendsLogicType>({
         ],
         indexedResults: [
             (s) => [s.filters, s.results, s.toggledLifecycles],
-            (filters, results, toggledLifecycles): IndexedTrendResult[] => {
-                if (!results) {
-                    return []
-                } else if (filters.insight === ViewType.LIFECYCLE) {
-                    return results
-                        .filter((result) => toggledLifecycles.includes(String(result.status)))
-                        .map((result, idx) => ({ ...result, id: idx }))
-                } else {
-                    return results.map((element, index) => ({ ...element, id: index }))
+            (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
+                let results = _results || []
+                if (filters.insight === ViewType.LIFECYCLE) {
+                    results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
+                return results.map((result, index) => ({ ...result, id: index }))
             },
         ],
     }),
