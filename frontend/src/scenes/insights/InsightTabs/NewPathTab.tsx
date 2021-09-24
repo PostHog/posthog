@@ -24,34 +24,35 @@ export function NewPathTab(): JSX.Element {
             <Row>
                 <Col span={12}>
                     <Col className="event-types" style={{ paddingBottom: 16 }}>
-                        <span style={{ paddingRight: 16 }}>Showing paths from</span>
                         <Row align="middle">
                             <Col span={3}>
                                 <b>Events:</b>
                             </Col>
-                            <Col span={7}>
-                                <Checkbox /> Pageview events
+                            <Col span={7} className="ant-btn left">
+                                <Checkbox>Pageview events</Checkbox>
                             </Col>
-                            <Col span={7}>
-                                <Checkbox /> Screenview events
+                            <Col span={7} className="ant-btn center">
+                                <Checkbox>Screenview events</Checkbox>
                             </Col>
-                            <Col span={7}>
-                                <Checkbox /> Custom events
+                            <Col span={7} className="ant-btn right">
+                                <Checkbox>Custom events</Checkbox>
                             </Col>
                         </Row>
+                        <hr />
                         <Row align="middle">
                             <Col>
                                 <b>Wildcard groups: (optional)</b>
                             </Col>
                             <Select
                                 mode="tags"
-                                style={{ width: '100%' }}
+                                style={{ width: '100%', marginTop: 5 }}
                                 onChange={(val) => {
                                     console.log(val)
                                 }}
                                 tokenSeparators={[',', ' ']}
                             />
                         </Row>
+                        <hr />
                         <Row align="middle">
                             <Col span={9}>
                                 <b>Starting at</b>
@@ -77,6 +78,7 @@ export function NewPathTab(): JSX.Element {
                                 </PathItemSelector>
                             </Col>
                         </Row>
+                        <hr />
                         <Row align="middle">
                             <Col span={9}>
                                 <b>Ending at</b>

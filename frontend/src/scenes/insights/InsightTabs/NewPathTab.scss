@@ -2,11 +2,32 @@
 
 .event-types {
     .ant-row {
-        border: 1px solid $border;
         padding-left: 10px;
         padding-right: 10px;
-        padding-top: 12px;
-        padding-bottom: 12px;
+        padding-top: 2px;
+        padding-bottom: 2px;
+    }
+}
+
+.ant-btn {
+    padding-top: 20px;
+    padding-bottom: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    &.left {
+        border-top-right-radius: 0px;
+        border-bottom-right-radius: 0px;
+    }
+
+    &.center {
+        border-radius: 0px;
+    }
+
+    &.right {
+        border-top-left-radius: 0px;
+        border-bottom-left-radius: 0px;
     }
 }
 
