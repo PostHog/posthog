@@ -1,18 +1,17 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { pathOptionsToProperty, pathsLogic, pathOptionsToLabels } from 'scenes/paths/pathsLogic'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Row, Select } from 'antd'
-import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { PathType } from '~/types'
 import './NewPathTab.scss'
 import { GlobalFiltersTitle } from '../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { Popup } from 'lib/components/Popup/Popup'
 
 import { PlusCircleOutlined } from '@ant-design/icons'
+import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
+import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 
 export function NewPathTab(): JSX.Element {
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
@@ -28,7 +27,9 @@ export function NewPathTab(): JSX.Element {
                     <Col className="event-types" style={{ paddingBottom: 16 }}>
                         <span style={{ paddingRight: 16 }}>Showing paths from</span>
                         <Row align="middle">
-                            <Col span={3}> Events:</Col>
+                            <Col span={3}>
+                                <b>Events:</b>
+                            </Col>
                             <Col span={7}>
                                 <Checkbox /> Pageview events
                             </Col>
@@ -40,7 +41,9 @@ export function NewPathTab(): JSX.Element {
                             </Col>
                         </Row>
                         <Row align="middle">
-                            <Col> Wildcard groups: (optional) </Col>
+                            <Col>
+                                <b>Wildcard groups: (optional)</b>
+                            </Col>
                             <Select
                                 mode="tags"
                                 style={{ width: '100%' }}
@@ -52,7 +55,7 @@ export function NewPathTab(): JSX.Element {
                         </Row>
                         <Row align="middle">
                             <Col span={9}>
-                                <span>Starting at</span>
+                                <b>Starting at</b>
                             </Col>
                             <Col span={15}>
                                 <PathItemSelector
@@ -74,7 +77,7 @@ export function NewPathTab(): JSX.Element {
                         </Row>
                         <Row align="middle">
                             <Col span={9}>
-                                <span>Ending at</span>
+                                <b>Ending at</b>
                             </Col>
                             <Col span={15}>
                                 <PathItemSelector
@@ -100,92 +103,11 @@ export function NewPathTab(): JSX.Element {
                     <GlobalFiltersTitle title={'Filters'} unit="actions/events" />
                     <PropertyFilters pageKey="insight-path" />
                     <TestAccountFilter filters={filter} onChange={setFilter} />
+                    <hr />
+                    <GlobalFiltersTitle title={'Exclusion'} unit="actions/events" />
+                    <PathItemFilters pageKey={'exclusion'} />
                 </Col>
             </Row>
         </>
-    )
-}
-
-interface PathItem {
-    type: PathType
-    item: string | undefined
-}
-
-interface PathItemSelectorProps {
-    pathItem: PathItem
-    onChange: (item: PathItem) => void
-    children: JSX.Element
-    index: number
-}
-
-function PathItemSelector({ pathItem, onChange, children }: PathItemSelectorProps): JSX.Element {
-    const { customEventNames } = useValues(eventDefinitionsModel)
-    const [visible, setVisible] = useState(false)
-
-    return (
-        <Popup
-            visible={visible}
-            placement={'bottom-end'}
-            fallbackPlacements={['bottom-start']}
-            onClickOutside={() => setVisible(false)}
-            overlay={
-                <div className={`taxonomic-property-filter in-dropdown small`}>
-                    <div className="taxonomic-filter-row">
-                        <Col className={'taxonomic-where'}>
-                            <span>Type:</span>
-                        </Col>
-                        <Col className={'taxonomic-button'}>
-                            <Select
-                                value={pathItem.type}
-                                defaultValue={PathType.PageView}
-                                dropdownMatchSelectWidth={false}
-                                onChange={(value): void => onChange({ type: value, item: undefined })}
-                                style={{ paddingTop: 2 }}
-                            >
-                                {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
-                                    return (
-                                        <Select.Option key={index} value={value}>
-                                            {name}
-                                        </Select.Option>
-                                    )
-                                })}
-                            </Select>
-                        </Col>
-                        <Col className={'taxonomic-operator'}>event:</Col>
-                        <Col className={'taxonomic-value-select'}>
-                            <PropertyValue
-                                outerOptions={
-                                    pathItem.type === PathType.CustomEvent
-                                        ? customEventNames.map((name) => ({
-                                              name,
-                                          }))
-                                        : undefined
-                                }
-                                onSet={(value: string): void =>
-                                    onChange({
-                                        ...pathItem,
-                                        item: value,
-                                    })
-                                }
-                                propertyKey={pathOptionsToProperty[pathItem.type || PathType.PageView]}
-                                type="event"
-                                style={{ paddingTop: 2 }}
-                                value={pathItem.item}
-                                placeholder={'Select start element'}
-                                autoFocus={false}
-                            />
-                        </Col>
-                    </div>
-                </div>
-            }
-        >
-            {({ setRef }) => {
-                return (
-                    <div ref={setRef} onClick={() => setVisible(true)}>
-                        {children}
-                    </div>
-                )
-            }}
-        </Popup>
     )
 }
