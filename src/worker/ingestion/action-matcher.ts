@@ -335,7 +335,10 @@ export class ActionMatcher {
      */
     private checkEventAgainstElementFilter(elements: Element[], filter: ElementPropertyFilter): boolean {
         if (filter.key === 'selector') {
-            return filter.value ? this.checkElementsAgainstSelector(elements, filter.value) : false
+            const okValues = Array.isArray(filter.value) ? filter.value : [filter.value]
+            return okValues.some((okValue) =>
+                okValue ? this.checkElementsAgainstSelector(elements, okValue.toString()) : false
+            )
         } else {
             return elements.some((element) => this.checkPropertiesAgainstFilter(element, filter))
         }
