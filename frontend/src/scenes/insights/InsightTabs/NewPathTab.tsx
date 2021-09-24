@@ -11,6 +11,7 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
+import { CheckboxChangeEvent } from 'antd/lib/checkbox'
 
 export function NewPathTab(): JSX.Element {
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
@@ -18,6 +19,22 @@ export function NewPathTab(): JSX.Element {
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
+
+    const onChangeCheckbox = (e: CheckboxChangeEvent, pathType: PathType): void => {
+        if (e.target.checked) {
+            setFilter({
+                include_event_types: filter.include_event_types
+                    ? [...filter.include_event_types, pathType]
+                    : [pathType],
+            })
+        } else {
+            setFilter({
+                include_event_types: filter.include_event_types
+                    ? filter.include_event_types.filter((types) => types !== pathType)
+                    : [],
+            })
+        }
+    }
 
     return (
         <>
@@ -29,13 +46,34 @@ export function NewPathTab(): JSX.Element {
                                 <b>Events:</b>
                             </Col>
                             <Col span={7} className="ant-btn left">
-                                <Checkbox>Pageview events</Checkbox>
+                                <Checkbox
+                                    checked={filter.include_event_types?.includes(PathType.PageView)}
+                                    onChange={(e) => {
+                                        onChangeCheckbox(e, PathType.PageView)
+                                    }}
+                                >
+                                    Pageview events
+                                </Checkbox>
                             </Col>
                             <Col span={7} className="ant-btn center">
-                                <Checkbox>Screenview events</Checkbox>
+                                <Checkbox
+                                    checked={filter.include_event_types?.includes(PathType.Screen)}
+                                    onChange={(e) => {
+                                        onChangeCheckbox(e, PathType.Screen)
+                                    }}
+                                >
+                                    Screenview events
+                                </Checkbox>
                             </Col>
                             <Col span={7} className="ant-btn right">
-                                <Checkbox>Custom events</Checkbox>
+                                <Checkbox
+                                    checked={filter.include_event_types?.includes(PathType.CustomEvent)}
+                                    onChange={(e) => {
+                                        onChangeCheckbox(e, PathType.CustomEvent)
+                                    }}
+                                >
+                                    Custom events
+                                </Checkbox>
                             </Col>
                         </Row>
                         <hr />
@@ -46,10 +84,9 @@ export function NewPathTab(): JSX.Element {
                             <Select
                                 mode="tags"
                                 style={{ width: '100%', marginTop: 5 }}
-                                onChange={(val) => {
-                                    console.log(val)
-                                }}
+                                onChange={(groupings) => setFilter({ groupings })}
                                 tokenSeparators={[',', ' ']}
+                                value={filter.groupings || []}
                             />
                         </Row>
                         <hr />
@@ -59,9 +96,17 @@ export function NewPathTab(): JSX.Element {
                             </Col>
                             <Col span={15}>
                                 <PathItemSelector
-                                    pathItem={{ type: filter.path_type || PathType.PageView, item: filter.start_point }}
+                                    pathItem={{
+                                        type: filter.start_point_type || PathType.PageView,
+                                        item: filter.start_point,
+                                    }}
                                     index={0}
-                                    onChange={() => {}}
+                                    onChange={(pathItem) =>
+                                        setFilter({
+                                            start_point: pathItem.item,
+                                            start_point_type: pathItem.type,
+                                        })
+                                    }
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 1}
@@ -73,7 +118,9 @@ export function NewPathTab(): JSX.Element {
                                             justifyContent: 'space-between',
                                         }}
                                     >
-                                        Add start point
+                                        {filter.start_point && filter.start_point_type
+                                            ? filter.start_point_type + ' ' + filter.start_point
+                                            : 'Add start point'}
                                     </Button>
                                 </PathItemSelector>
                             </Col>
@@ -85,9 +132,17 @@ export function NewPathTab(): JSX.Element {
                             </Col>
                             <Col span={15}>
                                 <PathItemSelector
-                                    pathItem={{ type: filter.path_type || PathType.PageView, item: filter.start_point }}
+                                    pathItem={{
+                                        type: filter.end_point_type || PathType.PageView,
+                                        item: filter.end_point,
+                                    }}
                                     index={1}
-                                    onChange={() => {}}
+                                    onChange={(pathItem) =>
+                                        setFilter({
+                                            end_point: pathItem.item,
+                                            end_point_type: pathItem.type,
+                                        })
+                                    }
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 0}
@@ -99,7 +154,9 @@ export function NewPathTab(): JSX.Element {
                                             justifyContent: 'space-between',
                                         }}
                                     >
-                                        Add end point
+                                        {filter.end_point && filter.end_point_type
+                                            ? filter.end_point_type + ' ' + filter.end_point
+                                            : 'Add end point'}
                                     </Button>
                                 </PathItemSelector>
                             </Col>

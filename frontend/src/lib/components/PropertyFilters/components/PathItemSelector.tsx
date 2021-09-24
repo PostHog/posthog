@@ -3,14 +3,9 @@ import { useValues } from 'kea'
 import { Popup } from 'lib/components/Popup/Popup'
 import { PathType } from '~/types'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { pathOptionsToLabels, pathOptionsToProperty } from 'scenes/paths/pathsLogic'
+import { pathOptionsToLabels, pathOptionsToProperty, PathItem } from 'scenes/paths/pathsLogic'
 import { Col, Select } from 'antd'
 import { PropertyValue } from '..'
-
-interface PathItem {
-    type?: PathType
-    item?: string | undefined
-}
 
 interface PathItemSelectorProps {
     pathItem: PathItem
@@ -62,12 +57,13 @@ export function PathItemSelector({ pathItem, onChange, children }: PathItemSelec
                                           }))
                                         : undefined
                                 }
-                                onSet={(value: string): void =>
+                                onSet={(value: string): void => {
                                     onChange({
                                         ...pathItem,
                                         item: value,
                                     })
-                                }
+                                    setVisible(false)
+                                }}
                                 propertyKey={pathOptionsToProperty[pathItem.type || PathType.PageView]}
                                 type="event"
                                 style={{ paddingTop: 2 }}
