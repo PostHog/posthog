@@ -5,7 +5,6 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
-from ee.permissions import TeamMemberLightManagementPermission
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
@@ -18,6 +17,7 @@ from posthog.permissions import (
     OrganizationAdminAnyPermissions,
     OrganizationAdminWritePermissions,
     ProjectMembershipNecessaryPermissions,
+    TeamMemberLightManagementPermission,
 )
 
 
