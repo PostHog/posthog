@@ -215,14 +215,6 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                     ')'
                 )
             })
-            .append('tspan')
-            .text((d) => {
-                return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
-            })
-
-        link.append('title').text(
-            (d) => `${stripHTTP(d.source.name)} → ${stripHTTP(d.target.name)}\n${d.value.toLocaleString()}`
-        )
     }
 
     const dropOffValue = (pathItemCard) => {
@@ -271,7 +263,7 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
                                                             {(
                                                                 (completedValue(pathItemCard.sourceLinks) /
-                                                                    pathItemCard.targetLinks[0]?.source.value) *
+                                                                    pathItemCard.value) *
                                                                 100
                                                             ).toFixed(1)}
                                                             %
@@ -300,8 +292,7 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                                         {dropOffValue(pathItemCard)}{' '}
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
                                                             {(
-                                                                (dropOffValue(pathItemCard) /
-                                                                    pathItemCard.targetLinks[0]?.source.value) *
+                                                                (dropOffValue(pathItemCard) / pathItemCard.value) *
                                                                 100
                                                             ).toFixed(1)}
                                                             %
