@@ -1,5 +1,5 @@
 import { BuiltLogic, Logic } from 'kea'
-import { ActionFilter, DashboardItemLogicProps, EntityFilter, InsightType, ViewType } from '~/types'
+import { SharedInsightLogicProps, InsightType, ViewType, EntityFilter, ActionFilter } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -7,7 +7,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export const getLogicFromInsight = (
     insight: InsightType | undefined,
-    logicProps: DashboardItemLogicProps
+    logicProps: SharedInsightLogicProps
 ): Logic & BuiltLogic => {
     if (insight === ViewType.FUNNELS) {
         return funnelLogic(logicProps)
