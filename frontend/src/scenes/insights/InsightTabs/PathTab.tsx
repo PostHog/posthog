@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathOptionsToLabels, pathOptionsToProperty, pathsLogic } from 'scenes/paths/pathsLogic'
@@ -7,17 +7,30 @@ import { PropertyValue } from 'lib/components/PropertyFilters'
 import { TestAccountFilter } from '../TestAccountFilter'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { PathType } from '~/types'
+import { PathEdgeParameters, PathType } from '~/types'
 import { GlobalFiltersTitle } from '../common'
 
 export function PathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
-
+    const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
+        edge_limit: filter.edge_limit,
+        min_edge_weight: filter.min_edge_weight,
+        max_edge_weight: filter.max_edge_weight,
+    })
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
 
+    const updateEdgeParameters = (): void => {
+        if (
+            localEdgeParameters.edge_limit !== filter.edge_limit ||
+            localEdgeParameters.min_edge_weight !== filter.min_edge_weight ||
+            localEdgeParameters.max_edge_weight !== filter.max_edge_weight
+        ) {
+            setFilter({ ...localEdgeParameters })
+        }
+    }
     return (
         <Row gutter={16}>
             <Col md={16} xs={24}>
@@ -60,32 +73,40 @@ export function PathTab(): JSX.Element {
                         />
                     </Col>
                 </Row>
-                <Row>
-                    <Col>Edge limit</Col>
+                <Row gutter={8} align="middle" className="mt-05">
+                    <Col>Maximum number of Paths</Col>
                     <Col>
                         <InputNumber
                             style={{ paddingTop: 2, width: '80px', marginLeft: 5, marginRight: 5 }}
                             size="small"
-                            min={10}
+                            min={0}
                             max={1000}
                             defaultValue={100}
-                            onChange={(value): void => {
-                                if (value) {
-                                    setFilter({ edge_limit: value })
-                                }
-                            }}
-                            // onBlur={onChange}
-                            // onPressEnter={onChange}
+                            onChange={(value): void =>
+                                setLocalEdgeParameters((state) => ({
+                                    ...state,
+                                    edge_limit: Number(value),
+                                }))
+                            }
+                            onBlur={updateEdgeParameters}
+                            onPressEnter={updateEdgeParameters}
                         />
                     </Col>
                 </Row>
-                <Row>
-                    <Col>Edge Weight between</Col>
+                <Row gutter={8} align="middle" className="mt-05">
+                    <Col>Number of people on each Path between</Col>
                     <Col>
                         <InputNumber
                             style={{ paddingTop: 2, width: '80px', marginLeft: 5, marginRight: 5 }}
                             size="small"
-                            onChange={(value): void => setFilter({ min_edge_weight: value })}
+                            onChange={(value): void =>
+                                setLocalEdgeParameters((state) => ({
+                                    ...state,
+                                    min_edge_weight: Number(value),
+                                }))
+                            }
+                            onBlur={updateEdgeParameters}
+                            onPressEnter={updateEdgeParameters}
                         />
                     </Col>
                     <Col>and</Col>
@@ -93,7 +114,14 @@ export function PathTab(): JSX.Element {
                         <InputNumber
                             style={{ paddingTop: 2, width: '80px', marginLeft: 5, marginRight: 5 }}
                             size="small"
-                            onChange={(value): void => setFilter({ max_edge_weight: value })}
+                            onChange={(value): void =>
+                                setLocalEdgeParameters((state) => ({
+                                    ...state,
+                                    max_edge_weight: Number(value),
+                                }))
+                            }
+                            onBlur={updateEdgeParameters}
+                            onPressEnter={updateEdgeParameters}
                         />
                     </Col>
                 </Row>

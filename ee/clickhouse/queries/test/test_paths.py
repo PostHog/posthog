@@ -1,6 +1,8 @@
 from typing import Tuple
+from unittest.mock import MagicMock
 from uuid import uuid4
 
+from django.test import TestCase
 from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -1546,6 +1548,13 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             timestamp="2021-05-01 00:01:00",
         )
         _create_event(
+            properties={"$current_url": "/a"},
+            distinct_id="person_r_2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:01:30",
+        )
+        _create_event(
             properties={"$current_url": "/x"},
             distinct_id="person_r_2",
             event="$pageview",
@@ -1557,7 +1566,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             distinct_id="person_r_2",
             event="$pageview",
             team=self.team,
-            timestamp="2021-05-01 00:02:00",
+            timestamp="2021-05-01 00:03:00",
         )
 
         p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_r_3"])
@@ -1569,6 +1578,13 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             timestamp="2021-05-01 00:01:00",
         )
         _create_event(
+            properties={"$current_url": "/b"},
+            distinct_id="person_r_3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:01:30",
+        )
+        _create_event(
             properties={"$current_url": "/x"},
             distinct_id="person_r_3",
             event="$pageview",
@@ -1580,10 +1596,10 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             distinct_id="person_r_3",
             event="$pageview",
             team=self.team,
-            timestamp="2021-05-01 00:02:00",
+            timestamp="2021-05-01 00:03:00",
         )
 
-        # /x -> /about has higher weight than /2 -> /x
+        # /x -> /about has higher weight than /2 -> /a -> /x and /2 -> /b -> /x
 
         filter = PathFilter(
             data={
@@ -1591,14 +1607,54 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 "start_point": "/2",
                 "date_from": "2021-05-01 00:00:00",
                 "date_to": "2021-05-07 00:00:00",
-                "limit": "6",
+                "edge_limit": "6",
             }
         )
         response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
-        print(response)
         self.assertEqual(
-            response, [{"source": "1_/5", "target": "2_/about", "value": 2, "average_conversion_time": 60000.0}]
+            response,
+            [
+                {"source": "1_/2", "target": "2_/3", "value": 5, "average_conversion_time": 60000.0},
+                {"source": "2_/3", "target": "3_/4", "value": 5, "average_conversion_time": 60000.0},
+                {"source": "3_/4", "target": "4_/5", "value": 5, "average_conversion_time": 60000.0},
+                {"source": "4_/5", "target": "5_/about", "value": 5, "average_conversion_time": 60000.0},
+                # {'source': '3_/x', 'target': '4_/about', 'value': 2, 'average_conversion_time': 60000.0}, # gets deleted by validation since dangling
+                {"source": "1_/2", "target": "2_/a", "value": 1, "average_conversion_time": 30000.0},
+            ],
         )
 
-        # TODO: fix test, complete validation conditions: doesn't need to happen every time. And figure out what to do with UI.
-        # Separate from the edge weight limit mods
+
+class TestClickhousePathsEdgeValidation(TestCase):
+
+    BASIC_PATH = [("1_a", "2_b"), ("2_b", "3_c"), ("3_c", "4_d")]  # a->b->c->d
+    BASIC_PATH_2 = [("1_x", "2_y"), ("2_y", "3_z")]  # x->y->z
+
+    def test_basic_forest(self):
+        edges = self.BASIC_PATH + self.BASIC_PATH_2
+
+        results = ClickhousePaths(PathFilter(), MagicMock()).validate_results(edges)
+
+        self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
+
+    def test_basic_forest_with_dangling_edges(self):
+        edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_xxx", "3_yyy")]
+
+        results = ClickhousePaths(PathFilter(), MagicMock()).validate_results(edges)
+
+        self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
+
+    def test_basic_forest_with_dangling_and_cross_edges(self):
+        edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_y", "3_c")]
+
+        results = ClickhousePaths(PathFilter(), MagicMock()).validate_results(edges)
+
+        self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2 + [("2_y", "3_c")])
+
+    def test_no_start_point(self):
+        edges = set(self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d")])
+        edges.remove(("1_a", "2_b"))  # remove first start point
+        edges = list(edges)  # type: ignore
+
+        results = ClickhousePaths(PathFilter(), MagicMock()).validate_results(edges)
+
+        self.assertCountEqual(results, self.BASIC_PATH_2)

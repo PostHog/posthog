@@ -39,8 +39,16 @@ class ClickhousePaths:
         if not self._filter.limit:
             self._filter = self._filter.with_data({LIMIT: 100})
 
-        if not self._filter.edge_limit:
-            self._filter = self._filter.with_data({PATH_EDGE_LIMIT: 100})
+        if self._filter.edge_limit is None:
+            if self._filter.start_point and self._filter.end_point:
+                # no edge restriction when both start and end points are defined
+                self._filter = self._filter.with_data({PATH_EDGE_LIMIT: 0})
+            else:
+                self._filter = self._filter.with_data({PATH_EDGE_LIMIT: 100})
+
+        if self._filter.max_edge_weight and self._filter.min_edge_weight:
+            if self._filter.max_edge_weight < self._filter.min_edge_weight:
+                raise ValidationError("Max Edge weight can't be lower than min edge weight")
 
         if self._filter.path_groupings:
             regex_groupings = []
@@ -51,11 +59,13 @@ class ClickhousePaths:
                 regex_groupings.append(regex_grouping)
             self.params["regex_groupings"] = regex_groupings
 
-        # TODO: don't allow including $pageview and excluding $pageview at the same time
-
     def run(self, *args, **kwargs):
 
-        results = self.validate_results(self._exec_query())
+        results = self._exec_query()
+
+        if not self._filter.min_edge_weight and not self._filter.max_edge_weight:
+            results = self.validate_results(results)
+
         return self._format_results(results)
 
     def _format_results(self, results):
@@ -152,7 +162,7 @@ class ClickhousePaths:
             return ""
 
     def get_edge_weight_clause(self) -> Tuple[str, Dict]:
-        params: Dict[str, Union[str, None]] = {}
+        params: Dict[str, int] = {}
 
         conditions = []
 
@@ -222,6 +232,10 @@ class ClickhousePaths:
             )
 
     def validate_results(self, results):
+        # Query guarantees results list to be:
+        # 1. Directed, Acyclic Tree where each node has only 1 child
+        # 2. All start nodes beginning with 1_
+
         seen = set()  # source nodes that've been traversed
         edges = defaultdict(list)
         validated_results = []
@@ -230,6 +244,7 @@ class ClickhousePaths:
         for result in results:
             edges[result[0]].append(result[1])
             if result[0].startswith("1_"):
+                # All nodes with 1_ are valid starting nodes
                 starting_nodes_stack.append(result[0])
 
         while starting_nodes_stack:

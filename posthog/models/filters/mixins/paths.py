@@ -190,7 +190,7 @@ class PathLimitsMixin(BaseParamMixin):
     @cached_property
     def edge_limit(self) -> Optional[int]:
         raw_value = self._data.get(PATH_EDGE_LIMIT, None)
-        return int(raw_value) if raw_value else None
+        return int(raw_value) if raw_value is not None else None
 
     @cached_property
     def min_edge_weight(self) -> Optional[int]:

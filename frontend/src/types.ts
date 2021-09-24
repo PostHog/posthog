@@ -742,6 +742,9 @@ export interface FilterType {
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
     hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
+    edge_limit?: number | undefined // Paths edge limit
+    min_edge_weight?: number | undefined // Paths
+    max_edge_weight?: number | undefined // Paths
 }
 
 export interface SystemStatusSubrows {
@@ -1162,3 +1165,9 @@ export interface AppContext {
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
+
+export interface PathEdgeParameters {
+    edge_limit?: number | undefined
+    min_edge_weight?: number | undefined
+    max_edge_weight?: number | undefined
+}
