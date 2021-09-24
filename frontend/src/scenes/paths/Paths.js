@@ -5,10 +5,11 @@ import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Menu, Dropdown } from 'antd'
+import { Button, Menu, Dropdown } from 'antd'
 import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
+import './Paths.scss'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -248,12 +249,14 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                             <>
                                 <Dropdown
                                     overlay={
-                                        <Menu style={{ marginTop: -4 }}>
+                                        <Menu style={{ marginTop: -5, borderRadius: '0px 0px 4px 4px' }}>
                                             <Menu.Item
                                                 style={{
                                                     display: 'flex',
                                                     justifyContent: 'space-between',
                                                     alignItems: 'center',
+                                                    borderRadius: 0,
+                                                    padding: '3px 12px',
                                                 }}
                                             >
                                                 <span>
@@ -283,6 +286,7 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                                         display: 'flex',
                                                         justifyContent: 'space-between',
                                                         alignItems: 'center',
+                                                        padding: '3px 12px',
                                                     }}
                                                 >
                                                     <span style={{ display: 'flex' }}>
@@ -311,6 +315,7 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                                         display: 'flex',
                                                         justifyContent: 'space-between',
                                                         borderTop: '1px solid var(--border)',
+                                                        padding: '3px 12px',
                                                     }}
                                                 >
                                                     <span>
@@ -328,7 +333,7 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                     }
                                     placement="bottomCenter"
                                 >
-                                    <div
+                                    <Button
                                         key={idx}
                                         style={{
                                             position: 'absolute',
@@ -343,16 +348,17 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                             background: 'white',
                                             width: 240,
                                             border: '1px solid var(--border)',
-                                            borderRadius: 4,
                                             padding: 4,
+                                            zIndex: 100,
+                                            textAlign: 'start',
                                         }}
                                     >
                                         <span
                                             className="text-muted"
-                                            style={{ fontSize: 10 }}
+                                            style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
                                         >{`0${pathItemCard.name[0]}`}</span>{' '}
                                         <span style={{ fontSize: 13, fontWeight: 600 }}>{pageUrl(pathItemCard)}</span>
-                                    </div>
+                                    </Button>
                                 </Dropdown>
                             </>
                         )
