@@ -45,7 +45,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
             title: 'Date',
             key: 'date',
             render: (row) =>
-                period === 'Hour' ? dayjs(row.date).format('MMM D, h a') : dayjs.utc(row.date).format('MMM D'),
+                period === 'Hour' ? dayjs(row.date).format('MMM D, h A') : dayjs.utc(row.date).format('MMM D'),
             align: 'center',
         },
         {

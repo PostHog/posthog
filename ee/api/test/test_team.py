@@ -52,14 +52,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
 
     # Deleting projects
 
-    def test_delete_team_own_second(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        team = Team.objects.create(organization=self.organization)
-        response = self.client.delete(f"/api/projects/{team.id}")
-        self.assertEqual(response.status_code, 204)
-        self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-
     def test_no_delete_team_not_administrating_organization(self):
         team = Team.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/projects/{team.id}")

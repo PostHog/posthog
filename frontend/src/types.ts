@@ -518,6 +518,7 @@ export interface DashboardItemType {
     name: string
     short_id: string
     description?: string
+    favorited?: boolean
     filters: Partial<FilterType>
     filters_hash: string
     order: number

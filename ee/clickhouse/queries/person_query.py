@@ -4,20 +4,21 @@ from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
 
 
 class ClickhousePersonQuery:
     PERSON_PROPERTIES_ALIAS = "person_props"
     ALIASES = {"properties": "person_props"}
 
-    _filter: Union[Filter, PathFilter]
+    _filter: Union[Filter, PathFilter, RetentionFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _extra_fields: List[ColumnName]
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter],
+        filter: Union[Filter, PathFilter, RetentionFilter],
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
         extra_fields: List[ColumnName] = [],
