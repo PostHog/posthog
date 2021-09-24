@@ -13,6 +13,8 @@ import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../layout/ErrorProjectUnavailable'
 import { teamLogic } from './teamLogic'
+import { featureFlagLogic } from '../lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from '../lib/constants'
 
 export enum Scene {
     Error404 = '404',
@@ -113,18 +115,92 @@ interface Params {
 }
 
 interface SceneConfig {
-    onlyUnauthenticated?: boolean // Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too)
-    allowUnauthenticated?: boolean // Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too)
-    dark?: boolean // Background is $bg_mid
-    plain?: boolean // Only keeps the main content and the top navigation bar
-    hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
-    hideDemoWarnings?: boolean // Hides demo project warnings (DemoWarning.tsx)
+    /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
+    onlyUnauthenticated?: boolean
+    /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
+    allowUnauthenticated?: boolean
+    /** Background is $bg_mid */
+    dark?: boolean
+    /** Only keeps the main content and the top navigation bar */
+    plain?: boolean
+    /** Hides the top navigation bar (regardless of whether `plain` is `true` or not) */
+    hideTopNav?: boolean
+    /** Hides demo project warnings (DemoWarning.tsx) */
+    hideDemoWarnings?: boolean
+    /** Route requires project access */
+    projectBased?: boolean
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+    // Project-based routes
+    [Scene.Dashboards]: {
+        projectBased: true,
+    },
+    [Scene.Dashboard]: {
+        projectBased: true,
+    },
     [Scene.Insights]: {
+        projectBased: true,
         dark: true,
     },
+    [Scene.Cohorts]: {
+        projectBased: true,
+    },
+    [Scene.Events]: {
+        projectBased: true,
+    },
+    [Scene.Sessions]: {
+        projectBased: true,
+    },
+    [Scene.Person]: {
+        projectBased: true,
+    },
+    [Scene.Persons]: {
+        projectBased: true,
+    },
+    [Scene.Action]: {
+        projectBased: true,
+    },
+    [Scene.FeatureFlags]: {
+        projectBased: true,
+    },
+    [Scene.FeatureFlag]: {
+        projectBased: true,
+    },
+    [Scene.Annotations]: {
+        projectBased: true,
+    },
+    [Scene.Plugins]: {
+        projectBased: true,
+    },
+    [Scene.Home]: {
+        projectBased: true,
+    },
+    [Scene.SavedInsights]: {
+        projectBased: true,
+    },
+    [Scene.ProjectSettings]: {
+        projectBased: true,
+        hideDemoWarnings: true,
+    },
+    [Scene.InsightRouter]: {
+        projectBased: true,
+        dark: true,
+    },
+    [Scene.Personalization]: {
+        projectBased: true,
+        plain: true,
+        hideTopNav: true,
+    },
+    [Scene.Ingestion]: {
+        projectBased: true,
+        plain: true,
+    },
+    [Scene.OnboardingSetup]: {
+        projectBased: true,
+        hideDemoWarnings: true,
+    },
+    // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
         plain: true,
     },
@@ -134,7 +210,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Billing]: {
         hideDemoWarnings: true,
     },
-    // Onboarding / setup routes
+    // Onboarding/setup routes
     [Scene.Login]: {
         onlyUnauthenticated: true,
     },
@@ -147,22 +223,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
         plain: true,
-    },
-    [Scene.Personalization]: {
-        plain: true,
-        hideTopNav: true,
-    },
-    [Scene.Ingestion]: {
-        plain: true,
-    },
-    [Scene.OnboardingSetup]: {
-        hideDemoWarnings: true,
-    },
-    [Scene.ProjectSettings]: {
-        hideDemoWarnings: true,
-    },
-    [Scene.InsightRouter]: {
-        dark: true,
     },
 }
 
@@ -327,9 +387,21 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
             },
         ],
         activeScene: [
-            (selectors) => [selectors.loadingScene, selectors.scene, teamLogic.selectors.isCurrentTeamUnavailable],
-            (loadingScene, scene, isCurrentTeamUnavailable) =>
-                isCurrentTeamUnavailable ? Scene.ErrorProjectUnavailable : loadingScene || scene,
+            (selectors) => [
+                selectors.loadingScene,
+                selectors.scene,
+                teamLogic.selectors.isCurrentTeamUnavailable,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (loadingScene, scene, isCurrentTeamUnavailable, featureFlags) => {
+                const baseActiveScene = loadingScene || scene
+                return isCurrentTeamUnavailable &&
+                    featureFlags[FEATURE_FLAGS.PROJECT_BASED_PERMISSIONING] &&
+                    baseActiveScene &&
+                    sceneConfigurations[baseActiveScene]?.projectBased
+                    ? Scene.ErrorProjectUnavailable
+                    : baseActiveScene
+            },
         ],
     },
     urlToAction: ({ actions }) => {
