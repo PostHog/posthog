@@ -1,9 +1,7 @@
-from unittest.mock import patch
 from uuid import uuid4
 
-from django.utils import timezone
-
 from ee.clickhouse.models.session_recording_event import create_session_recording_event
+from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.api.test.test_session_recordings import factory_test_session_recordings_api
 
 
@@ -13,5 +11,5 @@ def _create_session_recording_event(**kwargs):
     )
 
 
-class ClickhouseTestSessionRecordingsAPI(factory_test_session_recordings_api(_create_session_recording_event)):  # type: ignore
+class ClickhouseTestSessionRecordingsAPI(ClickhouseTestMixin, factory_test_session_recordings_api(_create_session_recording_event)):  # type: ignore
     pass

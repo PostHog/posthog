@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import Any
 
 from rest_framework import exceptions, request, response, serializers, viewsets
@@ -6,12 +5,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Filter
-from posthog.models.filters.sessions_filter import SessionsFilter
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import PersonDistinctId
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions
-from posthog.queries.sessions.session_recording import SessionRecording, query_sessions_in_range
+from posthog.queries.session_recordings.session_recording import SessionRecording
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 
 
 class SessionRecordingSerializer(serializers.Serializer):
@@ -39,15 +38,15 @@ class SessionRecordingSerializer(serializers.Serializer):
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
 
-    def get_session_recording_list(self, filter):
-        return query_sessions_in_range(self.team, filter.date_from, filter.date_to + timedelta(days=1), filter)
+    def _get_session_recording_list(self, filter):
+        return SessionRecordingList(filter=filter, team=self.team).run()
 
-    def get_session_recording(self, session_recording_id):
-        return SessionRecording().run(team=self.team, session_recording_id=session_recording_id)
+    def _get_session_recording(self, session_recording_id):
+        return SessionRecording(team=self.team, session_recording_id=session_recording_id).run()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        filter = SessionsFilter(request=request)
-        session_recordings = self.get_session_recording_list(filter)
+        filter = SessionRecordingsFilter(request=request)
+        session_recordings = self._get_session_recording_list(filter)
 
         distinct_ids = map(lambda x: x["distinct_id"], session_recordings)
         person_distinct_ids = PersonDistinctId.objects.filter(
@@ -83,7 +82,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]
-        session_recording = self.get_session_recording(session_recording_id)
+        session_recording = self._get_session_recording(session_recording_id)
+        if len(session_recording.get("snapshots", [])) == 0:
+            raise exceptions.NotFound()
 
         if request.GET.get("save_view"):
             SessionRecordingViewed.objects.get_or_create(

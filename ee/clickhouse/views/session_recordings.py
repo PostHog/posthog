@@ -1,12 +1,11 @@
-from datetime import timedelta
-
-from ee.clickhouse.queries.clickhouse_session_recording import SessionRecording, query_sessions_in_range
+from ee.clickhouse.queries.session_recordings.session_recording import ClickhouseSessionRecording
+from ee.clickhouse.queries.session_recordings.session_recording_list import ClickhouseSessionRecordingList
 from posthog.api.session_recording import SessionRecordingViewSet
 
 
 class ClickhouseSessionRecordingViewSet(SessionRecordingViewSet):
-    def get_session_recording_list(self, filter):
-        return query_sessions_in_range(self.team, filter.date_from, filter.date_to + timedelta(days=1), filter)
+    def _get_session_recording_list(self, filter):
+        return ClickhouseSessionRecordingList(filter=filter, team=self.team).run()
 
-    def get_session_recording(self, session_recording_id):
-        return SessionRecording().run(team=self.team, session_recording_id=session_recording_id)
+    def _get_session_recording(self, session_recording_id):
+        return ClickhouseSessionRecording(team=self.team, session_recording_id=session_recording_id).run()
