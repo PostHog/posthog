@@ -9,7 +9,6 @@ import './NewPathTab.scss'
 import { GlobalFiltersTitle } from '../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
-import { PlusCircleOutlined } from '@ant-design/icons'
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 
@@ -64,11 +63,14 @@ export function NewPathTab(): JSX.Element {
                                     onChange={() => {}}
                                 >
                                     <Button
-                                        className="new-prop-filter"
                                         data-attr={'new-prop-filter-' + 1}
-                                        type="link"
-                                        style={{ paddingLeft: 0 }}
-                                        icon={<PlusCircleOutlined />}
+                                        block={true}
+                                        style={{
+                                            maxWidth: '100%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                        }}
                                     >
                                         Add start point
                                     </Button>
@@ -86,11 +88,14 @@ export function NewPathTab(): JSX.Element {
                                     onChange={() => {}}
                                 >
                                     <Button
-                                        className="new-prop-filter"
-                                        data-attr={'new-prop-filter-' + 1}
-                                        type="link"
-                                        style={{ paddingLeft: 0 }}
-                                        icon={<PlusCircleOutlined />}
+                                        data-attr={'new-prop-filter-' + 0}
+                                        block={true}
+                                        style={{
+                                            maxWidth: '100%',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                        }}
                                     >
                                         Add end point
                                     </Button>
