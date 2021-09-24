@@ -4,7 +4,7 @@ import { Drawer } from 'lib/components/Drawer'
 import { SessionsPlay } from 'scenes/sessions/SessionsPlay'
 import { useActions } from 'kea'
 import { ArrowTopLeftOutlined } from 'lib/components/icons'
-import { sessionRecordingsTableLogic } from './sessionRecordingsLogic'
+import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 
 interface SessionPlayerDrawerProps {
     personIds?: string[]

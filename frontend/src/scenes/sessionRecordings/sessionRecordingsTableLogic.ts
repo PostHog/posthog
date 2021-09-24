@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { SessionRecordingType } from '~/types'
-import { sessionRecordingsTableLogicType } from './sessionRecordingsLogicType'
+import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
 
 type SessionRecordingId = string
