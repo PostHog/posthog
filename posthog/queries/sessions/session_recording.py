@@ -43,11 +43,9 @@ SESSIONS_IN_RANGE_QUERY = """
             team_id = %(team_id)s
             AND timestamp >= %(start_time)s
             AND timestamp <= %(end_time)s
-            {distinct_id_clause}
         GROUP BY distinct_id, session_id
     ) AS p
     WHERE full_snapshots > 0 {filter_query}
-    ORDER BY start_time DESC
 """
 
 
@@ -84,21 +82,17 @@ class SessionRecording:
 def query_sessions_in_range(
     team: Team, start_time: datetime.datetime, end_time: datetime.datetime, filter: SessionsFilter
 ) -> List[dict]:
-    filter_query, distinct_id_clause, filter_params = "", "", {}
+    filter_query, filter_params = "", {}
 
     if filter.recording_duration_filter:
         filter_query = f"AND duration {OPERATORS[filter.recording_duration_filter.operator]} INTERVAL '%(min_recording_duration)s seconds'"
         filter_params = {
             "min_recording_duration": filter.recording_duration_filter.value,
         }
-    if filter.distinct_id:
-        distinct_ids = Person.objects.get(team=team, persondistinctid__distinct_id=filter.distinct_id).distinct_ids
-        distinct_ids_str = ",".join("'" + distinct_id + "'" for distinct_id in distinct_ids)
-        distinct_id_clause = f"AND distinct_id IN ({distinct_ids_str})"
 
     with connection.cursor() as cursor:
         cursor.execute(
-            SESSIONS_IN_RANGE_QUERY.format(filter_query=filter_query, distinct_id_clause=distinct_id_clause),
+            SESSIONS_IN_RANGE_QUERY.format(filter_query=filter_query),
             {"team_id": team.id, "start_time": start_time, "end_time": end_time, **filter_params,},
         )
 

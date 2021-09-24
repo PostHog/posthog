@@ -3,7 +3,7 @@ import json
 from typing import Any, Callable, List, Optional, Tuple
 
 from ee.clickhouse.client import sync_execute
-from posthog.models import Person, Team
+from posthog.models import Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.base import BaseQuery
 from posthog.queries.sessions.session_recording import DistinctId
@@ -41,9 +41,7 @@ SESSIONS_IN_RANGE_QUERY = """
             team_id = %(team_id)s
             AND timestamp >= %(start_time)s
             AND timestamp <= %(end_time)s
-            {distinct_id_clause}
         GROUP BY distinct_id, session_id
-        ORDER BY start_time DESC
     )
     WHERE full_snapshots > 0 {filter_query}
 """
@@ -67,7 +65,7 @@ def join_with_session_recordings(team: Team, sessions_results: List[Any], filter
 def query_sessions_in_range(
     team: Team, start_time: datetime.datetime, end_time: datetime.datetime, filter: SessionsFilter
 ) -> List[dict]:
-    filter_query, distinct_id_clause, filter_params = "", "", {}
+    filter_query, filter_params = "", {}
 
     if filter.recording_duration_filter:
         filter_query = f"AND duration {OPERATORS[filter.recording_duration_filter.operator]} %(min_recording_duration)s"  # type: ignore
@@ -75,13 +73,8 @@ def query_sessions_in_range(
             "min_recording_duration": filter.recording_duration_filter.value,
         }
 
-    if filter.distinct_id:
-        distinct_ids = Person.objects.get(team=team, persondistinctid__distinct_id=filter.distinct_id).distinct_ids
-        distinct_ids_str = ",".join("'" + distinct_id + "'" for distinct_id in distinct_ids)
-        distinct_id_clause = f"AND distinct_id IN ({distinct_ids_str})"
-
     results = sync_execute(
-        SESSIONS_IN_RANGE_QUERY.format(filter_query=filter_query, distinct_id_clause=distinct_id_clause),
+        SESSIONS_IN_RANGE_QUERY.format(filter_query=filter_query),
         {
             "team_id": team.id,
             "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S.%f"),

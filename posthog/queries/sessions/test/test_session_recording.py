@@ -92,8 +92,8 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 SessionsFilter(data={"user_id": self.user.pk}),
                 [
                     [
-                        {"id": "3", "recording_duration": 45, "viewed": False},
                         {"id": "1", "recording_duration": 25, "viewed": True},
+                        {"id": "3", "recording_duration": 45, "viewed": False},
                     ],
                     [],
                     [{"id": "2", "recording_duration": 13, "viewed": False}],
@@ -108,8 +108,8 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 ),
                 [
                     [
-                        {"id": "3", "recording_duration": 45, "viewed": False},
                         {"id": "1", "recording_duration": 25, "viewed": False},
+                        {"id": "3", "recording_duration": 45, "viewed": False},
                     ]
                 ],
             )
@@ -122,8 +122,8 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 ),
                 [
                     [
-                        {"id": "3", "recording_duration": 45, "viewed": False},
                         {"id": "1", "recording_duration": 25, "viewed": False},
+                        {"id": "3", "recording_duration": 45, "viewed": False},
                     ]
                 ],
             )
