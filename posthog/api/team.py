@@ -86,7 +86,7 @@ class TeamSerializer(serializers.ModelSerializer):
             # Only organization-wide admins and above should be allowed to switch the project between open and private
             # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
             request = self.context["request"]
-            if self.instance is not None:
+            if isinstance(self.instance, Team):
                 organization_id = self.instance.organization_id
             else:
                 organization_id = self.context["view"].organization
@@ -141,7 +141,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             # To be used later by OrganizationAdminWritePermissions and TeamSerializer
             self.organization = organization
             base_permissions.append(OrganizationAdminWritePermissions())
-        else:
+        elif self.action != "list":
             # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
             base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
