@@ -10,10 +10,9 @@ import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHist
 import {
     ActionFilter,
     ChartDisplayType,
-    DashboardItemLogicProps,
+    SharedInsightLogicProps,
     EntityTypes,
     FilterType,
-    PersonType,
     PropertyFilter,
     TrendResult,
     ViewType,
@@ -23,28 +22,7 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
-
-interface TrendResponse {
-    result: TrendResult[]
-    filters: FilterType
-    next?: string
-}
-
-export interface IndexedTrendResult extends TrendResult {
-    id: number
-}
-
-export interface TrendPeople {
-    people: PersonType[]
-    count: number
-    day: string | number
-    label: string
-    action: ActionFilter | 'session'
-    breakdown_value?: string | number
-    next?: string
-    loadingMore?: boolean
-    funnelStep?: number
-}
+import { IndexedTrendResult, TrendResponse } from 'scenes/trends/types'
 
 interface PeopleParamType {
     action: ActionFilter | 'session'
@@ -140,12 +118,8 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
     return {}
 }
 
-// props:
-// - dashboardItemId
-// - cachedResults
-// - filters
-export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse>>({
-    props: {} as DashboardItemLogicProps,
+export const trendsLogic = kea<trendsLogicType>({
+    props: {} as SharedInsightLogicProps,
 
     key: (props) => {
         return props.dashboardItemId || 'all_trends'
@@ -155,15 +129,26 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
         values: [actionsModel, ['actions']],
     },
 
+    actions: () => ({
+        setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
+        setDisplay: (display) => ({ display }),
+        toggleVisibility: (index: number) => ({ index }),
+        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
+        loadMoreBreakdownValues: true,
+        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
+        toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        setCachedResults: (filters: Partial<FilterType>, results: TrendResult[]) => ({ filters, results }),
+    }),
+
     loaders: ({ cache, values, props }) => ({
         _results: {
             __default: {} as TrendResponse,
             setCachedResults: ({ results, filters }) => {
-                return { results, filters }
+                return { result: results, filters }
             },
             loadResults: async (refresh = false, breakpoint) => {
-                if (props.cachedResults && !refresh && values.filters === props.filters) {
-                    return { result: props.cachedResults } as TrendResponse
+                if (props.cachedResults && !refresh && objectsEqual(values.filters, props.filters)) {
+                    return { result: props.cachedResults, filters: props.filters } as TrendResponse
                 }
 
                 // fetch this now, as it might be different when we report below
@@ -177,9 +162,11 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                 cache.abortController = new AbortController()
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId
+                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
                 insightLogic.actions.startQuery(queryId)
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                if (dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                }
 
                 const { filters } = values
 
@@ -217,7 +204,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                         null,
                         e
                     )
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                    if (dashboardItemId) {
+                        dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                    }
                     return []
                 }
                 breakpoint()
@@ -227,23 +216,13 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     (values.filters.insight as ViewType) || ViewType.TRENDS,
                     response.last_refresh
                 )
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, response.last_refresh)
+                if (dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, response.last_refresh)
+                }
 
                 return { ...response, filters }
             },
         },
-    }),
-
-    actions: () => ({
-        setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
-        setDisplay: (display) => ({ display }),
-        setIndexedResults: (results: IndexedTrendResult[]) => ({ results }),
-        toggleVisibility: (index: number) => ({ index }),
-        setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
-        loadMoreBreakdownValues: true,
-        setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
-        toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
-        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
 
     reducers: ({ props }) => ({
@@ -261,12 +240,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                         ...filters,
                     })
                 },
-            },
-        ],
-        indexedResults: [
-            [] as IndexedTrendResult[],
-            {
-                setIndexedResults: ({}, { results }) => results,
+                setCachedResults: (_, { filters }) => filters,
             },
         ],
         toggledLifecycles: [
@@ -276,8 +250,7 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     if (state.includes(lifecycleName)) {
                         return state.filter((lifecycles) => lifecycles !== lifecycleName)
                     }
-                    state.push(lifecycleName)
-                    return state
+                    return [...state, lifecycleName]
                 },
             },
         ],
@@ -306,6 +279,9 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     ...state,
                     [`${index}`]: !state[index],
                 }),
+                loadResultsSuccess: (_, { _results }) => Object.fromEntries(_results.result.map((__, i) => [i, true])),
+                setCachedResultsSuccess: (_, { _results }) =>
+                    Object.fromEntries(_results.result.map((__, i) => [i, true])),
             },
         ],
         breakdownValuesLoading: [
@@ -325,20 +301,26 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
             (selectors) => [selectors.filters],
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
+        indexedResults: [
+            (s) => [s.filters, s.results, s.toggledLifecycles],
+            (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
+                let results = _results || []
+                if (filters.insight === ViewType.LIFECYCLE) {
+                    results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
+                }
+                return results.map((result, index) => ({ ...result, id: index }))
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
         setDisplay: async ({ display }) => {
             actions.setFilters({ display })
         },
-        toggleLifecycle: () => {
-            const toggledResults = values.results
-                .filter((result) => values.toggledLifecycles.includes(String(result.status)))
-                .map((result, idx) => ({ ...result, id: idx }))
-            actions.setIndexedResults(toggledResults)
-        },
         setFilters: async () => {
-            insightLogic.actions.setAllFilters(values.filters)
+            if (!props.dashboardItemId) {
+                insightLogic.actions.setAllFilters(values.filters)
+            }
             actions.loadResults()
         },
         loadResultsSuccess: () => {
@@ -352,22 +334,6 @@ export const trendsLogic = kea<trendsLogicType<IndexedTrendResult, TrendResponse
                     insightLogic.actions.updateInsightFilters(values.filters)
                 }
             }
-
-            let indexedResults
-            if (values.filters.insight !== ViewType.LIFECYCLE) {
-                indexedResults = values.results?.map((element, index) => {
-                    actions.setVisibilityById({ [`${index}`]: true })
-                    return { ...element, id: index }
-                })
-            } else {
-                indexedResults = values.results
-                    .filter((result) => values.toggledLifecycles.includes(String(result.status)))
-                    .map((result, idx) => {
-                        actions.setVisibilityById({ [`${idx}`]: true })
-                        return { ...result, id: idx }
-                    })
-            }
-            actions.setIndexedResults(indexedResults)
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {

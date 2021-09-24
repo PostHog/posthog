@@ -32,7 +32,7 @@ export function LineGraph({
     isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
-    dashboardItemId,
+    dashboardItemId /* used only for annotations, not to init any other logic */,
     inSharedMode,
     percentage = false,
     interval = undefined,
