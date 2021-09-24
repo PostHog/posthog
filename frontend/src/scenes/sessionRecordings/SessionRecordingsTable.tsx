@@ -75,7 +75,7 @@ export function SessionRecordingsTable({ personIds, isPersonPage = false }: Sess
                 rowKey="id"
                 dataSource={sessionRecordings}
                 columns={columns}
-                loading={!sessionRecordings && sessionRecordingsLoading}
+                loading={sessionRecordings.length === 0 && sessionRecordingsLoading}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(sessionRecording) => ({
                     onClick: () => {
