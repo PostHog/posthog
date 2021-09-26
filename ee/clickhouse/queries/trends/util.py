@@ -41,7 +41,7 @@ def process_math(entity: Entity) -> Tuple[str, str, Dict[str, str]]:
     return aggregate_operation, join_condition, params
 
 
-def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
+def parse_response(stats: List, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
     counts = stats[1]
     dates = [
         item.strftime(

@@ -8,6 +8,7 @@ import pytest
 import pytz
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.test import Client
 from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -952,3 +953,23 @@ class TestInviteSignup(APIBaseTest):
             },
         )
         self.assertEqual(len(self.client.session.keys()), 0)  # Nothing is saved in the session
+
+
+def signup(client: Client, email: str, password: str, organization_name: str):
+    return client.post(
+        "/api/signup/",
+        {
+            "first_name": "John",
+            "email": email,
+            "password": password,
+            "organization_name": organization_name,
+            "email_opt_in": False,
+        },
+        content_type="application/json",
+    )
+
+
+def signup_ok(client: Client, email: str, password: str, organization_name: str):
+    response = signup(client=client, email=email, password=password, organization_name=organization_name)
+    assert response.status_code == 201, response.content
+    return response.json()
