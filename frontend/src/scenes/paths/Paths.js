@@ -241,7 +241,13 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                             <>
                                 <Dropdown
                                     overlay={
-                                        <Menu style={{ marginTop: -5, borderRadius: '0px 0px 4px 4px' }}>
+                                        <Menu
+                                            style={{
+                                                marginTop: -5,
+                                                border: '1px solid var(--border)',
+                                                borderRadius: '0px 0px 4px 4px',
+                                            }}
+                                        >
                                             <Menu.Item
                                                 style={{
                                                     display: 'flex',
