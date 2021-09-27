@@ -56,7 +56,10 @@ export function humanizeOrder(order: number): number {
     return order + 1
 }
 
-export function getSeriesColor(index?: number): string | undefined {
+export function getSeriesColor(index?: number, isSingleSeries: boolean = false): string | undefined {
+    if (isSingleSeries) {
+        return 'var(--primary)'
+    }
     if (typeof index === 'number' && index >= 0) {
         return getChartColors('white')[index]
     }

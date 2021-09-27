@@ -76,6 +76,7 @@ interface BreakdownBarGroupProps {
     showLabels: boolean
     onBarClick?: (breakdown_value: string | undefined | number) => void
     isClickable: boolean
+    isSingleSeries?: boolean
 }
 
 export function BreakdownVerticalBarGroup({
@@ -85,6 +86,7 @@ export function BreakdownVerticalBarGroup({
     showLabels,
     onBarClick,
     isClickable,
+    isSingleSeries = false,
 }: BreakdownBarGroupProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const [, height] = useSize(ref)
@@ -97,7 +99,8 @@ export function BreakdownVerticalBarGroup({
                 const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
                 const previousBarHeight =
                     (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
-                const color = getSeriesColor(breakdown.order) as string
+                const color = getSeriesColor(breakdown.order, isSingleSeries) as string
+
                 const popoverMetrics = [
                     {
                         title: 'Completed step',

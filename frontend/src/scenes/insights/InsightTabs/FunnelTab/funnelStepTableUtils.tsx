@@ -46,7 +46,12 @@ function BreakdownBarGroupWrapper({
     showLabels: boolean
 }): JSX.Element {
     const logic = funnelLogic({ dashboardItemId })
-    const { stepReference, visibleStepsWithConversionMetrics: steps, clickhouseFeaturesEnabled } = useValues(logic)
+    const {
+        stepReference,
+        visibleStepsWithConversionMetrics: steps,
+        clickhouseFeaturesEnabled,
+        flattenedBreakdowns,
+    } = useValues(logic)
     const { openPersonsModal } = useActions(logic)
     const basisStep = getReferenceStep(steps, stepReference, step.order)
     const previousStep = getReferenceStep(steps, FunnelStepReference.previous, step.order)
@@ -65,6 +70,7 @@ function BreakdownBarGroupWrapper({
                     }
                 }}
                 isClickable={isClickable}
+                isSingleSeries={flattenedBreakdowns.length === 1}
             />
             <div className="funnel-bar-empty-space" />
             <div className="funnel-bar-axis">
