@@ -399,6 +399,11 @@ def load_data_from_request(request):
     compression = compression.lower()
 
     if compression == "gzip" or compression == "gzip-js":
+        if data == b"undefined":
+            raise RequestParsingError(
+                "data being loaded from the request body for decompression is the literal string 'undefined'"
+            )
+
         try:
             data = gzip.decompress(data)
         except (EOFError, OSError) as error:
