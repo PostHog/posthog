@@ -100,7 +100,11 @@ class TargetEventsMixin(BaseParamMixin):
 
     @cached_property
     def exclude_events(self) -> List[str]:
-        return self._data.get(PATHS_EXCLUDE_EVENTS, [])
+        _exclude_events = self._data.get(PATHS_EXCLUDE_EVENTS, [])
+        if isinstance(_exclude_events, str):
+            return json.loads(_exclude_events)
+
+        return _exclude_events
 
     @property
     def include_pageviews(self) -> bool:
