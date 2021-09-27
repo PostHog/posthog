@@ -16,8 +16,9 @@ import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
 import { IndexedTrendResult } from 'scenes/trends/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -41,6 +42,8 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
@@ -119,6 +122,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                         hideBreakdown
                         hideIcon
+                        useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
                     />
                 </SeriesToggleWrapper>
             )

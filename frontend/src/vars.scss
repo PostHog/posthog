@@ -7,6 +7,7 @@ $primary_alt: #35416b;
 $success: #77b96c;
 $warning: #f7a501;
 $danger: #f96132;
+$danger_bridge: #df4313; // Used for bridge pages
 
 // Brand colors, as in logo
 $brand_blue: #1d4aff;
@@ -26,6 +27,7 @@ $bg_mid: #f2f2f2;
 $bg_light: #ffffff;
 $bg_depth: #0f0f0f;
 $bg_menu: #2c3035;
+$bg_bridge: #eeefe9;
 
 // Border colors
 $border_light: #f0f0f0;
@@ -81,6 +83,9 @@ $sky: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
 $dusk_sky: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
 $night_sky: linear-gradient(180deg, #200c39 0%, #373088 75%, #4a3587 100%);
 $space: linear-gradient(180deg, #0a092a 0%, #271955 100%);
+
+// Fonts
+$medium: 500;
 
 // Additional style configurations
 .mixin-base-bordered-card {

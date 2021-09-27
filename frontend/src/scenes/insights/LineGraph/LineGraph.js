@@ -14,6 +14,8 @@ import dayjs from 'dayjs'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -64,6 +66,7 @@ export function LineGraph({
     const [annotationInRange, setInRange] = useState(false)
     const [tooltipVisible, setTooltipVisible] = useState(false)
     const size = useWindowSize()
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const annotationsCondition =
         type === 'line' &&
@@ -282,6 +285,7 @@ export function LineGraph({
                                     : entityData.breakdown_value
                             }
                             seriesStatus={entityData.status}
+                            useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
                         />
                     )
                 },

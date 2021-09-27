@@ -6,6 +6,7 @@ import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import './InsightLabel.scss'
 import { MATHS } from 'lib/constants'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 
 export enum IconSize {
     Small = 'small',
@@ -28,6 +29,7 @@ interface InsightsLabelProps {
     hasMultipleSeries?: boolean // Whether the graph has multiple discrete series (not breakdown values)
     showCountedByTag?: boolean // Force 'counted by' tag to show (always shown when action.math is set)
     allowWrap?: boolean // Allow wrapping to multiple lines (useful for long values like URLs)
+    useCustomName?: boolean // Whether to show new custom name (FF `6063-rename-filters`). `{custom_name} ({id})`.
 }
 
 function MathTag({ math, mathProperty }: Record<string, string | undefined>): JSX.Element {
@@ -67,6 +69,7 @@ export function InsightLabel({
     hasMultipleSeries,
     showCountedByTag,
     allowWrap = false,
+    useCustomName = false,
 }: InsightsLabelProps): JSX.Element {
     const showEventName = !breakdownValue || hasMultipleSeries
     const eventName = seriesStatus ? capitalizeFirstLetter(seriesStatus) : action?.name || fallbackName || ''
@@ -89,7 +92,7 @@ export function InsightLabel({
                         }}
                     />
                 )}
-                {hasMultipleSeries && action?.order !== undefined && (
+                {hasMultipleSeries && !hideIcon && action?.order !== undefined && (
                     <SeriesLetter
                         seriesIndex={action.order}
                         seriesColor={seriesColor}
@@ -98,7 +101,13 @@ export function InsightLabel({
                 )}
                 <div className={allowWrap ? '' : 'protect-width'}>
                     {showEventName && (
-                        <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
+                        <>
+                            {useCustomName && action ? (
+                                <EntityFilterInfo filter={action} />
+                            ) : (
+                                <PropertyKeyInfo disableIcon disablePopover value={eventName} ellipsis={!allowWrap} />
+                            )}
+                        </>
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
