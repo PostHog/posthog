@@ -141,7 +141,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         rowIndex,
                         2,
                         <span>{formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0)}%</span>,
-                        renderSubColumnTitle('Comp. rate'),
+                        renderSubColumnTitle('Rate'),
                         showLabels,
                         undefined,
                         dashboardItemId,

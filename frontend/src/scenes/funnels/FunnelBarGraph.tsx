@@ -155,10 +155,9 @@ export function BreakdownVerticalBarGroup({
                                     altTitle={
                                         <div style={{ wordWrap: 'break-word' }}>
                                             <PropertyKeyInfo value={currentStep.name} />
-                                            {' • '}
                                             {(breakdown.breakdown_value === 'Baseline'
-                                                ? 'None'
-                                                : breakdown.breakdown) ?? 'Other'}
+                                                ? ''
+                                                : ` • ${breakdown.breakdown}`) ?? ' • Other'}
                                         </div>
                                     }
                                 >
