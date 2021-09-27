@@ -1,6 +1,5 @@
 import { getPluginContext, KeaPlugin, setPluginContext } from 'kea'
-import { Action as ReduxAction } from 'redux'
-import { PluginContext } from '~/test/kea-test-utils/types'
+import { Action, PluginContext } from '~/test/kea-test-utils/types'
 
 export function testUtilsContext(): PluginContext {
     return getPluginContext('testUtils') as PluginContext
@@ -23,7 +22,7 @@ export const testUtilsPlugin: () => KeaPlugin = () => ({
         },
 
         beforeReduxStore(options) {
-            options.middleware.push((store) => (next) => (action: ReduxAction) => {
+            options.middleware.push((store) => (next) => (action: Action) => {
                 const beforeState = store.getState()
                 const response = next(action)
                 const afterState = store.getState()

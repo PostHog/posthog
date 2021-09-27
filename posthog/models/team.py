@@ -1,5 +1,5 @@
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
 
 import pytz
 from django.conf import settings
@@ -169,6 +169,8 @@ class Team(UUIDClassicModel):
 
 
 @receiver(models.signals.pre_delete, sender=Team)
-def team_deleted(sender, instance, **kwargs):
+def team_deleted(sender: Type[Team], instance: Team, **kwargs):
     instance.event_set.all().delete()
     instance.elementgroup_set.all().delete()
+    instance.person_set.all().delete()
+    instance.persondistinctid_set.all().delete()

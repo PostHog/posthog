@@ -518,6 +518,7 @@ export interface DashboardItemType {
     name: string
     short_id: string
     description?: string
+    favorited?: boolean
     filters: Partial<FilterType>
     filters_hash: string
     order: number
@@ -893,8 +894,10 @@ export interface FunnelRequestParams extends FilterType {
     funnel_window_days?: number
 }
 
+export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+
 export interface LoadedRawFunnelResults {
-    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+    results: FunnelAPIResponse
     filters: Partial<FilterType>
 }
 
@@ -938,8 +941,12 @@ export interface ChartParams {
     view: ViewType
 }
 
-export interface DashboardItemLogicProps {
+// Shared between dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
+export interface SharedInsightLogicProps {
+    // the chart is displayed on a dashboard right now, used in the key if present
     dashboardItemId?: number | null
+    // the insight is connected to a dashboard item, yet viewed on the insights scene
+    fromDashboardItemId?: number | null
     cachedResults?: any
     filters?: Partial<FilterType> | null
     preventLoading?: boolean

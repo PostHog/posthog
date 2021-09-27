@@ -87,8 +87,13 @@ class ClickhousePaths:
         target_clause, target_params = self.get_target_clause()
         self.params.update(target_params)
 
+        session_threshold_clause = self.get_session_threshold_clause()
+
         return PATH_ARRAY_QUERY.format(
-            path_event_query=path_event_query, boundary_event_filter=boundary_event_filter, target_clause=target_clause
+            path_event_query=path_event_query,
+            boundary_event_filter=boundary_event_filter,
+            target_clause=target_clause,
+            session_threshold_clause=session_threshold_clause,
         )
 
     def should_query_funnel(self) -> bool:
@@ -141,6 +146,26 @@ class ClickhousePaths:
         else:
             return ""
 
+    def get_session_threshold_clause(self) -> str:
+
+        if self.should_query_funnel():
+            self._funnel_filter = cast(Filter, self._funnel_filter)  # typing mess
+
+            # TODO: cleanup funnels interval interpolation mess so this can get cleaned up
+            if self._funnel_filter.funnel_window_interval:
+                funnel_window_interval = self._funnel_filter.funnel_window_interval
+                funnel_window_interval_unit = self._funnel_filter.funnel_window_interval_unit_ch()
+            elif self._funnel_filter.funnel_window_days:
+                funnel_window_interval = self._funnel_filter.funnel_window_days
+                funnel_window_interval_unit = "DAY"
+            else:
+                funnel_window_interval = 14
+                funnel_window_interval_unit = "DAY"
+            # Not possible to directly compare two interval data types, so using a proxy Date.
+            return f"arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL {funnel_window_interval} {funnel_window_interval_unit}, 0, 1), paths_tuple)"
+
+        return "arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple)"
+
     def get_target_clause(self) -> Tuple[str, Dict]:
         params: Dict[str, Union[str, None]] = {"target_point": None, "secondary_target_point": None}
 
@@ -154,11 +179,11 @@ class ClickhousePaths:
             , indexOf(start_filtered_path, %(target_point)s) as end_target_index
             , if(end_target_index > 0, arrayResize(start_filtered_path, end_target_index), start_filtered_path) as filtered_path
             , if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings
-            , arraySlice(filtered_path, 1, 5) as limited_path
-            , arraySlice(filtered_timings, 1, 5) as limited_timings
+            , if(length(filtered_path) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_path, 1, intDiv(%(event_in_session_limit)s,2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_path) AS limited_path
+            , if(length(filtered_timings) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_timings, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_timings[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_timings, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_timings) AS limited_timings
             """,
                 params,
-            )  # hardcode limit of 5 for now
+            )
         else:
             path_limiting_clause, time_limiting_clause = self.get_filtered_path_ordering()
             compacting_function = self.get_array_compacting_function()

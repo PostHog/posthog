@@ -1,59 +1,32 @@
 import React from 'react'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-
-import { Loading } from 'lib/utils'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-
 import { Row, Col, Card, Input, Button, Popconfirm, Tooltip } from 'antd'
-import { FUNNEL_VIZ, ACTIONS_TABLE, ACTIONS_BAR_CHART_VALUE, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
-
-import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-
-import { Paths } from 'scenes/paths/Paths'
-
 import { FunnelTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
 import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
-
-import './Insights.scss'
-import {
-    ErrorMessage,
-    FunnelEmptyState,
-    FunnelInvalidExclusionFiltersEmptyState,
-    FunnelInvalidFiltersEmptyState,
-    TimeOut,
-} from './EmptyStates'
-import { People } from 'scenes/funnels/FunnelPeople'
-import { InsightsTable } from './InsightsTable'
-import { TrendInsight } from 'scenes/trends/Trends'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { AvailableFeature, FunnelVizType, HotKeys, InsightType, ItemMode, ViewType } from '~/types'
+import { AvailableFeature, HotKeys, ItemMode, ViewType, InsightType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
-import { InsightDisplayConfig } from './InsightTabs/InsightDisplayConfig'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PersonModal } from 'scenes/trends/PersonModal'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
-import { FunnelStepTable } from './InsightTabs/FunnelTab/FunnelStepTable'
 import { ObjectTags } from 'lib/components/ObjectTags'
-import { FunnelInsight } from './FunnelInsight'
 import { InsightsNav } from './InsightsNav'
 import { userLogic } from 'scenes/userLogic'
-import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { NewPathTab } from './InsightTabs/NewPathTab'
-import clsx from 'clsx'
+import { InsightContainer } from 'scenes/insights/InsightContainer'
+
+import './Insights.scss'
 
 dayjs.extend(relativeTime)
 
@@ -63,20 +36,8 @@ export function Insights(): JSX.Element {
         hashParams: { fromItem },
     } = useValues(router)
 
-    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const {
-        lastRefresh,
-        isLoading,
-        activeView,
-        allFilters,
-        showTimeoutMessage,
-        showErrorMessage,
-        controlsCollapsed,
-        insight,
-        insightMode,
-        tagLoading,
-    } = useValues(insightLogic)
+    const { activeView, allFilters, controlsCollapsed, insight, insightMode, tagLoading } = useValues(insightLogic)
     const {
         setActiveView,
         toggleControlsCollapsed,
@@ -88,33 +49,21 @@ export function Insights(): JSX.Element {
         saveInsight,
     } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
-    const { showingPeople } = useValues(personsModalLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
-    const { saveCohortWithFilters } = useActions(personsModalLogic)
+    const { cohortModalVisible } = useValues(personsModalLogic)
+    const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
-    const { cohortModalVisible } = useValues(personsModalLogic)
-    const { setCohortModalVisible } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
     const logicFromInsight = getLogicFromInsight(activeView as InsightType, {
-        dashboardItemId: fromItem || null,
+        fromDashboardItemId: fromItem || null,
         filters: allFilters,
     })
     const { loadResults } = useActions(logicFromInsight)
     const { resultsLoading } = useValues(logicFromInsight)
-
-    // show render's here because inline conditionals are getting ridonkulous
-    const showFunnelStepTable =
-        preflight?.is_clickhouse_enabled &&
-        activeView === ViewType.FUNNELS &&
-        !showErrorMessage &&
-        allFilters.funnel_viz_type === FunnelVizType.Steps &&
-        (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || allFilters.layout === FunnelLayout.horizontal)
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -152,47 +101,13 @@ export function Insights(): JSX.Element {
         },
     })
 
-    // Empty states that completely replace the graph
-    const BlockingEmptyState = (() => {
-        // Insight specific empty states - note order is important here
-        if (activeView === ViewType.FUNNELS) {
-            if (!areFiltersValid) {
-                return <FunnelInvalidFiltersEmptyState />
-            }
-            if (!areExclusionFiltersValid) {
-                return <FunnelInvalidExclusionFiltersEmptyState />
-            }
-            if (!isValidFunnel && !(resultsLoading || isLoading)) {
-                return <FunnelEmptyState />
-            }
-        }
-
-        // Insight agnostic empty states
-        if (showErrorMessage) {
-            return <ErrorMessage />
-        }
-        if (showTimeoutMessage) {
-            return <TimeOut isLoading={isLoading} />
-        }
-
-        return null
-    })()
-
-    // Empty states that can coexist with the graph (e.g. Loading)
-    const CoexistingEmptyState = (() => {
-        if (isLoading || resultsLoading) {
-            return <Loading />
-        }
-        return null
-    })()
-
     return (
-        <>
+        <div className="insights-page">
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
                 <>
                     <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
                         <span style={{ fontSize: 28, fontWeight: 600 }}>
-                            {insight.name || `Insight #${insight.id}`}
+                            {insight.name || `Insight #${insight.id ?? '...'}`}
                         </span>
                         <div>
                             <SaveToDashboard
@@ -229,99 +144,12 @@ export function Insights(): JSX.Element {
                     <div className="mb" style={{ marginTop: 8 }} data-attr="insight-tags">
                         <ObjectTags tags={insight.tags || []} staticOnly />
                     </div>
-                    <Col span={24} xl={verticalLayout ? 16 : undefined}>
-                        {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
-                        {/* These are filters that are reused between insight features. They
-                            each have generic logic that updates the url
-                        */}
-                        <Card
-                            title={
-                                <InsightDisplayConfig
-                                    activeView={activeView}
-                                    allFilters={allFilters}
-                                    annotationsToCreate={annotationsToCreate}
-                                    clearAnnotationsToCreate={clearAnnotationsToCreate}
-                                />
-                            }
-                            data-attr="insights-graph"
-                            className={clsx('insights-graph-container', {
-                                funnels: activeView === ViewType.FUNNELS,
-                            })}
-                        >
-                            <div>
-                                <Row
-                                    align="top"
-                                    justify="space-between"
-                                    style={{
-                                        marginTop: -8,
-                                        marginBottom: 16,
-                                    }}
-                                >
-                                    <Col>
-                                        <FunnelCanvasLabel />
-                                    </Col>
-                                    {lastRefresh && (
-                                        <ComputationTimeWithRefresh
-                                            lastRefresh={lastRefresh}
-                                            loadResults={loadResults}
-                                        />
-                                    )}
-                                </Row>
-                                {!BlockingEmptyState && CoexistingEmptyState}
-                                <div style={{ display: 'block' }}>
-                                    {!!BlockingEmptyState
-                                        ? BlockingEmptyState
-                                        : {
-                                              [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-                                              [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-                                              [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-                                              [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-                                              [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                              [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                              [`${ViewType.PATHS}`]: <Paths />,
-                                          }[activeView]}
-                                </div>
-                            </div>
-                        </Card>
-                        {!preflight?.is_clickhouse_enabled &&
-                            !showErrorMessage &&
-                            !showTimeoutMessage &&
-                            areFiltersValid &&
-                            activeView === ViewType.FUNNELS &&
-                            allFilters.display === FUNNEL_VIZ && <People />}
-                        {
-                            showFunnelStepTable && <FunnelStepTable filters={allFilters} /> // Don't render table below if bars are vertical. Rendering table handled by FunnelBarGraph
-                        }
-                        {(!allFilters.display ||
-                            (allFilters.display !== ACTIONS_TABLE && allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
-                            (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
-                                /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
-                        Exclusions:
-                            1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-                            2. Bar value chart. Because this view displays data in completely different dimensions.
-                    */
-                                <Card style={{ marginTop: 8 }}>
-                                    <BindLogic
-                                        logic={trendsLogic}
-                                        props={{ dashboardItemId: null, view: activeView, filters: allFilters }}
-                                    >
-                                        <h3 className="l3">Details table</h3>
-                                        <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
-                                    </BindLogic>
-                                </Card>
-                            )}
+                    <Col span={24}>
+                        <InsightContainer loadResults={loadResults} resultsLoading={resultsLoading} />
                     </Col>
                 </>
             ) : (
-                <div className="insights-page">
-                    <PersonModal
-                        visible={showingPeople && !cohortModalVisible}
-                        view={ViewType.FUNNELS}
-                        filters={allFilters}
-                        onSaveCohort={() => {
-                            setCohortModalVisible(true)
-                        }}
-                    />
+                <>
                     <SaveCohortModal
                         visible={cohortModalVisible}
                         onOk={(title: string) => {
@@ -332,75 +160,96 @@ export function Insights(): JSX.Element {
                         onCancel={() => setCohortModalVisible(false)}
                     />
                     {insight.id && (
-                        <Row style={{ marginTop: 24, alignItems: 'baseline', justifyContent: 'space-between' }}>
-                            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? (
-                                <Col>
-                                    <span>
-                                        <strong>Name</strong>
+                        <>
+                            <Row
+                                align="middle"
+                                style={{ marginTop: 24, justifyContent: 'space-between' }}
+                                className="mb-05"
+                            >
+                                {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] ? (
+                                    <Col>
+                                        <span style={{ fontSize: 28, fontWeight: 600 }}>
+                                            {insight.saved ? 'Edit' : 'Create'} Insight
+                                        </span>
+                                    </Col>
+                                ) : (
+                                    <span style={{ fontSize: 28, fontWeight: 600 }}>
+                                        {insight.name || `Insight #${insight.id}`}
                                     </span>
-                                    <div style={{ minWidth: 720 }}>
-                                        <Input
-                                            placeholder={insight.name || `Insight #${insight.id}`}
-                                            value={insight.name || ''}
-                                            size="large"
-                                            style={{ minWidth: 720, marginTop: 8 }}
-                                            onChange={(e) => setInsight({ ...insight, name: e.target.value })}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    updateInsight(insight)
-                                                }
-                                            }}
-                                            tabIndex={0}
-                                        />
-                                    </div>
-                                </Col>
-                            ) : (
-                                <span style={{ fontSize: 28, fontWeight: 600 }}>
-                                    {insight.name || `Insight #${insight.id}`}
-                                </span>
-                            )}
+                                )}
 
-                            <Col>
-                                <>
-                                    <Popconfirm
-                                        title="Are you sure? This will clear all filters and any progress will be lost."
-                                        onConfirm={() => {
-                                            window.scrollTo({ top: 0 })
-                                            push(`/insights?insight=${insight?.filters?.insight}`)
-                                            reportInsightsTabReset()
-                                        }}
-                                    >
-                                        <Tooltip placement="top" title="Reset all filters">
-                                            <Button type="link" className="btn-reset">
-                                                {'Reset'}
+                                <Col>
+                                    <>
+                                        <Popconfirm
+                                            title="Are you sure? This will clear all filters and any progress will be lost."
+                                            onConfirm={() => {
+                                                window.scrollTo({ top: 0 })
+                                                push(`/insights?insight=${insight?.filters?.insight}`)
+                                                reportInsightsTabReset()
+                                            }}
+                                        >
+                                            <Tooltip placement="top" title="Reset all filters">
+                                                <Button type="link" className="btn-reset">
+                                                    {'Reset'}
+                                                </Button>
+                                            </Tooltip>
+                                        </Popconfirm>
+                                        <SaveToDashboard
+                                            displayComponent={
+                                                <Button style={{ color: 'var(--primary)' }} className="btn-save">
+                                                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                                                        ? 'Save & add to dashboard'
+                                                        : 'Add to dashboard'}
+                                                </Button>
+                                            }
+                                            tooltipOptions={{
+                                                placement: 'bottom',
+                                                title: 'Save to dashboard',
+                                            }}
+                                            item={{
+                                                entity: {
+                                                    filters: insight.filters || allFilters,
+                                                    annotations: annotationsToCreate,
+                                                },
+                                            }}
+                                        />
+                                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                                            <Button
+                                                style={{ marginLeft: 8 }}
+                                                type="primary"
+                                                onClick={() => saveInsight()}
+                                            >
+                                                Save
                                             </Button>
-                                        </Tooltip>
-                                    </Popconfirm>
-                                    <SaveToDashboard
-                                        displayComponent={
-                                            <Button style={{ color: 'var(--primary)' }} className="btn-save">
-                                                Add to dashboard
-                                            </Button>
-                                        }
-                                        tooltipOptions={{
-                                            placement: 'bottom',
-                                            title: 'Save to dashboard',
-                                        }}
-                                        item={{
-                                            entity: {
-                                                filters: insight.filters || allFilters,
-                                                annotations: annotationsToCreate,
-                                            },
-                                        }}
-                                    />
-                                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
-                                        <Button style={{ marginLeft: 8 }} type="primary" onClick={() => saveInsight()}>
-                                            Save
-                                        </Button>
-                                    )}
-                                </>
-                            </Col>
-                        </Row>
+                                        )}
+                                    </>
+                                </Col>
+                            </Row>
+                            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                                <Row>
+                                    <Col className="mt-05 mb-05">
+                                        <span>
+                                            <strong>Name</strong>
+                                        </span>
+                                        <div style={{ minWidth: 720 }}>
+                                            <Input
+                                                placeholder={insight.name || `Insight #${insight.id}`}
+                                                value={insight.name || ''}
+                                                size="large"
+                                                style={{ minWidth: 720, marginTop: 8 }}
+                                                onChange={(e) => setInsight({ ...insight, name: e.target.value })}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        updateInsight(insight)
+                                                    }
+                                                }}
+                                                tabIndex={0}
+                                            />
+                                        </div>
+                                    </Col>
+                                </Row>
+                            )}
+                        </>
                     )}
 
                     {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
@@ -505,107 +354,14 @@ export function Insights(): JSX.Element {
                                     </Card>
                                 </Col>
                                 <Col span={24} xl={verticalLayout ? 16 : undefined}>
-                                    {/* TODO: extract to own file. Props: activeView, allFilters, showDateFilter, dateFilterDisabled, annotationsToCreate; lastRefresh, showErrorMessage, showTimeoutMessage, isLoading; ... */}
-                                    {/* These are filters that are reused between insight features. They
-                                        each have generic logic that updates the url
-                                    */}
-                                    <Card
-                                        title={
-                                            <InsightDisplayConfig
-                                                activeView={activeView}
-                                                allFilters={allFilters}
-                                                annotationsToCreate={annotationsToCreate}
-                                                clearAnnotationsToCreate={clearAnnotationsToCreate}
-                                            />
-                                        }
-                                        data-attr="insights-graph"
-                                        className={clsx('insights-graph-container', {
-                                            funnels: activeView === ViewType.FUNNELS,
-                                        })}
-                                    >
-                                        <div>
-                                            <Row
-                                                className="insights-graph-header"
-                                                align="top"
-                                                justify="space-between"
-                                                style={{
-                                                    marginTop: -8,
-                                                    marginBottom: 16,
-                                                }}
-                                            >
-                                                <Col>
-                                                    <FunnelCanvasLabel />
-                                                </Col>
-                                                {lastRefresh && (
-                                                    <ComputationTimeWithRefresh
-                                                        lastRefresh={lastRefresh}
-                                                        loadResults={loadResults}
-                                                    />
-                                                )}
-                                            </Row>
-                                            {!BlockingEmptyState && CoexistingEmptyState}
-                                            <div style={{ display: 'block' }}>
-                                                {!!BlockingEmptyState
-                                                    ? BlockingEmptyState
-                                                    : {
-                                                          [`${ViewType.TRENDS}`]: (
-                                                              <TrendInsight view={ViewType.TRENDS} />
-                                                          ),
-                                                          [`${ViewType.STICKINESS}`]: (
-                                                              <TrendInsight view={ViewType.STICKINESS} />
-                                                          ),
-                                                          [`${ViewType.LIFECYCLE}`]: (
-                                                              <TrendInsight view={ViewType.LIFECYCLE} />
-                                                          ),
-                                                          [`${ViewType.SESSIONS}`]: (
-                                                              <TrendInsight view={ViewType.SESSIONS} />
-                                                          ),
-                                                          [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-                                                          [`${ViewType.RETENTION}`]: <RetentionContainer />,
-                                                          [`${ViewType.PATHS}`]: <Paths />,
-                                                      }[activeView]}
-                                            </div>
-                                        </div>
-                                    </Card>
-                                    {!preflight?.is_clickhouse_enabled &&
-                                        !showErrorMessage &&
-                                        !showTimeoutMessage &&
-                                        areFiltersValid &&
-                                        activeView === ViewType.FUNNELS &&
-                                        allFilters.display === FUNNEL_VIZ && <People />}
-                                    {
-                                        showFunnelStepTable && <FunnelStepTable filters={allFilters} /> // Don't render table below if bars are vertical. Rendering table handled by FunnelBarGraph
-                                    }
-                                    {(!allFilters.display ||
-                                        (allFilters.display !== ACTIONS_TABLE &&
-                                            allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
-                                        (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS) && (
-                                            /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
-                                    Exclusions:
-                                        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-                                        2. Bar value chart. Because this view displays data in completely different dimensions.
-                                    */
-                                            <Card style={{ marginTop: 8 }}>
-                                                <BindLogic
-                                                    logic={trendsLogic}
-                                                    props={{
-                                                        dashboardItemId: null,
-                                                        view: activeView,
-                                                        filters: allFilters,
-                                                    }}
-                                                >
-                                                    <h3 className="l3">Details table</h3>
-                                                    <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
-                                                </BindLogic>
-                                            </Card>
-                                        )}
+                                    <InsightContainer loadResults={loadResults} resultsLoading={resultsLoading} />
                                 </Col>
                             </>
                         )}
                     </Row>
                     <NPSPrompt />
-                </div>
+                </>
             )}
-        </>
+        </div>
     )
 }

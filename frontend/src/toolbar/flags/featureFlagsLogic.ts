@@ -103,7 +103,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         afterMount: () => {
             actions.getUserFlags()
             ;(window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
-                toolbarLogic.actions.updateFeatureFlags(variants)
+                if (variants) {
+                    toolbarLogic.actions.updateFeatureFlags(variants)
+                }
             })
             const locallyOverrideFeatureFlags = (window['posthog'] as PostHog).get_property('$override_feature_flags')
             if (locallyOverrideFeatureFlags) {

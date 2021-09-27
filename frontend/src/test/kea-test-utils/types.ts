@@ -1,10 +1,14 @@
 import { Action as ReduxAction } from 'redux'
 import { BuiltLogic, LogicWrapper } from 'kea'
 
-export type ActionToDispatch = string | ReduxAction | ((action: ReduxAction) => boolean)
+export interface Action extends ReduxAction {
+    payload: Record<string, any>
+}
+
+export type ActionToDispatch = string | Action | ((action: Action) => boolean)
 
 export interface RecordedAction {
-    action: ReduxAction
+    action: Action
     beforeState: Record<string, any>
     afterState: Record<string, any>
 }

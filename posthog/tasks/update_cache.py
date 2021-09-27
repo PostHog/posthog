@@ -80,13 +80,17 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
     filter = get_filter(data=filter_dict, team=Team(pk=team_id))
+
+    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
+    dashboard_items.update(refreshing=True)
+
     if cache_type == CacheType.FUNNEL:
         result = _calculate_funnel(filter, key, team_id)
     else:
         result = _calculate_by_filter(filter, key, team_id, cache_type)
+    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
 
-    if result:
-        cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
+    dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
 
 
 def update_dashboard_items_cache(dashboard: Dashboard) -> None:
@@ -97,6 +101,7 @@ def update_dashboard_items_cache(dashboard: Dashboard) -> None:
 def update_dashboard_item_cache(dashboard_item: DashboardItem, dashboard: Optional[Dashboard]) -> None:
     cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard_item, dashboard)
     update_cache_item(cache_key, cache_type, payload)
+    dashboard_item.refresh_from_db()
 
 
 def get_cache_type(filter: FilterType) -> CacheType:
@@ -155,23 +160,16 @@ def dashboard_item_update_task_params(
 
 
 def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type: CacheType) -> List[Dict[str, Any]]:
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
-    dashboard_items.update(refreshing=True)
-
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
     if cache_type == CacheType.PATHS:
         result = insight_class(filter, Team(pk=team_id)).run(filter, Team(pk=team_id))
     else:
         result = insight_class().run(filter, Team(pk=team_id))
-    dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result
 
 
 def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
-    dashboard_items.update(refreshing=True)
-
     team = Team(pk=team_id)
 
     if is_clickhouse_enabled():
@@ -192,5 +190,4 @@ def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, 
     else:
         result = Funnel(filter=filter, team=team).run()
 
-    dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
     return result

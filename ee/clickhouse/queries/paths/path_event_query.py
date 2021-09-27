@@ -121,7 +121,7 @@ class PathEventQuery(ClickhouseEventQuery):
             conditions.append(f"({' OR '.join(or_conditions)})")
 
         if self._filter.exclude_events:
-            conditions.append(f"NOT event IN %(exclude_events)s")
+            conditions.append(f"NOT path_item_ungrouped IN %(exclude_events)s")
             params["exclude_events"] = self._filter.exclude_events
 
         if conditions:

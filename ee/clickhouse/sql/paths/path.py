@@ -25,7 +25,7 @@ PATH_ARRAY_QUERY = """
                     , path_time_tuple.2 as time
                     , session_index
                     , arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple
-                    , arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple) as session_paths
+                    , {session_threshold_clause} as session_paths
                 FROM (
                         SELECT person_id,
                                 groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
