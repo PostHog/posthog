@@ -1,4 +1,4 @@
-import { clamp, compactNumber } from 'lib/utils'
+import { clamp, compactNumber, humanFriendlyDuration } from 'lib/utils'
 import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
 import api from 'lib/api'
@@ -8,8 +8,11 @@ import {
     FunnelRequestParams,
     FunnelResult,
     FunnelStep,
+    FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
+    BreakdownKeyType,
     FunnelsTimeConversionBins,
+    FunnelAPIResponse,
 } from '~/types'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
@@ -71,6 +74,43 @@ export function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefin
     return nonZeroCounts[nonZeroCounts.length - 1].index
 }
 
+export function createPopoverMetrics(
+    breakdown: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>,
+    currentOrder = 0,
+    previousOrder = 0
+): { title: string; value: number | string; visible?: boolean }[] {
+    return [
+        {
+            title: 'Completed step',
+            value: breakdown.count,
+        },
+        {
+            title: 'Conversion rate (total)',
+            value: formatDisplayPercentage(breakdown.conversionRates.total) + '%',
+        },
+        {
+            title: `Conversion rate (from step ${humanizeOrder(previousOrder)})`,
+            value: formatDisplayPercentage(breakdown.conversionRates.fromPrevious) + '%',
+            visible: currentOrder !== 0,
+        },
+        {
+            title: 'Dropped off',
+            value: breakdown.droppedOffFromPrevious,
+            visible: currentOrder !== 0 && breakdown.droppedOffFromPrevious > 0,
+        },
+        {
+            title: `Dropoff rate (from step ${humanizeOrder(previousOrder)})`,
+            value: formatDisplayPercentage(1 - breakdown.conversionRates.fromPrevious) + '%',
+            visible: currentOrder !== 0 && breakdown.droppedOffFromPrevious > 0,
+        },
+        {
+            title: 'Average time on step',
+            value: humanFriendlyDuration(breakdown.average_conversion_time),
+            visible: !!breakdown.average_conversion_time,
+        },
+    ]
+}
+
 export function getSeriesPositionName(
     index?: number,
     breakdownMaxIndex?: number
@@ -91,27 +131,60 @@ export function humanizeStepCount(count?: number): string {
     return count > 9999 ? compactNumber(count) : count.toLocaleString()
 }
 
-export function cleanBinResult(binsResult: FunnelsTimeConversionBins): FunnelsTimeConversionBins {
+export function cleanBinResult(result: FunnelResult): FunnelResult {
+    const binsResult = result.result as FunnelsTimeConversionBins
     return {
-        ...binsResult,
-        bins: binsResult.bins.map(([time, count]) => [time ?? 0, count ?? 0]),
-        average_conversion_time: binsResult.average_conversion_time ?? 0,
+        ...result,
+        result: {
+            ...result.result,
+            bins: binsResult.bins?.map(([time, count]) => [time ?? 0, count ?? 0]) ?? [],
+            average_conversion_time: binsResult.average_conversion_time ?? 0,
+        },
     }
 }
 
 export function aggregateBreakdownResult(
     breakdownList: FunnelStep[][],
-    breakdownProperty?: string | number | number[]
+    breakdownProperty?: BreakdownKeyType
 ): FunnelStepWithNestedBreakdown[] {
     if (breakdownList.length) {
+        // Create mapping to determine breakdown ordering by first step counts
+        const breakdownToOrderMap: Record<string | number, FunnelStep> = breakdownList
+            .reduce<{ breakdown_value: string | number; count: number }[]>(
+                (allEntries, breakdownSteps) => [
+                    ...allEntries,
+                    {
+                        breakdown_value: breakdownSteps?.[0]?.breakdown_value ?? 'Other',
+                        count: breakdownSteps?.[0]?.count ?? 0,
+                    },
+                ],
+                []
+            )
+            .sort((a, b) => b.count - a.count)
+            .reduce(
+                (allEntries, breakdown, order) => ({
+                    ...allEntries,
+                    [breakdown.breakdown_value]: { ...breakdown, order },
+                }),
+                {}
+            )
+
         return breakdownList[0].map((step, i) => ({
             ...step,
             count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
             breakdown: breakdownProperty,
-            nested_breakdown: breakdownList.reduce(
-                (allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]],
-                []
-            ),
+            nested_breakdown: breakdownList
+                .reduce(
+                    (allEntries, breakdownSteps) => [
+                        ...allEntries,
+                        {
+                            ...breakdownSteps[i],
+                            order: breakdownToOrderMap[breakdownSteps[i].breakdown_value ?? 'Other'].order,
+                        },
+                    ],
+                    []
+                )
+                .sort((a, b) => a.order - b.order),
             average_conversion_time: null,
             people: [],
         }))
@@ -119,7 +192,7 @@ export function aggregateBreakdownResult(
     return []
 }
 
-export function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): results is FunnelStep[][] {
+export function isBreakdownFunnelResults(results: FunnelAPIResponse): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
@@ -134,22 +207,28 @@ export function wait(ms = 1000): Promise<any> {
     })
 }
 
-export const SECONDS_TO_POLL = 3 * 60
-
-export const EMPTY_FUNNEL_RESULTS = {
-    results: [],
-    timeConversionResults: {
-        bins: [],
-        average_conversion_time: 0,
-    },
+export function cleanBreakdownValue(breakdown_value: string | number | undefined): string | number | undefined {
+    return breakdown_value === 'Baseline' ? undefined : breakdown_value
 }
 
-export async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Promise<FunnelResult<T>> {
+export function getVisibilityIndex(step: FunnelStep, key?: number | string): string {
+    if (step.type === 'actions') {
+        return `${step.type}/${step.action_id}/${step.order}`
+    } else {
+        return `${step.type}/${step.action_id}/${step.order}/${key || 'Other'}`
+    }
+}
+
+export const SECONDS_TO_POLL = 3 * 60
+
+export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
+    apiParams: FunnelRequestParams
+): Promise<FunnelResult<T>> {
     // Tricky: This API endpoint has wildly different return types depending on parameters.
     const { refresh, ...bodyParams } = apiParams
     let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
     const start = window.performance.now()
-    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
+    while (result.result?.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
         await wait()
         result = await api.create('api/insight/funnel', bodyParams)
     }
@@ -165,11 +244,11 @@ export const isStepsEmpty = (filters: FilterType): boolean =>
 
 export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepRangeEntityFilter[] | undefined => {
     if (!filters.exclusions) {
-        return filters.exclusions
+        return undefined
     }
 
     const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-    return filters.exclusions.map((event) => {
+    const exclusions = filters.exclusions.map((event) => {
         const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
         return {
             ...event,
@@ -181,6 +260,7 @@ export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepR
             },
         }
     })
+    return exclusions.length > 0 ? exclusions : undefined
 }
 
 export const getClampedStepRangeFilter = ({

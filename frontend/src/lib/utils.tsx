@@ -53,7 +53,13 @@ export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
-        (parseInt(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (parseInt(c) / 4)))).toString(16)
+        (
+            parseInt(c) ^
+            ((typeof window?.crypto !== 'undefined' // in node tests, jsdom doesn't implement window.crypto
+                ? window.crypto.getRandomValues(new Uint8Array(1))[0]
+                : Math.floor(Math.random() * 256)) &
+                (15 >> (parseInt(c) / 4)))
+        ).toString(16)
     )
 }
 
@@ -64,6 +70,10 @@ export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
 }
 
 export function toParams(obj: Record<string, any>): string {
+    if (!obj) {
+        return ''
+    }
+
     function handleVal(val: any): string {
         if (dayjs.isDayjs(val)) {
             return encodeURIComponent(val.format('YYYY-MM-DD'))
@@ -429,6 +439,11 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
+// Number to number with commas (e.g. 1234 -> 1,234)
+export function humanFriendlyNumber(d: number): string {
+    return d.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
@@ -439,7 +454,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
-    const s = Math.floor((d % 3600) % 60)
+    const s = Math.round((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
@@ -477,9 +492,9 @@ export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, wit
         formatString = '[Yesterday] h:mm'
     }
     if (withSeconds) {
-        formatString += ':ss a'
+        formatString += ':ss A'
     } else {
-        formatString += ' a'
+        formatString += ' A'
     }
     return parsedDate.format(formatString)
 }
@@ -517,6 +532,7 @@ export function colonDelimitedDuration(d: string | number | null | undefined, nu
         m = Math.floor(s / 60)
         s -= m * 60
     }
+    s = Math.round(s)
 
     const units = [zeroPad(weeks, 2), zeroPad(days, 2), zeroPad(h, 2), zeroPad(m, 2), zeroPad(s, 2)]
 
@@ -1053,4 +1069,13 @@ export function median(input: number[]): number {
 
 export function sum(input: number[]): number {
     return input.reduce((a, b) => a + b, 0)
+}
+
+export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
+    try {
+        JSON.parse(value)
+        return Promise.resolve()
+    } catch (error) {
+        return Promise.reject('Not valid JSON!')
+    }
 }

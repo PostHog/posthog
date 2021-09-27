@@ -5,12 +5,12 @@ from celery.app import shared_task
 from django.db.models import Count
 from django.utils.timezone import now
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Team
 from posthog.models.dashboard_item import DashboardItem
 from posthog.models.event import Event
 from posthog.models.event_definition import EventDefinition
 from posthog.models.property_definition import PropertyDefinition
+from posthog.utils import is_clickhouse_enabled
 
 
 def calculate_event_property_usage() -> None:

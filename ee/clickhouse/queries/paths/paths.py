@@ -1,4 +1,5 @@
-from typing import Dict, List, Literal, Optional, Tuple
+from re import escape
+from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -6,6 +7,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
+from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 
@@ -13,7 +15,7 @@ EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
 
 
-class ClickhousePathsNew:
+class ClickhousePaths:
     _filter: PathFilter
     _funnel_filter: Optional[Filter]
     _team: Team
@@ -23,18 +25,29 @@ class ClickhousePathsNew:
         self._team = team
         self.params = {
             "team_id": self._team.pk,
-            "events": [],  # purely a speed optimization, don't need this for filtering
             "event_in_session_limit": self._filter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT,
             "session_time_threshold": SESSION_TIME_THRESHOLD_DEFAULT,
-            "autocapture_match": "%autocapture:%",
+            "groupings": self._filter.path_groupings or None,
+            "regex_groupings": None,
         }
         self._funnel_filter = funnel_filter
 
         if self._filter.include_all_custom_events and self._filter.custom_events:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
 
+        if not self._filter.limit:
+            self._filter = self._filter.with_data({LIMIT: 100})
+
+        if self._filter.path_groupings:
+            regex_groupings = []
+            for grouping in self._filter.path_groupings:
+                regex_grouping = escape(grouping)
+                # don't allow arbitrary regex for now
+                regex_grouping = regex_grouping.replace("\\*", ".*")
+                regex_groupings.append(regex_grouping)
+            self.params["regex_groupings"] = regex_groupings
+
         # TODO: don't allow including $pageview and excluding $pageview at the same time
-        # TODO: Filter on specific autocapture / page URLs
 
     def run(self, *args, **kwargs):
 
@@ -47,7 +60,9 @@ class ClickhousePathsNew:
 
         resp = []
         for res in results:
-            resp.append({"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3]})
+            resp.append(
+                {"source": res[0], "target": res[1], "value": res[2], "average_conversion_time": res[3],}
+            )
         return resp
 
     def _exec_query(self) -> List[Tuple]:
@@ -56,32 +71,62 @@ class ClickhousePathsNew:
 
     def get_query(self) -> str:
 
-        if self._filter.funnel_paths and self._funnel_filter:
-            return self.get_path_query_by_funnel(funnel_filter=self._funnel_filter)
-        else:
-            return self.get_path_query()
+        path_query = self.get_path_query()
+        funnel_cte = ""
 
-    def get_path_query(self) -> str:
+        if self.should_query_funnel():
+            funnel_cte = self.get_path_query_funnel_cte(cast(Filter, self._funnel_filter))
+
+        return funnel_cte + path_query
+
+    def get_paths_per_person_query(self) -> str:
         path_event_query, params = PathEventQuery(filter=self._filter, team_id=self._team.pk).get_query()
         self.params.update(params)
 
-        boundary_event_filter, start_params = (
-            self.get_end_point_filter() if self._filter.end_point else self.get_start_point_filter()
-        )
-        path_limiting_clause, time_limiting_clause = self.get_filtered_path_ordering()
-        compacting_function = self.get_array_compacting_function()
-        self.params.update(start_params)
+        boundary_event_filter = self.get_target_point_filter()
+        target_clause, target_params = self.get_target_clause()
+        self.params.update(target_params)
+
+        session_threshold_clause = self.get_session_threshold_clause()
+
         return PATH_ARRAY_QUERY.format(
             path_event_query=path_event_query,
             boundary_event_filter=boundary_event_filter,
-            path_limiting_clause=path_limiting_clause,
-            time_limiting_clause=time_limiting_clause,
-            compacting_function=compacting_function,
+            target_clause=target_clause,
+            session_threshold_clause=session_threshold_clause,
         )
 
-    def get_path_query_by_funnel(self, funnel_filter: Filter):
-        path_query = self.get_path_query()
-        funnel_persons_generator = ClickhouseFunnelPersons(funnel_filter, self._team)
+    def should_query_funnel(self) -> bool:
+        if self._filter.funnel_paths and self._funnel_filter:
+            return True
+        return False
+
+    def get_path_query(self) -> str:
+
+        paths_per_person_query = self.get_paths_per_person_query()
+
+        return f"""
+            SELECT last_path_key as source_event,
+                path_key as target_event,
+                COUNT(*) AS event_count,
+                avg(conversion_time) AS average_conversion_time
+            FROM ({paths_per_person_query})
+            WHERE source_event IS NOT NULL
+            GROUP BY source_event,
+                    target_event
+            ORDER BY event_count DESC,
+                    source_event,
+                    target_event
+            LIMIT 30
+        """
+
+    def get_path_query_funnel_cte(self, funnel_filter: Filter):
+        funnel_persons_generator = ClickhouseFunnelPersons(
+            funnel_filter,
+            self._team,
+            include_timestamp=bool(self._filter.funnel_paths),
+            include_preceding_timestamp=self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS,
+        )
         funnel_persons_query = funnel_persons_generator.get_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
         funnel_persons_param = funnel_persons_generator.params
@@ -91,21 +136,68 @@ class ClickhousePathsNew:
         WITH {PathEventQuery.FUNNEL_PERSONS_ALIAS} AS (
             {funnel_persons_query_new_params}
         )
-        {path_query}
         """
 
-    def get_start_point_filter(self) -> Tuple[str, Dict]:
+    def get_target_point_filter(self) -> str:
+        if self._filter.end_point and self._filter.start_point:
+            return "WHERE start_target_index > 0 AND end_target_index > 0"
+        elif self._filter.end_point or self._filter.start_point:
+            return f"WHERE target_index > 0"
+        else:
+            return ""
 
-        if not self._filter.start_point:
-            return "", {"target_point": None}
+    def get_session_threshold_clause(self) -> str:
 
-        return "WHERE arrayElement(limited_path, 1) = %(target_point)s", {"target_point": self._filter.start_point}
+        if self.should_query_funnel():
+            self._funnel_filter = cast(Filter, self._funnel_filter)  # typing mess
 
-    def get_end_point_filter(self) -> Tuple[str, Dict]:
-        if not self._filter.end_point:
-            return "", {"target_point": None}
+            # TODO: cleanup funnels interval interpolation mess so this can get cleaned up
+            if self._funnel_filter.funnel_window_interval:
+                funnel_window_interval = self._funnel_filter.funnel_window_interval
+                funnel_window_interval_unit = self._funnel_filter.funnel_window_interval_unit_ch()
+            elif self._funnel_filter.funnel_window_days:
+                funnel_window_interval = self._funnel_filter.funnel_window_days
+                funnel_window_interval_unit = "DAY"
+            else:
+                funnel_window_interval = 14
+                funnel_window_interval_unit = "DAY"
+            # Not possible to directly compare two interval data types, so using a proxy Date.
+            return f"arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL {funnel_window_interval} {funnel_window_interval_unit}, 0, 1), paths_tuple)"
 
-        return "WHERE arrayElement(limited_path, -1) = %(target_point)s", {"target_point": self._filter.end_point}
+        return "arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple)"
+
+    def get_target_clause(self) -> Tuple[str, Dict]:
+        params: Dict[str, Union[str, None]] = {"target_point": None, "secondary_target_point": None}
+
+        if self._filter.end_point and self._filter.start_point:
+            params.update({"target_point": self._filter.end_point, "secondary_target_point": self._filter.start_point})
+            return (
+                """
+            , indexOf(compact_path, %(secondary_target_point)s) as start_target_index
+            , if(start_target_index > 0, arraySlice(compact_path, start_target_index), compact_path) as start_filtered_path
+            , if(start_target_index > 0, arraySlice(timings, start_target_index), timings) as start_filtered_timings
+            , indexOf(start_filtered_path, %(target_point)s) as end_target_index
+            , if(end_target_index > 0, arrayResize(start_filtered_path, end_target_index), start_filtered_path) as filtered_path
+            , if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings
+            , if(length(filtered_path) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_path, 1, intDiv(%(event_in_session_limit)s,2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_path) AS limited_path
+            , if(length(filtered_timings) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_timings, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_timings[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_timings, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_timings) AS limited_timings
+            """,
+                params,
+            )
+        else:
+            path_limiting_clause, time_limiting_clause = self.get_filtered_path_ordering()
+            compacting_function = self.get_array_compacting_function()
+            params.update({"target_point": self._filter.end_point or self._filter.start_point})
+            return (
+                f"""
+            , indexOf(compact_path, %(target_point)s) as target_index
+            , if(target_index > 0, {compacting_function}(compact_path, target_index), compact_path) as filtered_path
+            , if(target_index > 0, {compacting_function}(timings, target_index), timings) as filtered_timings
+            , {path_limiting_clause} as limited_path
+            , {time_limiting_clause} as limited_timings
+            """,
+                params,
+            )
 
     def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
         if self._filter.end_point:

@@ -1,6 +1,7 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Tuple, Union
 
+from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
 from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
@@ -9,6 +10,7 @@ from ee.clickhouse.queries.util import parse_timestamps
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.models import Cohort, Filter, Property, Team
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
 
 
 class ClickhouseEventQuery(metaclass=ABCMeta):
@@ -16,20 +18,25 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     PERSON_TABLE_ALIAS = "person"
     EVENT_TABLE_ALIAS = "e"
 
-    _filter: Union[Filter, PathFilter]
+    _filter: Union[Filter, PathFilter, RetentionFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _should_join_distinct_ids = False
     _should_join_persons = False
     _should_round_interval = False
+    _extra_fields: List[ColumnName]
+    _extra_person_fields: List[ColumnName]
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter],
+        filter: Union[Filter, PathFilter, RetentionFilter],
         team_id: int,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
+        # Extra events/person table columns to fetch since parent query needs them
+        extra_fields: List[ColumnName] = [],
+        extra_person_fields: List[ColumnName] = [],
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -41,6 +48,8 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
         self._should_join_distinct_ids = should_join_distinct_ids
         self._should_join_persons = should_join_persons
+        self._extra_fields = extra_fields
+        self._extra_person_fields = extra_person_fields
 
         if not self._should_join_distinct_ids:
             self._determine_should_join_distinct_ids()
@@ -68,6 +77,13 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return ""
 
     def _determine_should_join_persons(self) -> None:
+        if self._column_optimizer.is_using_person_properties:
+            self._should_join_distinct_ids = True
+            self._should_join_persons = True
+            return
+
+        # :KLUDGE: The following is mostly making sure if cohorts are included as well.
+        #   Can be simplified significantly after https://github.com/PostHog/posthog/issues/5854
         if any(self._should_property_join_persons(prop) for prop in self._filter.properties):
             self._should_join_distinct_ids = True
             self._should_join_persons = True
@@ -117,7 +133,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._should_join_persons:
             return f"""
             INNER JOIN (
-                {ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer).get_query()}
+                {ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer, self._extra_person_fields).get_query()}
             ) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """

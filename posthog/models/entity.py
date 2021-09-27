@@ -22,6 +22,7 @@ class Entity(PropertyMixin):
     type: Literal["events", "actions"]
     order: Optional[int]
     name: Optional[str]
+    custom_name: Optional[str]
     math: Optional[str]
     math_property: Optional[str]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
@@ -43,6 +44,10 @@ class Entity(PropertyMixin):
             order_provided = int(order_provided)
         self.order = order_provided
         self.name = data.get("name")
+        custom_name = data.get("custom_name")
+        if custom_name is not None:
+            custom_name = str(custom_name).strip() or None
+        self.custom_name = custom_name
         self.math = data.get("math")
         self.math_property = data.get("math_property")
 
@@ -58,6 +63,7 @@ class Entity(PropertyMixin):
             "type": self.type,
             "order": self.order,
             "name": self.name,
+            "custom_name": self.custom_name,
             "math": self.math,
             "math_property": self.math_property,
             "properties": [prop.to_dict() for prop in self.properties],
@@ -105,7 +111,7 @@ class Entity(PropertyMixin):
         except:
             raise ValidationError(f"Action ID {self.id} does not exist!")
 
-    __repr__ = sane_repr("id", "type", "order", "name", "math", "math_property", "properties")
+    __repr__ = sane_repr("id", "type", "order", "name", "custom_name", "math", "math_property", "properties")
 
 
 class ExclusionEntity(Entity, FunnelFromToStepsMixin):

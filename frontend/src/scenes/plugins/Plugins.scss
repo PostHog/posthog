@@ -83,3 +83,18 @@
 .plugins-popconfirm {
     z-index: $z_plugins-popconfirm;
 }
+
+.plugin-job-json-editor {
+    border: 1px solid #efefef;
+    padding: 10px;
+}
+
+.plugin-run-job-button {
+    color: $success;
+    cursor: pointer;
+}
+
+.plugin-run-job-button-disabled {
+    color: #9a9a9a;
+    cursor: default;
+}

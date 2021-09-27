@@ -1,11 +1,14 @@
 from django.test import TestCase
+from django.test.client import RequestFactory
 from freezegun import freeze_time
 
+from posthog.exceptions import RequestParsingError
 from posthog.models import EventDefinition
 from posthog.test.base import BaseTest
 from posthog.utils import (
     get_available_timezones_with_offsets,
     get_default_event_name,
+    load_data_from_request,
     mask_email_address,
     relative_date_parse,
 )
@@ -78,3 +81,32 @@ class TestDefaultEventName(BaseTest):
         EventDefinition.objects.create(name="$pageview", team=self.team)
         EventDefinition.objects.create(name="$screen", team=self.team)
         self.assertEqual(get_default_event_name(), "$pageview")
+
+
+class TestLoadDataFromRequest(TestCase):
+    def test_fails_to_JSON_parse_the_literal_string_undefined_when_not_compressed(self):
+        """
+        load_data_from_request assumes that any data
+        that has been received (and possibly decompressed) from the body
+        can be parsed as JSON
+        this test maintains the default (and possibly undesirable) behaviour for the uncompressed case
+        """
+        rf = RequestFactory()
+        post_request = rf.post("/s/", "undefined", "text/plain")
+
+        with self.assertRaises(RequestParsingError) as ctx:
+            load_data_from_request(post_request)
+
+        self.assertEqual("Invalid JSON: Expecting value: line 1 column 1 (char 0)", str(ctx.exception))
+
+    def test_raises_specific_error_for_the_literal_string_undefined_when_compressed(self):
+        rf = RequestFactory()
+        post_request = rf.post("/s/?compression=gzip-js", "undefined", "text/plain")
+
+        with self.assertRaises(RequestParsingError) as ctx:
+            load_data_from_request(post_request)
+
+        self.assertEqual(
+            "data being loaded from the request body for decompression is the literal string 'undefined'",
+            str(ctx.exception),
+        )

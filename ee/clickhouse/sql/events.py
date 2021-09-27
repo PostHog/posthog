@@ -1,12 +1,12 @@
 from ee.kafka_client.topics import KAFKA_EVENTS
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, DEBUG
 
 from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
 from .person import GET_TEAM_PERSON_DISTINCT_IDS
 
 EVENTS_TABLE = "events"
 
-DROP_EVENTS_TABLE_SQL = f"DROP TABLE {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
@@ -35,7 +35,7 @@ EVENTS_TABLE_SQL = (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), distinct_id, uuid)
-SAMPLE BY uuid 
+{sample_by_uuid}
 {storage_policy}
 """
 ).format(
@@ -44,6 +44,7 @@ SAMPLE BY uuid
     engine=table_engine(EVENTS_TABLE, "_timestamp", REPLACING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+    sample_by_uuid="SAMPLE BY uuid" if not DEBUG else "",  # https://github.com/PostHog/posthog/issues/5684
     storage_policy=STORAGE_POLICY,
 )
 
@@ -168,8 +169,33 @@ SELECT timestamp from events WHERE team_id = %(team_id)s order by toDate(timesta
 """
 
 NULL_SQL = """
+-- Creates zero values for all date axis ticks for the given date_from, date_to range
 SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s) - {interval_func}(number)) AS day_start
-FROM numbers(dateDiff(%(interval)s, toDateTime(%(date_from)s), toDateTime(%(date_to)s)) + 1)
+
+-- Get the number of `intervals` between date_from and date_to.
+--
+-- NOTE: for week there is some unusual behavior, see:
+--       https://github.com/ClickHouse/ClickHouse/issues/7322
+--
+--       This actually aligns with what we want, as they are assuming Sunday week starts, 
+--       and we'd rather have the relative week num difference. Likewise the same for 
+--       "month" intervals
+--
+--       To ensure we get all relevant intervals, we add in the truncated "date_from" 
+--       value.
+--
+--       This behaviour of dateDiff is different to our handling of "week" and "month" 
+--       differences we are performing in python, which just considers seconds between
+--       date_from and date_to
+--
+-- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this 
+--       `ticks` query elsewhere.
+FROM numbers(dateDiff(%(interval)s, toDateTime(%(date_from)s), toDateTime(%(date_to)s)))
+
+UNION ALL 
+
+-- Make sure we capture the interval date_from falls into.
+SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s))
 """
 
 EVENT_JOIN_PERSON_SQL = f"""

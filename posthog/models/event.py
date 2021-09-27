@@ -288,6 +288,10 @@ class Event(models.Model):
             models.Index(fields=["timestamp", "team_id", "event"]),
             # Separately managed:
             # models.Index(fields=["created_at"]),
+            # NOTE: The below index has been added as a manual migration in
+            # `posthog/migrations/0024_add_event_distinct_id_index.py, but I'm
+            # adding this here to improve visibility.
+            # models.Index(fields=["distinct_id"], name="idx_distinct_id"),
         ]
 
     def _can_use_cached_query(self, last_updated_action_ts):
@@ -382,7 +386,6 @@ class Event(models.Model):
         return filtered_actions
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    objects: EventManager = EventManager.as_manager()  # type: ignore
     team: models.ForeignKey = models.ForeignKey(Team, on_delete=models.CASCADE)
     event: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     distinct_id: models.CharField = models.CharField(max_length=200)
@@ -393,3 +396,5 @@ class Event(models.Model):
 
     # DEPRECATED: elements are stored against element groups now
     elements: models.JSONField = models.JSONField(default=list, null=True, blank=True)
+
+    objects: EventManager = EventManager.as_manager()  # type: ignore

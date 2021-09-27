@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -9,6 +9,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.constants import AvailableFeature
 from posthog.email import is_email_available
 from posthog.utils import mask_email_address
 
@@ -78,7 +79,7 @@ class Organization(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
-    )  # used to allow self-serve account creation based on social login (#5111)
+    )  # Used to allow self-serve account creation based on social login (#5111)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
     personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
@@ -120,7 +121,7 @@ class Organization(UUIDModel):
     def billing_plan(self) -> Optional[str]:
         return self._billing_plan_details[0]
 
-    def update_available_features(self) -> List[str]:
+    def update_available_features(self) -> List[Union[AvailableFeature, str]]:
         """Updates field `available_features`. Does not `save()`."""
         plan, realm = self._billing_plan_details
         if not plan:
@@ -131,7 +132,7 @@ class Organization(UUIDModel):
             self.available_features = self.billing.available_features  # type: ignore
         return self.available_features
 
-    def is_feature_available(self, feature: str) -> bool:
+    def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return feature in self.available_features
 
     @property
@@ -163,13 +164,10 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_features()
 
 
-@receiver(models.signals.pre_delete, sender=Organization)
-def organization_about_to_be_deleted(sender, instance, **kwargs):
-    instance.teams.all().delete()
-
-
 class OrganizationMembership(UUIDModel):
     class Level(models.IntegerChoices):
+        """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
+
         MEMBER = 1, "member"
         ADMIN = 8, "administrator"
         OWNER = 15, "owner"

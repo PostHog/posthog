@@ -1,5 +1,18 @@
 from enum import Enum
 
+INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
+
+
+class AvailableFeature(str, Enum):
+    ZAPIER = "zapier"
+    ORGANIZATIONS_PROJECTS = "organizations_projects"
+    PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
+    GOOGLE_LOGIN = "google_login"
+    SAML = "saml"
+    DASHBOARD_COLLABORATION = "dashboard_collaboration"
+    INGESTION_TAXONOMY = "ingestion_taxonomy"
+
+
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
@@ -107,6 +120,12 @@ FUNNEL_PATHS = "funnel_paths"
 PATHS_INCLUDE_EVENT_TYPES = "include_event_types"
 PATHS_INCLUDE_CUSTOM_EVENTS = "include_custom_events"
 PATHS_EXCLUDE_EVENTS = "exclude_events"
+FUNNEL_PATH_AFTER_STEP = "funneL_path_after_step"
+FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
+FUNNEL_PATH_BETWEEN_STEPS = "funneL_path_between_steps"
+PATH_GROUPINGS = "path_groupings"
+PATH_START_KEY = "path_start_key"
+PATH_END_KEY = "path_end_key"
 
 
 class FunnelOrderType(str, Enum):
@@ -127,7 +146,7 @@ RETENTION_FIRST_TIME = "retention_first_time"
 DISTINCT_ID_FILTER = "distinct_id"
 
 
-class RDBMS(str, Enum):
+class AnalyticsDBMS(str, Enum):
     POSTGRES = "postgres"
     CLICKHOUSE = "clickhouse"
 
@@ -137,3 +156,9 @@ MONTHLY_ACTIVE = "monthly_active"
 
 ENVIRONMENT_TEST = "test"
 ENVIRONMENT_PRODUCTION = "production"
+
+
+class RetentionQueryType(str, Enum):
+    RETURNING = "returning"
+    TARGET = "target"
+    TARGET_FIRST_TIME = "target_first_time"

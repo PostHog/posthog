@@ -1818,10 +1818,6 @@
                                 "first_name": "Marius",
                                 "email": "marius@posthog.com"
                             },
-                            "membership_id": "01778ae6-ad1a-0000-2024-9c7fae441f44",
-                            "user_id": 1,
-                            "user_first_name": "Marius",
-                            "user_email": "marius@posthog.com",
                             "level": 15,
                             "joined_at": "2021-02-10T07:45:09.403253Z",
                             "updated_at": "2021-02-10T07:45:09.403362Z"
@@ -1835,10 +1831,6 @@
                                 "first_name": "Test",
                                 "email": "test@hot.ee"
                             },
-                            "membership_id": "017a519e-12de-0000-6888-df2a58b3ab43",
-                            "user_id": 2,
-                            "user_first_name": "Test",
-                            "user_email": "test@hot.ee",
                             "level": 1,
                             "joined_at": "2021-06-28T07:55:51.902703Z",
                             "updated_at": "2021-06-28T07:55:51.902733Z"
@@ -3063,9 +3055,6 @@
                     "save-cohort-on-modal": true,
                     "4819-funnel-persons-modal": true,
                     "4819-persons-modal-updates": true,
-                    "4535-funnel-bar-viz": true,
-                    "4267-taxonomic-property-filter": true,
-                    "4050-query-ui-optB": true,
                     "4267-event-property-taxonomy": true,
                     "4156-tooltips-legends": true,
                     "project-home-exp-5": true

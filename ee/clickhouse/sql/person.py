@@ -10,9 +10,9 @@ from .clickhouse import (
     table_engine,
 )
 
-DROP_PERSON_TABLE_SQL = f"DROP TABLE person ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
-DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE IF EXISTS person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 PERSONS_TABLE = "person"
 
@@ -187,7 +187,9 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
     extra_fields=KAFKA_COLUMNS,
 )
 
-DROP_PERSON_STATIC_COHORT_TABLE_SQL = f"DROP TABLE {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_STATIC_COHORT_TABLE_SQL = (
+    f"DROP TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+)
 
 INSERT_PERSON_STATIC_COHORT = (
     f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp) VALUES"
@@ -209,25 +211,12 @@ WHERE team_id = %(team_id)s
     GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
 )
 
-GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.id
-FROM ({latest_person_sql}) AS p
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
-WHERE team_id = %(team_id)s
-  AND pdi.distinct_id = %(distinct_id)s
-  {distinct_query}
-""".format(
-    latest_person_sql=GET_LATEST_PERSON_SQL,
-    distinct_query="{distinct_query}",
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
-
 INSERT_PERSON_SQL = """
 INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(sign)s, now(), 0 VALUES
+INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(_sign)s, now(), 0 VALUES
 """
 
 DELETE_PERSON_BY_ID = """
@@ -242,30 +231,9 @@ WHERE distinct_id IN (
 AND team_id = %(team_id)s
 """
 
-PERSON_TREND_SQL = """
-SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to} {person_filter}
-"""
-
-PEOPLE_THROUGH_DISTINCT_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
-    {latest_person_sql}
-) as person INNER JOIN (
-    SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql})
-) as pdi ON person.id = pdi.person_id
-WHERE team_id = %(team_id)s
-GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 200 OFFSET %(offset)s
-"""
-
-INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL = """
+INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT id FROM (
-        {latest_person_sql}
-    ) as person INNER JOIN (
-        SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql})
-    ) as pdi ON person.id = pdi.person_id
-    WHERE team_id = %(team_id)s
-    GROUP BY id
+    SELECT person_id FROM ({query})
 )
 """
 
@@ -319,4 +287,23 @@ ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) as keysAndValues
 WHERE team_id = %(team_id)s
 GROUP BY tupleElement(keysAndValues, 1)
 ORDER BY count DESC, key ASC
+"""
+
+GET_PERSONS_FROM_EVENT_QUERY = """
+SELECT
+    person_id,
+    created_at,
+    team_id,
+    person_props,
+    is_identified,
+    arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+FROM ({events_query})
+GROUP BY
+    person_id,
+    created_at,
+    team_id,
+    person_props,
+    is_identified
+LIMIT %(limit)s
+OFFSET %(offset)s
 """

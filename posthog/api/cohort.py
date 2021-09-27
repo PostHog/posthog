@@ -25,6 +25,7 @@ from posthog.queries.stickiness import (
     stickiness_process_entity_type,
 )
 from posthog.tasks.calculate_cohort import calculate_cohort, calculate_cohort_ch, calculate_cohort_from_list
+from posthog.utils import is_clickhouse_enabled
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -37,6 +38,7 @@ class CohortSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "groups",
             "deleted",
             "is_calculating",
@@ -73,8 +75,10 @@ class CohortSerializer(serializers.ModelSerializer):
         if cohort.is_static:
             self._handle_static(cohort, request)
         else:
-            calculate_cohort.delay(cohort_id=cohort.pk)
-            calculate_cohort_ch.delay(cohort_id=cohort.pk)
+            if is_clickhouse_enabled():
+                calculate_cohort_ch.delay(cohort.id)
+            else:
+                calculate_cohort.delay(cohort.id)
 
         posthoganalytics.capture(request.user.distinct_id, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -123,9 +127,12 @@ class CohortSerializer(serializers.ModelSerializer):
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         cohort.name = validated_data.get("name", cohort.name)
+        cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
+        cohort.is_static = validated_data.get("is_static", cohort.is_static)
         deleted_state = validated_data.get("deleted", None)
-        is_deletion_change = deleted_state is not None
+
+        is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             cohort.deleted = deleted_state
 
@@ -135,10 +142,14 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if not deleted_state:
             if cohort.is_static:
-                self._handle_static(cohort, request)
+                # You can't update a static cohort using the trend/stickiness thing
+                if request.FILES.get("csv"):
+                    self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                calculate_cohort.delay(cohort_id=cohort.pk)
-                calculate_cohort_ch.delay(cohort_id=cohort.pk)
+                if is_clickhouse_enabled():
+                    calculate_cohort_ch.delay(cohort.id)
+                else:
+                    calculate_cohort.delay(cohort.id)
 
         posthoganalytics.capture(
             request.user.distinct_id,

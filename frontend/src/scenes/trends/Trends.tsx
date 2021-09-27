@@ -27,11 +27,11 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(
-        trendsLogic({ dashboardItemId: null, view, filters: null })
+        trendsLogic({ dashboardItemId: null, filters: null })
     )
-    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, view, filters: null }))
+    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, filters: null }))
     const { showingPeople } = useValues(personsModalLogic)
-    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -102,7 +102,6 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 view={view}
                 filters={_filters}
                 onSaveCohort={() => {
-                    refreshCohort()
                     setCohortModalVisible(true)
                 }}
             />

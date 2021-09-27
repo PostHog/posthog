@@ -1,0 +1,47 @@
+import { Meta } from '@storybook/addon-docs';
+
+<Meta title="Welcome" />
+
+# The PostHog Storybook
+
+We're using Storybook to:
+- track the difference between designed and implemented product decisions.
+- make it easy to work on hard-to-reach scenes (e.g. preflight check)
+- provide permalinks with which to link to stories in issues
+
+## Running locally
+
+To run storybook locally, run `yarn storybook`. It'll open on [http://localhost:6006/](http://localhost:6006/)
+
+## How to create stories
+
+To capture a scene as a story, run `getReduxState()` inside Chrome's JS console (only works in [dev mode](http://localhost:8000/)) and save the
+returned state into a `.json` file. Then follow the same pattern other `*.stories.tsx` files use:
+
+```tsx
+// Events.stories.tsx
+import { Meta } from '@storybook/react'
+import { keaStory } from 'lib/storybook/kea-story'
+
+// import the main component of the scene
+import { Events } from '../Events'
+
+// import the `getReduxState()` output for all the variations you wish to show
+import eventsState from './events.json'
+
+// some metadata and optional parameters
+export default {
+    title: 'PostHog/Scenes/Events',
+} as Meta
+
+// export more stories with different state
+export const AllEvents = keaStory(Events, eventsState)
+
+
+```
+
+## Fun story: PostHog Onboarding Story
+
+For a fun story, check out [The Self-Hosted Onboarding Flow](/story/posthog-onboarding-1-preflight--initial), where a user
+has to go through three different designs before reaching the app they came for!
+

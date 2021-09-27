@@ -1,5 +1,6 @@
 import os
 import time
+from random import randrange
 
 from celery import Celery
 from celery.schedules import crontab
@@ -9,8 +10,8 @@ from django.db import connection
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.redis import get_client
+from posthog.utils import is_clickhouse_enabled
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -84,6 +85,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
         sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
 
+        sender.add_periodic_task(
+            crontab(hour=0, minute=randrange(0, 40)), clickhouse_send_license_usage.s()
+        )  # every day at a random minute past midnight. Randomize to avoid overloading license.posthog.com
         try:
             from ee.settings import MATERIALIZE_COLUMNS_SCHEDULE_CRON
 
@@ -101,6 +105,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
                 ),
                 clickhouse_materialize_columns.s(),
                 name="clickhouse materialize columns",
+            )
+
+            sender.add_periodic_task(
+                crontab(hour="*/4", minute=0),
+                clickhouse_mark_all_materialized.s(),
+                name="clickhouse mark all columns as materialized",
             )
         except Exception as err:
             capture_exception(err)
@@ -227,7 +237,7 @@ def clickhouse_mutation_count():
                 table,
                 count(1) AS freq
             FROM system.mutations
-            WHERE is_done = 0 
+            WHERE is_done = 0
             GROUP BY table
             ORDER BY freq DESC
         """
@@ -244,6 +254,22 @@ def clickhouse_materialize_columns():
         from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
         materialize_properties_task()
+
+
+@app.task(ignore_result=True)
+def clickhouse_mark_all_materialized():
+    if is_clickhouse_enabled() and settings.EE_AVAILABLE:
+        from ee.tasks.materialized_columns import mark_all_materialized
+
+        mark_all_materialized()
+
+
+@app.task(ignore_result=True)
+def clickhouse_send_license_usage():
+    if is_clickhouse_enabled() and not settings.MULTI_TENANCY:
+        from ee.tasks.send_license_usage import send_license_usage
+
+        send_license_usage()
 
 
 @app.task(ignore_result=True)

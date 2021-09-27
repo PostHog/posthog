@@ -2,7 +2,7 @@ import React from 'react'
 import { Dropdown, Menu, Skeleton, Table } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
-import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -17,6 +17,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -67,11 +68,10 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     if (isLegend) {
         columns.push({
             title: '',
-            render: function RenderCheckbox({}, item: IndexedTrendResult, index: number) {
-                // legend will always be on insight page where the background is white
+            render: function RenderCheckbox({}, item: IndexedTrendResult) {
                 return (
                     <PHCheckbox
-                        color={colorList[index]}
+                        color={colorList[item.id]}
                         checked={visibilityMap[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={isSingleEntity}
@@ -107,11 +107,11 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
 
     columns.push({
         title: 'Event or Action',
-        render: function RenderLabel({}, item: IndexedTrendResult, index: number): JSX.Element {
+        render: function RenderLabel({}, item: IndexedTrendResult): JSX.Element {
             return (
                 <SeriesToggleWrapper id={item.id} toggleVisibility={toggleVisibility}>
                     <InsightLabel
-                        seriesColor={colorList[index]}
+                        seriesColor={colorList[item.id]}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}
@@ -132,7 +132,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
         },
     })
 
-    if (indexedResults?.length > 0) {
+    if (indexedResults?.length > 0 && indexedResults[0].data) {
         const valueColumns: ColumnsType<IndexedTrendResult> = indexedResults[0].data.map(({}, index: number) => ({
             title: (
                 <DateDisplay
@@ -144,6 +144,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             render: function RenderPeriod({}, item: IndexedTrendResult) {
                 return maybeAddCommasToInteger(item.data[index])
             },
+            sorter: (a, b) => a.data[index] - b.data[index],
             align: 'center',
         }))
 
@@ -170,7 +171,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         filters.display === ACTIONS_TABLE ||
                         filters.display === ACTIONS_PIE_CHART)
                 ) {
-                    return (item.count || item.aggregated_value).toLocaleString()
+                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
                 }
                 return (
                     <>
@@ -204,7 +205,11 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             rowKey="id"
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
-            scroll={indexedResults && indexedResults.length > 0 ? { x: indexedResults[0].data.length * 160 } : {}}
+            scroll={
+                indexedResults && indexedResults.length > 0 && indexedResults[0].data
+                    ? { x: indexedResults[0].data.length * 160 }
+                    : {}
+            }
             data-attr="insights-table-graph"
         />
     )

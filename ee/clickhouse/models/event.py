@@ -13,11 +13,12 @@ from statshog.defaults.django import statsd
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.element import chain_to_elements, elements_to_string
-from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, GET_EVENTS_SQL, INSERT_EVENT_SQL
+from ee.clickhouse.sql.events import GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
 from ee.idl.gen import events_pb2
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_EVENTS
 from ee.models.hook import Hook
+from posthog.constants import AvailableFeature
 from posthog.models.action_step import ActionStep
 from posthog.models.element import Element
 from posthog.models.person import Person
@@ -34,7 +35,6 @@ def create_event(
     elements: Optional[List[Element]] = None,
     site_url: Optional[str] = None,
 ) -> str:
-
     if not timestamp:
         timestamp = timezone.now()
     assert timestamp is not None
@@ -66,7 +66,7 @@ def create_event(
     if not settings.PLUGIN_SERVER_ACTION_MATCHING and (
         team.slack_incoming_webhook
         or (
-            team.organization.is_feature_available("zapier")
+            team.organization.is_feature_available(AvailableFeature.ZAPIER)
             and Hook.objects.filter(event="action_performed", team=team).exists()
         )
     ):
@@ -201,3 +201,99 @@ def determine_event_conditions(
             result += "AND event = %(event)s"
             params.update({"event": v})
     return result, params
+
+
+def get_event_count_for_team_and_period(
+    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
+) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id = %(team_id)s
+        AND timestamp between %(begin)s AND %(end)s
+    """,
+        {"team_id": str(team_id), "begin": begin, "end": end},
+    )[0][0]
+    return result
+
+
+def get_event_count_for_team(team_id: Union[str, int]) -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+        WHERE team_id = %(team_id)s
+    """,
+        {"team_id": str(team_id)},
+    )[0][0]
+    return result
+
+
+def get_event_count() -> int:
+    result = sync_execute(
+        """
+        SELECT count(1) as count
+        FROM events
+    """
+    )[0][0]
+    return result
+
+
+def get_event_count_for_last_month() -> int:
+    result = sync_execute(
+        """
+        -- count of events last month
+        SELECT
+        COUNT(1) freq
+        FROM events
+        WHERE 
+        toStartOfMonth(timestamp) = toStartOfMonth(date_sub(MONTH, 1, now()))
+    """
+    )[0][0]
+    return result
+
+
+def get_event_count_month_to_date() -> int:
+    result = sync_execute(
+        """
+        -- count of events month to date
+        SELECT
+        COUNT(1) freq
+        FROM events
+        WHERE toStartOfMonth(timestamp) = toStartOfMonth(now());
+    """
+    )[0][0]
+    return result
+
+
+def get_events_count_for_team_by_client_lib(
+    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
+) -> dict:
+    results = sync_execute(
+        """
+        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq 
+        FROM events
+        WHERE team_id = %(team_id)s 
+        AND timestamp between %(begin)s AND %(end)s
+        GROUP BY lib
+    """,
+        {"team_id": str(team_id), "begin": begin, "end": end},
+    )
+    return {result[0]: result[1] for result in results}
+
+
+def get_events_count_for_team_by_event_type(
+    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
+) -> dict:
+    results = sync_execute(
+        """
+        SELECT event, COUNT(1) as freq 
+        FROM events
+        WHERE team_id = %(team_id)s
+        AND timestamp between %(begin)s AND %(end)s
+        GROUP BY event 
+    """,
+        {"team_id": str(team_id), "begin": begin, "end": end},
+    )
+    return {result[0]: result[1] for result in results}

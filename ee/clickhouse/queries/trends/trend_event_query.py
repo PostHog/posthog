@@ -7,10 +7,12 @@ from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
 from posthog.models import Entity
+from posthog.models.filters.filter import Filter
 
 
 class TrendsEventQuery(ClickhouseEventQuery):
     _entity: Entity
+    _filter: Filter
 
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
@@ -31,6 +33,17 @@ class TrendsEventQuery(ClickhouseEventQuery):
                 )
             )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
+            + (
+                " ".join(
+                    f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._extra_fields
+                )
+            )
+            + (
+                " ".join(
+                    f", {self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
+                    for column_name in self._extra_person_fields
+                )
+            )
         )
 
         date_query, date_params = self._get_date_filter()
