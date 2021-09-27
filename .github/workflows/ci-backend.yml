@@ -103,6 +103,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   python manage.py makemigrations --check --dry-run
+                  git diff --name-only ${{ github.event.before }}..${{ github.event.after }}
                   git diff --name-only ${{ github.event.before }}..${{ github.event.after }} | grep migrations | python manage.py test_migrations_are_null
 
             - name: Run posthog tests
