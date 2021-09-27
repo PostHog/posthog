@@ -116,6 +116,7 @@ export function NewPathTab(): JSX.Element {
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'space-between',
+                                            overflow: 'hidden',
                                         }}
                                     >
                                         {filter.start_point && filter.start_point_type
@@ -152,6 +153,7 @@ export function NewPathTab(): JSX.Element {
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'space-between',
+                                            overflow: 'hidden',
                                         }}
                                     >
                                         {filter.end_point && filter.end_point_type

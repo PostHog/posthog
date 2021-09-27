@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
+import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const pathOptionsToLabels = {
@@ -70,7 +70,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         setFilter: (filter) => filter,
         setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
         showPathEvents: (event) => ({ event }),
-        updateExclusions: (filters: PropertyFilter[]) => ({ exclusions: filters.map(({ value }) => value) }),
+        updateExclusions: (filters: AnyPropertyFilter[]) => ({ exclusions: filters.map(({ value }) => value) }),
     },
     loaders: ({ values, props }) => ({
         results: {
