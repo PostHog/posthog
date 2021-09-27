@@ -188,9 +188,22 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
 
         link.append('path')
             .attr('d', Sankey.sankeyLinkHorizontal())
+            .attr('id', (d) => `path${d.index}`)
             .attr('stroke-width', (d) => {
                 return Math.max(1, d.width)
             })
+            .on('mouseover', (data) => {
+                svg.select(`#path${data.index}`).attr('stroke', 'blue')
+                if (data?.source?.targetLinks.length === 0) {
+                    return
+                }
+                let node = data.source
+                while (node.targetLinks.length > 0) {
+                    svg.select(`#path${node.targetLinks[0].index}`).attr('stroke', 'blue')
+                    node = node.targetLinks[0].source
+                }
+            })
+            .on('mouseleave', () => svg.selectAll('path').attr('stroke', 'var(--primary)'))
 
         link.append('g')
             .append('path')
