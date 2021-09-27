@@ -2,11 +2,12 @@
 
 .resizable-table-scroll-container {
     max-width: 100%;
-    overflow-x: auto;
+    overflow-x: none;
     position: relative;
 
     .table-gradient-overlay {
         overflow-y: hidden;
+        overflow-x: auto;
 
         &.scrollable-right::after {
             z-index: 99;
