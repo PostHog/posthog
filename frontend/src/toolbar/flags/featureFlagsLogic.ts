@@ -102,7 +102,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     events: ({ actions }) => ({
         afterMount: () => {
             actions.getUserFlags()
-            if (window) {
+            if (window && window['posthog']) {
                 ;(window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
                     if (variants) {
                         toolbarLogic.actions.updateFeatureFlags(variants)
