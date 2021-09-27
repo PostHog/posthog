@@ -5,7 +5,7 @@ import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { router } from 'kea-router'
 import * as utils from 'lib/utils'
-import { EventType } from '~/types'
+import { EmptyPropertyFilter, EventType, PropertyFilter } from '~/types'
 
 const toastSpy = jest.spyOn(utils, 'errorToast')
 
@@ -25,6 +25,13 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
 })
 
 // TODO test interactions with userLogic
+
+const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
+    key: value,
+    operator: null,
+    type: 't',
+    value: 'v',
+})
 
 describe('eventsTableLogic', () => {
     let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>
@@ -329,17 +336,26 @@ describe('eventsTableLogic', () => {
             it('can set the properties when empty', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([])
-                }).toMatchValues({ properties: [{}] })
+                }).toMatchValues({ properties: [] })
 
                 await expectLogic(logic, () => {
-                    logic.actions.setProperties([{}])
-                }).toMatchValues({ properties: [{}] })
+                    logic.actions.setProperties([{} as any])
+                }).toMatchValues({ properties: [] })
             })
 
             it('can set an object inside the array', async () => {
+                const propertyFilter = makePropertyFilter()
                 await expectLogic(logic, () => {
-                    logic.actions.setProperties([{ key: 'value' }])
-                }).toMatchValues({ properties: [{ key: 'value' }] })
+                    logic.actions.setProperties([propertyFilter])
+                }).toMatchValues({ properties: [propertyFilter] })
+            })
+
+            it('can filter partial properties inside the array', async () => {
+                const propertyFilter = makePropertyFilter()
+                const partialPropertyFilter = { key: 'value' } as EmptyPropertyFilter
+                await expectLogic(logic, () => {
+                    logic.actions.setProperties([propertyFilter, partialPropertyFilter])
+                }).toMatchValues({ properties: [propertyFilter] })
             })
         })
     })
@@ -372,16 +388,16 @@ describe('eventsTableLogic', () => {
 
         it('can build the export URL when there are no properties or filters', async () => {
             await expectLogic(logic, () => {}).toMatchValues({
-                exportUrl: '/api/event.csv?properties=%5B%7B%7D%5D&orderBy=%5B%22-timestamp%22%5D',
+                exportUrl: '/api/event.csv?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D',
             })
         })
 
         it('can build the export URL when there are properties or filters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setProperties([{ key: 'value' }])
+                logic.actions.setProperties([makePropertyFilter('fixed value')])
             }).toMatchValues({
                 exportUrl:
-                    '/api/event.csv?properties=%5B%7B%22key%22%3A%22value%22%7D%5D&orderBy=%5B%22-timestamp%22%5D',
+                    '/api/event.csv?properties=%5B%7B%22key%22%3A%22fixed%20value%22%2C%22operator%22%3Anull%2C%22type%22%3A%22t%22%2C%22value%22%3A%22v%22%7D%5D&orderBy=%5B%22-timestamp%22%5D',
             })
         })
 
@@ -389,7 +405,7 @@ describe('eventsTableLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.flipSort()
             }).toMatchValues({
-                exportUrl: '/api/event.csv?properties=%5B%7B%7D%5D&orderBy=%5B%22timestamp%22%5D',
+                exportUrl: '/api/event.csv?properties=%5B%5D&orderBy=%5B%22timestamp%22%5D',
             })
         })
     })
@@ -403,10 +419,11 @@ describe('eventsTableLogic', () => {
 
     it('writes properties to the URL', async () => {
         const value = randomString()
+        const propertyFilter = makePropertyFilter(value)
         await expectLogic(logic, () => {
-            logic.actions.setProperties([{ key: value }])
+            logic.actions.setProperties([propertyFilter])
         })
-        expect(router.values.searchParams).toHaveProperty('properties', [{ key: value }])
+        expect(router.values.searchParams).toHaveProperty('properties', [propertyFilter])
     })
 
     it('reads autoload from the URL', async () => {
@@ -415,9 +432,9 @@ describe('eventsTableLogic', () => {
     })
 
     it('reads properties from the URL', async () => {
-        const value = randomString()
-        router.actions.push(router.values.location.pathname, { properties: [{ key: value }] })
-        await expectLogic(logic, () => {}).toMatchValues({ properties: [{ key: value }] })
+        const propertyFilter = makePropertyFilter()
+        router.actions.push(router.values.location.pathname, { properties: [propertyFilter] })
+        await expectLogic(logic, () => {}).toMatchValues({ properties: [propertyFilter] })
     })
 
     it('writes event filter to the URL', async () => {

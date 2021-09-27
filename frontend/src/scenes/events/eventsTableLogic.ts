@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { errorToast, objectsEqual, toParams } from 'lib/utils'
+import { errorToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import dayjs from 'dayjs'
@@ -9,7 +9,7 @@ import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
-import { EventsTableRowItem, EventType } from '~/types'
+import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 const POLL_TIMEOUT = 5000
 
 // necessary for the date format in the formatEvents method to work
@@ -59,6 +59,9 @@ export interface ApiError {
     statusText?: string
 }
 
+const isPropertyFilter = (maybePropertyFilter: AnyPropertyFilter): maybePropertyFilter is PropertyFilter =>
+    !!maybePropertyFilter.key && !!maybePropertyFilter.type && !!maybePropertyFilter.value
+
 export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
     props: {} as EventsTableLogicProps,
     // Set a unique key based on the fixed filters.
@@ -72,7 +75,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         ].join('-'),
 
     actions: {
-        setProperties: (properties: Record<string, unknown>[]) => {
+        setProperties: (properties: AnyPropertyFilter[] | AnyPropertyFilter): { properties: AnyPropertyFilter[] } => {
             // there seem to be multiple representations of "empty" properties
             // the page does not work with some of those representations
             // this action normalises them
@@ -112,16 +115,16 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             { noop: (_: string, s: string) => s },
         ],
         properties: [
-            [],
+            [] as PropertyFilter[],
             {
                 setProperties: (
-                    _: any[],
+                    _: PropertyFilter[],
                     {
                         properties,
                     }: {
-                        properties: Record<string, unknown>[]
+                        properties: AnyPropertyFilter[]
                     }
-                ) => properties,
+                ) => properties.filter(isPropertyFilter),
             },
         ],
         eventFilter: [
@@ -323,7 +326,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     }),
 
     urlToAction: ({ actions, values }) => ({
-        '*': (_, searchParams, hashParams) => {
+        '*': (_, searchParams) => {
             try {
                 // if the url changed, but we are not anymore on the page we were at when the logic was mounted
                 if (router.values.location.pathname !== values.initialPathname) {
@@ -334,10 +337,8 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 // if we have an error accessing the filter value, the logic is gone and we should return
                 return
             }
-            const isFirstRedirect = hashParams.backTo // first time we've navigated here from another page
-            if (!objectsEqual(searchParams.properties || {}, values.properties) || isFirstRedirect) {
-                actions.setProperties(searchParams.properties || {})
-            }
+
+            actions.setProperties(searchParams.properties || values.properties || {})
 
             if (searchParams.autoload) {
                 actions.toggleAutomaticLoad(searchParams.autoload)
@@ -428,10 +429,11 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 params.after = event.timestamp
             }
 
-            let apiResponse = null
+            const urlParams = toParams(params)
 
+            let apiResponse = null
             try {
-                apiResponse = await api.get(`${props.apiUrl || 'api/event/'}?${toParams(params)}`)
+                apiResponse = await api.get(`${props.apiUrl || 'api/event/'}?${urlParams}`)
             } catch (e) {
                 // We don't call fetchOrPollFailure because we don't to generate an error alert for this
                 return
