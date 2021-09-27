@@ -48,7 +48,7 @@ SESSIONS_FOR_FUNNEL_PERSONS_QUERY_COLUMNS = [
     "duration",
     "full_snapshots",
 ]
-SESSIONS_FOR_FUNNEL_PERSONS_QUERY = """
+SESSIONS_FOR_FUNNEL_PERSONS_QUERY = f"""
     SELECT
         session_id,
         person_id,
@@ -67,9 +67,7 @@ SESSIONS_FOR_FUNNEL_PERSONS_QUERY = """
         AND timestamp <= %(end_time)s
         AND has(%(distinct_ids)s, distinct_id)
     GROUP BY person_id, session_id
-    HAVING full_snapshots > 0""".format(
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
-)
+    HAVING full_snapshots > 0"""
 
 
 class SessionRecording(BaseSessionRecording):

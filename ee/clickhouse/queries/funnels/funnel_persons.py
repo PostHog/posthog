@@ -41,10 +41,11 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
             all_distinct_ids.extend(person["distinct_ids"])
 
         window_timedelta = dt.timedelta(
-            **{(self._filter.funnel_window_interval_unit or "day") + "s": self._filter.funnel_window_interval or 14}
+            **{f"{self._filter.funnel_window_interval_unit}s": self._filter.funnel_window_interval}
         )
         session_recordings = query_sessions_for_funnel_persons(
             self._team,
+            # We are sure that date_from and date_to have values here, as they're ensured in the superclass
             cast(dt.datetime, self._filter.date_from),
             cast(dt.datetime, self._filter.date_to) + window_timedelta,
             all_distinct_ids,

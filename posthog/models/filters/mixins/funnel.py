@@ -83,10 +83,20 @@ class FunnelWindowMixin(BaseParamMixin):
             return None
         return _amt
 
+    @property
+    def funnel_window_interval_or_default(self) -> int:
+        value = self.funnel_window_interval
+        return value if value is not None else 14
+
     @cached_property
     def funnel_window_interval_unit(self) -> Optional[IntervalType]:
         _unit = self._data.get(FUNNEL_WINDOW_INTERVAL_UNIT, None)
         return _unit.lower() if _unit is not None else _unit
+
+    @property
+    def funnel_window_interval_unit_or_default(self) -> IntervalType:
+        value = self.funnel_window_interval_unit
+        return value if value is not None else "day"
 
     @include_dict
     def funnel_window_to_dict(self):
