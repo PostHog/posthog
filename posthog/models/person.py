@@ -73,6 +73,7 @@ class Person(models.Model):
     is_user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE, null=True, blank=True)
     is_identified: models.BooleanField = models.BooleanField(default=False)
     uuid = models.UUIDField(db_index=True, default=UUIDT, editable=False)
+    properties_2: models.JSONField = models.JSONField(default=dict)
 
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
