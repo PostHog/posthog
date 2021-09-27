@@ -92,7 +92,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         setColumnConfig: (columnConfig: string[]) => ({ columnConfig }),
         setColumnConfigSaving: (saving: boolean) => ({ saving }),
         fetchEvents: (nextParams = null) => ({ nextParams }),
-        fetchEventsSuccess: (x: OnFetchEventsSuccess) => x,
+        fetchEventsSuccess: (apiResponse: OnFetchEventsSuccess) => apiResponse,
         fetchNextEvents: true,
         fetchOrPollFailure: (error: ApiError) => ({ error }),
         flipSort: true,
