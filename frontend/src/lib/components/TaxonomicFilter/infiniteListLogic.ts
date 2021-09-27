@@ -94,7 +94,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         offset,
                     }).url
 
-                    let response: EventDefinitionStorage
+                    let response
 
                     if (apiCache[url]) {
                         response = apiCache[url]
