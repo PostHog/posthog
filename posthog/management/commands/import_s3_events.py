@@ -38,10 +38,8 @@ class Command(BaseCommand):
             for line in smart_open(f"s3://{bucket_path}{file_name}", "rb"):
                 if line_index == 1:
                     for row in csv.reader([line.decode("utf-8")]):
-                        print(row)
-                        # print(line.decode('utf-8')[:-1])
-                        # timestamp = datetime.datetime.fromisoformat(line.decode('utf-8')[:-1].split(",")[5])
-                        # ordered_files.append((timestamp, file_name))
+                        timestamp = datetime.datetime.fromisoformat(row[5])
+                        ordered_files.append((timestamp, file_name))
                         break
                 line_index += 1
 
@@ -54,16 +52,7 @@ class Command(BaseCommand):
                 if is_first_line:
                     is_first_line = False
                     continue
-                [
-                    distinct_id,
-                    ip,
-                    site_url,
-                    data,
-                    team_id,
-                    now,
-                    sent_at,
-                    event_uuid,
-                ] = line.split(",")
+                [distinct_id, ip, site_url, data, team_id, now, sent_at, event_uuid,] = line.split(",")
 
             print(
                 {
