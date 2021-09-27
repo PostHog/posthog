@@ -336,7 +336,7 @@ export function MainNavigation(): JSX.Element {
                     />
                     {featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? (
                         <MenuItem
-                            title="Session rec."
+                            title="Session Rec."
                             icon={<PlayCircleFilled />}
                             identifier="sessionRecordings"
                             to={urls.sessionRecordings()}
