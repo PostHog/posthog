@@ -7,7 +7,7 @@ export function GlobalFiltersTitle({
     title = 'Filters',
 }: {
     unit?: string
-    title: string
+    title?: string
 }): JSX.Element {
     return (
         <h4 className="secondary">

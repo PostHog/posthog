@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 interface PathItemSelectorProps {
-    pathItem: string | undefined | null
+    pathItem: TaxonomicFilterValue | undefined
     onChange: (item: string) => void
     children: JSX.Element
     index: number
