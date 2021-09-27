@@ -270,7 +270,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             (eventFilter, orderBy, properties) =>
                 `/api/event.csv?${toParams({
                     properties,
-                    ...((props.fixedFilters as FixedFilters) || {}),
+                    ...(props.fixedFilters || {}),
                     ...(eventFilter ? { event: eventFilter } : {}),
                     orderBy: [orderBy],
                 })}`,
