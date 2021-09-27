@@ -97,7 +97,7 @@ export function Person(): JSX.Element {
                                     />
                                     <SessionRecordingsTable
                                         key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                                        personIds={person.distinct_ids}
+                                        distinctId={person.distinct_ids[0]}
                                         isPersonPage
                                     />
                                 </>

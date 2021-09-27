@@ -57,7 +57,7 @@ describe('sessionRecordingsTableLogic', () => {
         initKeaTestLogic({
             logic: sessionRecordingsTableLogic,
             props: {
-                personIds: ['cool_user_99'],
+                distinctId: 'cool_user_99',
             },
             onLogic: (l) => (personSpecificLogic = l),
         })

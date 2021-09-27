@@ -12,9 +12,9 @@ interface Params {
 }
 
 export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<SessionRecordingId>>({
-    key: (props) => props.personIds || 'global',
+    key: (props) => props.distinctId || 'global',
     props: {} as {
-        personIds?: string[]
+        distinctId?: string
     },
     actions: {
         getSessionRecordings: true,
@@ -27,7 +27,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
             {
                 getSessionRecordings: async () => {
                     const params = toParams({
-                        distinct_id: props.personIds ? props.personIds[0] : '',
+                        distinct_id: props.distinctId ?? '',
                     })
                     const response = await api.get(`api/projects/@current/session_recordings?${params}`)
                     return response.results

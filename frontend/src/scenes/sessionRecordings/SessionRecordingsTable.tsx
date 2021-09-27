@@ -10,12 +10,12 @@ import { useIsTableScrolling } from 'lib/components/Table/utils'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
 
 interface SessionRecordingsTableProps {
-    personIds?: string[]
+    distinctId?: string
     isPersonPage?: boolean
 }
 
-export function SessionRecordingsTable({ personIds, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personIds })
+export function SessionRecordingsTable({ distinctId, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
+    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ distinctId })
     const { sessionRecordings, sessionRecordingsLoading, sessionRecordingId } = useValues(
         sessionRecordingsTableLogicInstance
     )
