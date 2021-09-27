@@ -48,7 +48,8 @@ const renderItemContents = ({
 }): JSX.Element | string => {
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
-        listGroupType === TaxonomicFilterGroupType.Events ? (
+        listGroupType === TaxonomicFilterGroupType.Events ||
+        listGroupType === TaxonomicFilterGroupType.CustomEvents ? (
         <PropertyKeyInfo value={item.name ?? ''} disablePopover />
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />

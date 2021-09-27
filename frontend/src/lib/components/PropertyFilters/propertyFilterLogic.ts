@@ -89,7 +89,6 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
             if (props.onChange) {
                 return
             }
-
             let filters
             try {
                 filters = values.filters

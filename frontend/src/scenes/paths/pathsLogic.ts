@@ -24,12 +24,10 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
     return {
         start_point: filters.start_point,
         end_point: filters.end_point,
-        start_point_type: filters.start_point_type,
-        end_point_type: filters.end_point_type,
         // TODO: use FF for path_type undefined
         path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
         include_event_types: filters.include_event_types || [PathType.PageView],
-        groupings: filters.groupings || [],
+        path_groupings: filters.path_groupings || [],
         exclude_events: filters.exclude_events || [],
         ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
         date_from: filters.date_from,

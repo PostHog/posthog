@@ -2,7 +2,7 @@ import React, { CSSProperties } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import 'scenes/actions/Actions.scss'
-import { AnyPropertyFilter, PathType } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { Button, Row } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
@@ -36,21 +36,12 @@ export function PathItemFilters({
                             <>
                                 <PathItemSelector
                                     key={index}
-                                    pathItem={{ type: filter.key as PathType, item: filter.value as string | null }}
-                                    onChange={(pathItem) =>
-                                        setFilter(
-                                            index,
-                                            pathItem.type || PathType.PageView,
-                                            pathItem.item || null,
-                                            null,
-                                            'event'
-                                        )
-                                    }
+                                    pathItem={filter.value as string | undefined}
+                                    onChange={(pathItem) => setFilter(index, pathItem, pathItem, null, 'event')}
                                     index={index}
                                 >
-                                    {!filter.key || !filter.value ? (
+                                    {!filter.value ? (
                                         <Button
-                                            onClick={() => {}}
                                             className="new-prop-filter"
                                             data-attr={'new-prop-filter-' + pageKey}
                                             type="link"
@@ -60,27 +51,22 @@ export function PathItemFilters({
                                             Add exclusion
                                         </Button>
                                     ) : (
-                                        <></>
+                                        <Row align="middle">
+                                            <FilterButton>{filter.value as string}</FilterButton>
+                                            {!!Object.keys(filters[index]).length && (
+                                                <CloseButton
+                                                    onClick={() => remove(index)}
+                                                    style={{
+                                                        cursor: 'pointer',
+                                                        float: 'none',
+                                                        paddingLeft: 8,
+                                                        alignSelf: 'center',
+                                                    }}
+                                                />
+                                            )}
+                                        </Row>
                                     )}
                                 </PathItemSelector>
-
-                                {filter.key && filter.value && (
-                                    <Row align="middle">
-                                        <FilterButton>{filter.key + ' ' + filter.value}</FilterButton>
-                                        {!!Object.keys(filters[index]).length && (
-                                            <CloseButton
-                                                onClick={() => remove(index)}
-                                                style={{
-                                                    cursor: 'pointer',
-                                                    float: 'none',
-                                                    paddingLeft: 8,
-                                                    alignSelf: 'flex-start',
-                                                    paddingTop: 4,
-                                                }}
-                                            />
-                                        )}
-                                    </Row>
-                                )}
                             </>
                         )
                     })}

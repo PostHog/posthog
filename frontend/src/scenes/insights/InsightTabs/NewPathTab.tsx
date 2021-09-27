@@ -12,6 +12,7 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { CheckboxChangeEvent } from 'antd/lib/checkbox'
+import { CloseButton } from 'lib/components/CloseButton'
 
 export function NewPathTab(): JSX.Element {
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
@@ -84,9 +85,9 @@ export function NewPathTab(): JSX.Element {
                             <Select
                                 mode="tags"
                                 style={{ width: '100%', marginTop: 5 }}
-                                onChange={(groupings) => setFilter({ groupings })}
+                                onChange={(path_groupings) => setFilter({ path_groupings })}
                                 tokenSeparators={[',', ' ']}
-                                value={filter.groupings || []}
+                                value={filter.path_groupings || []}
                             />
                         </Row>
                         <hr />
@@ -96,15 +97,11 @@ export function NewPathTab(): JSX.Element {
                             </Col>
                             <Col span={15}>
                                 <PathItemSelector
-                                    pathItem={{
-                                        type: filter.start_point_type || PathType.PageView,
-                                        item: filter.start_point,
-                                    }}
+                                    pathItem={filter.start_point}
                                     index={0}
                                     onChange={(pathItem) =>
                                         setFilter({
-                                            start_point: pathItem.item,
-                                            start_point_type: pathItem.type,
+                                            start_point: pathItem,
                                         })
                                     }
                                 >
@@ -119,9 +116,24 @@ export function NewPathTab(): JSX.Element {
                                             overflow: 'hidden',
                                         }}
                                     >
-                                        {filter.start_point && filter.start_point_type
-                                            ? filter.start_point_type + ' ' + filter.start_point
-                                            : 'Add start point'}
+                                        {filter.start_point ? (
+                                            <>
+                                                {filter.start_point}
+                                                <CloseButton
+                                                    onClick={() => {
+                                                        setFilter({ start_point: null })
+                                                    }}
+                                                    style={{
+                                                        cursor: 'pointer',
+                                                        float: 'none',
+                                                        paddingLeft: 8,
+                                                        alignSelf: 'center',
+                                                    }}
+                                                />
+                                            </>
+                                        ) : (
+                                            'Add start point'
+                                        )}
                                     </Button>
                                 </PathItemSelector>
                             </Col>
@@ -133,15 +145,11 @@ export function NewPathTab(): JSX.Element {
                             </Col>
                             <Col span={15}>
                                 <PathItemSelector
-                                    pathItem={{
-                                        type: filter.end_point_type || PathType.PageView,
-                                        item: filter.end_point,
-                                    }}
+                                    pathItem={filter.end_point}
                                     index={1}
                                     onChange={(pathItem) =>
                                         setFilter({
-                                            end_point: pathItem.item,
-                                            end_point_type: pathItem.type,
+                                            end_point: pathItem,
                                         })
                                     }
                                 >
@@ -156,9 +164,24 @@ export function NewPathTab(): JSX.Element {
                                             overflow: 'hidden',
                                         }}
                                     >
-                                        {filter.end_point && filter.end_point_type
-                                            ? filter.end_point_type + ' ' + filter.end_point
-                                            : 'Add end point'}
+                                        {filter.end_point ? (
+                                            <>
+                                                {filter.end_point}
+                                                <CloseButton
+                                                    onClick={() => {
+                                                        setFilter({ end_point: null })
+                                                    }}
+                                                    style={{
+                                                        cursor: 'pointer',
+                                                        float: 'none',
+                                                        paddingLeft: 8,
+                                                        alignSelf: 'center',
+                                                    }}
+                                                />
+                                            </>
+                                        ) : (
+                                            'Add end point'
+                                        )}
                                     </Button>
                                 </PathItemSelector>
                             </Col>
@@ -171,7 +194,19 @@ export function NewPathTab(): JSX.Element {
                     <TestAccountFilter filters={filter} onChange={setFilter} />
                     <hr />
                     <GlobalFiltersTitle title={'Exclusion'} unit="actions/events" />
-                    <PathItemFilters pageKey={'exclusion'} onChange={updateExclusions} />
+                    <PathItemFilters
+                        pageKey={'exclusion'}
+                        propertyFilters={
+                            filter.exclude_events &&
+                            filter.exclude_events.map((name) => ({
+                                key: name,
+                                value: name,
+                                operator: null,
+                                type: 'event',
+                            }))
+                        }
+                        onChange={updateExclusions}
+                    />
                 </Col>
             </Row>
         </>

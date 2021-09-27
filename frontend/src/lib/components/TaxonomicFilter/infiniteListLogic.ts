@@ -89,7 +89,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     }
 
                     const url = combineUrl(remoteEndpoint, {
-                        search: searchQuery,
+                        [`${values.group?.searchAlias || 'search'}`]: searchQuery,
                         limit,
                         offset,
                     }).url
@@ -111,10 +111,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     const queryChanged = values.items.searchQuery !== values.searchQuery
 
                     return {
-                        results: appendAtIndex(queryChanged ? [] : values.items.results, response.results, offset),
+                        results: appendAtIndex(
+                            queryChanged ? [] : values.items.results,
+                            response.results || response,
+                            offset
+                        ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count: response.count,
+                        count: response.count || response.length,
                     }
                 },
             },

@@ -719,10 +719,8 @@ export interface FilterType {
     path_type?: PathType
     include_event_types?: PathType[]
     start_point?: string
-    start_point_type?: PathType
     end_point?: string
-    end_point_type?: PathType
-    groupings?: string[]
+    path_groupings?: string[]
     stickiness_days?: number
     type?: EntityType
     entity_id?: string | number
