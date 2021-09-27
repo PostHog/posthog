@@ -34,5 +34,6 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         return [dict(zip(["session_id", "distinct_id", "start_time", "end_time", "duration"], row)) for row in results]
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
-        results = sync_execute(self._build_query())
+        query, query_params = self._build_query()
+        results = sync_execute(query, query_params)
         return self.data_to_return(results)

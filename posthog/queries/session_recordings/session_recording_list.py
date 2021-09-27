@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from django.db import connection
 
@@ -43,18 +43,23 @@ class SessionRecordingList(BaseQuery):
         LIMIT {limit}
     """
 
-    def _build_query(self):
+    def _build_query(self) -> Tuple[str, Dict]:
         distinct_id_clause = ""
-
+        distinct_id_params = {}
         if self._filter.distinct_id:
             distinct_ids = Person.objects.get(
                 team=self._team, persondistinctid__distinct_id=self._filter.distinct_id
             ).distinct_ids
-            distinct_ids_str = ",".join("'" + distinct_id + "'" for distinct_id in distinct_ids)
-            distinct_id_clause = f"AND distinct_id IN ({distinct_ids_str})"
+            distinct_id_clause = f"AND distinct_id IN %(distinct_ids)s"
+            distinct_id_params = {"distinct_ids": distinct_ids}
 
-        return self._query.format(
-            team_id=self._team.pk, distinct_id_clause=distinct_id_clause, limit=self.SESSION_RECORDINGS_DEFAULT_LIMIT
+        return (
+            self._query.format(
+                team_id=self._team.pk,
+                distinct_id_clause=distinct_id_clause,
+                limit=self.SESSION_RECORDINGS_DEFAULT_LIMIT,
+            ),
+            distinct_id_params,
         )
 
     def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
@@ -62,7 +67,8 @@ class SessionRecordingList(BaseQuery):
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
         with connection.cursor() as cursor:
-            cursor.execute(self._build_query())
+            query, query_params = self._build_query()
+            cursor.execute(query, query_params)
             results = namedtuplefetchall(cursor)
         return self.data_to_return(results)
 
