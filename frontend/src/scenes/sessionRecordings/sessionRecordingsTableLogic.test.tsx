@@ -44,8 +44,8 @@ describe('sessionRecordingsTableLogic', () => {
             it('starts as null', () => {
                 expectLogic(globalLogic).toMatchValues({ sessionRecordingId: null })
             })
-            it('is set by setSessionRecordingId and cleared by closeSessionPlayer', async () => {
-                globalLogic.actions.setSessionRecordingId('abc')
+            it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
+                globalLogic.actions.openSessionPlayer('abc')
                 await expectLogic(globalLogic).toMatchValues({ sessionRecordingId: 'abc' })
                 globalLogic.actions.closeSessionPlayer()
                 await expectLogic(globalLogic).toMatchValues({ sessionRecordingId: null })

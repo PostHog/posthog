@@ -18,7 +18,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
     },
     actions: {
         getSessionRecordings: true,
-        setSessionRecordingId: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
+        openSessionPlayer: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
         closeSessionPlayer: true,
     },
     loaders: ({ props }) => ({
@@ -44,7 +44,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
         sessionRecordingId: [
             null as SessionRecordingId | null,
             {
-                setSessionRecordingId: (_, { sessionRecordingId }) => sessionRecordingId,
+                openSessionPlayer: (_, { sessionRecordingId }) => sessionRecordingId,
                 closeSessionPlayer: () => null,
             },
         ],
@@ -74,7 +74,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
 
         return {
             loadSessionRecordings: () => buildURL({}, true),
-            setSessionRecordingId: () => buildURL(),
+            openSessionPlayer: () => buildURL(),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
     },
@@ -83,7 +83,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
         const urlToAction = (_: any, params: Params): void => {
             const nulledSessionRecordingId = params.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.sessionRecordingId) {
-                actions.setSessionRecordingId(nulledSessionRecordingId)
+                actions.openSessionPlayer(nulledSessionRecordingId)
             }
         }
 

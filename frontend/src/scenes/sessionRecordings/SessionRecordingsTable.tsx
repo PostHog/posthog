@@ -19,7 +19,7 @@ export function SessionRecordingsTable({ distinctId, isPersonPage = false }: Ses
     const { sessionRecordings, sessionRecordingsLoading, sessionRecordingId } = useValues(
         sessionRecordingsTableLogicInstance
     )
-    const { setSessionRecordingId, closeSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
+    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
     const { tableScrollX } = useIsTableScrolling('lg')
 
     const columns = [
@@ -80,7 +80,7 @@ export function SessionRecordingsTable({ distinctId, isPersonPage = false }: Ses
                     pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                     onRow={(sessionRecording) => ({
                         onClick: () => {
-                            setSessionRecordingId(sessionRecording.id)
+                            openSessionPlayer(sessionRecording.id)
                         },
                     })}
                     size="small"
