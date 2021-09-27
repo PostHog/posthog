@@ -915,6 +915,95 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ],
         )
 
+    def test_event_exclusion_filters_with_wildcards(self):
+
+        # P1 for pageview event /2/bar/1/foo
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/2/bar/1/foo"},  # regex matches, despite beginning with `/2/`
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        # P2 for pageview event /bar/2/foo
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="p2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/bar/2/foo"},
+            distinct_id="p2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="p2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        # P3 for pageview event /bar/3/foo
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="p3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/bar/33/foo"},
+            distinct_id="p3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="p3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        filter = PathFilter(
+            data={
+                "step_limit": 4,
+                "date_from": "2012-01-01",
+                "exclude_events": ["/bar/*/foo"],
+                "include_event_types": ["$pageview"],
+                "path_groupings": ["/bar/*/foo"],
+            }
+        )
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response, [{"source": "1_/1", "target": "2_/3", "value": 3, "average_conversion_time": 3 * ONE_MINUTE},],
+        )
+
     def test_event_inclusion_exclusion_filters_across_single_person(self):
 
         # P1 for pageview event, screen event, and custom event all together
