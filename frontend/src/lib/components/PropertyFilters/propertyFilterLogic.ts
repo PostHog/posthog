@@ -69,10 +69,13 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
             if (props.onChange) {
                 props.onChange(cleanedFilters)
             } else {
-                const { properties, ...searchParams } = router.values.searchParams // eslint-disable-line
+                const {
+                    [`${props.urlOverride || 'properties'}`]: properties,
+                    ...searchParams
+                } = router.values.searchParams // eslint-disable-line
                 const { pathname } = router.values.location
 
-                searchParams.properties = cleanedFilters
+                searchParams[props.urlOverride || 'properties'] = cleanedFilters
 
                 if (!objectsEqual(properties, cleanedFilters)) {
                     router.actions.replace(pathname, searchParams)
@@ -82,7 +85,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '*': (_, { properties }) => {
+        '*': (_, { [`${props.urlOverride || 'properties'}`]: properties }) => {
             if (props.onChange) {
                 return
             }

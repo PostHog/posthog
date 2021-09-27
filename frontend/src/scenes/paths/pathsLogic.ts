@@ -41,7 +41,7 @@ const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
 
 export interface PathItem {
     type?: PathType
-    item?: string | undefined
+    item?: string | undefined | null
 }
 interface PathResult {
     paths: PathNode[]
