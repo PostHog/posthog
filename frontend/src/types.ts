@@ -457,7 +457,7 @@ export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
     id: number | string
-    properties: AnyPropertyFilter[] | AnyPropertyFilter
+    properties: Record<string, any>
     timestamp: string
     person?: Partial<PersonType> | null
     event: string
