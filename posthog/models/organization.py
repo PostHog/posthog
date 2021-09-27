@@ -164,11 +164,6 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_features()
 
 
-@receiver(models.signals.pre_delete, sender=Organization)
-def organization_about_to_be_deleted(sender, instance, **kwargs):
-    instance.teams.all().delete()
-
-
 class OrganizationMembership(UUIDModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
