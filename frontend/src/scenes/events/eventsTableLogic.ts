@@ -104,27 +104,17 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         setDelayedLoading: true,
         setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
-        noop: (s: string): string => s,
+        noop: (s) => s,
     },
 
     reducers: {
         // save the pathname that was used when this logic was mounted
         // we use it to NOT update the filters when the user moves away from this path, yet the scene is still active
-        initialPathname: [
-            (state: string) => router.selectors.location(state).pathname,
-            { noop: (_: string, s: string) => s },
-        ],
+        initialPathname: [(state: string) => router.selectors.location(state).pathname, { noop: (_, s) => s }],
         properties: [
             [] as PropertyFilter[],
             {
-                setProperties: (
-                    _: PropertyFilter[],
-                    {
-                        properties,
-                    }: {
-                        properties: AnyPropertyFilter[]
-                    }
-                ) => properties.filter(isPropertyFilter),
+                setProperties: (_, { properties }) => properties.filter(isPropertyFilter),
             },
         ],
         eventFilter: [
@@ -136,7 +126,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         isLoading: [
             false,
             {
-                fetchEvents: (state: boolean) => state,
+                fetchEvents: (state) => state,
                 setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
                 fetchOrPollFailure: () => false,
@@ -152,16 +142,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         events: [
             [] as EventType[],
             {
-                fetchEventsSuccess: (state: EventType[], { events, isNext }: OnFetchEventsSuccess) =>
+                fetchEventsSuccess: (state, { events, isNext }: OnFetchEventsSuccess) =>
                     isNext ? [...state, ...events] : events,
-                prependNewEvents: (
-                    state: EventType[],
-                    {
-                        events,
-                    }: {
-                        events: EventType[]
-                    }
-                ) => [...events, ...state],
+                prependNewEvents: (state, { events }) => [...events, ...state],
             },
         ],
 
@@ -170,35 +153,21 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             {
                 fetchEvents: () => false,
                 fetchNextEvents: () => false,
-                fetchEventsSuccess: (_: boolean, { hasNext }: OnFetchEventsSuccess) => hasNext,
+                fetchEventsSuccess: (_, { hasNext }: OnFetchEventsSuccess) => hasNext,
             },
         ],
-        orderBy: ['-timestamp', { flipSort: (state: string) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
+        orderBy: ['-timestamp', { flipSort: (state) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
         selectedEvent: [
             (null as unknown) as EventType,
             {
-                setSelectedEvent: (
-                    _: EventType,
-                    {
-                        selectedEvent,
-                    }: {
-                        selectedEvent: EventType
-                    }
-                ) => selectedEvent,
+                setSelectedEvent: (_, { selectedEvent }) => selectedEvent,
             },
         ],
         newEvents: [
             [] as EventType[],
             {
                 setProperties: () => [],
-                pollEventsSuccess: (
-                    _: EventType[],
-                    {
-                        events,
-                    }: {
-                        events: EventType[]
-                    }
-                ) => events || [],
+                pollEventsSuccess: (_, { events }) => events || [],
                 prependNewEvents: () => [],
             },
         ],
@@ -206,14 +175,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             {} as Record<string, boolean>,
             {
                 pollEventsSuccess: () => ({}),
-                prependNewEvents: (
-                    _: Record<string, boolean>,
-                    {
-                        events,
-                    }: {
-                        events: EventType[]
-                    }
-                ) => {
+                prependNewEvents: (_: Record<string, boolean>, { events }) => {
                     return events.reduce((highlightEvents, event) => {
                         highlightEvents[event.id] = true
                         return highlightEvents
@@ -224,33 +186,19 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         pollTimeout: [
             0,
             {
-                setPollTimeout: (_: number, payload) => payload.pollTimeout,
+                setPollTimeout: (_, payload) => payload.pollTimeout,
             },
         ],
         columnConfigSaving: [
             false,
             {
-                setColumnConfigSaving: (
-                    _: boolean,
-                    {
-                        saving,
-                    }: {
-                        saving: boolean
-                    }
-                ) => saving,
+                setColumnConfigSaving: (_, { saving }) => saving,
             },
         ],
         automaticLoadEnabled: [
             false,
             {
-                toggleAutomaticLoad: (
-                    _: boolean,
-                    {
-                        automaticLoadEnabled,
-                    }: {
-                        automaticLoadEnabled: boolean
-                    }
-                ) => automaticLoadEnabled,
+                toggleAutomaticLoad: (_, { automaticLoadEnabled }) => automaticLoadEnabled,
             },
         ],
     },
