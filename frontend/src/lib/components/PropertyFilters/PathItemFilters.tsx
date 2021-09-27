@@ -33,21 +33,38 @@ export function PathItemFilters({
                 {filters?.length &&
                     filters.map((filter, index) => {
                         return (
-                            <PathItemSelector
-                                key={index}
-                                pathItem={{ type: filter.key as PathType, item: filter.value as string | null }}
-                                onChange={(pathItem) =>
-                                    setFilter(
-                                        index,
-                                        pathItem.type || PathType.PageView,
-                                        pathItem.item || null,
-                                        null,
-                                        'event'
-                                    )
-                                }
-                                index={index}
-                            >
-                                {filter.key && filter.value ? (
+                            <>
+                                <PathItemSelector
+                                    key={index}
+                                    pathItem={{ type: filter.key as PathType, item: filter.value as string | null }}
+                                    onChange={(pathItem) =>
+                                        setFilter(
+                                            index,
+                                            pathItem.type || PathType.PageView,
+                                            pathItem.item || null,
+                                            null,
+                                            'event'
+                                        )
+                                    }
+                                    index={index}
+                                >
+                                    {!filter.key || !filter.value ? (
+                                        <Button
+                                            onClick={() => {}}
+                                            className="new-prop-filter"
+                                            data-attr={'new-prop-filter-' + pageKey}
+                                            type="link"
+                                            style={{ paddingLeft: 0 }}
+                                            icon={<PlusCircleOutlined />}
+                                        >
+                                            Add exclusion
+                                        </Button>
+                                    ) : (
+                                        <></>
+                                    )}
+                                </PathItemSelector>
+
+                                {filter.key && filter.value && (
                                     <Row align="middle">
                                         <FilterButton>{filter.key + ' ' + filter.value}</FilterButton>
                                         {!!Object.keys(filters[index]).length && (
@@ -63,19 +80,8 @@ export function PathItemFilters({
                                             />
                                         )}
                                     </Row>
-                                ) : (
-                                    <Button
-                                        onClick={() => {}}
-                                        className="new-prop-filter"
-                                        data-attr={'new-prop-filter-' + pageKey}
-                                        type="link"
-                                        style={{ paddingLeft: 0 }}
-                                        icon={<PlusCircleOutlined />}
-                                    >
-                                        Add exclusion
-                                    </Button>
                                 )}
-                            </PathItemSelector>
+                            </>
                         )
                     })}
             </BindLogic>
