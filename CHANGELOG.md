@@ -1,6 +1,6 @@
 # Changelog
 
-### 1.28.1 - Wednesday 29 September 2021
+### 1.28.1 - Monday 27 September 2021
 
 -   Bug fix. Fixes a bug where refreshing dashboards could cause a server overload (#5865).
 -   Bug fix. Fixes a bug where SAML wouldn't work correctly on Dockerized installations (#5965).
