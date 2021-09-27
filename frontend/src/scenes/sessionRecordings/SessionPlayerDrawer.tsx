@@ -2,24 +2,28 @@ import React from 'react'
 
 import { Drawer } from 'lib/components/Drawer'
 import { SessionsPlay } from 'scenes/sessions/SessionsPlay'
-import { useActions } from 'kea'
+import { useValues } from 'kea'
 import { ArrowTopLeftOutlined } from 'lib/components/icons'
-import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface SessionPlayerDrawerProps {
-    personIds?: string[]
     isPersonPage?: boolean
+    onClose: () => void
 }
 
-export function SessionPlayerDrawer({ personIds, isPersonPage = false }: SessionPlayerDrawerProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personIds })
-
-    const { closeSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
+export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPlayerDrawerProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     return (
-        <Drawer destroyOnClose visible width="100%" onClose={closeSessionPlayer}>
+        <Drawer destroyOnClose visible width="100%" onClose={onClose}>
             <>
-                <a onClick={closeSessionPlayer}>
-                    <ArrowTopLeftOutlined /> Back to {isPersonPage ? 'persons' : 'sessions'}
+                <a onClick={onClose}>
+                    <ArrowTopLeftOutlined /> Back to{' '}
+                    {isPersonPage
+                        ? 'persons'
+                        : featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]
+                        ? 'sessions recordings'
+                        : 'sessions'}
                 </a>
                 <SessionsPlay />
             </>

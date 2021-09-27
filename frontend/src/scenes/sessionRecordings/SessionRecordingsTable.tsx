@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { Table } from 'antd'
+import { Card, Table } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { useIsTableScrolling } from 'lib/components/Table/utils'
@@ -19,7 +19,7 @@ export function SessionRecordingsTable({ personIds, isPersonPage = false }: Sess
     const { sessionRecordings, sessionRecordingsLoading, sessionRecordingId } = useValues(
         sessionRecordingsTableLogicInstance
     )
-    const { setSessionRecordingId } = useActions(sessionRecordingsTableLogicInstance)
+    const { setSessionRecordingId, closeSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
     const { tableScrollX } = useIsTableScrolling('lg')
 
     const columns = [
@@ -71,24 +71,26 @@ export function SessionRecordingsTable({ personIds, isPersonPage = false }: Sess
 
     return (
         <div className="events" data-attr="events-table">
-            <Table
-                rowKey="id"
-                dataSource={sessionRecordings}
-                columns={columns}
-                loading={sessionRecordings.length === 0 && sessionRecordingsLoading}
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                onRow={(sessionRecording) => ({
-                    onClick: () => {
-                        setSessionRecordingId(sessionRecording.id)
-                    },
-                })}
-                size="small"
-                rowClassName="cursor-pointer"
-                data-attr="session-recording-table"
-                scroll={{ x: tableScrollX }}
-            />
+            <Card>
+                <Table
+                    rowKey="id"
+                    dataSource={sessionRecordings}
+                    columns={columns}
+                    loading={sessionRecordings.length === 0 && sessionRecordingsLoading}
+                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    onRow={(sessionRecording) => ({
+                        onClick: () => {
+                            setSessionRecordingId(sessionRecording.id)
+                        },
+                    })}
+                    size="small"
+                    rowClassName="cursor-pointer"
+                    data-attr="session-recording-table"
+                    scroll={{ x: tableScrollX }}
+                />
+            </Card>
             <div style={{ marginTop: '5rem' }} />
-            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} personIds={personIds} />}
+            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} onClose={closeSessionPlayer} />}
         </div>
     )
 }

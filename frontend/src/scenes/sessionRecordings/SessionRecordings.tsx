@@ -7,11 +7,11 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/sceneLogic'
 
-export function Sessions(): JSX.Element {
+export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     return (
         <div>
-            <Row style={{ alignItems: 'center' }}>
+            <Row style={{ alignItems: 'center', marginBottom: 16 }}>
                 <PageHeader title="Session Recordings" />
                 <Tag color="orange" style={{ marginLeft: 8, marginTop: 16 }}>
                     BETA
