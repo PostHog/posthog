@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import PersonPropertiesMode, get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
@@ -34,12 +34,12 @@ def get_breakdown_prop_values(
         team_id,
         table_name="e",
         prepend="e_brkdwn",
-        person_properties_column="person_props",
+        person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         allow_denormalized_props=True,
     )
 
     entity_params, entity_format_params = get_entity_filtering_params(
-        entity, team_id, with_prop_filters=True, person_properties_column="person_props", table_name="e"
+        entity, team_id, with_prop_filters=True, table_name="e"
     )
 
     if filter.breakdown_type == "person":

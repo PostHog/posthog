@@ -1,4 +1,5 @@
 import re
+from enum import Enum, auto
 from typing import (
     Any,
     Callable,
@@ -6,7 +7,6 @@ from typing import (
     Dict,
     List,
     Optional,
-    Set,
     Tuple,
     cast,
 )
@@ -31,15 +31,19 @@ from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
 
 
+class PersonPropertiesMode(Enum):
+    INCLUDE_USING_SUBQUERY = auto()
+    USING_PERSON_PROPERTIES_COLUMN = auto()
+
+
 def parse_prop_clauses(
     filters: List[Property],
     team_id: Optional[int],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
-    filter_test_accounts=False,
-    person_properties_column: Optional[str] = None,
     has_person_id_joined: bool = True,
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.INCLUDE_USING_SUBQUERY,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -64,12 +68,12 @@ def parse_prop_clauses(
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-            is_direct_query = person_properties_column is not None
+            is_direct_query = person_properties_mode == PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
                 idx,
                 "{}person".format(prepend),
-                prop_var=(person_properties_column or "properties") if is_direct_query else "properties",
+                prop_var="person_props" if is_direct_query else "properties",
                 allow_denormalized_props=allow_denormalized_props and is_direct_query,
             )
             if is_direct_query:

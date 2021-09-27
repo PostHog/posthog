@@ -1,7 +1,8 @@
-from typing import Counter, Dict, List, Optional, Set, Tuple
+from typing import Counter, Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 
+from ee.clickhouse.models.property import PersonPropertiesMode
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Action, Entity, Filter
 from posthog.models.action_step import ActionStep
@@ -14,7 +15,7 @@ def format_action_filter(
     use_loop: bool = False,
     filter_by_team=True,
     table_name: str = "",
-    person_properties_column: Optional[str] = None,
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.INCLUDE_USING_SUBQUERY,
 ) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
@@ -48,7 +49,7 @@ def format_action_filter(
                 team_id=action.team.pk if filter_by_team else None,
                 prepend=f"action_props_{action.pk}_{step.pk}",
                 table_name=table_name,
-                person_properties_column=person_properties_column,
+                person_properties_mode=person_properties_mode,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}

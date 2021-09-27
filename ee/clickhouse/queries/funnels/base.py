@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import PersonPropertiesMode, get_property_string_expr, parse_prop_clauses
 from ee.clickhouse.queries.breakdown_props import format_breakdown_cohort_join_query, get_breakdown_prop_values
 from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_INNER_EVENT_STEPS_QUERY
@@ -352,7 +352,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
 
     def _build_filters(self, entity: Entity, index: int) -> str:
         prop_filters, prop_filter_params = parse_prop_clauses(
-            entity.properties, self._team.pk, prepend=str(index), person_properties_column="person_props"
+            entity.properties,
+            self._team.pk,
+            prepend=str(index),
+            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
         self.params.update(prop_filter_params)
         if entity.properties:

@@ -1,6 +1,7 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
+from ee.clickhouse.models.property import PersonPropertiesMode
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
@@ -106,10 +107,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
-            self._entity,
-            self._team_id,
-            table_name=self.EVENT_TABLE_ALIAS,
-            person_properties_column=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
+            self._entity, self._team_id, table_name=self.EVENT_TABLE_ALIAS
         )
 
         return entity_format_params["entity_query"], entity_params
