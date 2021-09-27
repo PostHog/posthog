@@ -33,7 +33,6 @@ PATH_ARRAY_QUERY = """
                                 groupArray(path_item) as paths
                         FROM ({path_event_query})
                         GROUP BY person_id
-                        ORDER BY person_id, timestamp
                         )
                 /* this array join splits paths for a single personID per session */
                 ARRAY JOIN session_paths AS path_time_tuple, arrayEnumerate(session_paths) AS session_index
