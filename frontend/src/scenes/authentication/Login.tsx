@@ -1,4 +1,4 @@
-import { Col, Row, Form, Input, Button, Alert } from 'antd'
+import { Col, Row, Form, Input, Button } from 'antd'
 import React from 'react'
 import cloudLogo from 'public/posthog-logo-cloud.svg'
 import selfHostedLogo from 'public/posthog-logo-selfhosted.svg'
@@ -12,6 +12,7 @@ import { PasswordInput } from './PasswordInput'
 import { ERROR_MESSAGES } from 'lib/constants'
 import { ExclamationCircleFilled } from '@ant-design/icons'
 import clsx from 'clsx'
+import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=login-header'
 
@@ -35,21 +36,18 @@ export function Login(): JSX.Element {
                             Get started
                         </h2>
                         {!authenticateResponseLoading && authenticateResponse?.errorCode && (
-                            <Alert
-                                message="Could not complete your login"
-                                description={
-                                    authenticateResponse?.errorDetail || ERROR_MESSAGES[authenticateResponse.errorCode]
-                                }
-                                type="error"
-                                showIcon
-                                style={{ marginBottom: 16 }}
-                            />
+                            <ErrorMessage style={{ marginBottom: 16 }}>
+                                {authenticateResponse?.errorDetail ||
+                                    ERROR_MESSAGES[authenticateResponse.errorCode] ||
+                                    'Could not complete your login. Please try again.'}
+                            </ErrorMessage>
                         )}
                         <Form
                             layout="vertical"
                             form={form}
                             onFinish={(values) => authenticate(values)}
                             requiredMark={false}
+                            noValidate
                         >
                             <Form.Item
                                 name="email"
