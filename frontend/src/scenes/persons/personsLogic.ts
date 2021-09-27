@@ -244,14 +244,8 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             if (sessionRecordingId) {
                 if (values.showSessionRecordings) {
                     actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                } else if (!values.featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]) {
-                    actions.navigateToTab(PersonsTabType.SESSIONS)
                 } else {
-                    // When a user doesn't have session recordings enabled, and they
-                    // open a URL with an active session recording, the page behind
-                    // the player modal will be on the events tab (instead of sessions
-                    // or session recordings)
-                    actions.navigateToTab(PersonsTabType.EVENTS)
+                    actions.navigateToTab(PersonsTabType.SESSIONS)
                 }
             } else if (activeTab && values.activeTab !== activeTab) {
                 actions.navigateToTab(activeTab as PersonsTabType)
