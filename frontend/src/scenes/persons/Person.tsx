@@ -44,7 +44,6 @@ export function Person(): JSX.Element {
         hasNewKeys,
         currentTab,
         showSessionRecordings,
-        showSessions,
         showTabs,
     } = useValues(personsLogic)
     const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
@@ -82,7 +81,7 @@ export function Person(): JSX.Element {
                                 />
                             ) : null}
                             <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key="events" />
-                            {showSessions ? (
+                            {!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? (
                                 <TabPane tab={<span data-attr="person-sessions-tab">Sessions</span>} key="sessions" />
                             ) : null}
                         </Tabs>

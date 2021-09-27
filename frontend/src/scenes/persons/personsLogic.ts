@@ -58,12 +58,6 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 return match?.properties?.email || 'example@gmail.com'
             },
         ],
-        showSessions: [
-            (s) => [s.featureFlags],
-            (featureFlags: Record<string, string | boolean>): boolean => {
-                return !featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]
-            },
-        ],
         showSessionRecordings: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, string | boolean>, currentTeam: TeamType): boolean => {
@@ -71,23 +65,29 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             },
         ],
         showTabs: [
-            (s) => [s.showSessions, s.showSessionRecordings],
-            (showSessions: boolean, showSessionRecordings: boolean): boolean => {
-                return showSessions || showSessionRecordings
+            (s) => [s.featureFlags, s.showSessionRecordings],
+            (featureFlags: Record<string, string | boolean>, showSessionRecordings: boolean): boolean => {
+                return !featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] || showSessionRecordings
             },
         ],
         currentTab: [
-            (s) => [s.activeTab, s.showSessionRecordings, s.showSessions],
-            (activeTab: PersonsTabType | null, showSessionRecordings: boolean, showSessions: boolean) => {
+            (s) => [s.activeTab, s.showSessionRecordings, s.featureFlags],
+            (
+                activeTab: PersonsTabType | null,
+                showSessionRecordings: boolean,
+                featureFlags: Record<string, string | boolean>
+            ) => {
                 // Ensure the activeTab reflects a valid tab given the available tabs
-                if (!activeTab) {
-                    return showSessionRecordings ? PersonsTabType.SESSION_RECORDINGS : PersonsTabType.EVENTS
-                }
-                if (activeTab === PersonsTabType.SESSIONS && !showSessions) {
+                if (
+                    !activeTab ||
+                    (activeTab === PersonsTabType.SESSIONS && !!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS])
+                ) {
                     return showSessionRecordings ? PersonsTabType.SESSION_RECORDINGS : PersonsTabType.EVENTS
                 }
                 if (activeTab === PersonsTabType.SESSION_RECORDINGS && !showSessionRecordings) {
-                    return showSessions ? PersonsTabType.SESSIONS : PersonsTabType.EVENTS
+                    return !featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]
+                        ? PersonsTabType.SESSIONS
+                        : PersonsTabType.EVENTS
                 }
                 return activeTab
             },
@@ -244,8 +244,14 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             if (sessionRecordingId) {
                 if (values.showSessionRecordings) {
                     actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                } else if (values.showSessions) {
+                } else if (!values.featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]) {
                     actions.navigateToTab(PersonsTabType.SESSIONS)
+                } else {
+                    // When a user doesn't have session recordings enabled, and they
+                    // open a URL with an active session recording, the page behind
+                    // the player modal will be on the events tab (instead of sessions
+                    // or session recordings)
+                    actions.navigateToTab(PersonsTabType.EVENTS)
                 }
             } else if (activeTab && values.activeTab !== activeTab) {
                 actions.navigateToTab(activeTab as PersonsTabType)
