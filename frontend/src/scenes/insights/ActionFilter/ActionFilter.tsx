@@ -143,7 +143,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         logic={entityFilterLogic}
                         props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}
                     >
-                        <FilterRenameModal visible={modalOpen} setModalOpen={setModalOpen} />
+                        <FilterRenameModal visible={modalOpen} setModalOpen={setModalOpen} view={filters.insight} />
                     </BindLogic>
                 )}
                 {localFilters ? (

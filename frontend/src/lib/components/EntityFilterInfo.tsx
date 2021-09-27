@@ -7,6 +7,7 @@ import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 
 interface Props {
     filter: EntityFilter | ActionFilter | FunnelStepRangeEntityFilter
+    showSubTitle?: boolean
 }
 
 function TextWrapper(props: TextProps): JSX.Element {
@@ -17,7 +18,7 @@ function TextWrapper(props: TextProps): JSX.Element {
     )
 }
 
-export function EntityFilterInfo({ filter }: Props): JSX.Element {
+export function EntityFilterInfo({ filter, showSubTitle = true }: Props): JSX.Element {
     const title = getDisplayNameFromEntityFilter(filter)
     const subtitle = getDisplayNameFromEntityFilter(filter, false)
 
@@ -25,15 +26,15 @@ export function EntityFilterInfo({ filter }: Props): JSX.Element {
         return <TextWrapper title="Select filter">Select filter</TextWrapper>
     }
 
-    const titleTranslation = getKeyMapping(title, 'event')?.label ?? title ?? undefined
-    const subTitleTranslation = getKeyMapping(subtitle, 'event')?.label ?? subtitle ?? undefined
+    const titleToDisplay = getKeyMapping(title, 'event')?.label ?? title ?? undefined
+    const subTitleToDisplay = getKeyMapping(subtitle, 'event')?.label ?? subtitle ?? undefined
 
     return (
         <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
-            <TextWrapper title={titleTranslation}>{titleTranslation}</TextWrapper>
-            {title !== subtitle && (
-                <TextWrapper type="secondary" style={{ fontSize: 13, marginLeft: 4 }} title={subTitleTranslation}>
-                    ({subTitleTranslation})
+            <TextWrapper title={titleToDisplay}>{titleToDisplay}</TextWrapper>
+            {showSubTitle && title !== subtitle && (
+                <TextWrapper type="secondary" style={{ fontSize: 13, marginLeft: 4 }} title={subTitleToDisplay}>
+                    ({subTitleToDisplay})
                 </TextWrapper>
             )}
         </span>
