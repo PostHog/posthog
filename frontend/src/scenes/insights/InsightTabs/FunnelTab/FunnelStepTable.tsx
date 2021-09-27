@@ -51,8 +51,6 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
             const useCustomName = !!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]
             const isOnlySeries = flattenedBreakdowns.length === 1
 
-            console.log('breakdown', isOnlySeries)
-
             _columns.push({
                 render: function RenderCheckbox({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
                     const checked = !!flattenedBreakdowns?.every(
