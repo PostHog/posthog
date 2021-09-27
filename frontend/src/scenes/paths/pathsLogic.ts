@@ -26,7 +26,8 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
         end_point: filters.end_point,
         start_point_type: filters.start_point_type,
         end_point_type: filters.end_point_type,
-        path_type: filters.path_type || PathType.PageView,
+        // TODO: use FF for path_type undefined
+        path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
         include_event_types: filters.include_event_types || [PathType.PageView],
         groupings: filters.groupings || [],
         ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
@@ -68,10 +69,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         setFilter: (filter) => filter,
         setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
         showPathEvents: (event) => ({ event }),
-        addImportantEvent: (event) => ({ event }),
-        addExcludedEvent: (event) => ({ event }),
-        removeImportantEvent: (event) => ({ event }),
-        removeExcludedEvent: (event) => ({ event }),
+        updateExclusions: (filters: PropertyFilter[]) => ({ exclusions: filters.map(({ value }) => value) }),
     },
     loaders: ({ values, props }) => ({
         results: {
@@ -141,24 +139,13 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 setProperties: (_, { properties }) => properties,
             },
         ],
-        importantEvents: [
-            [],
-            {
-                addImportantEvent: (state, { event }) => [...state, event],
-                removeImportantEvent: (state, { event }) => state.filter((e) => e !== event),
-            },
-        ],
-        excludedEvents: [
-            [],
-            {
-                addExcludedEvent: (state, { event }) => [...state, event],
-                removeExcludedEvent: (state, { event }) => state.filter((e) => e !== event),
-            },
-        ],
     }),
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
             actions.loadResults(true)
+        },
+        updateExclusions: ({ exclusions }) => {
+            actions.setFilter({ exclude_events: exclusions })
         },
         setFilter: () => {
             actions.loadResults(true)

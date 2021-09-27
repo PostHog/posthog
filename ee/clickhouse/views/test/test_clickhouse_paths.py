@@ -32,6 +32,21 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get("/api/insight/path",).json()
         self.assertEqual(len(response["result"]), 1)
 
+    def test_insight_paths_basic_exclusions(self):
+        _create_person(team=self.team, distinct_ids=["person_1"])
+        _create_event(
+            distinct_id="person_1", event="first event", team=self.team,
+        )
+        _create_event(
+            distinct_id="person_1", event="second event", team=self.team,
+        )
+        _create_event(
+            distinct_id="person_1", event="third event", team=self.team,
+        )
+
+        response = self.client.get("/api/insight/path", data={"exclude_events": ["second event"]}).json()
+        self.assertEqual(len(response["result"]), 1)
+
     def test_backwards_compatible_path_types(self):
 
         _create_person(team=self.team, distinct_ids=["person_1"])

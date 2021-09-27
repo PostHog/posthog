@@ -68,10 +68,14 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
 
+        funnel_filter = None
+        if "funnel_filter" in request.data:
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **request.data["funnel_filter"]})
+
         #  backwards compatibility
         if filter.path_type:
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
-        resp = ClickhousePaths(filter=filter, team=team).run()
+        resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
         return {"result": resp}
 
     @action(methods=["GET", "POST"], detail=False)

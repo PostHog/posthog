@@ -15,7 +15,7 @@ import { CheckboxChangeEvent } from 'antd/lib/checkbox'
 
 export function NewPathTab(): JSX.Element {
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
-    const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
+    const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId: null }))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
@@ -169,7 +169,7 @@ export function NewPathTab(): JSX.Element {
                     <TestAccountFilter filters={filter} onChange={setFilter} />
                     <hr />
                     <GlobalFiltersTitle title={'Exclusion'} unit="actions/events" />
-                    <PathItemFilters pageKey={'exclusion'} />
+                    <PathItemFilters pageKey={'exclusion'} onChange={updateExclusions} />
                 </Col>
             </Row>
         </>
