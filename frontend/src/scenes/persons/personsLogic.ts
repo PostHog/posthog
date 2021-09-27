@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonsTabType, PersonType, TeamType } from '~/types'
+import { CohortType, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/sceneLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -60,7 +60,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         ],
         showSessionRecordings: [
             (s) => [s.featureFlags, s.currentTeam],
-            (featureFlags: Record<string, string | boolean>, currentTeam: TeamType): boolean => {
+            (featureFlags, currentTeam) => {
                 return !!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] && currentTeam?.session_recording_opt_in
             },
         ],
