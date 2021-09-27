@@ -459,7 +459,6 @@ export interface EventType {
     id: number | string
     properties: Record<string, any>
     timestamp: string
-    action: EventsTableAction
     person?: Partial<PersonType> | null
     event: string
 }
