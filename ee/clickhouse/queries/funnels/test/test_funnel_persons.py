@@ -124,7 +124,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        results = ClickhouseFunnelPersons(filter, self.team, user=self.user)._exec_query()
         self.assertEqual(35, len(results))
 
     def test_last_step(self):
@@ -143,7 +143,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        results = ClickhouseFunnelPersons(filter, self.team, user=self.user)._exec_query()
         self.assertEqual(5, len(results))
 
     def test_second_step_dropoff(self):
@@ -162,7 +162,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        results = ClickhouseFunnelPersons(filter, self.team, user=self.user)._exec_query()
         self.assertEqual(20, len(results))
 
     def test_last_step_dropoff(self):
@@ -181,7 +181,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        results = ClickhouseFunnelPersons(filter, self.team, user=self.user)._exec_query()
         self.assertEqual(10, len(results))
 
     def test_basic_offset(self):
@@ -201,11 +201,11 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=data)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        results = ClickhouseFunnelPersons(filter, self.team, user=self.user)._exec_query()
         self.assertEqual(100, len(results))
 
         filter_offset = Filter(data={**data, "offset": 100,})
-        results, _ = ClickhouseFunnelPersons(filter_offset, self.team).run()
+        results, _ = ClickhouseFunnelPersons(filter_offset, self.team, user=self.user).run()
         self.assertEqual(10, len(results))
 
     @test_with_materialized_columns(["$browser"])
@@ -224,23 +224,23 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": "$browser",
             }
         )
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        results = ClickhouseFunnelPersons(filter, self.team, user=self.user)._exec_query()
 
         self.assertCountEqual([val[0] for val in results], [person1.uuid, person2.uuid])
 
         results = ClickhouseFunnelPersons(
-            filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
+            filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team, user=self.user
         )._exec_query()
 
         self.assertCountEqual([val[0] for val in results], [person1.uuid])
 
         results = ClickhouseFunnelPersons(
-            filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
+            filter.with_data({"funnel_step_breakdown": "Safari"}), self.team, user=self.user
         )._exec_query()
         self.assertCountEqual([val[0] for val in results], [person2.uuid])
 
         results = ClickhouseFunnelPersons(
-            filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team
+            filter.with_data({"funnel_step_breakdown": "Safari, Chrome"}), self.team, user=self.user
         )._exec_query()
         self.assertCountEqual([val[0] for val in results], [person2.uuid, person1.uuid])
 
@@ -261,13 +261,17 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        results = ClickhouseFunnelPersons(filter, self.team, user=self.user)._exec_query()
         self.assertCountEqual([val[0] for val in results], [person1.uuid, person2.uuid])
 
-        results = ClickhouseFunnelPersons(filter.with_data({"funnel_step_breakdown": "EE"}), self.team)._exec_query()
+        results = ClickhouseFunnelPersons(
+            filter.with_data({"funnel_step_breakdown": "EE"}), self.team, user=self.user
+        )._exec_query()
         self.assertCountEqual([val[0] for val in results], [person2.uuid])
 
-        results = ClickhouseFunnelPersons(filter.with_data({"funnel_step_breakdown": "PL"}), self.team)._exec_query()
+        results = ClickhouseFunnelPersons(
+            filter.with_data({"funnel_step_breakdown": "PL"}), self.team, user=self.user
+        )._exec_query()
         self.assertCountEqual([val[0] for val in results], [person1.uuid])
 
     @test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
@@ -292,7 +296,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             "breakdown": [cohort.pk],
         }
         filter = Filter(data=filters)
-        results = ClickhouseFunnelPersons(filter, self.team)._exec_query()
+        results = ClickhouseFunnelPersons(filter, self.team, user=self.user)._exec_query()
         self.assertEqual(results[0][0], person.uuid)
 
     def test_first_step_with_session_recordings(self):
@@ -319,7 +323,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self._create_session_recording_snapshot("user_1", "444", datetime.fromisoformat("2021-05-03T01:00:00"))
         self._create_session_recording_snapshot("user_1", "444", datetime.fromisoformat("2021-05-03T01:01:00"))
         self._create_session_recording_snapshot("user_1", "444", datetime.fromisoformat("2021-05-03T01:02:00"))
-        serialized_persons, _ = ClickhouseFunnelPersons(filter, self.team).run()
+        serialized_persons, _ = ClickhouseFunnelPersons(filter, self.team, user=self.user).run()
         self.assertListEqual(
             [
                 {

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { useValues, useActions, BindLogic } from 'kea'
-import { decodeParams } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 import { Button, Spin, Space, Badge, Switch, Row } from 'antd'
 import { Link } from 'lib/components/Link'
 import { ExpandState, sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
@@ -37,8 +37,11 @@ import { urls } from '../sceneLogic'
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 function SessionPlayerDrawer(): JSX.Element {
+    const { searchParams } = useValues(router)
+    const { push } = useActions(router)
+
     return (
-        <Drawer destroyOnClose visible width="100%" onClose={() => history.back()}>
+        <Drawer destroyOnClose visible width="100%" onClose={() => push(searchParams.prev || urls.sessions())}>
             <SessionsPlay />
         </Drawer>
     )

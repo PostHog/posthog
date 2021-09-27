@@ -18,7 +18,7 @@ from .personal_api_key import PersonalAPIKey
 from .plugin import Plugin, PluginAttachment, PluginConfig, PluginLogEntry
 from .property import Property
 from .property_definition import PropertyDefinition
-from .session_recording_event import SessionRecordingEvent
+from .session_recording_event import SessionRecordingEvent, SessionRecordingViewed
 from .sessions_filter import SessionsFilter
 from .team import Team
 from .user import User, UserManager
@@ -49,9 +49,11 @@ __all__ = [
     "Plugin",
     "PluginAttachment",
     "PluginConfig",
+    "PluginLogEntry",
     "Property",
     "PropertyDefinition",
     "SessionRecordingEvent",
+    "SessionRecordingViewed",
     "SessionsFilter",
     "Team",
     "User",

@@ -202,10 +202,8 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
                 actions.loadPersons()
             }
         },
-        '/person/*': ({ _: person }, { sessionRecordingId }, { activeTab }) => {
-            if (sessionRecordingId) {
-                actions.navigateToTab(PersonsTabType.SESSIONS)
-            } else if (activeTab && values.activeTab !== activeTab) {
+        '/person/*': ({ _: person }, _, { activeTab }) => {
+            if (activeTab && values.activeTab !== activeTab) {
                 actions.navigateToTab(activeTab as PersonsTabType)
             }
 

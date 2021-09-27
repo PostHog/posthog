@@ -130,26 +130,23 @@ def join_with_session_recordings(
 
 
 def collect_matching_recordings(
-    session: Any, session_recordings: List[Any], filter: Optional[SessionsFilter], viewed: Set[str]
+    session: Any, session_recordings: List[Any], filter: SessionsFilter, viewed: Set[str]
 ) -> Generator[Dict, None, None]:
     for recording in session_recordings:
-        if filter is None or matches(session, recording, filter, viewed):
+        if matches(session, recording, filter, viewed):
             if isinstance(recording["duration"], datetime.timedelta):
                 # Postgres
                 recording_duration = recording["duration"].total_seconds()
             else:
                 # ClickHouse
                 recording_duration = recording["duration"]
-            next_value = {
+            yield {
                 "id": recording["session_id"],
                 "recording_duration": recording_duration or 0,
                 "viewed": recording["session_id"] in viewed,
                 "start_time": recording["start_time"],
                 "end_time": recording["end_time"],
             }
-            if "person_id" in recording:
-                next_value["person_id"] = recording["person_id"]
-            yield next_value
 
 
 def matches(session: Any, session_recording: Any, filter: SessionsFilter, viewed: Set[str]) -> bool:

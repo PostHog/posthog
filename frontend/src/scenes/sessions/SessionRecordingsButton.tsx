@@ -2,7 +2,7 @@ import './SessionRecordingsButton.scss'
 import React, { ReactNode, useCallback, useState } from 'react'
 import { PlayCircleOutlined, DownOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { SessionRecordingType } from '~/types'
-import { colonDelimitedDuration, fromParams, humanFriendlyDetailedTime, toParams } from 'lib/utils'
+import { colonDelimitedDuration, humanFriendlyDetailedTime, toParams } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { Button } from 'antd'
 import { Popup } from '../../lib/components/Popup/Popup'
@@ -14,11 +14,10 @@ interface SessionRecordingsButtonProps {
 }
 
 export function sessionPlayerUrl(sessionRecordingId: string): string {
-    if (location.pathname.startsWith('/sessions')) {
-        // If used on the Sessions page, keep existing params to simplify coming back
-        return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId })}`
-    }
-    return `/sessions?sessionRecordingId=${sessionRecordingId}`
+    return `/sessions?${toParams({
+        sessionRecordingId,
+        prev: location.href.substr(location.origin.length), // Absolute path with search params and hash
+    })}`
 }
 
 export function SessionRecordingsButton({ sessionRecordings }: SessionRecordingsButtonProps): JSX.Element {

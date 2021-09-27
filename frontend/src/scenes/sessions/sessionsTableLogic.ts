@@ -18,6 +18,7 @@ export enum ExpandState {
 interface Params {
     date?: string
     properties?: any
+    prev?: string
     sessionRecordingId?: SessionRecordingId
     filters?: Array<SessionsPropertyFilter>
 }
@@ -254,11 +255,12 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         ] => {
             const today = dayjs().startOf('day').format('YYYY-MM-DD')
 
-            const { properties } = router.values.searchParams
+            const { properties, prev } = router.values.searchParams
 
             const params: Params = {
                 date: values.selectedDateURLparam !== today ? values.selectedDateURLparam : undefined,
                 properties: properties || undefined,
+                prev: prev || undefined,
                 sessionRecordingId: values.sessionRecordingId || undefined,
                 filters: values.filters,
                 ...overrides,

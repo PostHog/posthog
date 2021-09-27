@@ -59,7 +59,7 @@ class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFu
 
     def _get_people_at_step(self, filter, funnel_step, breakdown_value=None):
         person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        result = ClickhouseFunnelPersons(person_filter, self.team)._exec_query()
+        result = ClickhouseFunnelPersons(person_filter, self.team, user=self.user)._exec_query()
         return [row[0] for row in result]
 
     def test_basic_funnel_default_funnel_days(self):
