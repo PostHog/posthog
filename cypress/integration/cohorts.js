@@ -24,7 +24,6 @@ describe('Cohorts', () => {
 
         // set cohort name & description
         cy.get('[data-attr="cohort-name"]').type('Test Cohort')
-        cy.get('[data-attr="cohort-description"]').type('This is my new cohort.')
 
         // save
         cy.get('[data-attr="save-cohort"]').click()

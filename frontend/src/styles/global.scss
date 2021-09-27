@@ -2,7 +2,8 @@
 nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
 style files without adding already imported styles.
 
-Font weights: only `normal` (400), `medium` (500) or `bold` (700) should be used.
+Font weights: only `normal` (400), `$medium` (500) or `bold` (700) should be used.
+NOTE: $medium is a SCSS var; not a keyword
 
 */
 
@@ -447,8 +448,8 @@ code.code {
     }
 }
 
-.ant-form-item-label {
-    font-weight: medium;
+.ant-form-item-label label {
+    font-weight: $medium;
 }
 
 // Button styles

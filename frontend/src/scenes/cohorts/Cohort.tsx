@@ -4,7 +4,7 @@ import { CohortNameInput } from './CohortNameInput'
 import { CohortDescriptionInput } from './CohortDescriptionInput'
 import { Button, Col, Divider, Row, Spin } from 'antd'
 import { CohortMatchingCriteriaSection } from './CohortMatchingCriteriaSection'
-import { CohortType } from '~/types'
+import { AvailableFeature, CohortType } from '~/types'
 import { COHORT_DYNAMIC, COHORT_STATIC } from 'lib/constants'
 import { InboxOutlined, DeleteOutlined, SaveOutlined, LoadingOutlined } from '@ant-design/icons'
 import Dragger from 'antd/lib/upload/Dragger'
@@ -16,11 +16,13 @@ import { UploadFile } from 'antd/lib/upload/interface'
 import { CalculatorOutlined, OrderedListOutlined } from '@ant-design/icons'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { Tooltip } from 'antd'
+import { organizationLogic } from '../organizationLogic'
 
 export function Cohort(props: { cohort: CohortType }): JSX.Element {
     const logic = cohortLogic(props)
     const { setCohort } = useActions(logic)
     const { cohort, submitted } = useValues(logic)
+    const { currentOrganization } = useValues(organizationLogic)
 
     const onDescriptionChange = (description: string): void => {
         setCohort({
@@ -100,11 +102,13 @@ export function Cohort(props: { cohort: CohortType }): JSX.Element {
                     )}
                 </Col>
             </Row>
-            <Row gutter={16} className="mt">
-                <Col span={24}>
-                    <CohortDescriptionInput description={cohort.description} onChange={onDescriptionChange} />
-                </Col>
-            </Row>
+            {currentOrganization?.available_features.includes(AvailableFeature.DASHBOARD_COLLABORATION) && (
+                <Row gutter={16} className="mt">
+                    <Col span={24}>
+                        <CohortDescriptionInput description={cohort.description} onChange={onDescriptionChange} />
+                    </Col>
+                </Row>
+            )}
             {cohort.id && cohort.id !== 'new' && <CohortDetailsRow cohort={cohort} />}
             <Divider />
             {cohort.is_static ? (
