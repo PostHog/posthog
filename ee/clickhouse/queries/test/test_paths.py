@@ -35,8 +35,10 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     maxDiff = None
 
-    def _get_people_at_path(self, filter, path_start, path_end, funnel_filter=None):
-        person_filter = filter.with_data({"path_start_key": path_start, "path_end_key": path_end})
+    def _get_people_at_path(self, filter, path_start=None, path_end=None, funnel_filter=None, path_dropoff=None):
+        person_filter = filter.with_data(
+            {"path_start_key": path_start, "path_end_key": path_end, "path_dropoff_key": path_dropoff}
+        )
         result = ClickhousePathsPersons(person_filter, self.team, funnel_filter)._exec_query()
         return [row[0] for row in result]
 
@@ -1494,3 +1496,51 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 {"source": "2_/2/bar/aaa", "target": "3_/3*", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
             ],
         )
+
+    def test_paths_person_dropoffs(self):
+
+        # 5 people do 2 events
+        for i in range(5):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
+
+        # 10 people do 3 events
+        for i in range(5, 15):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:00")
+
+        # 20 people do 4 events
+        for i in range(15, 35):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:00")
+            _create_event(event="step four", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:06:00")
+
+        filter = PathFilter(
+            data={
+                "include_event_types": ["custom_event"],
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+            }
+        )
+        self.assertEqual(5, len(self._get_people_at_path(filter, path_dropoff="2_step two")))  # 5 dropoff at step 2
+        self.assertEqual(35, len(self._get_people_at_path(filter, path_end="2_step two")))  # 35 total reach step 2
+        self.assertEqual(
+            30, len(self._get_people_at_path(filter, path_start="2_step two"))
+        )  # 30 total reach after step 2
+
+        self.assertEqual(10, len(self._get_people_at_path(filter, path_dropoff="3_step three")))  # 10 dropoff at step 3
+        self.assertEqual(30, len(self._get_people_at_path(filter, path_end="3_step three")))  # 30 total reach step 3
+        self.assertEqual(
+            20, len(self._get_people_at_path(filter, path_start="3_step three"))
+        )  # 20 total reach after step 3
+
+        self.assertEqual(20, len(self._get_people_at_path(filter, path_dropoff="4_step four")))  # 20 dropoff at step 4
+        self.assertEqual(20, len(self._get_people_at_path(filter, path_end="4_step four")))  # 20 total reach step 4
+        self.assertEqual(
+            0, len(self._get_people_at_path(filter, path_start="4_step four"))
+        )  # 0 total reach after step 4
