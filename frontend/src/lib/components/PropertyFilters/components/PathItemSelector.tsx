@@ -8,9 +8,10 @@ interface PathItemSelectorProps {
     onChange: (item: string) => void
     children: JSX.Element
     index: number
+    groupTypes?: TaxonomicFilterGroupType[]
 }
 
-export function PathItemSelector({ pathItem, onChange, children }: PathItemSelectorProps): JSX.Element {
+export function PathItemSelector({ pathItem, onChange, children, groupTypes }: PathItemSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
     return (
         <Popup
@@ -26,11 +27,7 @@ export function PathItemSelector({ pathItem, onChange, children }: PathItemSelec
                         onChange(value as string)
                         setVisible(false)
                     }}
-                    groupTypes={[
-                        TaxonomicFilterGroupType.PageviewUrls,
-                        TaxonomicFilterGroupType.Screens,
-                        TaxonomicFilterGroupType.CustomEvents,
-                    ]}
+                    groupTypes={groupTypes}
                 />
             }
         >

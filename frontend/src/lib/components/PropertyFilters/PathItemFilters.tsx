@@ -8,6 +8,7 @@ import { Button, Row } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
 import { FilterButton } from './components/PropertyFilterButton'
 import { CloseButton } from '../CloseButton'
+import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -15,6 +16,7 @@ interface PropertyFiltersProps {
     onChange?: null | ((filters: AnyPropertyFilter[]) => void)
     pageKey: string
     style?: CSSProperties
+    groupTypes?: TaxonomicFilterGroupType[]
 }
 
 export function PathItemFilters({
@@ -22,6 +24,7 @@ export function PathItemFilters({
     onChange = null,
     pageKey,
     style = {},
+    groupTypes,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, urlOverride: 'exclude_events' }
     const { filters } = useValues(propertyFilterLogic(logicProps))
@@ -33,12 +36,12 @@ export function PathItemFilters({
                 {filters?.length &&
                     filters.map((filter, index) => {
                         return (
-                            <>
+                            <div key={index} style={{ margin: '0.25rem 0', padding: '0.25rem 0' }}>
                                 <PathItemSelector
-                                    key={index}
                                     pathItem={filter.value as string | undefined}
                                     onChange={(pathItem) => setFilter(index, pathItem, pathItem, null, 'event')}
                                     index={index}
+                                    groupTypes={groupTypes}
                                 >
                                     {!filter.value ? (
                                         <Button
@@ -55,7 +58,10 @@ export function PathItemFilters({
                                             <FilterButton>{filter.value as string}</FilterButton>
                                             {!!Object.keys(filters[index]).length && (
                                                 <CloseButton
-                                                    onClick={() => remove(index)}
+                                                    onClick={(e: Event) => {
+                                                        remove(index)
+                                                        e.stopPropagation()
+                                                    }}
                                                     style={{
                                                         cursor: 'pointer',
                                                         float: 'none',
@@ -67,7 +73,7 @@ export function PathItemFilters({
                                         </Row>
                                     )}
                                 </PathItemSelector>
-                            </>
+                            </div>
                         )
                     })}
             </BindLogic>

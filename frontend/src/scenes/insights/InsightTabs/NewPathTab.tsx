@@ -11,8 +11,8 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
-import { CheckboxChangeEvent } from 'antd/lib/checkbox'
 import { CloseButton } from 'lib/components/CloseButton'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function NewPathTab(): JSX.Element {
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
@@ -20,19 +20,34 @@ export function NewPathTab(): JSX.Element {
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
+    const groupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
+        ? filter.include_event_types.map((item) => {
+              if (item === PathType.Screen) {
+                  return TaxonomicFilterGroupType.Screens
+              } else if (item === PathType.CustomEvent) {
+                  return TaxonomicFilterGroupType.CustomEvents
+              } else {
+                  return TaxonomicFilterGroupType.PageviewUrls
+              }
+          })
+        : []
 
-    const onChangeCheckbox = (e: CheckboxChangeEvent, pathType: PathType): void => {
-        if (e.target.checked) {
-            setFilter({
-                include_event_types: filter.include_event_types
-                    ? [...filter.include_event_types, pathType]
-                    : [pathType],
-            })
+    const onClickPathtype = (pathType: PathType): void => {
+        if (filter.include_event_types) {
+            if (filter.include_event_types.includes(pathType)) {
+                setFilter({
+                    include_event_types: filter.include_event_types.filter((types) => types !== pathType),
+                })
+            } else {
+                setFilter({
+                    include_event_types: filter.include_event_types
+                        ? [...filter.include_event_types, pathType]
+                        : [pathType],
+                })
+            }
         } else {
             setFilter({
-                include_event_types: filter.include_event_types
-                    ? filter.include_event_types.filter((types) => types !== pathType)
-                    : [],
+                include_event_types: [pathType],
             })
         }
     }
@@ -46,31 +61,35 @@ export function NewPathTab(): JSX.Element {
                             <Col span={3}>
                                 <b>Events:</b>
                             </Col>
-                            <Col span={7} className="ant-btn left">
+                            <Col span={7} className="ant-btn left" onClick={() => onClickPathtype(PathType.PageView)}>
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.PageView)}
-                                    onChange={(e) => {
-                                        onChangeCheckbox(e, PathType.PageView)
+                                    style={{
+                                        pointerEvents: 'none',
                                     }}
                                 >
                                     Pageview events
                                 </Checkbox>
                             </Col>
-                            <Col span={7} className="ant-btn center">
+                            <Col span={7} className="ant-btn center" onClick={() => onClickPathtype(PathType.Screen)}>
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.Screen)}
-                                    onChange={(e) => {
-                                        onChangeCheckbox(e, PathType.Screen)
+                                    style={{
+                                        pointerEvents: 'none',
                                     }}
                                 >
                                     Screenview events
                                 </Checkbox>
                             </Col>
-                            <Col span={7} className="ant-btn right">
+                            <Col
+                                span={7}
+                                className="ant-btn right"
+                                onClick={() => onClickPathtype(PathType.CustomEvent)}
+                            >
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.CustomEvent)}
-                                    onChange={(e) => {
-                                        onChangeCheckbox(e, PathType.CustomEvent)
+                                    style={{
+                                        pointerEvents: 'none',
                                     }}
                                 >
                                     Custom events
@@ -104,6 +123,7 @@ export function NewPathTab(): JSX.Element {
                                             start_point: pathItem,
                                         })
                                     }
+                                    groupTypes={groupTypes}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 1}
@@ -120,8 +140,9 @@ export function NewPathTab(): JSX.Element {
                                             <>
                                                 {filter.start_point}
                                                 <CloseButton
-                                                    onClick={() => {
+                                                    onClick={(e: Event) => {
                                                         setFilter({ start_point: null })
+                                                        e.stopPropagation()
                                                     }}
                                                     style={{
                                                         cursor: 'pointer',
@@ -152,6 +173,7 @@ export function NewPathTab(): JSX.Element {
                                             end_point: pathItem,
                                         })
                                     }
+                                    groupTypes={groupTypes}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 0}
@@ -168,8 +190,9 @@ export function NewPathTab(): JSX.Element {
                                             <>
                                                 {filter.end_point}
                                                 <CloseButton
-                                                    onClick={() => {
+                                                    onClick={(e: Event) => {
                                                         setFilter({ end_point: null })
+                                                        e.stopPropagation()
                                                     }}
                                                     style={{
                                                         cursor: 'pointer',
@@ -188,13 +211,14 @@ export function NewPathTab(): JSX.Element {
                         </Row>
                     </Col>
                 </Col>
-                <Col span={12} md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
+                <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
                     <GlobalFiltersTitle title={'Filters'} unit="actions/events" />
                     <PropertyFilters pageKey="insight-path" />
                     <TestAccountFilter filters={filter} onChange={setFilter} />
                     <hr />
                     <GlobalFiltersTitle title={'Exclusion'} unit="actions/events" />
                     <PathItemFilters
+                        groupTypes={groupTypes}
                         pageKey={'exclusion'}
                         propertyFilters={
                             filter.exclude_events &&
