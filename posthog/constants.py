@@ -126,6 +126,7 @@ FUNNEL_PATH_BETWEEN_STEPS = "funneL_path_between_steps"
 PATH_GROUPINGS = "path_groupings"
 PATH_START_KEY = "path_start_key"
 PATH_END_KEY = "path_end_key"
+PATH_DROPOFF_KEY = "path_dropoff_key"
 
 
 class FunnelOrderType(str, Enum):
