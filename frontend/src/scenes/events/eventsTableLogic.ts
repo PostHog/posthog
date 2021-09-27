@@ -174,7 +174,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         highlightEvents: [
             {} as Record<string, boolean>,
             {
-                pollEventsSuccess: () => ({}),
                 prependNewEvents: (_: Record<string, boolean>, { events }) => {
                     return events.reduce((highlightEvents, event) => {
                         highlightEvents[event.id] = true

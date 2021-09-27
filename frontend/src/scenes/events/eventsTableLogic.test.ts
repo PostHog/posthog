@@ -140,16 +140,6 @@ describe('eventsTableLogic', () => {
             })
         })
 
-        //TODO why does it?
-        it('can clear highlighted events when poll is successful', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.prependNewEvents([makeEvent('potato')])
-                logic.actions.pollEventsSuccess([])
-            }).toMatchValues({
-                highlightEvents: {},
-            })
-        })
-
         it('sets new events when polling succeeds', async () => {
             const apiResponse = [makeEvent('potato')]
             await expectLogic(logic, () => {
