@@ -37,7 +37,7 @@ def parse_prop_clauses(
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
-    is_person_query=False,
+    filter_test_accounts=False,
     person_properties_column: Optional[str] = None,
     has_person_id_joined: bool = True,
 ) -> Tuple[str, Dict]:
@@ -64,7 +64,7 @@ def parse_prop_clauses(
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-            is_direct_query = is_person_query or person_properties_column is not None
+            is_direct_query = person_properties_column is not None
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
                 idx,
