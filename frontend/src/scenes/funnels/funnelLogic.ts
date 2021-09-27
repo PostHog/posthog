@@ -310,12 +310,6 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 setIsGroupingOutliers: (_, { isGroupingOutliers }) => isGroupingOutliers,
             },
         ],
-        binCount: [
-            BinCountAuto as BinCountValue,
-            {
-                setBinCount: (_, { binCount }) => binCount,
-            },
-        ],
         error: [
             null as any, // TODO: Error typing in typescript doesn't exist natively
             {
@@ -672,12 +666,12 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             },
         ],
         numericBinCount: [
-            () => [selectors.binCount, selectors.timeConversionResults],
-            (binCount, timeConversionResults): number => {
-                if (binCount === BinCountAuto) {
+            () => [selectors.filters, selectors.timeConversionResults],
+            (filters, timeConversionResults): number => {
+                if (filters.bin_count === BinCountAuto) {
                     return timeConversionResults?.bins?.length ?? 0
                 }
-                return binCount
+                return filters.bin_count ?? 0
             },
         ],
         exclusionDefaultStepRange: [
@@ -820,8 +814,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 funnel_to_step,
             })
         },
-        setBinCount: async () => {
-            const { binCount } = values
+        setBinCount: async ({ binCount }) => {
             actions.setFilters(binCount && binCount !== BinCountAuto ? { bin_count: binCount } : {})
         },
         setConversionWindow: async () => {
