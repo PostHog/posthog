@@ -72,7 +72,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         ].join('-'),
 
     actions: {
-        setProperties: (properties: Record<string, unknown>[]) => {
+        setProperties: (properties: AnyPropertyFilter[] | AnyPropertyFilter) => {
             // there seem to be multiple representations of "empty" properties
             // the page does not work with some of those representations
             // this action normalises them
