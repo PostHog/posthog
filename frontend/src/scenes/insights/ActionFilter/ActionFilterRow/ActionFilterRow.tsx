@@ -14,7 +14,7 @@ import {
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { EVENT_MATH_TYPE, FEATURE_FLAGS, MATHS, PROPERTY_MATH_TYPE } from 'lib/constants'
-import { CloseSquareOutlined, DeleteOutlined, DownOutlined, FilterOutlined } from '@ant-design/icons'
+import { CloseSquareOutlined, DeleteOutlined, DownOutlined, EditOutlined, FilterOutlined } from '@ant-design/icons'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -27,6 +27,7 @@ import './index.scss'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -50,6 +51,8 @@ export interface ActionFilterRowProps {
     singleFilter?: boolean
     showOr?: boolean
     hideFilter?: boolean // Hides the local filter options
+    hideRename?: boolean // Hides the rename option
+    onRenameClick?: () => void // Used to open rename modal
     showSeriesIndicator?: boolean // Show series badge
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     horizontalUI?: boolean
@@ -83,6 +86,7 @@ export interface ActionFilterRowProps {
         filter,
         suffix,
         propertyFiltersButton,
+        renameRowButton,
         deleteButton,
         orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
@@ -97,6 +101,8 @@ export function ActionFilterRow({
     singleFilter,
     showOr,
     hideFilter,
+    hideRename,
+    onRenameClick = () => {},
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
     horizontalUI = false,
@@ -122,6 +128,7 @@ export function ActionFilterRow({
         setEntityFilterVisibility,
     } = useActions(logic)
     const { numericalPropertyNames } = useValues(propertyDefinitionsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const visible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -217,7 +224,11 @@ export function ActionFilterRow({
                     }}
                 >
                     <span className="text-overflow" style={{ maxWidth: '100%' }}>
-                        <PropertyKeyInfo value={name || 'Select action'} disablePopover />
+                        {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] ? (
+                            <EntityFilterInfo filter={filter} />
+                        ) : (
+                            <PropertyKeyInfo value={name || 'Select action'} disablePopover />
+                        )}
                     </span>
                     <DownOutlined style={{ fontSize: 10 }} />
                 </Button>
@@ -239,6 +250,21 @@ export function ActionFilterRow({
         >
             <FilterOutlined />
             {filter.properties?.length ? pluralize(filter.properties?.length, 'filter') : null}
+        </Button>
+    )
+
+    const renameRowButton = (
+        <Button
+            type="link"
+            onClick={() => {
+                selectFilter(filter)
+                onRenameClick()
+            }}
+            className={`row-action-btn show-rename`}
+            data-attr={'show-prop-rename-' + index}
+            title="Rename"
+        >
+            <EditOutlined />
         </Button>
     )
 
@@ -270,6 +296,7 @@ export function ActionFilterRow({
                         filter: filterElement,
                         suffix,
                         propertyFiltersButton: propertyFiltersButton,
+                        renameRowButton,
                         deleteButton,
                         orLabel,
                     })
@@ -336,6 +363,9 @@ export function ActionFilterRow({
                             </>
                         )}
                         {(horizontalUI || fullWidth) && !hideFilter && <Col>{propertyFiltersButton}</Col>}
+                        {featureFlags[FEATURE_FLAGS.RENAME_FILTERS] && (horizontalUI || fullWidth) && !hideRename && (
+                            <Col>{renameRowButton}</Col>
+                        )}
                         {!hideDeleteBtn && !horizontalUI && !singleFilter && (
                             <Col className="column-delete-btn">{deleteButton}</Col>
                         )}

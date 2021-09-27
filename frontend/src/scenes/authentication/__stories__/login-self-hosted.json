@@ -1,0 +1,71 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/login",
+                "search": "",
+                "hash": ""
+            },
+            "searchParams": {},
+            "hashParams": {}
+        }
+    },
+    "scenes": {
+        "userLogic": {
+            "user": null,
+            "userLoading": false
+        },
+        "PreflightCheck": {
+            "logic": {
+                "preflight": {
+                    "django": true,
+                    "redis": true,
+                    "plugins": true,
+                    "celery": false,
+                    "db": true,
+                    "initiated": true,
+                    "cloud": false,
+                    "realm": "hosted",
+                    "available_social_auth_providers": {
+                        "github": false,
+                        "gitlab": false,
+                        "google-oauth2": false,
+                        "saml": false
+                    },
+                    "can_create_org": false
+                },
+                "preflightLoading": false,
+                "preflightMode": null
+            }
+        },
+        "App": {
+            "showingDelayedSpinner": true,
+            "featureFlagsTimedOut": true
+        },
+        "sceneLogic": {
+            "scene": "login",
+            "params": {},
+            "loadedScenes": {
+                "404": {},
+                "4xx": {},
+                "login": {}
+            },
+            "loadingScene": null,
+            "upgradeModalFeatureNameAndCaption": null
+        },
+        "authentication": {
+            "loginLogic": {
+                "authenticateResponse": null,
+                "authenticateResponseLoading": false
+            }
+        }
+    },
+    "lib": {
+        "logic": {
+            "featureFlagLogic": {
+                "featureFlags": {},
+                "receivedFeatureFlags": true
+            }
+        }
+    }
+}

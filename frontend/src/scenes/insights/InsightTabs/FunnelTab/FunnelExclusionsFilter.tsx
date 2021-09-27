@@ -155,6 +155,7 @@ export function FunnelExclusionsFilter(): JSX.Element | null {
             hideMathSelector
             hidePropertySelector
             hideFilter
+            hideRename
             hideDeleteBtn
             fullWidth
             seriesIndicatorType="alpha"

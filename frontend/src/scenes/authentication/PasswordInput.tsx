@@ -2,6 +2,8 @@ import { Form, Input } from 'antd'
 import { FormItemProps } from 'antd/es/form'
 import React, { lazy, Suspense } from 'react'
 
+import { ExclamationCircleFilled } from '@ant-design/icons'
+
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 interface PasswordInputProps extends FormItemProps {
@@ -23,11 +25,21 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                 rules={[
                     {
                         required: true,
-                        message: `Please enter your password to continue`,
+                        message: (
+                            <>
+                                <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Please enter your password to
+                                continue
+                            </>
+                        ),
                     },
                     {
                         min: validateMinLength ? 8 : undefined,
-                        message: `Your password must be at least 8 characters long`,
+                        message: (
+                            <>
+                                <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Your password must be at least 8
+                                characters long
+                            </>
+                        ),
                     },
                 ]}
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
@@ -38,7 +50,7 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                     className="ph-ignore-input"
                     type="password"
                     data-attr="password"
-                    placeholder="********"
+                    placeholder="••••••••••"
                 />
             </Form.Item>
             {showStrengthIndicator && (

@@ -18,6 +18,7 @@ export function CohortDescriptionInput({ description, onChange }: CohortDescript
                 data-attr="cohort-description"
                 id="cohort-description"
                 onChange={(e) => onChange(e.target.value)}
+                maxLength={1000} // Sync with Cohort.description field
             />
         </>
     )

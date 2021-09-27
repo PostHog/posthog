@@ -249,7 +249,7 @@ export function Signup(): JSX.Element | null {
                             <FormStepTwo />
                         </Form>
                         <div style={{ marginTop: 48 }}>
-                            <SocialLoginButtons displayStyle="link" caption="Or sign up with:" />
+                            <SocialLoginButtons caption="Or sign up with:" />
                         </div>
                     </div>
                 </Col>
