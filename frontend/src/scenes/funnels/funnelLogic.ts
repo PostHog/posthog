@@ -472,6 +472,11 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 }
             },
         ],
+        filterSteps: [
+            () => [selectors.apiParams],
+            (apiParams) =>
+                [...(apiParams.events ?? []), ...(apiParams.actions ?? [])].sort((a, b) => a.order - b.order),
+        ],
         eventCount: [() => [selectors.apiParams], (apiParams) => apiParams.events?.length || 0],
         actionCount: [() => [selectors.apiParams], (apiParams) => apiParams.actions?.length || 0],
         interval: [() => [selectors.apiParams], (apiParams) => apiParams.interval || ''],
