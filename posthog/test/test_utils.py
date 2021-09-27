@@ -106,4 +106,7 @@ class TestLoadDataFromRequest(TestCase):
         with self.assertRaises(RequestParsingError) as ctx:
             load_data_from_request(post_request)
 
-        self.assertEqual("data being loaded for decompression is the literal string 'undefined'", str(ctx.exception))
+        self.assertEqual(
+            "data being loaded from the request body for decompression is the literal string 'undefined'",
+            str(ctx.exception),
+        )
