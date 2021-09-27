@@ -44,7 +44,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             distinct_id="person_1", event="third event", team=self.team,
         )
 
-        response = self.client.get("/api/insight/path", data={"exclude_events": ["second event"]}).json()
+        response = self.client.get("/api/insight/path", data={"exclude_events": '["second event"]'}).json()
         self.assertEqual(len(response["result"]), 1)
 
     def test_backwards_compatible_path_types(self):

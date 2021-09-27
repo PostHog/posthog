@@ -30,6 +30,7 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
         path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
         include_event_types: filters.include_event_types || [PathType.PageView],
         groupings: filters.groupings || [],
+        exclude_events: filters.exclude_events || [],
         ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
         date_from: filters.date_from,
         date_to: filters.date_to,
