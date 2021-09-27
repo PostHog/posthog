@@ -25,7 +25,7 @@ describe('Auth', () => {
         cy.get('[data-attr=password]').type('wrong password').should('have.value', 'wrong password')
         cy.get('[type=submit]').click()
 
-        cy.get('.ant-alert-error').should('contain', 'Invalid email or password.')
+        cy.get('.error-message').should('contain', 'Invalid email or password.')
     })
 
     it('Redirect to appropriate place after login', () => {
