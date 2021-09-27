@@ -130,14 +130,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         eventFilter: [
             '',
             {
-                setEventFilter: (
-                    _: string,
-                    {
-                        event,
-                    }: {
-                        event: string
-                    }
-                ) => event,
+                setEventFilter: (_, { event }) => event,
             },
         ],
         isLoading: [
