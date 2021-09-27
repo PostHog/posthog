@@ -15,8 +15,8 @@ from posthog.queries.sessions.session_recording import collect_matching_recordin
 class ClickhouseFunnelPersons(ClickhouseFunnel):
     _user: Optional[User]
 
-    def __init__(self, filter: Filter, team: Team, user: Optional[User] = None) -> None:
-        super().__init__(filter, team)
+    def __init__(self, *args, user: Optional[User] = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self._user = user
 
     def get_query(self):
