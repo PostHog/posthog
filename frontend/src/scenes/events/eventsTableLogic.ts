@@ -9,7 +9,7 @@ import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
-import { EventsTableRowItem, EventType } from '~/types'
+import { AnyPropertyFilter, EventsTableRowItem, EventType } from '~/types'
 const POLL_TIMEOUT = 5000
 
 // necessary for the date format in the formatEvents method to work
@@ -112,14 +112,14 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             { noop: (_: string, s: string) => s },
         ],
         properties: [
-            [],
+            [] as AnyPropertyFilter[],
             {
                 setProperties: (
-                    _: any[],
+                    _: AnyPropertyFilter[],
                     {
                         properties,
                     }: {
-                        properties: Record<string, unknown>[]
+                        properties: AnyPropertyFilter[]
                     }
                 ) => properties,
             },
