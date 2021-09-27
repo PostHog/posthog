@@ -8,13 +8,8 @@ import { userLogic } from 'scenes/userLogic'
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
-import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 const POLL_TIMEOUT = 5000
-
-// necessary for the date format in the formatEvents method to work
-// doesn't matter if it is called multiple times but must be called once
-dayjs.extend(LocalizedFormat)
 
 const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableRowItem[] => {
     let eventsFormatted: EventsTableRowItem[] = []
