@@ -47,7 +47,7 @@ describe('eventsTableLogic', () => {
     })
 
     it('sets a key', () => {
-        expect(logic.key).toEqual('all-events--test-key')
+        expect(logic.key).toEqual('all-events-test-key')
     })
 
     it('starts with known defaults', async () => {
