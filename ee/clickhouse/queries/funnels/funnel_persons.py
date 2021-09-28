@@ -27,6 +27,7 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
         from posthog.api.person import PersonSerializer
 
         persons_serialized = list(PersonSerializer(persons, many=True).data)
-        join_funnel_persons_with_session_recordings(persons_serialized, self._filter, self._team, self._user.id)
+        if self._user is not None:
+            join_funnel_persons_with_session_recordings(persons_serialized, self._filter, self._team, self._user.pk)
 
         return persons_serialized, len(results) > cast(int, self._filter.limit) - 1
