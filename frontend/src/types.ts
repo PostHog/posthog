@@ -15,7 +15,6 @@ import {
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { Dayjs } from 'dayjs'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 
@@ -350,6 +349,7 @@ export type EntityType = 'actions' | 'events' | 'new_entity'
 export interface Entity {
     id: string | number
     name: string
+    custom_name?: string
     order: number
     type: EntityType
 }
@@ -364,6 +364,7 @@ export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
     name: string | null
+    custom_name?: string
     index?: number
     order?: number
 }
@@ -371,10 +372,6 @@ export type EntityFilter = {
 export interface FunnelStepRangeEntityFilter extends EntityFilter {
     funnel_from_step: number
     funnel_to_step: number
-}
-
-export interface EntityWithProperties extends Entity {
-    properties: Record<string, any>
 }
 
 export interface PersonType {
@@ -449,19 +446,24 @@ export enum LayoutView {
     List = 'list',
 }
 
+export interface EventsTableAction {
+    name: string
+    id: string
+}
+
 export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
-    event: string
     id: number | string
     properties: Record<string, any>
     timestamp: string
     person?: Partial<PersonType> | null
+    event: string
 }
 
-export interface EventFormattedType {
-    event: EventType
-    date_break?: Dayjs
+export interface EventsTableRowItem {
+    event?: EventType
+    date_break?: string
     new_events?: boolean
 }
 
@@ -839,6 +841,7 @@ export interface FunnelStep {
     average_conversion_time: number | null
     count: number
     name: string
+    custom_name?: string
     order: number
     people?: string[]
     type: EntityType

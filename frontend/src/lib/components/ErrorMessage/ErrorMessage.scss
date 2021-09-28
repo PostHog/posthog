@@ -1,0 +1,15 @@
+@import '~/vars';
+
+.error-message {
+    background-color: rgba($danger, 0.09);
+    border-radius: $radius;
+    padding: $default_spacing / 2 $default_spacing;
+    color: $danger;
+    font-weight: medium;
+    display: flex;
+    align-items: center;
+
+    .anticon {
+        margin-right: 4px;
+    }
+}

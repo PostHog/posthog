@@ -32,7 +32,7 @@
     // "shutdownAction": "none",
 
     // Uncomment the next line to run commands after the container is created - for example installing curl.
-    "postCreateCommand": "apt-get update && apt-get install -y curl && echo \"echo 'Hello 🦔! To start PostHog run this:\n \"./ee/bin/docker-ch-dev-backend\"'\" > ~/.bashrc"
+    "postCreateCommand": "./.devcontainer/container_start.sh"
 
     // Uncomment to connect as a non-root user if you've added one. See https://aka.ms/vscode-remote/containers/non-root.
     // "remoteUser": "vscode"

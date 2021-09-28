@@ -37,7 +37,7 @@ const options: BinOption[] = [
 ]
 
 export function FunnelBinsPicker(): JSX.Element {
-    const { binCount, numericBinCount } = useValues(funnelLogic)
+    const { filters, numericBinCount } = useValues(funnelLogic)
     const { setBinCount } = useActions(funnelLogic)
 
     return (
@@ -46,7 +46,7 @@ export function FunnelBinsPicker(): JSX.Element {
             dropdownClassName="funnel-bin-filter-dropdown"
             data-attr="funnel-bin-filter"
             defaultValue={BinCountAuto}
-            value={binCount || BinCountAuto}
+            value={filters.bin_count || BinCountAuto}
             onSelect={(count) => setBinCount(count)}
             dropdownRender={(menu) => {
                 return (

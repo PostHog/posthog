@@ -8,8 +8,8 @@ from posthog.models.filters.filter import Filter
 
 class ClickhousePathsPersons(ClickhousePaths):
     """    
-    `path_start_key` and `path_end_key` are two new params for this class.
-    These determine the start and end point of Paths you want. Both of these are optional.
+    `path_start_key`, `path_end_key`, and `path_dropoff_key` are three new params for this class.
+    These determine the start and end point of Paths you want. All of these are optional.
 
     Not specifying them means "get me all users on this path query".
 
@@ -17,6 +17,10 @@ class ClickhousePathsPersons(ClickhousePaths):
     Only specifying `path_end_key` means "get me all users whose paths end at this key"
 
     Specifying both means "get me all users whose path starts at `start_key` and ends at `end_key`."
+
+    Specifying `path_dropoff_key` means "get me users who dropped off after this key. If you specify
+    this key, the other two keys are invalid
+
     Note that:
         Persons are calculated only between direct paths. There should not be any
         other path item between start and end key.
@@ -48,13 +52,18 @@ class ClickhousePathsPersons(ClickhousePaths):
 
     def get_person_path_filter(self) -> str:
         conditions = []
-        if self._filter.path_start_key:
-            conditions.append("last_path_key = %(path_start_key)s")
-            self.params["path_start_key"] = self._filter.path_start_key
 
-        if self._filter.path_end_key:
-            conditions.append("path_key = %(path_end_key)s")
-            self.params["path_end_key"] = self._filter.path_end_key
+        if self._filter.path_dropoff_key:
+            conditions.append("path_dropoff_key = %(path_dropoff_key)s")
+            self.params["path_dropoff_key"] = self._filter.path_dropoff_key
+        else:
+            if self._filter.path_start_key:
+                conditions.append("last_path_key = %(path_start_key)s")
+                self.params["path_start_key"] = self._filter.path_start_key
+
+            if self._filter.path_end_key:
+                conditions.append("path_key = %(path_end_key)s")
+                self.params["path_end_key"] = self._filter.path_end_key
 
         if conditions:
             return " AND ".join(conditions)

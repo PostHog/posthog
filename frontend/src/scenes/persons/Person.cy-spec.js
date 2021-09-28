@@ -27,7 +27,7 @@ describe('<Person /> ', () => {
         cy.wait('@api_event').map(helpers.getSearchParameters).should('eql', {
             orderBy: '["-timestamp"]',
             person_id: '1',
-            properties: '{}',
+            properties: '[]',
         })
 
         cy.get('.event-row').should('have.length', 7)
