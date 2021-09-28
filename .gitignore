@@ -34,3 +34,4 @@ build-storybook.log
 storybook-static
 .asv
 ee/benchmarks/results
+ee/benchmarks/html
