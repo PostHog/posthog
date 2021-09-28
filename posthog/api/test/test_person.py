@@ -280,7 +280,7 @@ def factory_test_person(event_factory, person_factory, get_events):
                 any_order=True,
             )
             self.assertEqual(response.status_code, 201)
-            self.assertEqual(response.json()["distinct_ids"], ["1", "2", "distinct_id_3"])
+            self.assertCountEqual(response.json()["distinct_ids"], ["1", "2", "distinct_id_3"])
 
         def test_split_people_keep_props(self) -> None:
             # created first
@@ -291,6 +291,7 @@ def factory_test_person(event_factory, person_factory, get_events):
             self.client.post(
                 "/api/person/%s/split/" % person1.pk, {"main_distinct_id": "1"},
             )
+
             people = Person.objects.all().order_by("id")
             self.assertEqual(len(people), 3)
             self.assertEqual(people[0].distinct_ids, ["1"])

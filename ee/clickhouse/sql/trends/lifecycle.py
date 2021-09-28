@@ -2,17 +2,32 @@ LIFECYCLE_SQL = """
 SELECT groupArray(day_start) as date, groupArray(counts) as data, status FROM (
     SELECT if(status = 'dormant', toInt64(SUM(counts)) * toInt16(-1), toInt64(SUM(counts))) as counts, day_start, status
     FROM (
-        SELECT {trunc_func}(toDateTime(%(date_to)s) - number * %(seconds_in_interval)s) as day_start, toUInt16(0) AS counts, status
-        from numbers(%(num_intervals)s) as main
-            CROSS JOIN
-            (
+        SELECT ticks.day_start as day_start, toUInt16(0) AS counts, status
+
+        FROM (
+            -- Generates all the intervals/ticks in the date range
+            -- NOTE: we build this range by including successive intervals back from the 
+            --       upper bound, then including the lower bound in the query also.
+
+            SELECT 
+                {trunc_func}(
+                    toDateTime(%(date_to)s) - number * %(seconds_in_interval)s
+                ) as day_start
+            FROM numbers(%(num_intervals)s)
+            UNION ALL
+            SELECT {trunc_func}(toDateTime(%(date_from)s)) as day_start
+        ) as ticks
+
+        CROSS JOIN (
             SELECT status
             FROM (
-            SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status
+                SELECT ['new', 'returning', 'resurrecting', 'dormant'] as status
             ) ARRAY JOIN status
-            ) as sec
+        ) as sec
         ORDER BY status, day_start
+
         UNION ALL
+
         SELECT subsequent_day, count(DISTINCT person_id) counts, status FROM (
                 SELECT *, if(base_day = toDateTime('0000-00-00 00:00:00'), 'dormant', if(subsequent_day = base_day + INTERVAL {interval}, 'returning', if(subsequent_day > earliest + INTERVAL {interval}, 'resurrecting', 'new'))) as status FROM (
                     SELECT person_id, base_day, min(subsequent_day) as subsequent_day FROM (

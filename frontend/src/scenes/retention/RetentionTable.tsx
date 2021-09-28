@@ -19,11 +19,7 @@ dayjs.extend(utc)
 import { ColumnsType } from 'antd/lib/table'
 import clsx from 'clsx'
 
-export function RetentionTable({
-    dashboardItemId = null,
-}: {
-    dashboardItemId?: string | number | null
-}): JSX.Element | null {
+export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
     const logic = retentionTableLogic({ dashboardItemId })
     const {
         results: _results,
@@ -49,7 +45,7 @@ export function RetentionTable({
             title: 'Date',
             key: 'date',
             render: (row) =>
-                period === 'Hour' ? dayjs(row.date).format('MMM D, h a') : dayjs.utc(row.date).format('MMM D'),
+                period === 'Hour' ? dayjs(row.date).format('MMM D, h A') : dayjs.utc(row.date).format('MMM D'),
             align: 'center',
         },
         {

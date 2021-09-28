@@ -10,9 +10,9 @@ from .clickhouse import (
     table_engine,
 )
 
-DROP_PERSON_TABLE_SQL = f"DROP TABLE person ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
-DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE IF EXISTS person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 PERSONS_TABLE = "person"
 
@@ -187,7 +187,9 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
     extra_fields=KAFKA_COLUMNS,
 )
 
-DROP_PERSON_STATIC_COHORT_TABLE_SQL = f"DROP TABLE {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_STATIC_COHORT_TABLE_SQL = (
+    f"DROP TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+)
 
 INSERT_PERSON_STATIC_COHORT = (
     f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp) VALUES"
@@ -214,7 +216,7 @@ INSERT INTO person (id, created_at, team_id, properties, is_identified, _timesta
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(sign)s, now(), 0 VALUES
+INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(_sign)s, now(), 0 VALUES
 """
 
 DELETE_PERSON_BY_ID = """

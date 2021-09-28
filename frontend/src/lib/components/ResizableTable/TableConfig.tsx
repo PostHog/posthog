@@ -1,6 +1,6 @@
-import { Button, Card, Col, Input, Row } from 'antd'
+import { Button, Card, Col, Input, Row, Space } from 'antd'
 import React, { useEffect, useState } from 'react'
-import { DownloadOutlined, SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
+import { SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
@@ -10,7 +10,6 @@ import { AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
-import { Tooltip } from 'lib/components/Tooltip'
 
 interface TableConfigInterface {
     exportUrl?: string
@@ -20,48 +19,41 @@ interface TableConfigInterface {
     defaultColumns?: string[] // To enable resetting to default
     onColumnUpdate?: (selectedColumns: string[]) => void
     saving?: boolean // Whether the saving routine is in process (i.e. loading indicators should be shown)
-    mainActionComponent?: JSX.Element
 }
 
 export function TableConfig({
-    exportUrl,
     selectedColumns,
     availableColumns,
     onColumnUpdate,
-    mainActionComponent,
     ...props
 }: TableConfigInterface): JSX.Element {
     const { state } = useValues(tableConfigLogic)
     const { setState } = useActions(tableConfigLogic)
-
+    const columnConfiguratorEnabled = false // to be resolved by issue #1534
     return (
         <>
             <div className="table-options">
-                <div className="main-actions">{mainActionComponent}</div>
                 <div className="rhs-actions">
-                    {selectedColumns && availableColumns && onColumnUpdate && (
-                        <>
-                            <Button
-                                data-attr="events-table-column-selector"
-                                onClick={() => setState('columnConfig')}
-                                icon={<SettingOutlined />}
-                            />
-                            {state === 'columnConfig' && (
-                                <ColumnConfigurator
-                                    allColumns={availableColumns}
-                                    currentSelection={selectedColumns}
-                                    onClose={() => setState(null)}
-                                    onColumnUpdate={onColumnUpdate}
-                                    {...props}
+                    <Space align="baseline">
+                        {columnConfiguratorEnabled && selectedColumns && availableColumns && onColumnUpdate && (
+                            <>
+                                <Button
+                                    data-attr="events-table-column-selector"
+                                    onClick={() => setState('columnConfig')}
+                                    icon={<SettingOutlined />}
                                 />
-                            )}
-                        </>
-                    )}
-                    {exportUrl && (
-                        <Tooltip title="Export up to 100,000 latest events." placement="left">
-                            <Button icon={<DownloadOutlined />} href={exportUrl} />
-                        </Tooltip>
-                    )}
+                                {state === 'columnConfig' && (
+                                    <ColumnConfigurator
+                                        allColumns={availableColumns}
+                                        currentSelection={selectedColumns}
+                                        onClose={() => setState(null)}
+                                        onColumnUpdate={onColumnUpdate}
+                                        {...props}
+                                    />
+                                )}
+                            </>
+                        )}
+                    </Space>
                 </div>
             </div>
         </>

@@ -24,9 +24,9 @@ interface Props {
 export function TrendInsight({ view }: Props): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(
-        trendsLogic({ dashboardItemId: null, view, filters: null })
+        trendsLogic({ dashboardItemId: null, filters: null })
     )
-    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, view, filters: null }))
+    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, filters: null }))
     const { showingPeople } = useValues(personsModalLogic)
     const renderViz = (): JSX.Element | undefined => {
         if (

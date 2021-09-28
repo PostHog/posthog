@@ -15,7 +15,23 @@ import {
     humanFriendlyDuration,
     colonDelimitedDuration,
     areObjectValuesEmpty,
+    toParams,
 } from './utils'
+
+describe('toParams', () => {
+    it('handles unusual input', () => {
+        expect(toParams({})).toEqual('')
+        expect(toParams([])).toEqual('')
+        expect(toParams(undefined)).toEqual('')
+        expect(toParams(null)).toEqual('')
+    })
+
+    it('is tolerant of empty objects', () => {
+        const left = toParams({ a: 'b', ...{}, b: 'c' })
+        const right = toParams({ a: 'b', ...{}, ...{}, b: 'c' })
+        expect(left).toEqual(right)
+    })
+})
 
 describe('capitalizeFirstLetter()', () => {
     it('returns the capitalized string', () => {

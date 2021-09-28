@@ -10,13 +10,15 @@ from ee.clickhouse.models.person import delete_person
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels import ClickhouseFunnelPersons, ClickhouseFunnelTrendsPersons
+from ee.clickhouse.queries.paths import ClickhousePathsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
-from posthog.api.utils import format_next_url, format_offset_absolute_url
-from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
+from posthog.api.utils import format_offset_absolute_url
+from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.models import Event, Filter, Person
+from posthog.models.filters.path_filter import PathFilter
 
 
 class ClickhousePersonViewSet(PersonViewSet):
@@ -53,7 +55,7 @@ class ClickhousePersonViewSet(PersonViewSet):
             return {"result": ([], None, None)}
 
         team = request.user.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
         funnel_class: Callable = ClickhouseFunnelPersons
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
@@ -70,6 +72,44 @@ class ClickhousePersonViewSet(PersonViewSet):
     def get_properties(self, request: Request):
         rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
         return [{"name": name, "count": count} for name, count in rows]
+
+    @action(methods=["GET", "POST"], detail=False)
+    def path(self, request: Request, **kwargs) -> Response:
+        if request.user.is_anonymous or not request.user.team:
+            return Response(data=[])
+
+        results_package = self.calculate_path_persons(request)
+
+        if not results_package:
+            return Response(data=[])
+
+        people, next_url, initial_url = results_package["result"]
+
+        return Response(
+            data={
+                "results": [{"people": people, "count": len(people)}],
+                "next": next_url,
+                "initial": initial_url,
+                "is_cached": results_package.get("is_cached"),
+                "last_refresh": results_package.get("last_refresh"),
+            }
+        )
+
+    @cached_function
+    def calculate_path_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
+        if request.user.is_anonymous or not request.user.team:
+            return {"result": ([], None, None)}
+
+        team = request.user.team
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
+
+        people, should_paginate = ClickhousePathsPersons(filter, team).run()
+        limit = filter.limit or 100
+        next_url = format_offset_absolute_url(request, filter.offset + limit) if should_paginate else None
+        initial_url = format_offset_absolute_url(request, 0)
+
+        # cached_function expects a dict with the key result
+        return {"result": (people, next_url, initial_url)}
 
     def destroy(self, request: Request, pk=None, **kwargs):  # type: ignore
         try:

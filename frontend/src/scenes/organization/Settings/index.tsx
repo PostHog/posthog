@@ -109,7 +109,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
 
     return (
         <div>
-            <h2 id="name" className="subtitle">
+            <h2 id="notification-preferences" className="subtitle">
                 Notification Preferences
             </h2>
             <div>
@@ -139,6 +139,7 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
 
 export function OrganizationSettings({ user }: { user: UserType }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
+
     return (
         <>
             <PageHeader

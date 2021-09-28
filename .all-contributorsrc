@@ -1599,6 +1599,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "stefnnn",
+      "name": "Stefan N",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6664911?v=4",
+      "profile": "https://github.com/stefnnn",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "terrymunro",
+      "name": "Terence Munro",
+      "avatar_url": "https://avatars.githubusercontent.com/u/2586778?v=4",
+      "profile": "https://www.literacyplanet.com.au",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

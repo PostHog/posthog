@@ -12,6 +12,7 @@ import {
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
     FunnelsTimeConversionBins,
+    FunnelAPIResponse,
 } from '~/types'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
@@ -136,7 +137,7 @@ export function cleanBinResult(result: FunnelResult): FunnelResult {
         ...result,
         result: {
             ...result.result,
-            bins: binsResult.bins.map(([time, count]) => [time ?? 0, count ?? 0]),
+            bins: binsResult.bins?.map(([time, count]) => [time ?? 0, count ?? 0]) ?? [],
             average_conversion_time: binsResult.average_conversion_time ?? 0,
         },
     }
@@ -191,9 +192,7 @@ export function aggregateBreakdownResult(
     return []
 }
 
-export function isBreakdownFunnelResults(
-    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
-): results is FunnelStep[][] {
+export function isBreakdownFunnelResults(results: FunnelAPIResponse): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
@@ -222,14 +221,6 @@ export function getVisibilityIndex(step: FunnelStep, key?: number | string): str
 
 export const SECONDS_TO_POLL = 3 * 60
 
-export const EMPTY_FUNNEL_RESULTS = {
-    results: [],
-    timeConversionResults: {
-        bins: [],
-        average_conversion_time: 0,
-    },
-}
-
 export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
     apiParams: FunnelRequestParams
 ): Promise<FunnelResult<T>> {
@@ -253,11 +244,11 @@ export const isStepsEmpty = (filters: FilterType): boolean =>
 
 export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepRangeEntityFilter[] | undefined => {
     if (!filters.exclusions) {
-        return filters.exclusions
+        return undefined
     }
 
     const lastIndex = Math.max((filters.events?.length || 0) + (filters.actions?.length || 0) - 1, 1)
-    return filters.exclusions.map((event) => {
+    const exclusions = filters.exclusions.map((event) => {
         const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
         return {
             ...event,
@@ -269,6 +260,7 @@ export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepR
             },
         }
     })
+    return exclusions.length > 0 ? exclusions : undefined
 }
 
 export const getClampedStepRangeFilter = ({

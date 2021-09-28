@@ -70,6 +70,10 @@ export function areObjectValuesEmpty(obj: Record<string, any>): boolean {
 }
 
 export function toParams(obj: Record<string, any>): string {
+    if (!obj) {
+        return ''
+    }
+
     function handleVal(val: any): string {
         if (dayjs.isDayjs(val)) {
             return encodeURIComponent(val.format('YYYY-MM-DD'))
@@ -488,9 +492,9 @@ export function humanFriendlyDetailedTime(date: dayjs.Dayjs | string | null, wit
         formatString = '[Yesterday] h:mm'
     }
     if (withSeconds) {
-        formatString += ':ss a'
+        formatString += ':ss A'
     } else {
-        formatString += ' a'
+        formatString += ' A'
     }
     return parsedDate.format(formatString)
 }

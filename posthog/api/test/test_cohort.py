@@ -1,6 +1,9 @@
+import json
+from typing import Any, Dict, List
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test.client import Client
 from rest_framework.test import APIClient
 
 from posthog.models import Person
@@ -43,6 +46,7 @@ class TestCohort(APIBaseTest):
             "/api/cohort/%s/" % response.json()["id"],
             data={
                 "name": "whatever2",
+                "description": "A great cohort!",
                 "groups": [{"properties": {"team_id": 6}}],
                 "created_by": "something something",
                 "last_calculation": "some random date",
@@ -51,7 +55,7 @@ class TestCohort(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()["name"], "whatever2")
+        self.assertDictContainsSubset({"name": "whatever2", "description": "A great cohort!"}, response.json())
         self.assertEqual(patch_calculate_cohort.call_count, 2)
 
         # Assert analytics are sent
@@ -160,3 +164,13 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort.call_count, 1)
+
+
+def create_cohort(client: Client, name: str, groups: List[Dict[str, Any]]):
+    return client.post("/api/cohort", {"name": name, "groups": json.dumps(groups)})
+
+
+def create_cohort_ok(client: Client, name: str, groups: List[Dict[str, Any]]):
+    response = create_cohort(client=client, name=name, groups=groups)
+    assert response.status_code == 201, response.content
+    return response.json()

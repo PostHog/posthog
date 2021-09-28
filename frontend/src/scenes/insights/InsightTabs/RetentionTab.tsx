@@ -42,6 +42,7 @@ export function RetentionTab(): JSX.Element {
                                 singleFilter
                                 hideMathSelector
                                 hideFilter
+                                hideRename
                                 buttonCopy="Add graph series"
                                 filters={actionFilterTargetEntity} // retention filters use target and returning entity instead of events
                                 setFilters={(newFilters: FilterType) => {
@@ -50,7 +51,7 @@ export function RetentionTab(): JSX.Element {
                                     } else if (newFilters.actions && newFilters.actions.length > 0) {
                                         setFilters({ target_entity: newFilters.actions[0] })
                                     } else {
-                                        setFilters({ target_entity: null })
+                                        setFilters({ target_entity: undefined })
                                     }
                                 }}
                                 typeKey="retention-table"
@@ -65,7 +66,7 @@ export function RetentionTab(): JSX.Element {
                             <div style={{ display: '-webkit-inline-box', flexWrap: 'wrap' }}>
                                 <Select
                                     value={retentionOptions[filters.retention_type]}
-                                    onChange={(value): void => setFilters({ retention_type: value as RetentionType })}
+                                    onChange={(value): void => setFilters({ retentionType: value as RetentionType })}
                                     dropdownMatchSelectWidth={false}
                                 >
                                     {Object.entries(retentionOptions).map(([key, value]) => (
@@ -101,6 +102,7 @@ export function RetentionTab(): JSX.Element {
                                 singleFilter
                                 hideMathSelector
                                 hideFilter
+                                hideRename
                                 buttonCopy="Add graph series"
                                 filters={actionFilterReturningEntity}
                                 setFilters={(newFilters: FilterType) => {
@@ -109,7 +111,7 @@ export function RetentionTab(): JSX.Element {
                                     } else if (newFilters.actions && newFilters.actions.length > 0) {
                                         setFilters({ returning_entity: newFilters.actions[0] })
                                     } else {
-                                        setFilters({ returning_entity: null })
+                                        setFilters({ returning_entity: undefined })
                                     }
                                 }}
                                 typeKey="retention-table-returning"
