@@ -24,13 +24,13 @@
                     "celery": true,
                     "db": true,
                     "initiated": false,
-                    "cloud": false,
-                    "realm": "hosted",
+                    "cloud": true,
+                    "realm": "cloud",
                     "available_social_auth_providers": {
-                        "github": false,
-                        "gitlab": false,
-                        "google-oauth2": false,
-                        "saml": true
+                        "github": true,
+                        "gitlab": true,
+                        "google-oauth2": true,
+                        "saml": false
                     },
                     "can_create_org": true
                 },

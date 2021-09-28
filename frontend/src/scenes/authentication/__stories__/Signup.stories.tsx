@@ -7,7 +7,7 @@ import { Signup } from '../Signup'
 
 // import the `getReduxState()` output for all the variations you wish to show
 import selfHostedState from './signup-self-hosted.json'
-//import cloudState from './login-cloud.json'
+import cloudState from './signup-cloud.json'
 
 // some metadata and optional parameters
 export default {
@@ -16,4 +16,4 @@ export default {
 
 // export more stories with different state
 export const SelfHosted = keaStory(Signup, selfHostedState)
-//export const Cloud = keaStory(Login, cloudState)
+export const Cloud = keaStory(Signup, cloudState)

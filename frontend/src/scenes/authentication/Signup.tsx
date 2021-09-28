@@ -63,7 +63,6 @@ function FormStepOne(): JSX.Element {
             </Form.Item>
             <PasswordInput
                 ref={passwordInputRef}
-                label="Create a password"
                 showStrengthIndicator
                 validateStatus={signupResponse?.errorAttribute === 'password' ? 'error' : undefined}
                 help={signupResponse?.errorAttribute === 'password' ? signupResponse.errorDetail : undefined}
@@ -206,7 +205,7 @@ export function Signup(): JSX.Element | null {
                                 <div className="text-center" style={{ marginBottom: 32 }}>
                                     Already have an account?{' '}
                                     <Link to="/login" data-attr="signup-login-link">
-                                        Sign in
+                                        Log in
                                     </Link>
                                 </div>
                             )}

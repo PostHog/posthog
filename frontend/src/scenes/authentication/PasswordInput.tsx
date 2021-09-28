@@ -19,9 +19,34 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
 ): JSX.Element {
     return (
         <div style={style}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+                <label htmlFor="password" className="ant-form-item-label">
+                    {label}
+                </label>
+                {showStrengthIndicator && (
+                    <Form.Item
+                        shouldUpdate={(prevValues, currentValues) => prevValues.password !== currentValues.password}
+                        style={{ margin: 0, flexGrow: 1, paddingBottom: 8 }}
+                    >
+                        {({ getFieldValue }) => (
+                            <Suspense fallback={<></>}>
+                                <div style={{ display: 'flex', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                    <span
+                                        className="text-muted text-extra-small"
+                                        style={{ paddingRight: 8, marginLeft: 32, fontWeight: 500 }}
+                                    >
+                                        SECURE-O-METER
+                                    </span>
+                                    <PasswordStrength password={getFieldValue('password')} />
+                                </div>
+                            </Suspense>
+                        )}
+                    </Form.Item>
+                )}
+            </div>
+
             <Form.Item
                 name="password"
-                label={label}
                 rules={[
                     {
                         required: true,
@@ -36,12 +61,13 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                         min: validateMinLength ? 8 : undefined,
                         message: (
                             <>
-                                <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Your password must be at least 8
-                                characters long
+                                <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Password must be at least 8
+                                characters
                             </>
                         ),
                     },
                 ]}
+                validateTrigger={['onSubmit']}
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
                 {...props}
             >
@@ -54,12 +80,14 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                 />
             </Form.Item>
             {showStrengthIndicator && (
-                <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.password !== currentValues.password}>
-                    {({ getFieldValue }) => (
-                        <Suspense fallback={<></>}>
-                            <PasswordStrength password={getFieldValue('password')} />
-                        </Suspense>
-                    )}
+                <Form.Item shouldUpdate style={{ margin: 0, flexGrow: 1, paddingBottom: 8 }}>
+                    {({ getFieldError }) =>
+                        !getFieldError('password')?.length && (
+                            <div className="text-muted text-small mb mt-025">
+                                Passwords must be at least 8 characters
+                            </div>
+                        )
+                    }
                 </Form.Item>
             )}
         </div>
