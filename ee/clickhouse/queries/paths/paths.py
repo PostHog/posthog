@@ -48,11 +48,8 @@ class ClickhousePaths:
                 regex_groupings.append(regex_grouping)
             self.params["regex_groupings"] = regex_groupings
 
-        # TODO: don't allow including $pageview and excluding $pageview at the same time
-
     def run(self, *args, **kwargs):
-
-        results = self._exec_query()
+        results = self.validate_results(self._exec_query())
         return self._format_results(results)
 
     def _format_results(self, results):
