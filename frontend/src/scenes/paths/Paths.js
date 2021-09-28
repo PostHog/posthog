@@ -1,15 +1,13 @@
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect } from 'react'
 import { useValues } from 'kea'
 import { stripHTTP } from 'lib/utils'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, Menu, Dropdown } from 'antd'
-import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
-import { ClockCircleOutlined } from '@ant-design/icons'
-import { humanFriendlyDuration } from 'lib/utils'
-import './Paths.scss'
+
+// TODO: Replace with PathType enums when moving to TypeScript
+const PAGEVIEW = '$pageview'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -72,6 +70,11 @@ function pageUrl(d) {
     return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
 }
 
+function pathText(d) {
+    const name = d.name.replace(/(^[0-9]+_)/, '')
+    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
+}
+
 function NoData() {
     return (
         <div style={{ padding: '1rem' }}>
@@ -86,8 +89,8 @@ const DEFAULT_PATHS_ID = 'default_paths'
 export function Paths({ dashboardItemId = null, filters = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
-    const { paths, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
-    const [pathItemCards, setPathItemCards] = useState([])
+    const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
+
     useEffect(() => {
         renderPaths()
     }, [paths, !pathsLoading, size, color])
@@ -113,7 +116,7 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
 
         let sankey = new Sankey.sankey()
             .nodeId((d) => d.name)
-            .nodeAlign(Sankey.sankeyJustify)
+            .nodeAlign(Sankey.sankeyLeft)
             .nodeSort(null)
             .nodeWidth(15)
             .size([width, height])
@@ -122,7 +125,6 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
             nodes: paths.nodes.map((d) => ({ ...d })),
             links: paths.links.map((d) => ({ ...d })),
         })
-        setPathItemCards(nodes)
 
         svg.append('g')
             .selectAll('rect')
@@ -154,10 +156,11 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                 const startNodeColor = d3.color(c)
                     ? d3.color(c)
                     : color === 'white'
-                    ? d3.color('#5375ff')
+                    ? d3.color('#dddddd')
                     : d3.color('#191919')
-                return startNodeColor
+                return startNodeColor.darker(0.5)
             })
+            .attr('opacity', 0.5)
             .append('title')
             .text((d) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
 
@@ -184,26 +187,13 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
             .data(links)
             .join('g')
             .attr('stroke', () => (color === 'white' ? 'var(--primary)' : 'var(--item-lighter'))
-            .attr('opacity', 0.2)
+            .attr('opacity', 0.4)
 
         link.append('path')
             .attr('d', Sankey.sankeyLinkHorizontal())
-            .attr('id', (d) => `path${d.index}`)
             .attr('stroke-width', (d) => {
                 return Math.max(1, d.width)
             })
-            .on('mouseover', (data) => {
-                svg.select(`#path${data.index}`).attr('stroke', 'blue')
-                if (data?.source?.targetLinks.length === 0) {
-                    return
-                }
-                let node = data.source
-                while (node.targetLinks.length > 0) {
-                    svg.select(`#path${node.targetLinks[0].index}`).attr('stroke', 'blue')
-                    node = node.targetLinks[0].source
-                }
-            })
-            .on('mouseleave', () => svg.selectAll('path').attr('stroke', 'var(--primary)'))
 
         link.append('g')
             .append('path')
@@ -228,14 +218,38 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                     ')'
                 )
             })
-    }
+            .append('tspan')
+            .text((d) => {
+                return d.value - d.source.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
+            })
 
-    const dropOffValue = (pathItemCard) => {
-        return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
-    }
+        link.append('title').text(
+            (d) => `${stripHTTP(d.source.name)} → ${stripHTTP(d.target.name)}\n${d.value.toLocaleString()}`
+        )
 
-    const completedValue = (sourceLinks) => {
-        return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
+        var textSelection = svg
+            .append('g')
+            .style('font-size', '12px')
+            .selectAll('text')
+            .data(nodes)
+            .join('text')
+            .attr('x', (d) => (d.x0 < width / 2 ? d.x1 + 6 : d.x0 - 6))
+            .attr('y', (d) => (d.y1 + d.y0) / 2)
+            .attr('dy', '0.35em')
+            .attr('text-anchor', (d) => (d.x0 < width / 2 ? 'start' : 'end'))
+            .attr('display', (d) => (d.value > 0 ? 'inherit' : 'none'))
+            .text(loadedFilter?.path_type === PAGEVIEW ? pageUrl : pathText)
+            .style('cursor', 'auto')
+            .style('fill', color === 'white' ? '#000' : '#fff')
+
+        textSelection
+            .append('tspan')
+            .attr('fill-opacity', 0.8)
+            .text((d) => ` ${d.value.toLocaleString()}`)
+
+        textSelection.append('title').text((d) => stripHTTP(d.name))
+
+        return textSelection.node()
     }
 
     return (
@@ -247,141 +261,6 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
         >
             <div ref={canvas} className="paths" data-attr="paths-viz">
                 {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
-                {!paths.error &&
-                    pathItemCards &&
-                    pathItemCards.map((pathItemCard, idx) => {
-                        return (
-                            <>
-                                <Dropdown
-                                    overlay={
-                                        <Menu
-                                            style={{
-                                                marginTop: -5,
-                                                border: '1px solid var(--border)',
-                                                borderRadius: '0px 0px 4px 4px',
-                                            }}
-                                        >
-                                            <Menu.Item
-                                                disabled
-                                                style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                    borderRadius: 0,
-                                                    padding: '3px 12px',
-                                                    color: 'black',
-                                                    cursor: 'default',
-                                                }}
-                                            >
-                                                <span>
-                                                    <span style={{ paddingRight: 8 }}>
-                                                        <PathsCompletedArrow />
-                                                    </span>{' '}
-                                                    Completed
-                                                </span>{' '}
-                                                <span style={{ color: 'var(--primary)' }}>
-                                                    {completedValue(pathItemCard.sourceLinks)}{' '}
-                                                    {pathItemCard.targetLinks.length > 0 && (
-                                                        <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {(
-                                                                (completedValue(pathItemCard.sourceLinks) /
-                                                                    pathItemCard.value) *
-                                                                100
-                                                            ).toFixed(1)}
-                                                            %
-                                                        </span>
-                                                    )}
-                                                </span>
-                                            </Menu.Item>
-                                            {dropOffValue(pathItemCard) > 0 && (
-                                                <Menu.Item
-                                                    disabled
-                                                    style={{
-                                                        borderTop: '1px solid var(--border)',
-                                                        display: 'flex',
-                                                        justifyContent: 'space-between',
-                                                        alignItems: 'center',
-                                                        padding: '3px 12px',
-                                                        color: 'black',
-                                                        cursor: 'default',
-                                                    }}
-                                                >
-                                                    <span style={{ display: 'flex' }}>
-                                                        <span style={{ paddingRight: 8 }}>
-                                                            <PathsDropoffArrow />
-                                                        </span>{' '}
-                                                        Dropped off
-                                                    </span>{' '}
-                                                    <span style={{ color: 'var(--primary)' }} />
-                                                    <span style={{ color: 'var(--primary)' }}>
-                                                        {dropOffValue(pathItemCard)}{' '}
-                                                        <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {(
-                                                                (dropOffValue(pathItemCard) / pathItemCard.value) *
-                                                                100
-                                                            ).toFixed(1)}
-                                                            %
-                                                        </span>
-                                                    </span>
-                                                </Menu.Item>
-                                            )}
-                                            {pathItemCard.targetLinks.length > 0 && (
-                                                <Menu.Item
-                                                    disabled
-                                                    style={{
-                                                        display: 'flex',
-                                                        justifyContent: 'space-between',
-                                                        borderTop: '1px solid var(--border)',
-                                                        padding: '3px 12px',
-                                                        color: 'black',
-                                                        cursor: 'default',
-                                                    }}
-                                                >
-                                                    <span>
-                                                        <ClockCircleOutlined
-                                                            style={{ color: 'var(--muted)', fontSize: 16 }}
-                                                        />{' '}
-                                                        Average time{' '}
-                                                    </span>
-                                                    {humanFriendlyDuration(
-                                                        pathItemCard.targetLinks[0].average_conversion_time
-                                                    )}
-                                                </Menu.Item>
-                                            )}
-                                        </Menu>
-                                    }
-                                    placement="bottomCenter"
-                                >
-                                    <Button
-                                        key={idx}
-                                        style={{
-                                            position: 'absolute',
-                                            left:
-                                                pathItemCard.sourceLinks.length === 0
-                                                    ? pathItemCard.x0 - (240 - 7)
-                                                    : pathItemCard.x0 + 7,
-                                            top:
-                                                pathItemCard.sourceLinks.length === 0
-                                                    ? pathItemCard.y0
-                                                    : pathItemCard.y0 + (pathItemCard.y1 - pathItemCard.y0) / 2,
-                                            background: 'white',
-                                            width: 240,
-                                            border: '1px solid var(--border)',
-                                            padding: 4,
-                                            zIndex: 100,
-                                            textAlign: 'start',
-                                        }}
-                                    >
-                                        <span
-                                            className="text-muted"
-                                            style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
-                                        >{`0${pathItemCard.name[0]}`}</span>{' '}
-                                        <span style={{ fontSize: 13, fontWeight: 600 }}>{pageUrl(pathItemCard)}</span>
-                                    </Button>
-                                </Dropdown>
-                            </>
-                        )
-                    })}
             </div>
         </div>
     )

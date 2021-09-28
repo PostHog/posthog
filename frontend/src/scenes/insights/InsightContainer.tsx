@@ -29,20 +29,11 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { NewPaths } from 'scenes/paths/NewPaths'
 
 interface Props {
     loadResults: () => void
     resultsLoading: boolean
-}
-
-const VIEW_MAP = {
-    [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
-    [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
-    [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
-    [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
-    [`${ViewType.FUNNELS}`]: <FunnelInsight />,
-    [`${ViewType.RETENTION}`]: <RetentionContainer />,
-    [`${ViewType.PATHS}`]: <Paths />,
 }
 
 export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.Element {
@@ -63,6 +54,16 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
         showErrorMessage,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
+
+    const VIEW_MAP = {
+        [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
+        [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
+        [`${ViewType.LIFECYCLE}`]: <TrendInsight view={ViewType.LIFECYCLE} />,
+        [`${ViewType.SESSIONS}`]: <TrendInsight view={ViewType.SESSIONS} />,
+        [`${ViewType.FUNNELS}`]: <FunnelInsight />,
+        [`${ViewType.RETENTION}`]: <RetentionContainer />,
+        [`${ViewType.PATHS}`]: featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] ? <NewPaths /> : <Paths />,
+    }
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
