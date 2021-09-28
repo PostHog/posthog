@@ -8,7 +8,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
-from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT
+from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 
@@ -47,6 +47,17 @@ class ClickhousePaths:
                 regex_grouping = regex_grouping.replace("\\*", ".*")
                 regex_groupings.append(regex_grouping)
             self.params["regex_groupings"] = regex_groupings
+
+        if self._filter.edge_limit is None and not (self._filter.start_point and self._filter.end_point):
+            # no edge restriction when both start and end points are defined
+            self._filter = self._filter.with_data({PATH_EDGE_LIMIT: 100})
+
+        if (
+            self._filter.max_edge_weight
+            and self._filter.min_edge_weight
+            and self._filter.max_edge_weight < self._filter.min_edge_weight
+        ):
+            raise ValidationError("Max Edge weight can't be lower than min edge weight")
 
     def run(self, *args, **kwargs):
         results = self._exec_query()
