@@ -9,6 +9,7 @@ import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 const POLL_TIMEOUT = 5000
 
 const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableRowItem[] => {
@@ -53,9 +54,6 @@ export interface ApiError {
     status?: string
     statusText?: string
 }
-
-const isPropertyFilter = (maybePropertyFilter: AnyPropertyFilter): maybePropertyFilter is PropertyFilter =>
-    !!maybePropertyFilter.key && !!maybePropertyFilter.type && !!maybePropertyFilter.value
 
 export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>({
     props: {} as EventsTableLogicProps,
@@ -109,7 +107,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         properties: [
             [] as PropertyFilter[],
             {
-                setProperties: (_, { properties }) => properties.filter(isPropertyFilter),
+                setProperties: (_, { properties }) => properties.filter(isValidPropertyFilter),
             },
         ],
         eventFilter: [
