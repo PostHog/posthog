@@ -106,7 +106,7 @@ export function Insights(): JSX.Element {
                 <>
                     <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
                         <span style={{ fontSize: 28, fontWeight: 600 }}>
-                            {insight.name || `Insight #${insight.id ?? '...'}`}
+                            {insight.name || `Insighttt #${insight.id ?? '...'}`}
                         </span>
                         <div>
                             <SaveToDashboard

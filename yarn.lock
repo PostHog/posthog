@@ -5054,11 +5054,6 @@ charenc@0.0.2:
   resolved "https://registry.yarnpkg.com/charenc/-/charenc-0.0.2.tgz#c0a1d2f3a7092e03774bfa83f14c0fc5790a8667"
   integrity sha1-wKHS86cJLgN3S/qD8UwPxXkKhmc=
 
-chartjs-adapter-dayjs@^1.0.0:
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/chartjs-adapter-dayjs/-/chartjs-adapter-dayjs-1.0.0.tgz#794cafb11d3715a565daae4ef99525f9ed2d763f"
-  integrity sha512-EnbVqTJGFKLpg1TROLdCEufrzbmIa2oeLGx8O2Wdjw2EoMudoOo9+YFu+6CM0Z0hQ/v3yq/e/Y6efQMu22n8Jg==
-
 chartjs-color-string@^0.6.0:
   version "0.6.0"
   resolved "https://registry.yarnpkg.com/chartjs-color-string/-/chartjs-color-string-0.6.0.tgz#1df096621c0e70720a64f4135ea171d051402f71"

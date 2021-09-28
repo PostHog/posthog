@@ -41,7 +41,7 @@
     .nps-header {
         display: flex;
         align-items: center;
-        margin-bottom: $default_spacing / 2;
+        margin-bottom: $default_spacing * 0.5;
     }
 
     .nps-progress {
@@ -53,7 +53,7 @@
             height: 12px;
             border-radius: 50%;
             background-color: $border;
-            margin-right: $default_spacing / 2;
+            margin-right: $default_spacing * 0.5;
             &:last-of-type {
                 margin-right: 0;
             }
@@ -65,17 +65,17 @@
 
     .question {
         text-align: left;
-        padding-bottom: $default_spacing / 2;
+        padding-bottom: $default_spacing * 0.5;
     }
 
     .action-buttons {
         .ant-btn {
-            margin-bottom: $default_spacing / 2;
+            margin-bottom: $default_spacing * 0.5;
             width: 100%;
         }
         width: 200px;
         margin: 0 auto;
-        padding-top: $default_spacing / 2;
+        padding-top: $default_spacing * 0.5;
     }
 
     .ant-btn:not(.ant-btn-link) {
