@@ -245,6 +245,7 @@ export const FEATURE_FLAGS = {
     PROJECT_BASED_PERMISSIONING: 'project-based-permissioning',
     SPLIT_PERSON: '5898-split-persons',
     TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
+    REMOVE_SESSIONS: '6050-remove-sessions',
     FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown',
     RENAME_FILTERS: '6063-rename-filters',
 }

@@ -439,6 +439,7 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     EVENTS = 'events',
     SESSIONS = 'sessions',
+    SESSION_RECORDINGS = 'sessionRecordings',
 }
 
 export enum LayoutView {
@@ -490,6 +491,8 @@ export interface SessionRecordingType {
     start_time: string
     /** When the recording ends in ISO format. */
     end_time: string
+    distinct_id?: string
+    email?: string
 }
 
 export interface BillingType {
