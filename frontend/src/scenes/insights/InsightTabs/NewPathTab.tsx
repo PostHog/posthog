@@ -61,7 +61,11 @@ export function NewPathTab(): JSX.Element {
                             <Col span={3}>
                                 <b>Events:</b>
                             </Col>
-                            <Col span={7} className="ant-btn left" onClick={() => onClickPathtype(PathType.PageView)}>
+                            <Col
+                                span={7}
+                                className="tab-btn left ant-btn"
+                                onClick={() => onClickPathtype(PathType.PageView)}
+                            >
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.PageView)}
                                     style={{
@@ -71,7 +75,11 @@ export function NewPathTab(): JSX.Element {
                                     Pageview events
                                 </Checkbox>
                             </Col>
-                            <Col span={7} className="ant-btn center" onClick={() => onClickPathtype(PathType.Screen)}>
+                            <Col
+                                span={7}
+                                className="tab-btn center ant-btn"
+                                onClick={() => onClickPathtype(PathType.Screen)}
+                            >
                                 <Checkbox
                                     checked={filter.include_event_types?.includes(PathType.Screen)}
                                     style={{
@@ -83,7 +91,7 @@ export function NewPathTab(): JSX.Element {
                             </Col>
                             <Col
                                 span={7}
-                                className="ant-btn right"
+                                className="tab-btn right ant-btn"
                                 onClick={() => onClickPathtype(PathType.CustomEvent)}
                             >
                                 <Checkbox
@@ -153,7 +161,7 @@ export function NewPathTab(): JSX.Element {
                                                 />
                                             </>
                                         ) : (
-                                            'Add start point'
+                                            <span style={{ color: 'var(--muted)' }}>Add start point</span>
                                         )}
                                     </Button>
                                 </PathItemSelector>
@@ -203,7 +211,7 @@ export function NewPathTab(): JSX.Element {
                                                 />
                                             </>
                                         ) : (
-                                            'Add end point'
+                                            <span style={{ color: 'var(--muted)' }}>Add end point</span>
                                         )}
                                     </Button>
                                 </PathItemSelector>

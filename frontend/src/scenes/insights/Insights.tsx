@@ -6,7 +6,7 @@ import { Row, Col, Card, Input, Button, Popconfirm, Tooltip } from 'antd'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
-import { FunnelTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
+import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
 import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
@@ -23,7 +23,6 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { InsightsNav } from './InsightsNav'
 import { userLogic } from 'scenes/userLogic'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
-import { NewPathTab } from './InsightTabs/NewPathTab'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 
 import './Insights.scss'
@@ -346,8 +345,7 @@ export function Insights(): JSX.Element {
                                                     [`${ViewType.SESSIONS}`]: <SessionTab />,
                                                     [`${ViewType.FUNNELS}`]: <FunnelTab />,
                                                     [`${ViewType.RETENTION}`]: <RetentionTab />,
-                                                    // [`${ViewType.PATHS}`]: <PathTab />,
-                                                    [`${ViewType.PATHS}`]: <NewPathTab />,
+                                                    [`${ViewType.PATHS}`]: <PathTab />,
                                                 }[activeView]
                                             }
                                         </div>
