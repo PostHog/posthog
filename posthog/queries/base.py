@@ -49,21 +49,20 @@ def determine_compared_filter(filter) -> Filter:
 
 
 def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
-    for entity in trend_entity:
-        labels = [
-            "{} {}".format(filter.interval if filter.interval is not None else "day", i)
-            for i in range(len(entity["labels"]))
-        ]
-        entity.update(
-            {
-                "labels": labels,
-                "days": entity["days"],
-                "label": "{} - {}".format(entity["label"], label),
-                "chartLabel": "{} - {}".format(entity["label"], label),
-                "compare": True,
-            }
+    return [
+        dict(
+            entity,
+            labels=[
+                "{} {}".format(filter.interval if filter.interval is not None else "day", i)
+                for i in range(len(entity["labels"]))
+            ],
+            days=entity["days"],
+            label="{} - {}".format(entity["label"], label),
+            chartLabel="{} - {}".format(entity["label"], label),
+            compare=True,
         )
-    return trend_entity
+        for entity in trend_entity
+    ]
 
 
 """

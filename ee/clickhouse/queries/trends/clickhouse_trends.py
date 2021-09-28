@@ -25,7 +25,7 @@ from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
-from posthog.queries.base import InsightResult, determine_compared_filter, handle_compare
+from posthog.queries.base import InsightResult, convert_to_comparison, determine_compared_filter, handle_compare
 from posthog.queries.trends import Trends
 from posthog.utils import relative_date_parse
 
@@ -51,10 +51,16 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Trends)
                 entities=filter.entities, filter=compared_filter, team_id=team.pk
             )
 
-            # HACK: We need to mark these results a compare=True so the frontend knows
-            # what to do. Possibly better to refactor this into a dedicated
-            # method for comparison results generation
-            comparison_results = [cast(InsightResult, dict(result, compare=True)) for result in comparison_results]
+            # HACK: We need to mark these results a compare=True and some other
+            # bits so the frontend knows what to do. Possibly better to refactor
+            # this into a dedicated method for comparison results generation.
+            results = convert_to_comparison(
+                trend_entity=cast(List[Dict[str, Any]], results), filter=filter, label="current"
+            )
+
+            comparison_results = convert_to_comparison(
+                trend_entity=cast(List[Dict[str, Any]], comparison_results), filter=filter, label="previous"
+            )
 
             # Interleave the results with the comparison results, this is how it
             # was done before this refactor.
