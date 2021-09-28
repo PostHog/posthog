@@ -3,7 +3,7 @@ auth: 0012_alter_user_first_name_max_length
 axes: 0006_remove_accesslog_trusted
 contenttypes: 0002_remove_content_type_name
 ee: 0005_project_based_permissioning
-posthog: 0170_project_based_permissioning
+posthog: 0171_cohort_description
 rest_hooks: 0002_swappable_hook_model
 sessions: 0001_initial
 social_django: 0010_uid_db_index

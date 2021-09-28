@@ -555,7 +555,14 @@ export function PropertyKeyDescription({ data, value }: { data: KeyMapping; valu
     )
 }
 
-export function getKeyMapping(value: string | PropertyFilterValue, type: 'event' | 'element'): KeyMapping | null {
+export function getKeyMapping(
+    value: string | PropertyFilterValue | undefined,
+    type: 'event' | 'element'
+): KeyMapping | null {
+    if (!value) {
+        return null
+    }
+
     value = `${value}` // convert to string
     let data = null
     if (value in keyMapping[type]) {

@@ -87,6 +87,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                 {
                     "action_id": "sign up",
                     "name": "sign up",
+                    "custom_name": None,
                     "order": 0,
                     "people": [],
                     "count": 1,
@@ -99,6 +100,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                 {
                     "action_id": "play movie",
                     "name": "play movie",
+                    "custom_name": None,
                     "order": 1,
                     "people": [],
                     "count": 0,
@@ -119,6 +121,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                 {
                     "action_id": "sign up",
                     "name": "sign up",
+                    "custom_name": None,
                     "order": 0,
                     "people": [],
                     "count": 1,
@@ -131,6 +134,7 @@ class TestFunnelUnorderedStepsBreakdown(ClickhouseTestMixin, funnel_breakdown_te
                 {
                     "action_id": "play movie",
                     "name": "play movie",
+                    "custom_name": None,
                     "order": 1,
                     "people": [],
                     "count": 1,

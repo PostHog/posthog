@@ -12,6 +12,7 @@ import {
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
     FunnelsTimeConversionBins,
+    FunnelAPIResponse,
 } from '~/types'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
@@ -191,9 +192,7 @@ export function aggregateBreakdownResult(
     return []
 }
 
-export function isBreakdownFunnelResults(
-    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
-): results is FunnelStep[][] {
+export function isBreakdownFunnelResults(results: FunnelAPIResponse): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 

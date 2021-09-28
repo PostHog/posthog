@@ -1,13 +1,14 @@
 @import '~/vars';
 
-$google: #4285f4;
-$github: #171516;
-$gitlab: #e65328;
-
 .social-logins {
     margin-bottom: $default_spacing;
-    margin-top: $default_spacing;
+    margin-top: $default_spacing * 2;
     text-align: center;
+
+    &:not(.empty) {
+        border-top: 1px dashed $border;
+        padding-top: $default_spacing;
+    }
 
     button,
     a {
@@ -18,84 +19,23 @@ $gitlab: #e65328;
         margin-bottom: $default_spacing / 2;
         color: $text_muted;
     }
-}
 
-.btn-social-login {
-    color: white;
-    border: 0;
-    font-weight: bold;
-    position: relative;
-    padding-left: 60px;
-    padding-right: 32px; // 60px - 28px (icon width)
+    @media screen and (max-width: $sm) {
+        margin-top: 0;
 
-    &:hover {
-        color: white;
-    }
-
-    &.google-oauth2 {
-        background-color: $google;
-
-        &:hover {
-            background-color: lighten($google, 12%);
-        }
-
-        .btn-social-icon .img {
-            background-image: url('./google.svg');
-        }
-    }
-
-    &.github {
-        background-color: $github;
-        &:hover {
-            background-color: lighten($github, 12%);
-        }
-
-        .btn-social-icon .img {
-            background-image: url('./github.svg');
-        }
-    }
-
-    &.gitlab {
-        background-color: $gitlab;
-        &:hover {
-            background-color: lighten($gitlab, 12%);
-        }
-
-        .btn-social-icon .img {
-            background-image: url('./gitlab.svg');
-        }
-    }
-
-    &.saml {
-        background-color: $bg_depth;
-        &:hover {
-            background-color: lighten($bg_depth, 12%);
-        }
-
-        .btn-social-icon .img {
-            background-image: url('./saml.svg');
-        }
-    }
-
-    .btn-social-icon {
-        background-color: white;
-        border-radius: $radius;
-        height: 28px;
-        width: 28px;
-        position: absolute;
-        left: 2px;
-        top: 2px;
-        .img {
-            background-position: center center;
-            background-repeat: no-repeat;
-            height: 100%;
-            width: 100%;
+        .link-social-login {
+            padding: 0 $default_spacing / 2;
         }
     }
 }
 
 .link-social-login {
-    color: rgba($text_default, 0.8);
     display: inline-flex;
     align-items: center;
+    color: $primary;
+
+    .anticon {
+        color: $primary_alt;
+        transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+    }
 }

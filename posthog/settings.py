@@ -276,6 +276,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "posthog.middleware.CSVNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
 ]

@@ -50,7 +50,7 @@ if is_clickhouse_enabled():
             "now": now.isoformat(),
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
-        KafkaProducer().produce(topic=topic, data=data)
+        KafkaProducer().produce(topic=topic, key=ip, data=data)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:

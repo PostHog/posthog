@@ -193,6 +193,29 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(insight.name, "insight new name")
             self.assertEqual(insight.tags, ["official", "engineering"])
 
+        def test_update_insight_filters(self):
+            insight = DashboardItem.objects.create(
+                team=self.team,
+                name="insight with custom filters",
+                created_by=self.user,
+                filters={"events": [{"id": "$pageview"}]},
+            )
+
+            for custom_name, expected_name in zip(
+                ["Custom filter", 100, "", "  ", None], ["Custom filter", "100", None, None, None]
+            ):
+                response = self.client.patch(
+                    f"/api/insight/{insight.id}",
+                    {"filters": {"events": [{"id": "$pageview", "custom_name": custom_name}]}},
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                response_data = response.json()
+                self.assertEqual(response_data["filters"]["events"][0]["custom_name"], expected_name)
+                insight.refresh_from_db()
+                self.assertEqual(insight.filters["events"][0]["custom_name"], expected_name)
+
         def test_save_new_funnel(self):
 
             dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team)

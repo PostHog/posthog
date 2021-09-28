@@ -4,7 +4,8 @@ PATH_ARRAY_QUERY = """
             conversion_time,
             event_in_session_index,
             concat(toString(event_in_session_index), '_', path) as path_key,
-            if(event_in_session_index > 1, neighbor(path_key, -1), null) AS last_path_key
+            if(event_in_session_index > 1, neighbor(path_key, -1), null) AS last_path_key,
+            path_dropoff_key
         FROM (
         
             SELECT person_id
@@ -19,13 +20,14 @@ PATH_ARRAY_QUERY = """
                 {target_clause}
                 , arrayDifference(limited_timings) as timings_diff
                 , arrayZip(limited_path, timings_diff) as limited_path_timings
+                , concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key /* last path item */
             FROM (
                 SELECT person_id
                     , path_time_tuple.1 as path_basic
                     , path_time_tuple.2 as time
                     , session_index
                     , arrayZip(paths, timing, arrayDifference(timing)) as paths_tuple
-                    , arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple) as session_paths
+                    , {session_threshold_clause} as session_paths
                 FROM (
                         SELECT person_id,
                                 groupArray(toUnixTimestamp64Milli(timestamp)) as timing,

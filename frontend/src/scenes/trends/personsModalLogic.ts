@@ -6,10 +6,11 @@ import { errorToast, toParams } from 'lib/utils'
 import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
 import { ActionFilter, FilterType, ViewType, FunnelVizType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
-import { parsePeopleParams, TrendPeople } from './trendsLogic'
+import { parsePeopleParams } from './trendsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cohortLogic } from 'scenes/cohorts/cohortLogic'
+import { TrendPeople } from 'scenes/trends/types'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out

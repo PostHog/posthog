@@ -39,7 +39,7 @@ export function ActionsLineGraph({
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId || fromItem}
+            dashboardItemId={dashboardItemId || fromItem /* used only for annotations, not to init any other logic */}
             inSharedMode={inSharedMode}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}

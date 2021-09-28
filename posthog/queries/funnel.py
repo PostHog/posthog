@@ -100,6 +100,7 @@ class Funnel(BaseQuery):
         return {
             "action_id": step.id,
             "name": name,
+            "custom_name": step.custom_name,
             "order": step.order,
             "people": people if people else [],
             "count": count,

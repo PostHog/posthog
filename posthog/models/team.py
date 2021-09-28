@@ -166,11 +166,3 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
-
-
-@receiver(models.signals.pre_delete, sender=Team)
-def team_deleted(sender: Type[Team], instance: Team, **kwargs):
-    instance.event_set.all().delete()
-    instance.elementgroup_set.all().delete()
-    instance.person_set.all().delete()
-    instance.persondistinctid_set.all().delete()

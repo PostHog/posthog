@@ -350,6 +350,7 @@ export type EntityType = 'actions' | 'events' | 'new_entity'
 export interface Entity {
     id: string | number
     name: string
+    custom_name?: string
     order: number
     type: EntityType
 }
@@ -364,6 +365,7 @@ export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
     name: string | null
+    custom_name?: string
     index?: number
     order?: number
 }
@@ -371,10 +373,6 @@ export type EntityFilter = {
 export interface FunnelStepRangeEntityFilter extends EntityFilter {
     funnel_from_step: number
     funnel_to_step: number
-}
-
-export interface EntityWithProperties extends Entity {
-    properties: Record<string, any>
 }
 
 export interface PersonType {
@@ -839,6 +837,7 @@ export interface FunnelStep {
     average_conversion_time: number | null
     count: number
     name: string
+    custom_name?: string
     order: number
     people?: string[]
     type: EntityType
@@ -889,8 +888,10 @@ export interface FunnelRequestParams extends FilterType {
     funnel_window_days?: number
 }
 
+export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+
 export interface LoadedRawFunnelResults {
-    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+    results: FunnelAPIResponse
     filters: Partial<FilterType>
 }
 
@@ -934,8 +935,12 @@ export interface ChartParams {
     view: ViewType
 }
 
-export interface DashboardItemLogicProps {
+// Shared between dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
+export interface SharedInsightLogicProps {
+    // the chart is displayed on a dashboard right now, used in the key if present
     dashboardItemId?: number | null
+    // the insight is connected to a dashboard item, yet viewed on the insights scene
+    fromDashboardItemId?: number | null
     cachedResults?: any
     filters?: Partial<FilterType> | null
     preventLoading?: boolean

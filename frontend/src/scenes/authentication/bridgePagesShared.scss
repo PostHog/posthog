@@ -1,0 +1,60 @@
+@import '~/vars';
+
+.bridge-page {
+    background-color: $bg_bridge;
+
+    // General styles; overrides
+    a {
+        font-weight: $medium;
+    }
+
+    .ant-form-item-has-error {
+        input[type='password'],
+        input[type='text'] {
+            border-color: $danger_bridge !important;
+        }
+    }
+
+    .ant-form-item-explain-error {
+        color: $danger_bridge;
+        padding-top: $default_spacing / 2;
+        padding-bottom: $default_spacing / 2;
+    }
+
+    .btn-bridge {
+        background-color: #000;
+        color: white;
+        font-weight: $medium;
+        padding-top: $default_spacing * 0.75;
+        padding-bottom: $default_spacing * 0.75;
+        font-size: 1.1em;
+        height: unset;
+        border: 0;
+    }
+
+    // Local styles
+
+    .auth-main-content {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding-top: $default_spacing * 2;
+
+        .inner {
+            @extend %mixin-elevated;
+            width: 100%;
+            max-width: 400px; // 320px + 80px padding
+            padding: $default_spacing $default_spacing * 2.5;
+            background-color: white;
+            border-radius: $radius;
+        }
+    }
+
+    .header-logo {
+        padding-bottom: $default_spacing * 2;
+        img {
+            height: 24px;
+        }
+    }
+}
