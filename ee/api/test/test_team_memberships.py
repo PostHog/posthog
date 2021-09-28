@@ -6,6 +6,8 @@ from posthog.models import OrganizationMembership, Team, User
 
 
 class TestTeamMembershipsAPI(APILicensedTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self):
         super().setUp()
         self.team.access_control = True
@@ -456,3 +458,13 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         response = self.client.delete(f"/api/projects/@current/explicit_members/{self.user.uuid}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_leave_project_as_project_outsider(self):
+        response = self.client.delete(f"/api/projects/@current/explicit_members/{self.user.uuid}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_leave_project_as_organization_outsider(self):
+        self.organization_membership.delete()
+
+        response = self.client.delete(f"/api/projects/@current/explicit_members/{self.user.uuid}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

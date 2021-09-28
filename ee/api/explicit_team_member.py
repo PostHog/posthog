@@ -11,7 +11,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import TeamMemberStrictManagementPermission, get_effective_level
+from posthog.permissions import TeamMemberStrictManagementPermission
 
 
 class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
@@ -60,7 +60,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
         requesting_user: User = self.context["request"].user
         membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
         try:
-            requesting_level = get_effective_level(self.context["team"], requesting_user)
+            requesting_level = self.context["team"].get_effective_membership_level(requesting_user)
         except OrganizationMembership.DoesNotExist:
             # Requesting user does not belong to the project's organization, so we spoof a 404 for enhanced security
             raise exceptions.NotFound("Project not found.")
@@ -81,8 +81,6 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
             # Update-only checks
             if membership_being_accessed.parent_membership.user_id != requesting_user.id:
                 # Requesting user updating someone else
-                # if membership_being_accessed.team.organization_id != requesting_membership.team.organization_id:
-                #    raise exceptions.PermissionDenied("You both need to belong to the same organization.")
                 if membership_being_accessed.level > requesting_level:
                     raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
             else:
