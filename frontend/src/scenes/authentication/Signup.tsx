@@ -1,19 +1,16 @@
-import { Col, Row, Form, Input, Button, Alert, Grid } from 'antd'
+import { Col, Row, Form, Input, Button, Alert } from 'antd'
 import React, { useEffect, useRef } from 'react'
-import logo from 'public/posthog-logo-white.svg'
 import './Signup.scss'
 import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
-import { IconRocket } from 'lib/components/icons'
-import { Breakpoint } from 'antd/lib/_util/responsiveObserve'
-import { SignupSideContentCloud, SignupSideContentHosted } from './SignupSideContent'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { signupLogic } from './signupLogic'
 import { Rule } from 'rc-field-form/lib/interface'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { userLogic } from '../userLogic'
+import { WelcomeLogo } from './WelcomeLogo'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
@@ -64,10 +61,7 @@ function FormStepOne(): JSX.Element {
                 validateMinLength
             />
             <Form.Item>
-                <Button className="rocket-button" htmlType="submit" data-attr="signup-continue" block>
-                    <span className="icon">
-                        <IconRocket />
-                    </span>
+                <Button className="btn-bridge" htmlType="submit" data-attr="signup-continue" block>
                     Continue
                 </Button>
             </Form.Item>
@@ -151,15 +145,12 @@ function FormStepTwo(): JSX.Element {
             </Form.Item>
             <Form.Item>
                 <Button
-                    className="rocket-button"
+                    className="btn-bridge"
                     htmlType="submit"
                     data-attr="signup-submit"
                     block
                     loading={signupResponseLoading}
                 >
-                    <span className="icon">
-                        <IconRocket />
-                    </span>
                     Create account
                 </Button>
             </Form.Item>
@@ -169,13 +160,10 @@ function FormStepTwo(): JSX.Element {
 
 export function Signup(): JSX.Element | null {
     const [form] = Form.useForm()
-    const { useBreakpoint } = Grid
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { formStep, signupResponse, signupResponseLoading, initialEmail } = useValues(signupLogic)
     const { setFormStep, signup } = useActions(signupLogic)
-    const screens = useBreakpoint()
-    const isSmallScreen = (Object.keys(screens) as Breakpoint[]).filter((key) => screens[key]).length <= 2 // xs; sm
 
     const handleFormSubmit = (values: Record<string, string>): void => {
         if (formStep === 1) {
@@ -186,34 +174,10 @@ export function Signup(): JSX.Element | null {
     }
 
     return !user ? (
-        <div className="signup">
+        <div className="bridge-page signup">
             <Row>
-                <Col span={24} lg={14} className="image-showcase-container" order={isSmallScreen ? 2 : undefined}>
-                    <div className="image-showcase ant-col-24 ant-col-lg-14">
-                        <div className="planet" />
-                    </div>
-
-                    <div className="showcase-content">
-                        <div className="main-logo">
-                            <a href={`https://posthog.com?${UTM_TAGS}`}>
-                                <img src={logo} alt="" />
-                            </a>
-                        </div>
-                        <div className="inner">
-                            {preflight?.cloud ? (
-                                <SignupSideContentCloud utm_tags={UTM_TAGS} />
-                            ) : (
-                                <SignupSideContentHosted utm_tags={UTM_TAGS} />
-                            )}
-                        </div>
-                    </div>
-                </Col>
-                <Col span={24} lg={10} className="auth-main-content" order={isSmallScreen ? 1 : undefined}>
-                    <div className="main-logo mobile-logo">
-                        <a href={`https://posthog.com?${UTM_TAGS}`}>
-                            <img src={logo} alt="" />
-                        </a>
-                    </div>
+                <Col span={24} className="auth-main-content">
+                    <WelcomeLogo view="signup" />
                     <div className="inner">
                         <h2 className="subtitle" style={{ justifyContent: 'center' }}>
                             Get started
@@ -244,6 +208,7 @@ export function Signup(): JSX.Element | null {
                             onFinish={handleFormSubmit}
                             requiredMark={false}
                             initialValues={{ email: initialEmail }}
+                            noValidate
                         >
                             <FormStepOne />
                             <FormStepTwo />

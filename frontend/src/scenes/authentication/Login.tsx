@@ -1,7 +1,5 @@
 import { Col, Row, Form, Input, Button } from 'antd'
 import React from 'react'
-import cloudLogo from 'public/posthog-logo-cloud.svg'
-import selfHostedLogo from 'public/posthog-logo-selfhosted.svg'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
@@ -13,8 +11,7 @@ import { ERROR_MESSAGES } from 'lib/constants'
 import { ExclamationCircleFilled } from '@ant-design/icons'
 import clsx from 'clsx'
 import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
-
-const UTM_TAGS = 'utm_campaign=in-product&utm_tag=login-header'
+import { WelcomeLogo } from './WelcomeLogo'
 
 export function Login(): JSX.Element {
     const [form] = Form.useForm()
@@ -26,11 +23,7 @@ export function Login(): JSX.Element {
         <div className="bridge-page login">
             <Row>
                 <Col span={24} className="auth-main-content">
-                    <a href={`https://posthog.com?${UTM_TAGS}`}>
-                        <div className="header-logo">
-                            <img src={preflight?.cloud ? cloudLogo : selfHostedLogo} alt="PostHog Cloud" />
-                        </div>
-                    </a>
+                    <WelcomeLogo view="login" />
                     <div className="inner">
                         <h2 className="subtitle" style={{ justifyContent: 'center' }}>
                             Get started

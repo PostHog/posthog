@@ -40,6 +40,8 @@
         justify-content: center;
         align-items: center;
         padding-top: $default_spacing * 2;
+        min-height: 100vh;
+        padding-bottom: 64px;
 
         .inner {
             @extend %mixin-elevated;

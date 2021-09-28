@@ -1,3 +1,4 @@
+// DEPRECATED
 import { Meta } from '@storybook/react'
 import { keaStory } from 'lib/storybook/kea-story'
 
