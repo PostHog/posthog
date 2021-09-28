@@ -65,7 +65,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             props.apiUrl || 'events',
             props.live ? 'live' : '',
             props.key,
-        ].join('-'),
+        ]
+            .filter((keyPart) => !!keyPart)
+            .join('-'),
 
     actions: {
         setProperties: (properties: AnyPropertyFilter[] | AnyPropertyFilter): { properties: AnyPropertyFilter[] } => {
