@@ -1,3 +1,4 @@
+from collections import defaultdict
 from re import escape
 from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
@@ -217,3 +218,33 @@ class ClickhousePaths:
                 "arraySlice(filtered_path, 1, %(event_in_session_limit)s)",
                 "arraySlice(filtered_timings, 1, %(event_in_session_limit)s)",
             )
+
+    def validate_results(self, results):
+        # Query guarantees results list to be:
+        # 1. Directed, Acyclic Tree where each node has only 1 child
+        # 2. All start nodes beginning with 1_
+
+        seen = set()  # source nodes that've been traversed
+        edges = defaultdict(list)
+        validated_results = []
+        starting_nodes_stack = []
+
+        for result in results:
+            edges[result[0]].append(result[1])
+            if result[0].startswith("1_"):
+                # All nodes with 1_ are valid starting nodes
+                starting_nodes_stack.append(result[0])
+
+        while starting_nodes_stack:
+            current_node = starting_nodes_stack.pop()
+            seen.add(current_node)
+
+            for node in edges[current_node]:
+                if node not in seen:
+                    starting_nodes_stack.append(node)
+
+        for result in results:
+            if result[0] in seen:
+                validated_results.append(result)
+
+        return validated_results
