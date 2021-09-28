@@ -133,11 +133,11 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        response = self.client.patch(f"/api/projects/@current/", {"name": "Acherontia atropos"})
+        response = self.client.patch(f"/api/projects/@current/", {"name": "Erinaceus europaeus"})
         self.team.refresh_from_db()
 
         self.assertEqual(response.status_code, HTTP_200_OK)
-        self.assertEqual(self.team.name, "Acherontia atropos")
+        self.assertEqual(self.team.name, "Erinaceus europaeus")
 
     def test_rename_private_project_as_org_member_forbidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
