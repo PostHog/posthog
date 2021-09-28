@@ -49,7 +49,11 @@ class ClickhousePaths:
             self.params["regex_groupings"] = regex_groupings
 
     def run(self, *args, **kwargs):
-        results = self.validate_results(self._exec_query())
+        results = self._exec_query()
+
+        if not self._filter.min_edge_weight and not self._filter.max_edge_weight:
+            results = self.validate_results(results)
+
         return self._format_results(results)
 
     def _format_results(self, results):
@@ -103,6 +107,11 @@ class ClickhousePaths:
 
         paths_per_person_query = self.get_paths_per_person_query()
 
+        self.params["edge_limit"] = self._filter.edge_limit
+
+        edge_weight_filter, edge_weight_params = self.get_edge_weight_clause()
+        self.params.update(edge_weight_params)
+
         return f"""
             SELECT last_path_key as source_event,
                 path_key as target_event,
@@ -112,10 +121,11 @@ class ClickhousePaths:
             WHERE source_event IS NOT NULL
             GROUP BY source_event,
                     target_event
+            {edge_weight_filter}
             ORDER BY event_count DESC,
                     source_event,
                     target_event
-            LIMIT 30
+            {'LIMIT %(edge_limit)s' if self._filter.edge_limit else ''}
         """
 
     def get_path_query_funnel_cte(self, funnel_filter: Filter):
@@ -135,6 +145,24 @@ class ClickhousePaths:
             {funnel_persons_query_new_params}
         )
         """
+
+    def get_edge_weight_clause(self) -> Tuple[str, Dict]:
+        params: Dict[str, int] = {}
+
+        conditions = []
+
+        if self._filter.min_edge_weight:
+            params["min_edge_weight"] = self._filter.min_edge_weight
+            conditions.append("event_count >= %(min_edge_weight)s")
+
+        if self._filter.max_edge_weight:
+            params["max_edge_weight"] = self._filter.max_edge_weight
+            conditions.append("event_count <= %(max_edge_weight)s")
+
+        if conditions:
+            return f"HAVING {' AND '.join(conditions)}", params
+
+        return "", params
 
     def get_target_point_filter(self) -> str:
         if self._filter.end_point and self._filter.start_point:
