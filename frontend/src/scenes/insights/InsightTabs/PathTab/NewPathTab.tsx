@@ -116,7 +116,7 @@ export function NewPathTab(): JSX.Element {
                                             Use wildcard matching to group events by unique values in path item names.
                                             Use an asterisk (*) in place of unique values. For example, instead of
                                             /merchant/1234/payment, replace the unique value with an asterisk
-                                            /merchant/*/payment.
+                                            /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
                                         </>
                                     }
                                 >
@@ -127,7 +127,7 @@ export function NewPathTab(): JSX.Element {
                                 mode="tags"
                                 style={{ width: '100%', marginTop: 5 }}
                                 onChange={(path_groupings) => setFilter({ path_groupings })}
-                                tokenSeparators={[',', ' ']}
+                                tokenSeparators={[',']}
                                 value={filter.path_groupings || []}
                             />
                         </Row>
@@ -238,7 +238,19 @@ export function NewPathTab(): JSX.Element {
                     <PropertyFilters pageKey="insight-path" />
                     <TestAccountFilter filters={filter} onChange={setFilter} />
                     <hr />
-                    <GlobalFiltersTitle title={'Exclusion'} unit="actions/events" />
+                    <h4 className="secondary">
+                        Exclusions
+                        <Tooltip
+                            title={
+                                <>
+                                    Exclude events from Paths visualisation. You can use wildcard groups in exclusions
+                                    as well.
+                                </>
+                            }
+                        >
+                            <InfoCircleOutlined className="info-indicator" />
+                        </Tooltip>
+                    </h4>
                     <PathItemFilters
                         groupTypes={groupTypes}
                         pageKey={'exclusion'}
