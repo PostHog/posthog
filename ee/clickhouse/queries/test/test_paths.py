@@ -1004,6 +1004,11 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             response, [{"source": "1_/1", "target": "2_/3", "value": 3, "average_conversion_time": 3 * ONE_MINUTE},],
         )
 
+        filter = filter.with_data({"path_groupings": ["/xxx/invalid/*"]})
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(len(response), 6)
+
     def test_event_inclusion_exclusion_filters_across_single_person(self):
 
         # P1 for pageview event, screen event, and custom event all together
