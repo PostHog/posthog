@@ -27,6 +27,8 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure custom name isn't a blank string
     const customName = (filter?.custom_name ?? '').trim() === '' ? null : filter?.custom_name
 
+    const name = (filter?.name ?? '').trim() === '' ? null : filter?.name
+
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
-    return (isCustom ? customName : null) ?? filter?.name ?? (filter?.id ? `${filter?.id}` : null)
+    return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
 }

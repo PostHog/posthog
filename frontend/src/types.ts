@@ -374,6 +374,8 @@ export interface FunnelStepRangeEntityFilter extends EntityFilter {
     funnel_to_step: number
 }
 
+export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
+
 export interface PersonType {
     id?: number
     uuid?: string

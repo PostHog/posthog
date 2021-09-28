@@ -1,42 +1,30 @@
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { EntityFilter, InsightType, ViewType } from '~/types'
 import { Button, Input, Modal } from 'antd'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { renameModalLogic } from 'scenes/insights/ActionFilter/renameModalLogic'
+import { InputFocusOptions } from 'antd/es/input/Input'
 
 interface Props {
-    visible: boolean
-    setModalOpen: (state: boolean) => void
+    typeKey: string
     view?: InsightType
 }
 
-export function FilterRenameModal({ visible, setModalOpen, view }: Props): JSX.Element {
+export function RenameModal({ typeKey, view }: Props): JSX.Element {
+    const { selectedFilter, modalVisible } = useValues(entityFilterLogic)
+    const { renameFilter, setModalVisible } = useActions(entityFilterLogic)
+
+    const logic = renameModalLogic({ typeKey, filter: selectedFilter })
+    const { name } = useValues(logic)
+    const { setName } = useActions(logic)
+
     const ref = useRef<Input | null>(null)
-    const { selectedFilter } = useValues(entityFilterLogic)
-    const { renameFilter, selectFilter } = useActions(entityFilterLogic)
-
-    const [name, setName] = useState(getDisplayNameFromEntityFilter(selectedFilter) ?? '')
-
-    useEffect(() => {
-        setName(getDisplayNameFromEntityFilter(selectedFilter) ?? '')
-    }, [selectedFilter])
-
-    // Hacky setTimeout is needed - https://github.com/ant-design/ant-design/issues/8668#issuecomment-352955313
-    useEffect(() => {
-        const autoFocusTimeout = setTimeout(() => {
-            if (visible && ref.current) {
-                ref.current?.focus({
-                    cursor: 'all',
-                })
-            }
-        }, 0)
-        return () => clearTimeout(autoFocusTimeout)
-    }, [visible])
+    useSelectAllText(ref, { cursor: 'all' }, [modalVisible])
 
     const onRename = (): void => {
         renameFilter({ ...selectedFilter, custom_name: name } as EntityFilter)
-        setModalOpen(false)
     }
 
     const title = `Rename ${view === ViewType.FUNNELS ? 'funnel step' : 'graph series'}`
@@ -44,11 +32,11 @@ export function FilterRenameModal({ visible, setModalOpen, view }: Props): JSX.E
     return (
         <Modal
             data-attr="filter-rename-modal"
-            visible={visible}
+            visible={modalVisible}
             title={title}
             footer={
                 <>
-                    <Button type="link" onClick={() => setModalOpen(false)}>
+                    <Button type="link" onClick={() => setModalVisible(false)}>
                         Cancel
                     </Button>
                     <Button type="primary" onClick={onRename}>
@@ -56,10 +44,7 @@ export function FilterRenameModal({ visible, setModalOpen, view }: Props): JSX.E
                     </Button>
                 </>
             }
-            onCancel={() => {
-                setModalOpen(false)
-                selectFilter(null)
-            }}
+            onCancel={() => setModalVisible(false)}
         >
             Query steps can be renamed to provide a more meaningful label for your insight. Renamed steps are also shown
             on dashboards.
@@ -78,4 +63,21 @@ export function FilterRenameModal({ visible, setModalOpen, view }: Props): JSX.E
             />
         </Modal>
     )
+}
+
+function useSelectAllText(
+    ref: React.MutableRefObject<Input | null>,
+    options: InputFocusOptions,
+    dependencies: any[] = []
+): void {
+    // Hacky setTimeout is needed to select all text on modal open
+    // https://github.com/ant-design/ant-design/issues/8668#issuecomment-352955313
+    useEffect(() => {
+        const autoFocusTimeout = setTimeout(() => {
+            if (ref.current) {
+                ref.current?.focus(options)
+            }
+        }, 0)
+        return () => clearTimeout(autoFocusTimeout)
+    }, dependencies)
 }

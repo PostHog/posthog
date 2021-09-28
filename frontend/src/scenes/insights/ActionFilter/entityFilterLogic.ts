@@ -98,17 +98,18 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
         setLocalFilters: (filters: FilterType) => ({ filters }),
         setEntityFilterVisibility: (index: number, value: boolean) => ({ index, value }),
         renameLocalFilter: (index: number, custom_name: string) => ({ index, custom_name }),
+        setModalVisible: (modalVisible: boolean) => ({ modalVisible }),
     }),
 
     reducers: ({ props }) => ({
         selectedFilter: [
             null as EntityFilter | ActionFilter | null,
             {
-                selectFilter: (_state, { filter }) => filter,
+                selectFilter: (_, { filter }) => filter,
             },
         ],
         localFilters: [
-            toLocalFilters(props.filters) as LocalFilter[],
+            toLocalFilters(props.filters ?? {}) as LocalFilter[],
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
@@ -120,6 +121,12 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                     ...state,
                     [index]: value,
                 }),
+            },
+        ],
+        modalVisible: [
+            false,
+            {
+                setModalVisible: (_, { modalVisible }) => modalVisible,
             },
         ],
     }),
@@ -146,6 +153,12 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                 ...filter,
                 index: filter.order as number,
             })
+            actions.setModalVisible(false)
+        },
+        setModalVisible: ({ modalVisible }) => {
+            if (!modalVisible) {
+                actions.selectFilter(null)
+            }
         },
         updateFilter: async ({ type, index, name, id, custom_name }) => {
             actions.setFilters(

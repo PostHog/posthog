@@ -44,7 +44,7 @@ describe('entityFilterLogic', () => {
     })
 
     describe('core assumptions', () => {
-        it('mounts all sorts of logics', async () => {
+        it('mounts other logics', async () => {
             await expectLogic(logic).toMount([actionsModel])
         })
 
@@ -55,7 +55,7 @@ describe('entityFilterLogic', () => {
         })
     })
 
-    it('renames an entity with a custom name', async () => {
+    describe('renaming filters', () => {
         const filterWithCustomName = {
             id: '$pageview',
             name: '$pageview',
@@ -63,18 +63,28 @@ describe('entityFilterLogic', () => {
             order: 0,
         }
 
-        await expectLogic(logic, () => {
-            logic.actions.renameFilter(filterWithCustomName)
-        }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
+        it('renames successfully', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.renameFilter(filterWithCustomName)
+            }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
 
-        expect(logic.props.setFilters).toBeCalledWith(
-            expect.objectContaining({
-                events: expect.arrayContaining([
-                    expect.objectContaining({
-                        custom_name: filterWithCustomName.custom_name,
-                    }),
-                ]),
+            expect(logic.props.setFilters).toBeCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([
+                        expect.objectContaining({
+                            custom_name: filterWithCustomName.custom_name,
+                        }),
+                    ]),
+                })
+            )
+        })
+
+        it('close modal after renaming', () => {
+            expectLogic(logic, () => {
+                logic.actions.renameFilter(filterWithCustomName)
             })
-        )
+                .toDispatchActions(['renameFilter', 'setModalVisible'])
+                .toMatchValues({ modalVisible: false })
+        })
     })
 })
