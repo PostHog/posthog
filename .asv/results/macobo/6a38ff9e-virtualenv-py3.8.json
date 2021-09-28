@@ -1,0 +1,88 @@
+{
+    "commit_hash": "6a38ff9e7b52c17f8dc34b9212e381fe534b4e9a",
+    "env_name": "virtualenv-py3.8",
+    "date": 1632823620000,
+    "params": {
+        "arch": "x86_64",
+        "cpu": "Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz",
+        "machine": "macobo",
+        "num_cpu": "8",
+        "os": "Linux 5.4.0-81-generic",
+        "ram": "32530264",
+        "python": "3.8"
+    },
+    "python": "3.8",
+    "requirements": {},
+    "env_vars": {},
+    "result_columns": [
+        "result",
+        "params",
+        "version",
+        "started_at",
+        "duration",
+        "stats_ci_99_a",
+        "stats_ci_99_b",
+        "stats_q_25",
+        "stats_q_75",
+        "stats_number",
+        "stats_repeat",
+        "samples",
+        "profile"
+    ],
+    "results": {
+        "benchmarks.TimeSuite.time_foo": [
+            [2.694558610994136],
+            [],
+            "6170a82e6073b6bd82f5d05bc2212462d22fde2eb171e5dc81a795952489ddb5",
+            1632824508765,
+            22.4,
+            [2.5313],
+            [2.9232],
+            [2.6283],
+            [2.7875],
+            [1],
+            [6]
+        ],
+        "benchmarks.TimeSuite.time_keys": [
+            [5.596827221502874e-6],
+            [],
+            "86e015a3c40c52da31e4185fff7c7176c38c5e1e1e4aba71912db0b388225191",
+            1632824520339,
+            0.40755,
+            [4.9855e-6],
+            [6.4083e-6],
+            [4.9909e-6],
+            [6.1988e-6],
+            [2208],
+            [10]
+        ],
+        "benchmarks.TimeSuite.time_range": [
+            [2.309689204264185e-5],
+            [],
+            "cc3e85248a6284df968bcf8afe866da285261eb2487c10e9dd9e2d17a05deb47",
+            1632824520542,
+            0.40754,
+            [2.2167e-5],
+            [2.5904e-5],
+            [2.2249e-5],
+            [2.3779e-5],
+            [565],
+            [10]
+        ],
+        "benchmarks.TimeSuite.time_values": [
+            [5.239397303694686e-6],
+            [],
+            "cace9f2d006aa364dcf5762823afba3680c2fb50179ee30beaf880c0697256e2",
+            1632824520748,
+            0.40634,
+            [5.0761e-6],
+            [9.5457e-6],
+            [5.1169e-6],
+            [5.6819e-6],
+            [2264],
+            [10]
+        ]
+    },
+    "durations": {},
+    "version": 2
+}

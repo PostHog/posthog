@@ -23,12 +23,11 @@
     //
     // "install_command": ["in-dir={env_dir} python -mpip install {wheel_file}"],
     // "uninstall_command": ["return-code=any python -mpip uninstall -y {project}"],
-    // "build_command": [
-    //     "python -m pip install -r requirements-dev.txt",
-    //     "python -m pip install -r requirements.txt"
-    //     // "python setup.py build",
-    //     // "PIP_NO_BUILD_ISOLATION=false python -mpip wheel --no-deps --no-index -w {build_cache_dir} {build_dir}"
-    // ],
+    "build_command": [
+        "in-dir={build_dir} python -m pip install -r requirements-dev.txt",
+        "in-dir={build_dir} python -m pip install -r requirements.txt",
+        "PIP_NO_BUILD_ISOLATION=false python -mpip wheel --no-deps --no-index -w {build_cache_dir} {build_dir}"
+    ],
 
     // List of branches to benchmark. If not provided, defaults to "master"
     // (for git) or "default" (for mercurial).
@@ -46,7 +45,7 @@
     // If missing or the empty string, the tool will be automatically
     // determined by looking for tools on the PATH environment
     // variable.
-    "environment_type": "existing",
+    "environment_type": "virtualenv",
 
     // timeout in seconds for installing any dependencies in environment
     // defaults to 10 min
