@@ -1,0 +1,30 @@
+@import '~/vars';
+
+.insight-metadata {
+    .insight-metadata-input {
+        max-width: 400px;
+        width: 100%;
+        height: 40px;
+    }
+
+    .insight-metadata-title {
+        .title {
+            font-size: 28px;
+            font-weight: 600;
+        }
+    }
+
+    .insight-metadata-description {
+        .description {
+            color: $text_muted_alt;
+            font-style: italic;
+        }
+    }
+
+    .insight-metadata-tags {
+        .tags {
+            margin-bottom: 4px;
+            margin-top: 8px;
+        }
+    }
+}
