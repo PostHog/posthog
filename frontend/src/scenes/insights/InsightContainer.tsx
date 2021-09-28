@@ -53,9 +53,15 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
     } = useValues(router)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const { lastRefresh, isLoading, activeView, allFilters, showTimeoutMessage, showErrorMessage } = useValues(
-        insightLogic
-    )
+    const {
+        lastRefresh,
+        isLoading,
+        activeView,
+        allFilters,
+        insightMode,
+        showTimeoutMessage,
+        showErrorMessage,
+    } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
 
     // Empty states that completely replace the graph
@@ -148,6 +154,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                 title={
                     <InsightDisplayConfig
                         activeView={activeView}
+                        insightMode={insightMode}
                         allFilters={allFilters}
                         annotationsToCreate={annotationsToCreate}
                         clearAnnotationsToCreate={clearAnnotationsToCreate}
@@ -163,7 +170,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                         className={clsx('insights-graph-header', {
                             funnels: activeView === ViewType.FUNNELS,
                         })}
-                        align="top"
+                        align="middle"
                         justify="space-between"
                         style={{
                             marginTop: -8,
