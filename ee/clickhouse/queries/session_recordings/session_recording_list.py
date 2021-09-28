@@ -21,13 +21,13 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
         FROM session_recording_events
         WHERE
-                team_id = {team_id}
+                team_id = %(team_id)s
                 {distinct_id_clause}
         GROUP BY distinct_id, session_id
         ORDER BY start_time DESC
     )
     WHERE full_snapshots > 0
-    LIMIT {limit}
+    LIMIT %(limit)s
     """
 
     def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:

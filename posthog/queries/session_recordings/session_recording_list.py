@@ -34,32 +34,28 @@ class SessionRecordingList(BaseQuery):
                 COUNT(*) FILTER(where snapshot_data->>'type' = '2' OR (snapshot_data->>'has_full_snapshot')::boolean) as full_snapshots
             FROM posthog_sessionrecordingevent
             WHERE
-                team_id = {team_id}
+                team_id = %(team_id)s
                 {distinct_id_clause}
             GROUP BY distinct_id, session_id
         ) AS p
         WHERE full_snapshots > 0 
         ORDER BY start_time DESC
-        LIMIT {limit}
+        LIMIT %(limit)s
     """
 
     def _build_query(self) -> Tuple[str, Dict]:
         distinct_id_clause = ""
-        distinct_id_params = {}
+        params = {"team_id": self._team.pk, "limit": self.SESSION_RECORDINGS_DEFAULT_LIMIT}
         if self._filter.distinct_id:
             distinct_ids = Person.objects.get(
                 team=self._team, persondistinctid__distinct_id=self._filter.distinct_id
             ).distinct_ids
             distinct_id_clause = f"AND distinct_id IN %(distinct_ids)s"
-            distinct_id_params = {"distinct_ids": distinct_ids}
+            params = {**params, "distinct_ids": distinct_ids}
 
         return (
-            self._query.format(
-                team_id=self._team.pk,
-                distinct_id_clause=distinct_id_clause,
-                limit=self.SESSION_RECORDINGS_DEFAULT_LIMIT,
-            ),
-            distinct_id_params,
+            self._query.format(distinct_id_clause=distinct_id_clause,),
+            params,
         )
 
     def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
