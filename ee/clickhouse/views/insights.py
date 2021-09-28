@@ -71,6 +71,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         funnel_filter = None
         if "funnel_filter" in request.data:
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **request.data["funnel_filter"]})
+            print(funnel_filter)
 
         #  backwards compatibility
         if filter.path_type:

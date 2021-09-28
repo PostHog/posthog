@@ -40,7 +40,7 @@ interface UrlParams {
 
 export const insightLogic = kea<insightLogicType>({
     actions: () => ({
-        setActiveView: (type: ViewType, props?: Partial<FilterType>) => ({ type, props }),
+        setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
         setCachedUrl: (type: ViewType, url: string) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),

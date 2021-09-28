@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
+import { A, combineUrl, encodeParams } from 'kea-router'
 
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../../ActionFilter/ActionFilter'
@@ -16,7 +17,7 @@ import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { PropertyFilters } from 'lib/components/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
-import { FunnelVizType } from '~/types'
+import { FunnelVizType, ViewType } from '~/types'
 import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
@@ -27,8 +28,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export function FunnelTab(): JSX.Element {
     useMountedLogic(funnelCommandLogic)
-    const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
-    const { loadResults, clearFunnel, setFilters, saveFunnelInsight, queryPaths } = useActions(funnelLogic)
+    const { isStepsEmpty, filters, clickhouseFeaturesEnabled, propertiesForUrl } = useValues(funnelLogic)
+    const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
     const screens = useBreakpoint()
@@ -46,7 +47,16 @@ export function FunnelTab(): JSX.Element {
             <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
                 {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && (
                     <Col>
-                        <Button onClick={() => queryPaths(filters)}>Click for Paths</Button>
+                        <A
+                            href={
+                                combineUrl(
+                                    '/insights',
+                                    encodeParams({ funnel_filter: propertiesForUrl, insight: ViewType.PATHS }, '?')
+                                ).url
+                            }
+                        >
+                            Click for Paths
+                        </A>
                     </Col>
                 )}
                 <Col xs={24} md={16} xl={isHorizontalUIEnabled ? undefined : 24}>

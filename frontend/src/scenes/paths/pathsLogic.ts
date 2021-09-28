@@ -166,11 +166,6 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 }
             }
         },
-        [insightLogic.actionTypes.setActiveView]: ({ type, props: extra_props }) => {
-            if (type == ViewType.PATHS) {
-                actions.setFilter({ funnel_filter: extra_props })
-            }
-        },
     }),
     selectors: {
         paths: [
