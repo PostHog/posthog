@@ -79,7 +79,9 @@ services:
             - '8000:8000'
             - '8234:8234'
     plugins:
-        image: posthog/plugin-server:latest
+        build:
+            context: ../plugins
+            dockerfile: Dockerfile
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
