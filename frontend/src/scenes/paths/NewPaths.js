@@ -368,7 +368,6 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                             width: 240,
                                             border: '1px solid var(--border)',
                                             padding: 4,
-                                            zIndex: 100,
                                             textAlign: 'start',
                                         }}
                                     >
