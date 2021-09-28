@@ -27,7 +27,7 @@ class SessionRecordingList(BaseQuery):
         FROM (
             SELECT
                 session_id,
-                distinct_id,
+                MIN(distinct_id) as distinct_id,
                 MIN(timestamp) as start_time,
                 MAX(timestamp) as end_time,
                 MAX(timestamp) - MIN(timestamp) as duration,
@@ -36,7 +36,7 @@ class SessionRecordingList(BaseQuery):
             WHERE
                 team_id = %(team_id)s
                 {distinct_id_clause}
-            GROUP BY distinct_id, session_id
+            GROUP BY session_id
         ) AS p
         WHERE full_snapshots > 0 
         ORDER BY start_time DESC

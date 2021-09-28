@@ -81,6 +81,21 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][0]["email"], "bob@bob.com")
             self.assertEqual(response_data["results"][1]["email"], "bob@bob.com")
 
+        def test_session_recording_split_across_distinct_ids(self):
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=["d1", "d2"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
+            base_time = now()
+            self.create_snapshot("d1", "1", base_time)
+            self.create_snapshot("d2", "1", base_time + relativedelta(seconds=30))
+            response = self.client.get("/api/projects/@current/session_recordings")
+            response_data = response.json()
+            self.assertEqual(len(response_data["results"]), 1)
+            self.assertEqual(response_data["results"][0]["email"], "bob@bob.com")
+            self.assertEqual(response_data["results"][0]["recording_duration"], "30.0")
+
         def test_viewed_state_of_session_recording(self):
             SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
             self.create_snapshot("u1", "1", now())

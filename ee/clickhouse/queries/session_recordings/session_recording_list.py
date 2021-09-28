@@ -15,7 +15,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     FROM (
         SELECT
             session_id,
-            distinct_id,
+            MIN(distinct_id) AS distinct_id,
             MIN(timestamp) AS start_time,
             MAX(timestamp) AS end_time,
             COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
@@ -23,7 +23,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         WHERE
                 team_id = %(team_id)s
                 {distinct_id_clause}
-        GROUP BY distinct_id, session_id
+        GROUP BY session_id
         ORDER BY start_time DESC
     )
     WHERE full_snapshots > 0
