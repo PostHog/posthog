@@ -317,11 +317,8 @@ export class EventsProcessor {
         }
         if (event === '$create_alias') {
             await this.alias(properties['alias'], distinctId, teamId, false)
-        } else if (event === '$identify') {
-            if (properties['$anon_distinct_id']) {
-                await this.alias(properties['$anon_distinct_id'], distinctId, teamId)
-            }
-            await this.setIsIdentified(teamId, distinctId)
+        } else if (event === '$identify' && properties['$anon_distinct_id']) {
+            await this.alias(properties['$anon_distinct_id'], distinctId, teamId)
         }
     }
 
@@ -333,6 +330,11 @@ export class EventsProcessor {
         retryIfFailed = true,
         totalMergeAttempts = 0
     ): Promise<void> {
+        // No reason to alias person against itself. Done by posthog-js-lite when updating user properties
+        if (previousDistinctId === distinctId) {
+            return
+        }
+
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
         const newPerson = await this.db.fetchPerson(teamId, distinctId)
 
@@ -347,10 +349,7 @@ export class EventsProcessor {
                     await this.alias(previousDistinctId, distinctId, teamId, shouldIdentifyPerson, false)
                 }
             }
-            return
-        }
-
-        if (!oldPerson && newPerson) {
+        } else if (!oldPerson && newPerson) {
             try {
                 await this.db.addDistinctId(newPerson, previousDistinctId)
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
@@ -361,10 +360,7 @@ export class EventsProcessor {
                     await this.alias(previousDistinctId, distinctId, teamId, shouldIdentifyPerson, false)
                 }
             }
-            return
-        }
-
-        if (!oldPerson && !newPerson) {
+        } else if (!oldPerson && !newPerson) {
             try {
                 await this.db.createPerson(
                     DateTime.utc(),
@@ -383,10 +379,7 @@ export class EventsProcessor {
                     await this.alias(previousDistinctId, distinctId, teamId, shouldIdentifyPerson, false)
                 }
             }
-            return
-        }
-
-        if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
+        } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
             // $create_alias is an explicit call to merge 2 users, so we'll merge anything
             // for $identify, we'll not merge a user who's already identified into anyone else
             const isIdentifyCallToMergeAnIdentifiedUser = shouldIdentifyPerson && oldPerson.is_identified
@@ -403,6 +396,10 @@ export class EventsProcessor {
                     otherPersonDistinctId: previousDistinctId,
                 })
             }
+        }
+
+        if (shouldIdentifyPerson) {
+            await this.setIsIdentified(teamId, distinctId)
         }
     }
 
