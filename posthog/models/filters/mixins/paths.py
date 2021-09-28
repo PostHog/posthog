@@ -7,8 +7,11 @@ from posthog.constants import (
     FUNNEL_PATHS,
     PAGEVIEW_EVENT,
     PATH_DROPOFF_KEY,
+    PATH_EDGE_LIMIT,
     PATH_END_KEY,
     PATH_GROUPINGS,
+    PATH_MAX_EDGE_WEIGHT,
+    PATH_MIN_EDGE_WEIGHT,
     PATH_START_KEY,
     PATH_TYPE,
     PATHS_EXCLUDE_EVENTS,
@@ -100,7 +103,11 @@ class TargetEventsMixin(BaseParamMixin):
 
     @cached_property
     def exclude_events(self) -> List[str]:
-        return self._data.get(PATHS_EXCLUDE_EVENTS, [])
+        _exclude_events = self._data.get(PATHS_EXCLUDE_EVENTS, [])
+        if isinstance(_exclude_events, str):
+            return json.loads(_exclude_events)
+
+        return _exclude_events
 
     @property
     def include_pageviews(self) -> bool:
@@ -187,5 +194,36 @@ class PathPersonsMixin(BaseParamMixin):
 
         if self.path_dropoff_key:
             result[PATH_DROPOFF_KEY] = self.path_dropoff_key
+
+        return result
+
+
+class PathLimitsMixin(BaseParamMixin):
+    @cached_property
+    def edge_limit(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_EDGE_LIMIT, None)
+        return int(raw_value) if raw_value is not None else None
+
+    @cached_property
+    def min_edge_weight(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_MIN_EDGE_WEIGHT, None)
+        return int(raw_value) if raw_value else None
+
+    @cached_property
+    def max_edge_weight(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_MAX_EDGE_WEIGHT, None)
+        return int(raw_value) if raw_value else None
+
+    @include_dict
+    def path_edge_limit_to_dict(self):
+        result = {}
+        if self.edge_limit:
+            result[PATH_EDGE_LIMIT] = self.edge_limit
+
+        if self.min_edge_weight:
+            result[PATH_MIN_EDGE_WEIGHT] = self.min_edge_weight
+
+        if self.max_edge_weight:
+            result[PATH_MAX_EDGE_WEIGHT] = self.max_edge_weight
 
         return result

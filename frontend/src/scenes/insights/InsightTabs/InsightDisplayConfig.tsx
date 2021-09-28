@@ -3,18 +3,21 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { TZIndicator } from 'lib/components/TimezoneAware'
-import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
+import { ACTIONS_BAR_CHART_VALUE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import { ChartDisplayType, FilterType, FunnelVizType, ItemMode, ViewType } from '~/types'
 import { CalendarOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from '../InsightDateFilter'
 import { RetentionDatePicker } from '../RetentionDatePicker'
 import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useValues } from 'kea'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     allFilters: FilterType
     activeView: ViewType
+    insightMode: ItemMode
     annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
 }
 
@@ -77,11 +80,15 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
 
 export function InsightDisplayConfig({
     allFilters,
+    insightMode,
     activeView,
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === ViewType.FUNNELS
-    const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(allFilters)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const dateFilterDisabled =
+        (showFunnelBarOptions && isFunnelEmpty(allFilters)) ||
+        (!!featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View)
 
     return (
         <div className="display-config-inner">
