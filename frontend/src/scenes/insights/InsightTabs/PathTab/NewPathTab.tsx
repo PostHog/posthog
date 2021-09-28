@@ -60,13 +60,13 @@ export function NewPathTab(): JSX.Element {
                 <Col span={12}>
                     <Col className="event-types" style={{ paddingBottom: 16 }}>
                         <Row align="middle">
-                            <Col xs={20} sm={20} lg={3}>
+                            <Col xs={20} sm={20} xl={3}>
                                 <b>Events:</b>
                             </Col>
                             <Col
                                 xs={20}
                                 sm={20}
-                                lg={7}
+                                xl={7}
                                 className="tab-btn left ant-btn"
                                 onClick={() => onClickPathtype(PathType.PageView)}
                             >
@@ -82,7 +82,7 @@ export function NewPathTab(): JSX.Element {
                             <Col
                                 xs={20}
                                 sm={20}
-                                lg={7}
+                                xl={7}
                                 className="tab-btn center ant-btn"
                                 onClick={() => onClickPathtype(PathType.Screen)}
                             >
@@ -98,7 +98,7 @@ export function NewPathTab(): JSX.Element {
                             <Col
                                 xs={20}
                                 sm={20}
-                                lg={7}
+                                xl={7}
                                 className="tab-btn right ant-btn"
                                 onClick={() => onClickPathtype(PathType.CustomEvent)}
                             >
