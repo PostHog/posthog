@@ -262,12 +262,15 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                             }}
                                         >
                                             <Menu.Item
+                                                disabled
                                                 style={{
                                                     display: 'flex',
                                                     justifyContent: 'space-between',
                                                     alignItems: 'center',
                                                     borderRadius: 0,
                                                     padding: '3px 12px',
+                                                    color: 'black',
+                                                    cursor: 'default',
                                                 }}
                                             >
                                                 <span>
@@ -292,12 +295,15 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                             </Menu.Item>
                                             {dropOffValue(pathItemCard) > 0 && (
                                                 <Menu.Item
+                                                    disabled
                                                     style={{
                                                         borderTop: '1px solid var(--border)',
                                                         display: 'flex',
                                                         justifyContent: 'space-between',
                                                         alignItems: 'center',
                                                         padding: '3px 12px',
+                                                        color: 'black',
+                                                        cursor: 'default',
                                                     }}
                                                 >
                                                     <span style={{ display: 'flex' }}>
@@ -321,11 +327,14 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
                                             )}
                                             {pathItemCard.targetLinks.length > 0 && (
                                                 <Menu.Item
+                                                    disabled
                                                     style={{
                                                         display: 'flex',
                                                         justifyContent: 'space-between',
                                                         borderTop: '1px solid var(--border)',
                                                         padding: '3px 12px',
+                                                        color: 'black',
+                                                        cursor: 'default',
                                                     }}
                                                 >
                                                     <span>
