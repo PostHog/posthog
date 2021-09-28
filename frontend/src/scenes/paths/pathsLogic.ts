@@ -34,6 +34,7 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
         date_to: filters.date_to,
         insight: ViewType.PATHS,
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        funnel_filter: filters.funnel_filter || {},
     }
 }
 
