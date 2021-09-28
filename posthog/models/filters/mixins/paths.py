@@ -140,7 +140,7 @@ class TargetEventsMixin(BaseParamMixin):
 
 class PathStepLimitMixin(BaseParamMixin):
     @cached_property
-    def step_limit(self) -> Optional[str]:
+    def step_limit(self) -> Optional[int]:
         if self._data.get(STEP_LIMIT) is not None:
             return int(self._data[STEP_LIMIT])
         return None
