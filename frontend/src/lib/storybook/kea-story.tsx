@@ -7,6 +7,8 @@ import { App } from 'scenes/App'
 
 function resetKeaWithState(state: Record<string, any>): void {
     const history = createMemoryHistory({ initialEntries: [state.kea.router.location] })
+    ;(history as any).pushState = history.push
+    ;(history as any).replaceState = history.replace
     initKea({ state, routerLocation: history.location, routerHistory: history })
     router.mount()
     const { store } = getContext()
