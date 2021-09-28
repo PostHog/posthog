@@ -202,6 +202,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
 
         return {
             '/sessions': urlToAction,
+            '/session_recordings': urlToAction,
             '/person/*': urlToAction,
         }
     },
