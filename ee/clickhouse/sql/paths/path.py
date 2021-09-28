@@ -4,7 +4,7 @@ PATH_ARRAY_QUERY = """
             conversion_time,
             event_in_session_index,
             concat(toString(event_in_session_index), '_', path) as path_key,
-            if(event_in_session_index > 1, concat(toString(event_in_session_index-1), '_', prev_path), null) AS last_path_key
+            if(event_in_session_index > 1, concat(toString(event_in_session_index-1), '_', prev_path), null) AS last_path_key,
             path_dropoff_key
         FROM (
         
