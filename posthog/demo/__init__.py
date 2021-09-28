@@ -5,10 +5,9 @@ from rest_framework.request import Request
 from posthog.demo.app_data_generator import AppDataGenerator
 from posthog.demo.revenue_data_generator import RevenueDataGenerator
 from posthog.demo.web_data_generator import WebDataGenerator
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Organization, Team, User
 from posthog.models.event_definition import EventDefinition
-from posthog.utils import render_template
+from posthog.utils import is_clickhouse_enabled, render_template
 
 ORGANIZATION_NAME = "HogFlix"
 TEAM_NAME = "HogFlix Demo App"

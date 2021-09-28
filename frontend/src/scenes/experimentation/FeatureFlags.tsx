@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Table, Switch, Tooltip } from 'antd'
+import { Table, Switch } from 'antd'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
@@ -13,6 +13,8 @@ import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
+import { urls } from 'scenes/sceneLogic'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
@@ -163,7 +165,7 @@ export function FeatureFlags(): JSX.Element {
             <div className="mb text-right">
                 <LinkButton
                     type="primary"
-                    to={`/feature_flags/new${BackTo}`}
+                    to={[urls.featureFlag('new'), {}, BackTo]}
                     data-attr="new-feature-flag"
                     icon={<PlusOutlined />}
                 >
@@ -176,7 +178,7 @@ export function FeatureFlags(): JSX.Element {
                 loading={!featureFlags && featureFlagsLoading}
                 pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                 onRow={(featureFlag) => ({
-                    onClick: () => push(`/feature_flags/${featureFlag.id}${BackTo}`),
+                    onClick: () => featureFlag.id && push(urls.featureFlag(featureFlag.id), {}, BackTo),
                     style: !featureFlag.active ? { color: 'var(--muted)' } : {},
                 })}
                 size="small"

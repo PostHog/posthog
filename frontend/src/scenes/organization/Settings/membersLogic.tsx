@@ -4,10 +4,11 @@ import api from 'lib/api'
 import { toast } from 'react-toastify'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { membersLogicType } from './membersLogicType'
-import { OrganizationMembershipLevel, organizationMembershipLevelToName } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
+import { membershipLevelToName } from '../../../lib/utils/permissioning'
 
 export const membersLogic = kea<membersLogicType>({
     actions: {
@@ -15,42 +16,36 @@ export const membersLogic = kea<membersLogicType>({
             member,
             level,
         }),
-        postRemoveMember: (memberUuid: string) => ({ memberUuid }),
+        postRemoveMember: (userUuid: string) => ({ userUuid }),
     },
     loaders: ({ values, actions }) => ({
         members: {
-            __default: [],
+            __default: [] as OrganizationMemberType[],
             loadMembers: async () => {
-                return (await api.get('api/organizations/@current/members/')).results
+                return (await api.get('api/organizations/@current/members/?limit=200')).results
             },
-            removeMember: async (member) => {
-                await api.delete(`api/organizations/@current/members/${member.user_id}/`)
+            removeMember: async (member: OrganizationMemberType) => {
+                await api.delete(`api/organizations/@current/members/${member.user.uuid}/`)
                 toast(
                     <div>
                         <h1 className="text-success">
-                            <CheckCircleOutlined /> Removed <b>{member.user_first_name}</b> from organization.
+                            <CheckCircleOutlined /> Removed <b>{member.user.first_name}</b> from organization.
                         </h1>
                     </div>
                 )
                 actions.postRemoveMember(member.user.uuid)
-                return values.members.filter((thisMember) => thisMember.user_id !== member.user_id)
+                return values.members.filter((thisMember) => thisMember.user.id !== member.user.id)
             },
         },
     }),
     listeners: ({ actions }) => ({
-        changeMemberAccessLevel: async ({
-            member,
-            level,
-        }: {
-            member: OrganizationMemberType
-            level: OrganizationMembershipLevel
-        }) => {
-            await api.update(`api/organizations/@current/members/${member.user.id}/`, { level })
+        changeMemberAccessLevel: async ({ member, level }) => {
+            await api.update(`api/organizations/@current/members/${member.user.uuid}/`, { level })
             toast(
                 <div>
                     <h1 className="text-success">
                         <CheckCircleOutlined /> Made <b>{member.user.first_name}</b> organization{' '}
-                        {organizationMembershipLevelToName.get(level)}.
+                        {membershipLevelToName.get(level)}.
                     </h1>
                 </div>
             )
@@ -60,8 +55,8 @@ export const membersLogic = kea<membersLogicType>({
             }
             actions.loadMembers()
         },
-        postRemoveMember: async ({ memberUuid }) => {
-            if (memberUuid === userLogic.values.user?.uuid) {
+        postRemoveMember: async ({ userUuid }) => {
+            if (userUuid === userLogic.values.user?.uuid) {
                 location.reload()
             }
         },

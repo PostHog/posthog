@@ -92,12 +92,12 @@ export const preflightLogic = kea<preflightLogicType<PreflightMode>>({
             }
         },
     }),
-    events: ({ actions }) => ({
+    events: ({ actions, values }) => ({
         afterMount: () => {
             const preflight = getAppContext()?.preflight
             if (preflight) {
                 actions.loadPreflightSuccess(preflight)
-            } else {
+            } else if (!values.preflight) {
                 actions.loadPreflight()
             }
         },

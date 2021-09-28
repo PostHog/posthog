@@ -6,6 +6,7 @@ import 'scenes/actions/Actions.scss'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Placement } from '@popperjs/core'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -15,8 +16,10 @@ interface PropertyFiltersProps {
     showConditionBadge?: boolean
     disablePopover?: boolean
     popoverPlacement?: TooltipPlacement | null
+    taxonomicPopoverPlacement?: Placement
     style?: CSSProperties
     groupTypes?: TaxonomicFilterGroupType[]
+    showNestedArrow?: boolean
 }
 
 export function PropertyFilters({
@@ -26,8 +29,10 @@ export function PropertyFilters({
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     popoverPlacement = null,
+    taxonomicPopoverPlacement = undefined,
     groupTypes,
     style = {},
+    showNestedArrow = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filters } = useValues(propertyFilterLogic(logicProps))
@@ -48,7 +53,9 @@ export function PropertyFilters({
                                 showConditionBadge={showConditionBadge}
                                 disablePopover={disablePopover}
                                 popoverPlacement={popoverPlacement}
+                                taxonomicPopoverPlacement={taxonomicPopoverPlacement}
                                 groupTypes={groupTypes}
+                                showNestedArrow={showNestedArrow}
                             />
                         )
                     })}

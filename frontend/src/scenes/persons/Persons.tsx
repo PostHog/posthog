@@ -46,7 +46,7 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                         value={listFilters.is_identified !== undefined ? listFilters.is_identified.toString() : 'all'}
                     >
                         <Radio.Button data-attr="people-types-tab-all" value="all">
-                            All users
+                            All persons
                         </Radio.Button>
                         <Radio.Button data-attr="people-types-tab-identified" value="true">
                             Identified
@@ -65,8 +65,8 @@ export function Persons({ cohort }: { cohort: CohortType }): JSX.Element {
                         closable
                         message={
                             <>
-                                Unidentified users are usually anonymous visitors to your app or website that have not
-                                been identified to you. To mark users as identified, simply call{' '}
+                                Unidentified persons are usually anonymous visitors to your app or website that have not
+                                been identified to you. To mark a person as identified, call{' '}
                                 <code>posthog.identify</code> on your frontend.{' '}
                                 <a
                                     href="https://posthog.com/docs/integrations/js-integration?utm_medium=in-product&utm_campaign=persons-unidentified#identifying-users"

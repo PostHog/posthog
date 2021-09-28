@@ -1,6 +1,7 @@
-import { Col, Row, Form, Input, Button, Alert } from 'antd'
+import { Col, Row, Form, Input, Button } from 'antd'
 import React from 'react'
-import logo from 'public/posthog-logo-white.svg'
+import cloudLogo from 'public/posthog-logo-cloud.svg'
+import selfHostedLogo from 'public/posthog-logo-selfhosted.svg'
 import './Login.scss'
 import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
@@ -8,8 +9,10 @@ import { Link } from 'lib/components/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { PasswordInput } from './PasswordInput'
-import { IconRocket } from 'lib/components/icons'
 import { ERROR_MESSAGES } from 'lib/constants'
+import { ExclamationCircleFilled } from '@ant-design/icons'
+import clsx from 'clsx'
+import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=login-header'
 
@@ -20,47 +23,31 @@ export function Login(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     return (
-        <div className="login">
+        <div className="bridge-page login">
             <Row>
-                <Col span={24} lg={14} className="image-showcase-container">
-                    <div className="image-showcase ant-col-24 ant-col-lg-14">
-                        <div className="the-mountains" />
-                        <a href={`https://posthog.com?${UTM_TAGS}`}>
-                            <div className="main-logo">
-                                <img src={logo} alt="" />
-                            </div>
-                        </a>
-                        <div className="showcase-content">
-                            <h1 className="page-title">Welcome back!</h1>
+                <Col span={24} className="auth-main-content">
+                    <a href={`https://posthog.com?${UTM_TAGS}`}>
+                        <div className="header-logo">
+                            <img src={preflight?.cloud ? cloudLogo : selfHostedLogo} alt="PostHog Cloud" />
                         </div>
-                    </div>
-                </Col>
-                <Col span={24} lg={10} className="auth-main-content">
-                    <div className="main-logo mobile-logo">
-                        <a href={`https://posthog.com?${UTM_TAGS}`}>
-                            <img src={logo} alt="" />
-                        </a>
-                    </div>
+                    </a>
                     <div className="inner">
                         <h2 className="subtitle" style={{ justifyContent: 'center' }}>
-                            Login to PostHog
+                            Get started
                         </h2>
                         {!authenticateResponseLoading && authenticateResponse?.errorCode && (
-                            <Alert
-                                message="Could not complete your login"
-                                description={
-                                    authenticateResponse?.errorDetail || ERROR_MESSAGES[authenticateResponse.errorCode]
-                                }
-                                type="error"
-                                showIcon
-                                style={{ marginBottom: 16 }}
-                            />
+                            <ErrorMessage style={{ marginBottom: 16 }}>
+                                {authenticateResponse?.errorDetail ||
+                                    ERROR_MESSAGES[authenticateResponse.errorCode] ||
+                                    'Could not complete your login. Please try again.'}
+                            </ErrorMessage>
                         )}
                         <Form
                             layout="vertical"
                             form={form}
                             onFinish={(values) => authenticate(values)}
                             requiredMark={false}
+                            noValidate
                         >
                             <Form.Item
                                 name="email"
@@ -68,7 +55,12 @@ export function Login(): JSX.Element {
                                 rules={[
                                     {
                                         required: true,
-                                        message: 'Please enter your email to continue',
+                                        message: (
+                                            <>
+                                                <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Please enter your
+                                                email to continue
+                                            </>
+                                        ),
                                     },
                                 ]}
                             >
@@ -83,32 +75,28 @@ export function Login(): JSX.Element {
                             <PasswordInput />
                             <Form.Item>
                                 <Button
-                                    className="rocket-button"
+                                    className="btn-bridge"
                                     htmlType="submit"
                                     data-attr="password-signup"
                                     loading={authenticateResponseLoading}
                                     block
                                 >
-                                    <span className="icon">
-                                        <IconRocket />
-                                    </span>
                                     Login
                                 </Button>
                             </Form.Item>
                         </Form>
-                        <div className="text-center">
-                            <a href="/accounts/password_reset/" data-attr="forgot-password">
+                        <div className={clsx('helper-links', { cloud: preflight?.cloud })}>
+                            {preflight?.cloud && (
+                                <Link to="/signup" data-attr="signup" className="lhs">
+                                    Create an account
+                                </Link>
+                            )}
+                            <a href="/accounts/password_reset/" data-attr="forgot-password" className="rhs">
                                 Forgot your password?
                             </a>
+                            &nbsp;
                         </div>
-                        {preflight?.cloud && (
-                            <div className="text-center mt">
-                                Don't have an account? <Link to="/signup">Sign up now</Link>
-                            </div>
-                        )}
-                        <div style={{ marginTop: 48 }}>
-                            <SocialLoginButtons displayStyle="link" caption="Or login with:" />
-                        </div>
+                        <SocialLoginButtons caption="Or log in with" />
                     </div>
                 </Col>
             </Row>

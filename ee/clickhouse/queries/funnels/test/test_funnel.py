@@ -2,21 +2,21 @@ from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-from ee.clickhouse.queries.funnels.funnel_event_query import FunnelEventQuery
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
 from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models import Element
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
-from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.queries.test.test_funnel import funnel_test_factory
+from posthog.test.base import test_with_materialized_columns
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -43,7 +43,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_person)):  # type: ignore
+class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelPersons, _create_event, _create_action, _create_person)):  # type: ignore
     maxDiff = None
     pass
 
@@ -53,7 +53,7 @@ class TestFunnelConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_
     pass
 
 
-class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
+class TestClickhouseFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _create_event, _create_person)):  # type: ignore
 
     maxDiff = None
 
@@ -85,8 +85,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
         )
 
-        with self.assertNumQueries(1):
-            result = funnel.run()
+        result = funnel.run()
 
         self.assertEqual(result[0]["name"], "user signed up")
         self.assertEqual(result[0]["count"], 1)
@@ -133,6 +132,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
         )
 
+    @test_with_materialized_columns(["key"])
     def test_basic_funnel_with_derivative_steps(self):
         filters = {
             "events": [
@@ -655,6 +655,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 5), [person5_stopped_after_many_pageview.uuid],
         )
 
+    @test_with_materialized_columns(["key"])
     def test_funnel_with_actions(self):
 
         sign_up_action = _create_action(
@@ -699,6 +700,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 2), [person1_stopped_after_two_signups.uuid],
         )
 
+    @test_with_materialized_columns(["key"])
     def test_funnel_with_actions_and_events(self):
 
         sign_up_action = _create_action(
@@ -775,6 +777,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
 
         self.assertCountEqual(self._get_people_at_step(filter, 4), [person1_stopped_after_two_signups.uuid,])
 
+    @test_with_materialized_columns(["$current_url"])
     def test_funnel_with_matching_properties(self):
         filters = {
             "events": [
@@ -986,26 +989,22 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             "exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 1},],
         }
         filter = Filter(data=filters)
-        funnel = ClickhouseFunnel(filter, self.team)
-        self.assertRaises(ValidationError, funnel.run)
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnel(filter, self.team))
 
         filter = filter.with_data(
             {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 2}]}
         )
-        funnel = ClickhouseFunnel(filter, self.team)
-        self.assertRaises(ValidationError, funnel.run)
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnel(filter, self.team))
 
         filter = filter.with_data(
             {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 2, "funnel_to_step": 1}]}
         )
-        funnel = ClickhouseFunnel(filter, self.team)
-        self.assertRaises(ValidationError, funnel.run)
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnel(filter, self.team))
 
         filter = filter.with_data(
             {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 2}]}
         )
-        funnel = ClickhouseFunnel(filter, self.team)
-        self.assertRaises(ValidationError, funnel.run)
+        self.assertRaises(ValidationError, lambda: ClickhouseFunnel(filter, self.team))
 
     def test_funnel_exclusion_no_end_event(self):
         filters = {
@@ -1060,6 +1059,7 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             self._get_people_at_step(filter, 2), [person1.uuid],
         )
 
+    @test_with_materialized_columns(["key"])
     def test_funnel_exclusions_with_actions(self):
 
         sign_up_action = _create_action(
@@ -1137,28 +1137,29 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
             "date_to": "2020-01-14",
         }
 
-        with self.settings(CLICKHOUSE_DENORMALIZED_PROPERTIES=["test_prop"]):
-            filter = Filter(data=filters)
-            funnel = ClickhouseFunnel(filter, self.team)
+        materialize("events", "test_prop")
 
-            # event
-            _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="user signed up",
-                distinct_id="user_1",
-                timestamp="2020-01-02T14:00:00Z",
-                properties={"test_prop": "hi"},
-            )
-            _create_event(
-                team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
-            )
+        filter = Filter(data=filters)
+        funnel = ClickhouseFunnel(filter, self.team)
 
-            with self.assertNumQueries(1):
-                result = funnel.run()
+        # event
+        _create_person(distinct_ids=["user_1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="user_1",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={"test_prop": "hi"},
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_1", timestamp="2020-01-10T14:00:00Z",
+        )
 
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[0]["count"], 1)
+        self.assertNotIn("json", funnel.get_query().lower())
+        result = funnel.run()
+
+        self.assertEqual(result[0]["name"], "user signed up")
+        self.assertEqual(result[0]["count"], 1)
 
     def test_advanced_funnel_multiple_exclusions_between_steps(self):
         filters = {
@@ -1297,3 +1298,52 @@ class TestFunnel(ClickhouseTestMixin, funnel_test_factory(ClickhouseFunnel, _cre
         self.assertCountEqual(
             self._get_people_at_step(filter, 1), [person4.uuid],
         )
+
+    def test_funnel_with_elements_chain(self):
+        person1 = _create_person(distinct_ids=["test"], team_id=self.team.pk)
+        _create_event(team=self.team, event="user signed up", distinct_id="test")
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="test",
+            properties={"$current_url": "http://example.com/something_else"},
+            elements=[Element(tag_name="img"), Element(tag_name="svg")],
+        )
+
+        person2 = _create_person(distinct_ids=["test2"], team_id=self.team.pk)
+        _create_event(team=self.team, event="user signed up", distinct_id="test2")
+
+        for tag_name in ["img", "svg"]:
+            filters = {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0,},
+                    {
+                        "id": "$autocapture",
+                        "name": "$autocapture",
+                        "order": 1,
+                        "properties": [
+                            {"key": "tag_name", "value": [tag_name], "operator": "exact", "type": "element"}
+                        ],
+                        "type": "events",
+                    },
+                ],
+                "insight": INSIGHT_FUNNELS,
+            }
+
+            filter = Filter(data=filters)
+            result = ClickhouseFunnel(filter, self.team).run()
+
+            self.assertEqual(len(result), 2)
+            self.assertEqual(result[0]["name"], "user signed up")
+            self.assertEqual(result[0]["count"], 2)
+            self.assertEqual(len(result[0]["people"]), 2)
+            self.assertEqual(result[1]["name"], "$autocapture")
+            self.assertEqual(result[1]["count"], 1)
+            self.assertEqual(len(result[1]["people"]), 1)
+
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 1), [person1.uuid, person2.uuid],
+            )
+            self.assertCountEqual(
+                self._get_people_at_step(filter, 2), [person1.uuid],
+            )

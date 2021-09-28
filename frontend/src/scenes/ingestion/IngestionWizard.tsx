@@ -31,7 +31,7 @@ export function IngestionContainer({ children }: { children: React.ReactNode }):
     )
 }
 
-export default function IngestionWizard(): JSX.Element {
+export function IngestionWizard(): JSX.Element {
     const { platform, framework, verify } = useValues(ingestionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
@@ -88,3 +88,5 @@ export default function IngestionWizard(): JSX.Element {
 
     return <></>
 }
+
+export default IngestionWizard

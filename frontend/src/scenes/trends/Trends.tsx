@@ -17,6 +17,7 @@ import { ViewType } from '~/types'
 import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface Props {
     view: ViewType
@@ -25,12 +26,15 @@ interface Props {
 export function TrendInsight({ view }: Props): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
-    const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading, resultsLoading } = useValues(
-        trendsLogic({ dashboardItemId: null, view, filters: null })
-    )
-    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, view, filters: null }))
+    const {
+        filters: _filters,
+        loadMoreBreakdownUrl,
+        breakdownValuesLoading,
+    } = useValues(trendsLogic({ dashboardItemId: null, filters: null }))
+    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, filters: null }))
     const { showingPeople } = useValues(personsModalLogic)
-    const { saveCohortWithFilters, refreshCohort } = useActions(personsModalLogic)
+    const { saveCohortWithFilters } = useActions(personsModalLogic)
+    const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const renderViz = (): JSX.Element | undefined => {
         if (
             !_filters.display ||
@@ -70,7 +74,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                     {renderViz()}
                 </div>
             )}
-            {_filters.breakdown && !resultsLoading && (
+            {_filters.breakdown && (
                 <div className="mt text-center">
                     {loadMoreBreakdownUrl ? (
                         <>
@@ -100,7 +104,6 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 view={view}
                 filters={_filters}
                 onSaveCohort={() => {
-                    refreshCohort()
                     setCohortModalVisible(true)
                 }}
             />
@@ -109,6 +112,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 onOk={(title: string) => {
                     saveCohortWithFilters(title, _filters)
                     setCohortModalVisible(false)
+                    reportCohortCreatedFromPersonModal(_filters)
                 }}
                 onCancel={() => setCohortModalVisible(false)}
             />

@@ -9,10 +9,10 @@ import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 type FeatureFlagsSet = {
-    [flag: string]: boolean
+    [flag: string]: boolean | string
 }
 const eventsNotified: Record<string, boolean> = {}
-function notifyFlagIfNeeded(flag: string, flagState: boolean): void {
+function notifyFlagIfNeeded(flag: string, flagState: string | boolean): void {
     if (!eventsNotified[flag]) {
         posthog.capture('$feature_flag_called', {
             $feature_flag: flag,
@@ -39,7 +39,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
                         return () => combinedFlags
                     }
                     const flagString = flag.toString()
-                    const flagState = !!combinedFlags[flagString]
+                    const flagState = combinedFlags[flagString]
                     notifyFlagIfNeeded(flagString, flagState)
                     return flagState
                 },
@@ -65,7 +65,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
 
 export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
     actions: {
-        setFeatureFlags: (featureFlags: string[]) => ({ featureFlags }),
+        setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => ({ flags, variants }),
     },
 
     reducers: {
@@ -73,13 +73,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
             getPersistedFeatureFlags(),
             { persist: true },
             {
-                setFeatureFlags: (_, { featureFlags }) => {
-                    const flags: FeatureFlagsSet = {}
-                    for (const flag of featureFlags) {
-                        flags[flag] = true
-                    }
-                    return spyOnFeatureFlags(flags)
-                },
+                setFeatureFlags: (_, { variants }) => spyOnFeatureFlags(variants),
             },
         ],
         receivedFeatureFlags: [

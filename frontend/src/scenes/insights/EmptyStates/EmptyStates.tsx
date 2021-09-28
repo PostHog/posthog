@@ -3,11 +3,13 @@ import React from 'react'
 import imgEmptyLineGraph from 'public/empty-line-graph.svg'
 import imgEmptyLineGraphDark from 'public/empty-line-graph-dark.svg'
 import { QuestionCircleOutlined, LoadingOutlined, PlusCircleOutlined } from '@ant-design/icons'
-import { IllustrationDanger } from 'lib/components/icons'
+import { IllustrationDanger, TrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { Button } from 'antd'
+import { Button, Empty } from 'antd'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { SavedInsightsTabs } from '~/types'
 
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
@@ -64,13 +66,13 @@ export function TimeOut({ isLoading }: { isLoading: boolean }): JSX.Element {
                         <li>
                             <a
                                 data-attr="insight-timeout-upgrade-to-clickhouse"
-                                href="https://posthog.com/pricing?o=enterprise&utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
+                                href="https://posthog.com/docs/self-host#deployment-options?utm_medium=in-product&utm_campaign=insight-timeout-empty-state"
                                 rel="noopener"
                                 target="_blank"
                             >
-                                Upgrade PostHog to Enterprise Edition
+                                Switch to Clickhouse backend
                             </a>{' '}
-                            and get access to a backend engineered for scale using the ClickHouse database.
+                            (engineered for scale, and you'll get more features)
                         </li>
                     )}
                     <li>
@@ -164,7 +166,7 @@ export function ErrorMessage(): JSX.Element {
     )
 }
 
-export function FunnelEmptyState(): JSX.Element {
+export function FunnelInvalidFiltersEmptyState(): JSX.Element {
     const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
     const { setFilters } = useActions(funnelLogic)
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
@@ -194,13 +196,101 @@ export function FunnelEmptyState(): JSX.Element {
                 <div className="funnels-empty-state__help">
                     <a
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noreferrer noopener"
+                        rel="noopener"
                     >
                         Learn more about funnels in our support documentation.
                     </a>
                 </div>
+            </div>
+        </div>
+    )
+}
+
+export function FunnelEmptyState(): JSX.Element {
+    return (
+        <div className="insight-empty-state funnels-empty-state info-message">
+            <div className="insight-empty-state__wrapper">
+                <div className="illustration-main">
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
+                </div>
+                <h2 className="funnels-empty-state__title">There are no matching events for this query.</h2>
+                <p className="funnels-empty-state__description">
+                    Try changing dates or pick another action, event, or breakdown.
+                </p>
+            </div>
+        </div>
+    )
+}
+
+export function FunnelInvalidExclusionFiltersEmptyState(): JSX.Element {
+    return (
+        <div className="insight-empty-state funnels-empty-state info-message">
+            <div className="insight-empty-state__wrapper">
+                <div className="illustration-main">
+                    <IllustrationDanger />
+                </div>
+                <h2 className="funnels-empty-state__title">
+                    Exclusion filters cannot exclude events or actions in the funnel steps.
+                </h2>
+                <p className="funnels-empty-state__description">
+                    Try changing your funnel step filters, or removing the overlapping exclusion event.
+                </p>
+                <div className="funnels-empty-state__help">
+                    <a
+                        data-attr="insight-funnels-emptystate-help"
+                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        Learn more about funnels in our support documentation.
+                    </a>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+const SAVED_INSIGHTS_COPY = {
+    [`${SavedInsightsTabs.All}`]: {
+        title: 'There are no insights for this project',
+        description: 'Once you create an insight, it will show up here.',
+    },
+    [`${SavedInsightsTabs.Yours}`]: {
+        title: "You haven't created insights for this project",
+        description: 'Once you create an insight, it will show up here.',
+    },
+    [`${SavedInsightsTabs.Favorites}`]: {
+        title: 'There are no favorited insights for this project',
+        description: 'Once you favorite an insight, it will show up here.',
+    },
+}
+
+export function SavedInsightsEmptyState(): JSX.Element {
+    const { addGraph } = useActions(savedInsightsLogic)
+    const { tab } = useValues(savedInsightsLogic)
+
+    return (
+        <div className="saved-insight-empty-state">
+            <div className="insight-empty-state__wrapper">
+                <div className="illustration-main">
+                    <TrendUp />
+                </div>
+                <h2 className="empty-state__title">{SAVED_INSIGHTS_COPY[tab].title}</h2>
+                <p className="empty-state__description">{SAVED_INSIGHTS_COPY[tab].description}</p>
+                {tab !== SavedInsightsTabs.Favorites && (
+                    <Button
+                        size="large"
+                        type="primary"
+                        onClick={() => addGraph('Trends')} // Add trends graph by default
+                        data-attr="add-insight-button-empty-state"
+                        icon={<PlusCircleOutlined />}
+                        className="add-insight-button"
+                    >
+                        New Insight
+                    </Button>
+                )}
             </div>
         </div>
     )

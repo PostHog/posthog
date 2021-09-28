@@ -14,7 +14,9 @@ services:
         ports:
             - '6379:6379'
     clickhouse:
-        image: yandex/clickhouse-server
+        # KEEP CLICKHOUSE-SERVER VERSION IN SYNC WITH
+        # https://github.com/PostHog/charts-clickhouse/blob/main/charts/posthog/templates/clickhouse_instance.yaml#L88
+        image: yandex/clickhouse-server:21.6.5
         depends_on:
             - kafka
             - zookeeper
@@ -27,6 +29,7 @@ services:
             - ./idl:/idl
             - ../docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
         image: wurstmeister/zookeeper
     kafka:

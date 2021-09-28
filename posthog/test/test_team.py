@@ -1,9 +1,6 @@
-import random
 from unittest import mock
 
-from django.conf import settings
-
-from posthog.models import EventDefinition, Organization, PluginConfig, PropertyDefinition, Team, User
+from posthog.models import Organization, PluginConfig, Team, User
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 
 from .base import BaseTest

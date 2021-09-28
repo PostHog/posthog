@@ -17,6 +17,8 @@ export function SessionRecording(): JSX.Element {
         <div style={{ marginBottom: 16 }}>
             <div style={{ marginBottom: 8 }}>
                 <Switch
+                    // @ts-expect-error - id works just fine despite not being in CompoundedComponent
+                    id="opt-in-session-recording-switch"
                     data-attr="opt-in-session-recording-switch"
                     onChange={(checked) => {
                         updateCurrentTeam({ session_recording_opt_in: checked })
@@ -27,6 +29,7 @@ export function SessionRecording(): JSX.Element {
                     style={{
                         marginLeft: '10px',
                     }}
+                    htmlFor="opt-in-session-recording-switch"
                 >
                     Record user sessions on Permitted Domains
                 </label>
@@ -49,10 +52,10 @@ export function SessionRecording(): JSX.Element {
                                 marginLeft: '10px',
                             }}
                         >
-                            Automatically delete old session recordings after
+                            Automatically delete old session recordings{period !== null && ' after'}
                         </label>
                     </div>
-                    {period != null && (
+                    {period !== null && (
                         <div style={{ maxWidth: '15rem', marginLeft: 54 }}>
                             <Input
                                 type="number"

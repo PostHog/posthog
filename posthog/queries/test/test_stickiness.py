@@ -83,7 +83,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 event="watched movie",
                 distinct_id="person4",
                 timestamp=(base_time + period * 4).replace(tzinfo=timezone.utc).isoformat(),
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Safari"},
             )
 
             return p1, p2, p3, p4
@@ -260,9 +260,35 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                 )
                 response = stickiness().run(filter, self.team)
 
-            self.assertEqual(response[0]["count"], 4)
+            self.assertEqual(response[0]["count"], 3)
             self.assertEqual(response[0]["labels"][0], "1 day")
-            self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["data"][0], 1)
+            self.assertEqual(response[0]["labels"][1], "2 days")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 days")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
+        def test_stickiness_entity_filter(self):
+            self._create_multiple_people()
+
+            with freeze_time("2020-01-08T13:01:01Z"):
+                filter = StickinessFilter(
+                    data={
+                        "shown_as": "Stickiness",
+                        "date_from": "2020-01-01",
+                        "date_to": "2020-01-08",
+                        "events": [{"id": "watched movie", "properties": [{"key": "$browser", "value": "Chrome"}]}],
+                    },
+                    team=self.team,
+                    get_earliest_timestamp=get_earliest_timestamp,
+                )
+                response = stickiness().run(filter, self.team)
+
+            self.assertEqual(response[0]["count"], 3)
+            self.assertEqual(response[0]["labels"][0], "1 day")
+            self.assertEqual(response[0]["data"][0], 1)
             self.assertEqual(response[0]["labels"][1], "2 days")
             self.assertEqual(response[0]["data"][1], 1)
             self.assertEqual(response[0]["labels"][2], "3 days")
@@ -311,6 +337,29 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
 
             all_people_ids = [str(person["id"]) for person in people]
             self.assertListEqual(sorted(all_people_ids), sorted([str(person1.pk), str(person4.pk)]))
+
+        def test_stickiness_people_with_entity_filter(self):
+            person1, _, _, _ = self._create_multiple_people()
+
+            filter = StickinessFilter(
+                data={
+                    "shown_as": "Stickiness",
+                    "stickiness_days": 1,
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-08",
+                },
+                team=self.team,
+                get_earliest_timestamp=get_earliest_timestamp,
+            )
+            target_entity = Entity(
+                {"id": "watched movie", "type": "events", "properties": [{"key": "$browser", "value": "Chrome"}]}
+            )
+            factory = APIRequestFactory()
+            request = factory.get("/person/stickiness")
+            people = stickiness().people(target_entity, filter, self.team, request)
+
+            self.assertEqual(len(people), 1)
+            self.assertEqual(people[0]["id"], person1.id)
 
         def test_stickiness_people_paginated(self):
             for i in range(150):

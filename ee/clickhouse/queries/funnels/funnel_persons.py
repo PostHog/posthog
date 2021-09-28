@@ -1,3 +1,5 @@
+from typing import cast
+
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.sql.funnels.funnel import FUNNEL_PERSONS_BY_STEP_SQL
 from posthog.models import Person
@@ -9,6 +11,7 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
             offset=self._filter.offset,
             steps_per_person_query=self.get_step_counts_query(),
             persons_steps=self._get_funnel_person_step_condition(),
+            extra_fields=self._get_timestamp_outer_select(),
         )
 
     def _format_results(self, results):
@@ -16,4 +19,4 @@ class ClickhouseFunnelPersons(ClickhouseFunnel):
 
         from posthog.api.person import PersonSerializer
 
-        return PersonSerializer(people, many=True).data, len(results) > self._filter.limit - 1
+        return PersonSerializer(people, many=True).data, len(results) > cast(int, self._filter.limit) - 1

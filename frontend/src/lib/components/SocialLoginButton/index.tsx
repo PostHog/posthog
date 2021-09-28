@@ -3,18 +3,21 @@ import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import './index.scss'
-import { GoogleOutlined, GithubOutlined, GitlabOutlined } from '@ant-design/icons'
+import { GoogleOutlined, GithubOutlined, GitlabOutlined, KeyOutlined } from '@ant-design/icons'
+import clsx from 'clsx'
 
 enum SocialAuthProviders {
     Google = 'google-oauth2',
     GitHub = 'github',
     GitLab = 'gitlab',
+    SAML = 'saml',
 }
 
 const ProviderNames: Record<SocialAuthProviders, string> = {
     [SocialAuthProviders.Google]: 'Google',
     [SocialAuthProviders.GitHub]: 'GitHub',
     [SocialAuthProviders.GitLab]: 'GitLab',
+    [SocialAuthProviders.SAML]: 'Single sign-on',
 }
 
 interface SharedProps {
@@ -31,25 +34,6 @@ interface SocialLoginButtonsProps extends SharedProps {
     displayStyle?: 'button' | 'link'
 }
 
-export function SocialLoginButton({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
-
-    if (!preflight?.available_social_auth_providers[provider]) {
-        return null
-    }
-
-    return (
-        <div>
-            <Button className={`btn-social-login ${provider}`} href={`/login/${provider}/${queryString || ''}`}>
-                <div className="btn-social-icon">
-                    <div className="img" />
-                </div>
-                Continue with {ProviderNames[provider]}
-            </Button>
-        </div>
-    )
-}
-
 export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
@@ -60,6 +44,8 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
             return <GithubOutlined />
         } else if (provider === SocialAuthProviders.GitLab) {
             return <GitlabOutlined />
+        } else if (provider === SocialAuthProviders.SAML) {
+            return <KeyOutlined />
         }
     }, [provider])
 
@@ -67,10 +53,14 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
         return null
     }
 
+    // SAML-based login requires an extra param as technically we can support multiple SAML backends
+    const extraParam =
+        provider === SocialAuthProviders.SAML ? (queryString ? '&idp=posthog_custom' : '?idp=posthog_custom') : ''
+
     return (
         <Button
             className={`link-social-login ${provider}`}
-            href={`/login/${provider}/${queryString || ''}`}
+            href={`/login/${provider}/${queryString || ''}${extraParam}`}
             icon={icon}
             type="link"
         >
@@ -79,12 +69,7 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
     )
 }
 
-export function SocialLoginButtons({
-    title,
-    caption,
-    displayStyle = 'button',
-    ...props
-}: SocialLoginButtonsProps): JSX.Element | null {
+export function SocialLoginButtons({ title, caption, ...props }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
     if (
@@ -95,17 +80,15 @@ export function SocialLoginButtons({
     }
 
     return (
-        <div className="social-logins">
+        <div
+            className={clsx('social-logins', {
+                empty: !Object.values(preflight.available_social_auth_providers).filter((v) => v).length,
+            })}
+        >
             {title && <h3 className="l3">{title}</h3>}
             {caption && <div className="caption">{caption}</div>}
             {Object.values(SocialAuthProviders).map((provider) => (
-                <React.Fragment key={provider}>
-                    {displayStyle === 'button' ? (
-                        <SocialLoginButton provider={provider} {...props} />
-                    ) : (
-                        <SocialLoginLink provider={provider} {...props} />
-                    )}
-                </React.Fragment>
+                <SocialLoginLink key={provider} provider={provider} {...props} />
             ))}
         </div>
     )

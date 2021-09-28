@@ -7,9 +7,9 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: () => void }): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
     const { setIsSharedDashboard } = useActions(dashboardLogic)
-    const [isShared, setIsShared] = useState(dashboard.is_shared)
+    const [isShared, setIsShared] = useState(dashboard?.is_shared)
     const url = window.location.origin
-    return (
+    return dashboard ? (
         <Modal
             visible={visible}
             onCancel={onCancel}
@@ -44,5 +44,7 @@ export function ShareModal({ visible, onCancel }: { visible: boolean; onCancel: 
                 'Your dashboard is private.'
             )}
         </Modal>
+    ) : (
+        <div />
     )
 }

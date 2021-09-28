@@ -37,10 +37,7 @@ describe('Dashboard', () => {
             .then((link) => {
                 cy.wait(200)
                 cy.visit(link)
-                cy.get('[data-attr=dashboard-item-title]').should(
-                    'contain',
-                    'Installed App -> Rated App -> Rated App 5 Stars'
-                )
+                cy.get('[data-attr=dashboard-item-title]').should('contain', 'App Analytics')
             })
     })
 
@@ -51,6 +48,10 @@ describe('Dashboard', () => {
 
         cy.contains('New Dashboard').should('exist')
         cy.get('.empty-state').should('exist')
+
+        // Check that dashboard is not pinned by default
+        cy.get('[data-attr="dashboard-more"]').click()
+        cy.get('.ant-dropdown-menu-item span').contains('Pin dashboard').should('exist')
     })
 
     it('Create dashboard from a template', () => {

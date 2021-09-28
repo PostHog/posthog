@@ -1,12 +1,14 @@
 import inspect
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
+from django.conf import settings
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.utils import sane_repr
 
 
 class Entity(PropertyMixin):
@@ -17,11 +19,17 @@ class Entity(PropertyMixin):
     """
 
     id: Union[int, str]
-    type: str
+    type: Literal["events", "actions"]
     order: Optional[int]
     name: Optional[str]
+    custom_name: Optional[str]
     math: Optional[str]
     math_property: Optional[str]
+    # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
+    # Used for identifying entities within a single query during query building,
+    # which generally uses Entity objects processed by EntitiesMixin
+    # The clean room way to do this would be passing the index _alongside_ the object, but OOP abuse is much less work
+    index: int
 
     def __init__(self, data: Dict[str, Any]) -> None:
         self.id = data["id"]
@@ -31,11 +39,19 @@ class Entity(PropertyMixin):
         ]:
             raise TypeError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
         self.type = data["type"]
-        self.order = data.get("order")
+        order_provided = data.get("order")
+        if order_provided is not None:
+            order_provided = int(order_provided)
+        self.order = order_provided
         self.name = data.get("name")
+        custom_name = data.get("custom_name")
+        if custom_name is not None:
+            custom_name = str(custom_name).strip() or None
+        self.custom_name = custom_name
         self.math = data.get("math")
         self.math_property = data.get("math_property")
 
+        self._action: Optional[Action] = None
         self._data = data  # push data to instance object so mixins are handled properly
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
             # It won't be an int if it's an event, but mypy...
@@ -47,6 +63,7 @@ class Entity(PropertyMixin):
             "type": self.type,
             "order": self.order,
             "name": self.name,
+            "custom_name": self.custom_name,
             "math": self.math,
             "math_property": self.math_property,
             "properties": [prop.to_dict() for prop in self.properties],
@@ -84,10 +101,17 @@ class Entity(PropertyMixin):
             raise ValueError(
                 f"Action can only be fetched for entities of type {TREND_FILTER_TYPE_ACTIONS}, not {self.type}!"
             )
+
+        if self._action and not settings.TEST:
+            return self._action
+
         try:
-            return Action.objects.get(id=self.id)
+            self._action = Action.objects.get(id=self.id)
+            return self._action
         except:
             raise ValidationError(f"Action ID {self.id} does not exist!")
+
+    __repr__ = sane_repr("id", "type", "order", "name", "custom_name", "math", "math_property", "properties")
 
 
 class ExclusionEntity(Entity, FunnelFromToStepsMixin):

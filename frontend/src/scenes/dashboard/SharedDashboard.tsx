@@ -27,7 +27,9 @@ ReactDOM.render(
                     </a>
                 </Col>
                 <Col sm={10} xs={24} style={{ padding: '1rem' }}>
-                    <h1 style={{ textAlign: 'center' }}>{dashboard.name}</h1>
+                    <h1 style={{ textAlign: 'center' }} data-attr="dashboard-item-title">
+                        {dashboard.name}
+                    </h1>
                 </Col>
                 <Col sm={7} xs={0} style={{ padding: '1rem', textAlign: 'right' }}>
                     <span style={{ paddingTop: 15, display: 'inline-block' }}>{dashboard.team_name}</span>

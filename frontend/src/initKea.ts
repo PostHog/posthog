@@ -1,10 +1,12 @@
-import { resetContext } from 'kea'
+import { KeaPlugin, resetContext } from 'kea'
 import { localStoragePlugin } from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
 import { errorToast, identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
+import dayjs from 'dayjs'
+import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -21,12 +23,24 @@ const ERROR_FILTER_WHITELIST = [
     'loadBilling', // Gracefully handled if it fails
 ]
 
-export function initKea(): void {
+interface InitKeaProps {
+    state?: Record<string, any>
+    routerHistory?: any
+    routerLocation?: any
+    beforePlugins?: KeaPlugin[]
+}
+
+export function initKea({ state, routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
+    // necessary for any localised date formatting to work
+    // doesn't matter if it is called multiple times but must be called once
+    dayjs.extend(LocalizedFormat)
+
     resetContext({
         plugins: [
+            ...(beforePlugins || []),
             localStoragePlugin,
             windowValuesPlugin({ window: window }),
-            routerPlugin,
+            routerPlugin({ history: routerHistory, location: routerLocation }),
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
@@ -50,5 +64,11 @@ export function initKea(): void {
             }),
             waitForPlugin,
         ],
+        defaults: state,
+        createStore: state
+            ? {
+                  preloadedState: state,
+              }
+            : true,
     })
 }

@@ -75,20 +75,6 @@
     border: 1px dashed $text_muted;
 }
 
-.sessions-player-button {
-    color: $success;
-    font-size: 16px;
-    margin-right: 5px;
-
-    &:visited * {
-        color: $text_muted;
-    }
-
-    &.viewed {
-        color: $text_muted;
-    }
-}
-
 .session-player {
     padding: $default_spacing * 2 $default_spacing $default_spacing;
     height: calc(
@@ -126,15 +112,15 @@
         .line {
             background-color: $border;
             width: 2px;
-            margin-right: $default_spacing / 2;
+            margin-right: $default_spacing * 0.5;
             border-radius: $radius;
         }
 
         .timeline-items {
-            width: calc(100% - 2px - #{$default_spacing / 2}); // 2px width of .line + margin
+            width: calc(100% - 2px - #{$default_spacing * 0.5}); // 2px width of .line + margin
 
             > div {
-                margin-bottom: $default_spacing / 2;
+                margin-bottom: $default_spacing * 0.5;
                 max-width: 100%;
 
                 &:before {
@@ -211,7 +197,7 @@
         height: 1.1rem;
         min-width: 1.1rem;
         line-height: 1.1rem;
-        font-weight: 600;
+        font-weight: bold;
         white-space: nowrap;
         text-align: center;
         border-radius: 10px;

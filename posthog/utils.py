@@ -39,6 +39,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import push_scope
 
+from posthog.constants import AnalyticsDBMS, AvailableFeature
 from posthog.exceptions import RequestParsingError
 from posthog.redis import get_client
 
@@ -109,25 +110,28 @@ def relative_date_parse(input: str) -> datetime.datetime:
     if not match:
         return date
     if match.group("type") == "h":
-        date = date - relativedelta(hours=int(match.group("number")))
+        date -= relativedelta(hours=int(match.group("number")))
         return date.replace(minute=0, second=0, microsecond=0)
     elif match.group("type") == "d":
         if match.group("number"):
-            date = date - relativedelta(days=int(match.group("number")))
+            date -= relativedelta(days=int(match.group("number")))
+    elif match.group("type") == "w":
+        if match.group("number"):
+            date -= relativedelta(weeks=int(match.group("number")))
     elif match.group("type") == "m":
         if match.group("number"):
-            date = date - relativedelta(months=int(match.group("number")))
+            date -= relativedelta(months=int(match.group("number")))
         if match.group("position") == "Start":
-            date = date - relativedelta(day=1)
+            date -= relativedelta(day=1)
         if match.group("position") == "End":
-            date = date - relativedelta(day=31)
+            date -= relativedelta(day=31)
     elif match.group("type") == "y":
         if match.group("number"):
-            date = date - relativedelta(years=int(match.group("number")))
+            date -= relativedelta(years=int(match.group("number")))
         if match.group("position") == "Start":
-            date = date - relativedelta(month=1, day=1)
+            date -= relativedelta(month=1, day=1)
         if match.group("position") == "End":
-            date = date - relativedelta(month=12, day=31)
+            date -= relativedelta(month=12, day=31)
     return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
@@ -184,19 +188,12 @@ def get_git_commit() -> Optional[str]:
 
 
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
-    from posthog.models import Team
+    from loginas.utils import is_impersonated_session
 
     template = get_template(template_name)
 
-    # Get the current user's team (or first team in the instance) to set opt out capture & self capture configs
-    team: Optional[Team] = None
-    try:
-        team = request.user.team  # type: ignore
-    except (Team.DoesNotExist, AttributeError):
-        team = Team.objects.first()
-
     context["self_capture"] = False
-    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False)
+    context["opt_out_capture"] = os.getenv("OPT_OUT_CAPTURE", False) or is_impersonated_session(request)
 
     if os.environ.get("SENTRY_DSN"):
         context["sentry_dsn"] = os.environ["SENTRY_DSN"]
@@ -206,10 +203,15 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["git_rev"] = get_git_commit()
         context["git_branch"] = get_git_branch()
 
+    if settings.E2E_TESTING:
+        context["e2e_testing"] = True
+
     if settings.SELF_CAPTURE:
         context["self_capture"] = True
-        if team:
-            context["js_posthog_api_key"] = f"'{team.api_token}'"
+        api_token = get_self_capture_api_token(request)
+
+        if api_token:
+            context["js_posthog_api_key"] = f"'{api_token}'"
             context["js_posthog_host"] = "window.location.origin"
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
@@ -220,7 +222,6 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.user import UserSerializer
-        from posthog.models import EventDefinition
         from posthog.views import preflight_check
 
         posthog_app_context: Dict = {
@@ -240,6 +241,21 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
     html = template.render(context, request=request)
     return HttpResponse(html)
+
+
+def get_self_capture_api_token(request: HttpRequest) -> Optional[str]:
+    from posthog.models import Team
+
+    # Get the current user's team (or first team in the instance) to set self capture configs
+    team: Optional[Team] = None
+    try:
+        team = request.user.team  # type: ignore
+    except (Team.DoesNotExist, AttributeError):
+        team = Team.objects.only("api_token").first()
+
+    if team:
+        return team.api_token
+    return None
 
 
 def get_default_event_name():
@@ -383,6 +399,11 @@ def load_data_from_request(request):
     compression = compression.lower()
 
     if compression == "gzip" or compression == "gzip-js":
+        if data == b"undefined":
+            raise RequestParsingError(
+                "data being loaded from the request body for decompression is the literal string 'undefined'"
+            )
+
         try:
             data = gzip.decompress(data)
         except (EOFError, OSError) as error:
@@ -540,13 +561,17 @@ def queryset_to_named_query(qs: QuerySet, prepend: str = "") -> Tuple[str, dict]
     return new_string, named_params
 
 
+def is_clickhouse_enabled() -> bool:
+    return settings.EE_AVAILABLE and settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE
+
+
 def get_instance_realm() -> str:
     """
     Returns the realm for the current instance. `cloud` or `hosted` or `hosted-clickhouse`.
     """
     if settings.MULTI_TENANCY:
         return "cloud"
-    elif os.getenv("HELM_INSTALL_INFO", False):
+    elif is_clickhouse_enabled():
         return "hosted-clickhouse"
     else:
         return "hosted"
@@ -577,7 +602,7 @@ def get_can_create_org() -> bool:
             pass
         else:
             license = License.objects.first_valid()
-            if license is not None and "organizations_projects" in license.available_features:
+            if license is not None and AvailableFeature.ZAPIER in license.available_features:
                 return True
             else:
                 print_warning(["You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!"])
@@ -586,28 +611,38 @@ def get_can_create_org() -> bool:
 
 
 def get_available_social_auth_providers() -> Dict[str, bool]:
-    github: bool = bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET)
-    gitlab: bool = bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET)
-    google: bool = False
+    output: Dict[str, bool] = {
+        "github": bool(settings.SOCIAL_AUTH_GITHUB_KEY and settings.SOCIAL_AUTH_GITHUB_SECRET),
+        "gitlab": bool(settings.SOCIAL_AUTH_GITLAB_KEY and settings.SOCIAL_AUTH_GITLAB_SECRET),
+        "google-oauth2": False,
+        "saml": False,
+    }
+
+    # Get license information
+    bypass_license: bool = settings.MULTI_TENANCY
+    license = None
+    try:
+        from ee.models.license import License
+    except ImportError:
+        pass
+    else:
+        license = License.objects.first_valid()
 
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
         settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", None,
     ):
-        if settings.MULTI_TENANCY:
-            google = True
+        if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
+            output["google-oauth2"] = True
         else:
-            try:
-                from ee.models.license import License
-            except ImportError:
-                pass
-            else:
-                license = License.objects.first_valid()
-                if license is not None and "google_login" in license.available_features:
-                    google = True
-                else:
-                    print_warning(["You have Google login set up, but not the required premium PostHog plan!"])
+            print_warning(["You have Google login set up, but not the required license!"])
 
-    return {"google-oauth2": google, "github": github, "gitlab": gitlab}
+    if getattr(settings, "SAML_CONFIGURED", None):
+        if bypass_license or (license is not None and AvailableFeature.SAML in license.available_features):
+            output["saml"] = True
+        else:
+            print_warning(["You have SAML set up, but not the required license!"])
+
+    return output
 
 
 def flatten(l: Union[List, Tuple]) -> Generator:
@@ -640,7 +675,7 @@ def get_daterange(
         start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
     if frequency == "week":
-        start_date -= datetime.timedelta(days=start_date.weekday() + 1)
+        start_date -= datetime.timedelta(days=(start_date.weekday() + 1) % 7)
     if frequency != "month":
         while start_date <= end_date:
             time_range.append(start_date)
@@ -751,3 +786,10 @@ def str_to_bool(value: Any) -> bool:
 def print_warning(warning_lines: Sequence[str]):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print("\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr)
+
+
+def get_helm_info_env() -> dict:
+    try:
+        return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
+    except Exception:
+        return {}

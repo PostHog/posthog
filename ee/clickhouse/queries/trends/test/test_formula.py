@@ -140,7 +140,7 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
 
     def test_week_interval(self):
         data = self._run({"date_from": "-2w", "interval": "week"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
-        self.assertEqual(data, [0.0, 2160.0])
+        self.assertEqual(data, [0.0, 0.0, 2160.0])
 
     def test_month_interval(self):
         data = self._run({"date_from": "-2m", "interval": "month"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
@@ -160,21 +160,105 @@ class TestFormula(AbstractIntervalTest, APIBaseTest):
         self.assertEqual(self._run({"formula": "A/0"})[0]["count"], 0)
 
     def test_breakdown(self):
-        action_response = self._run({"formula": "A - B", "breakdown": "location"})
-        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
-        self.assertEqual(action_response[1]["label"], "London")
-        self.assertEqual(action_response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
-        self.assertEqual(action_response[2]["label"], "Paris")
+        response = self._run({"formula": "A - B", "breakdown": "location"})
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 450.0, 0.0])
+        self.assertEqual(response[0]["label"], "London")
+        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 250.0, 0.0, 0.0])
+        self.assertEqual(response[1]["label"], "Paris")
+
+    def test_breakdown_counts_of_different_events_one_without_events(self):
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = ClickhouseTrends().run(
+                Filter(
+                    data={
+                        "insight": "TRENDS",
+                        "display": "ActionsLineGraph",
+                        "formula": "B / A",
+                        "breakdown": "location",
+                        "breakdown_type": "event",
+                        "events": [
+                            {"id": "session start", "name": "session start", "type": "events", "order": 0},
+                            {"id": "session error", "name": "session error", "type": "events", "order": 1},
+                        ],
+                    }
+                ),
+                self.team,
+            )
+        self.assertEqual(
+            response,
+            [
+                {
+                    "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "count": 0.0,
+                    "labels": [
+                        "28-Dec-2019",
+                        "29-Dec-2019",
+                        "30-Dec-2019",
+                        "31-Dec-2019",
+                        "1-Jan-2020",
+                        "2-Jan-2020",
+                        "3-Jan-2020",
+                        "4-Jan-2020",
+                    ],
+                    "days": [
+                        "2019-12-28",
+                        "2019-12-29",
+                        "2019-12-30",
+                        "2019-12-31",
+                        "2020-01-01",
+                        "2020-01-02",
+                        "2020-01-03",
+                        "2020-01-04",
+                    ],
+                    "label": "London",
+                },
+                {
+                    "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    "count": 0.0,
+                    "labels": [
+                        "28-Dec-2019",
+                        "29-Dec-2019",
+                        "30-Dec-2019",
+                        "31-Dec-2019",
+                        "1-Jan-2020",
+                        "2-Jan-2020",
+                        "3-Jan-2020",
+                        "4-Jan-2020",
+                    ],
+                    "days": [
+                        "2019-12-28",
+                        "2019-12-29",
+                        "2019-12-30",
+                        "2019-12-31",
+                        "2020-01-01",
+                        "2020-01-02",
+                        "2020-01-03",
+                        "2020-01-04",
+                    ],
+                    "label": "Paris",
+                },
+            ],
+        )
 
     def test_breakdown_cohort(self):
         cohort = Cohort.objects.create(
             team=self.team, name="cohort1", groups=[{"properties": {"$some_prop": "some_val"}}]
         )
-        action_response = self._run({"breakdown": ["all", cohort.pk], "breakdown_type": "cohort"})
-        self.assertEqual(action_response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
-        self.assertEqual(action_response[0]["label"], "all users")
-        self.assertEqual(action_response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
-        self.assertEqual(action_response[1]["label"], "cohort1")
+        response = self._run({"breakdown": ["all", cohort.pk], "breakdown_type": "cohort"})
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
+        self.assertEqual(response[0]["label"], "all users")
+        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 1200.0, 1350.0, 0.0])
+        self.assertEqual(response[1]["label"], "cohort1")
+
+    def test_breakdown_mismatching_sizes(self):
+        response = self._run(
+            {"events": [{"id": "session start"}, {"id": "session end"},], "breakdown": "location", "formula": "A + B",}
+        )
+
+        self.assertEqual(response[0]["label"], "London")
+        self.assertEqual(response[0]["data"], [0, 0, 0, 0, 0, 1, 3, 0])
+        self.assertEqual(response[1]["label"], "Paris")
+        self.assertEqual(response[1]["data"], [0, 0, 0, 0, 0, 2, 0, 0])
 
     def test_global_properties(self):
         self.assertEqual(

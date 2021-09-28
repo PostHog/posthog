@@ -1,9 +1,18 @@
+@import '~/vars';
+
 .plugins-scene {
     padding-bottom: 60px;
 }
-.plugins-installed-tab-section-header:hover {
+
+.plugins-installed-tab-section-header:hover,
+.plugins-repository-tab-section-header:hover {
     cursor: pointer;
 }
+
+.plugins-repository-tab-section-header {
+    margin-left: 5px;
+}
+
 .plugin-capabilities-tag {
     cursor: default;
 }
@@ -69,4 +78,23 @@
             display: none;
         }
     }
+}
+
+.plugins-popconfirm {
+    z-index: $z_plugins-popconfirm;
+}
+
+.plugin-job-json-editor {
+    border: 1px solid #efefef;
+    padding: 10px;
+}
+
+.plugin-run-job-button {
+    color: $success;
+    cursor: pointer;
+}
+
+.plugin-run-job-button-disabled {
+    color: #9a9a9a;
+    cursor: default;
 }

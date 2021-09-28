@@ -24,6 +24,7 @@ from posthog.queries.base import filter_persons, properties_to_Q
 from posthog.queries.lifecycle import LifecycleTrend
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
+from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, get_safe_cache, is_anonymous_id, relative_date_parse
 
 
@@ -150,33 +151,24 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             [{"name": convert_property_value(event[key]), "count": event["count"]} for event in people[:50]]
         )
 
-    @action(methods=["GET"], detail=False)
-    def references(self, request: request.Request, **kwargs) -> response.Response:
-        reference_id = request.GET.get("id", None)
-        offset = request.GET.get("offset", None)
-
-        if not reference_id or not offset:
-            return response.Response({})
-
-        offset_value = int(offset)
-        cached_result = get_safe_cache(reference_id)
-        if cached_result:
-            return response.Response(
-                {
-                    "result": cached_result[offset_value : offset_value + 100],
-                    "offset": offset_value + 100 if len(cached_result) > offset_value + 100 else None,
-                }
-            )
-        else:
-            return response.Response({})
-
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         people = Person.objects.filter(team_id=self.team_id, pk__in=request.data.get("ids"))
         person = Person.objects.get(pk=pk, team_id=self.team_id)
         person.merge_people([p for p in people])
 
-        return response.Response(PersonSerializer(person).data, status=201)
+        data = PersonSerializer(person).data
+        for p in people:
+            for distinct_id in p.distinct_ids:
+                data["distinct_ids"].append(distinct_id)
+
+        return response.Response(data, status=201)
+
+    @action(methods=["POST"], detail=True)
+    def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        person = Person.objects.get(pk=pk, team_id=self.team_id)
+        split_person.delay(person.id, request.data.get("main_distinct_id", None))
+        return response.Response({"success": True}, status=201)
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:

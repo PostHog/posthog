@@ -5,7 +5,7 @@ import {
     SaveOutlined,
     OrderedListOutlined,
 } from '@ant-design/icons'
-import { Button, Col, Row, Space, Tag, Tooltip } from 'antd'
+import { Button, Col, Row, Space, Tag } from 'antd'
 import { Subtitle } from 'lib/components/PageHeader'
 import React from 'react'
 import { useActions, useValues } from 'kea'
@@ -15,6 +15,7 @@ import { canConfigurePlugins } from '../../../access'
 import { userLogic } from 'scenes/userLogic'
 import { SortableContainer, SortableElement, SortableHandle } from 'react-sortable-hoc'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
+import { Tooltip } from 'lib/components/Tooltip'
 
 type HandleProps = { children?: JSX.Element }
 
@@ -121,7 +122,7 @@ export function EnabledPluginSection(): JSX.Element {
                     </>
                 )
             }
-            placement="bottom"
+            placement="top"
         >
             <Button
                 icon={<OrderedListOutlined />}

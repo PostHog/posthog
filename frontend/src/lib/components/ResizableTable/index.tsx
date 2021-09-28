@@ -18,10 +18,11 @@ export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> 
     key?: string
     dataIndex?: string
     render?:
-        | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
-        | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
+        | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType> | null)
+        | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType> | null)
     ellipsis?: boolean
     span: number
+    defaultWidth?: number
     eventProperties?: string[]
     widthConstraints?: [number, number] // Override default min and max width (px). To specify no max, use Infinity.
 }
@@ -116,16 +117,18 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         unsetLastColumnStyle()
     }
 
-    const handleColumnResize = (index: number): ResizeHandler => (_, { size: { width } }) => {
-        if (timeout.current) {
-            cancelAnimationFrame(timeout.current)
+    const handleColumnResize =
+        (index: number): ResizeHandler =>
+        (_, { size: { width } }) => {
+            if (timeout.current) {
+                cancelAnimationFrame(timeout.current)
+            }
+            timeout.current = requestAnimationFrame(function () {
+                updateColumnWidth(index, width)
+                updateTableWidth()
+            })
+            updateScrollGradient()
         }
-        timeout.current = requestAnimationFrame(function () {
-            updateColumnWidth(index, width)
-            updateTableWidth()
-        })
-        updateScrollGradient()
-    }
 
     function handleWrapperResize(newWidth: number): void {
         // Recalculate column widths if the wrapper changes size.
@@ -198,7 +201,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         ? column
                         : {
                               ...column,
-                              width: Math.max(columnSpanWidth * column.span, minColumnWidth),
+                              width: Math.max(column.defaultWidth || columnSpanWidth * column.span, minColumnWidth),
                           }
                 )
                 setHeaderColumns(nextColumns)

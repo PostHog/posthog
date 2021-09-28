@@ -1,5 +1,5 @@
 import json
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Q
@@ -35,7 +35,7 @@ class TestFilter(BaseTest):
             }
         )
         self.assertCountEqual(
-            list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from"],
+            list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from", "interval"],
         )
 
 

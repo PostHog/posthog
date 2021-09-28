@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
-import { IndexedTrendResult } from 'scenes/trends/trendsLogic'
+import { IndexedTrendResult } from 'scenes/trends/types'
 import { EventDefinition, EventOrPropType, EventType, PropertyDefinition, UserBasicType } from '~/types'
 import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -149,15 +149,6 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             [] as IndexedTrendResult[],
             {
                 setGraphResults: (_, { results }) => results,
-            },
-        ],
-        visibilityMap: [
-            {} as Record<number, any>,
-            {
-                setVisibilityById: (state: Record<number, any>, { entry }) => ({
-                    ...state,
-                    ...entry,
-                }),
             },
         ],
     }),

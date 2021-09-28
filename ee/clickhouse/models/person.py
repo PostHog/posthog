@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from uuid import UUID
 
 from django.db.models.query import QuerySet
@@ -12,19 +12,17 @@ from rest_framework import serializers
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.person import (
     DELETE_PERSON_BY_ID,
-    DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
     DELETE_PERSON_EVENTS_BY_ID,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_SQL,
 )
 from ee.kafka_client.client import ClickhouseProducer
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
-from posthog import settings
-from posthog.ee import is_clickhouse_enabled
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.utils import UUIDT
+from posthog.utils import is_clickhouse_enabled
 
-if settings.EE_AVAILABLE and is_clickhouse_enabled():
+if is_clickhouse_enabled():
 
     @receiver(post_save, sender=Person)
     def person_created(sender, instance: Person, created, **kwargs):
@@ -37,7 +35,7 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
 
     @receiver(post_save, sender=PersonDistinctId)
     def person_distinct_id_created(sender, instance: PersonDistinctId, created, **kwargs):
-        create_person_distinct_id(instance.pk, instance.team.pk, instance.distinct_id, str(instance.person.uuid))
+        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid))
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
@@ -45,7 +43,7 @@ if settings.EE_AVAILABLE and is_clickhouse_enabled():
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
-        delete_person_distinct_id(instance)
+        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), sign=-1)
 
 
 def create_person(
@@ -76,8 +74,8 @@ def create_person(
     return uuid
 
 
-def create_person_distinct_id(id: int, team_id: int, distinct_id: str, person_id: str) -> None:
-    data = {"id": id, "distinct_id": distinct_id, "person_id": person_id, "team_id": team_id}
+def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, sign=1) -> None:
+    data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "_sign": sign}
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
 
@@ -115,16 +113,60 @@ def delete_person(
     sync_execute(DELETE_PERSON_BY_ID, data)
 
 
-def delete_person_distinct_id(person_distinct_id: PersonDistinctId):
-    sync_execute(
-        DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID,
-        {
-            "id": person_distinct_id.id,
-            "distinct_id": person_distinct_id.distinct_id,
-            "person_id": person_distinct_id.person.uuid,
-            "team_id": person_distinct_id.team_id,
-        },
+def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:
+    cutoff_date = (datetime.datetime.now() - datetime.timedelta(weeks=1)).strftime("%Y-%m-%d %H:%M:%S")
+    query_result = sync_execute(
+        """
+        SELECT 
+            count(if(startdate < toDate('%(cutoff_date)s'), 1, NULL)) as prev_ids_with_duplicates,
+            minus(sum(if(startdate < toDate('%(cutoff_date)s'), count, 0)), prev_ids_with_duplicates) as prev_total_extra_distinct_id_rows,
+            count(if(startdate >= toDate('%(cutoff_date)s'), 1, NULL)) as new_ids_with_duplicates,
+            minus(sum(if(startdate >= toDate('%(cutoff_date)s'), count, 0)), prev_ids_with_duplicates) as new_total_extra_distinct_id_rows
+        FROM (
+            SELECT distinct_id, count(*) as count, toDate(min(timestamp)) as startdate
+            FROM (
+                SELECT person_id, distinct_id, max(_timestamp) as timestamp
+                FROM person_distinct_id
+                WHERE team_id = %(team_id)s
+                GROUP BY person_id, distinct_id, team_id
+                HAVING max(is_deleted) = 0
+            )
+            GROUP BY distinct_id
+            HAVING count > 1
+        ) as duplicates
+        """,
+        {"team_id": str(team_id), "cut_off_date": cutoff_date},
     )
+
+    result = {
+        "prev_total_ids_with_duplicates": query_result[0][0],
+        "prev_total_extra_distinct_id_rows": query_result[0][1],
+        "new_total_ids_with_duplicates": query_result[0][2],
+        "new_total_extra_distinct_id_rows": query_result[0][3],
+    }
+    return result
+
+
+def count_total_persons_with_multiple_ids(team_id: Union[str, int], min_ids: int = 2):
+    query_result = sync_execute(
+        """
+        SELECT count(*) as total_persons, max(_count) as max_distinct_ids_for_one_person FROM (
+            SELECT person_id, count(distinct_id) as _count
+            FROM person_distinct_id
+            WHERE team_id = 1221
+            GROUP BY person_id, team_id
+            HAVING max(is_deleted) = 0
+        )
+        WHERE _count > %(min_ids)s
+        """,
+        {"team_id": str(team_id), "min_ids": str(min_ids)},
+    )
+
+    result = {
+        f"total_persons_with_more_than_{min_ids}_ids": query_result[0][0],
+        "max_distinct_ids_for_one_person": query_result[0][1],
+    }
+    return result
 
 
 class ClickhousePersonSerializer(serializers.Serializer):

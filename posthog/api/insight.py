@@ -31,7 +31,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
-from posthog.utils import generate_cache_key, get_safe_cache, should_refresh, str_to_bool
+from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 
 class InsightBasicSerializer(serializers.ModelSerializer):
@@ -48,11 +48,13 @@ class InsightBasicSerializer(serializers.ModelSerializer):
             "filters",
             "dashboard",
             "color",
+            "description",
             "last_refresh",
             "refreshing",
             "saved",
+            "updated_at",
         ]
-        read_only_fields = ("short_id",)
+        read_only_fields = ("short_id", "updated_at")
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
@@ -78,12 +80,17 @@ class InsightSerializer(InsightBasicSerializer):
             "order",
             "deleted",
             "dashboard",
+            "dive_dashboard",
             "layouts",
             "color",
             "last_refresh",
             "refreshing",
             "result",
             "created_at",
+            "description",
+            "updated_at",
+            "tags",
+            "favorited",
             "saved",
             "created_by",
         ]
@@ -91,6 +98,7 @@ class InsightSerializer(InsightBasicSerializer):
             "created_by",
             "created_at",
             "short_id",
+            "updated_at",
         )
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -127,7 +135,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["short_id"]
+    filterset_fields = ["short_id", "created_by"]
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -161,9 +169,16 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     queryset = queryset.filter(Q(saved=False))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
+            elif key == "favorited":
+                queryset = queryset.filter(Q(favorited=True))
+            elif key == "date_from":
+                queryset = queryset.filter(updated_at__gt=relative_date_parse(request.GET["date_from"]))
+            elif key == "date_to":
+                queryset = queryset.filter(updated_at__lt=relative_date_parse(request.GET["date_to"]))
             elif key == INSIGHT:
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
-
+            elif key == "search":
+                queryset = queryset.filter(name__icontains=request.GET["search"])
         return queryset
 
     # ******************************************
@@ -192,7 +207,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
         return Response({**result, "next": next})
 
-    @cached_function()
+    @cached_function
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
@@ -220,7 +235,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def session(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         return Response(self.calculate_session(request))
 
-    @cached_function()
+    @cached_function
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
         result = Sessions().run(filter=SessionsFilter(request=request), team=self.team)
         return {"result": result}
@@ -241,7 +256,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         return Response(result)
 
-    @cached_function()
+    @cached_function
     def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         refresh = should_refresh(request)
@@ -281,7 +296,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_retention(request)
         return Response(result)
 
-    @cached_function()
+    @cached_function
     def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         data = {}
@@ -303,7 +318,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         result = self.calculate_path(request)
         return Response(result)
 
-    @cached_function()
+    @cached_function
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})

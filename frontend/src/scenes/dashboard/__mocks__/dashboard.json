@@ -1,0 +1,177 @@
+{
+    "id": 5,
+    "name": "Another dash",
+    "description": "",
+    "pinned": false,
+    "items": [
+        {
+            "id": 175,
+            "short_id": "FEUllims",
+            "name": "donut",
+            "description": null,
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": null
+                    }
+                ],
+                "display": "ActionsPie",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "filters_hash": "cache_326f130bff02303a942a0ae6495bac06",
+            "order": null,
+            "deleted": false,
+            "dashboard": 5,
+            "dive_dashboard": null,
+            "layouts": {
+                "lg": { "h": 5, "w": 6, "x": 6, "y": 0 },
+                "sm": { "h": 5, "w": 6, "x": 0, "y": 0 },
+                "xs": { "h": 5, "w": 6, "x": 0, "y": 5 },
+                "xxs": { "h": 5, "w": 2, "x": 0, "y": 5, "moved": false, "static": false }
+            },
+            "color": null,
+            "last_refresh": "2021-09-21T11:48:48.586443Z",
+            "refreshing": false,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "math": null,
+                        "math_property": null,
+                        "properties": []
+                    },
+                    "label": "$pageview",
+                    "count": 1267,
+                    "data": [0, 280, 624, 0, 0, 0, 28, 335],
+                    "labels": [
+                        "14-Sep-2021",
+                        "15-Sep-2021",
+                        "16-Sep-2021",
+                        "17-Sep-2021",
+                        "18-Sep-2021",
+                        "19-Sep-2021",
+                        "20-Sep-2021",
+                        "21-Sep-2021"
+                    ],
+                    "days": [
+                        "2021-09-14",
+                        "2021-09-15",
+                        "2021-09-16",
+                        "2021-09-17",
+                        "2021-09-18",
+                        "2021-09-19",
+                        "2021-09-20",
+                        "2021-09-21"
+                    ],
+                    "aggregated_value": 1267
+                }
+            ],
+            "is_sample": false,
+            "saved": false,
+            "created_at": "2021-09-13T15:08:40.761084Z",
+            "created_by": 1,
+            "updated_at": "2021-09-21T15:19:56.511367Z"
+        },
+        {
+            "id": 172,
+            "short_id": "ZLyv5MGc",
+            "name": "pageviews",
+            "description": null,
+            "filters": {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": null,
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": null
+                    }
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "filters_hash": "cache_842d74f509f93324df344c388f89e007",
+            "order": null,
+            "deleted": false,
+            "dashboard": 5,
+            "dive_dashboard": null,
+            "layouts": {
+                "lg": { "h": 5, "w": 6, "x": 0, "y": 0 },
+                "sm": { "h": 8, "w": 6, "x": 6, "y": 0 },
+                "xs": { "h": 5, "w": 6, "x": 0, "y": 0 },
+                "xxs": { "h": 5, "w": 2, "x": 0, "y": 0, "moved": false, "static": false }
+            },
+            "color": null,
+            "last_refresh": "2021-09-21T11:48:48.444504Z",
+            "refreshing": false,
+            "result": [
+                {
+                    "action": {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "math": null,
+                        "math_property": null,
+                        "properties": []
+                    },
+                    "label": "$pageview",
+                    "count": 1267,
+                    "data": [0, 280, 624, 0, 0, 0, 28, 335],
+                    "labels": [
+                        "14-Sep-2021",
+                        "15-Sep-2021",
+                        "16-Sep-2021",
+                        "17-Sep-2021",
+                        "18-Sep-2021",
+                        "19-Sep-2021",
+                        "20-Sep-2021",
+                        "21-Sep-2021"
+                    ],
+                    "days": [
+                        "2021-09-14",
+                        "2021-09-15",
+                        "2021-09-16",
+                        "2021-09-17",
+                        "2021-09-18",
+                        "2021-09-19",
+                        "2021-09-20",
+                        "2021-09-21"
+                    ]
+                }
+            ],
+            "is_sample": false,
+            "saved": false,
+            "created_at": "2021-09-13T15:08:14.241618Z",
+            "created_by": 1,
+            "updated_at": "2021-09-21T15:19:56.519176Z"
+        }
+    ],
+    "created_at": "2021-09-13T15:08:06.484006Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "017bbf43-ce14-0000-1df2-e1dc06c18758",
+        "distinct_id": "muxeRwmOrpqQtE04ypxkNr1R3ySRjOspEDWCVgIl7FV",
+        "first_name": "Marius Andra",
+        "email": "marius@posthog.com"
+    },
+    "is_shared": false,
+    "share_token": null,
+    "deleted": false,
+    "creation_mode": "default",
+    "filters": {},
+    "tags": []
+}

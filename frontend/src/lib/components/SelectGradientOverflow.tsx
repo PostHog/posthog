@@ -1,8 +1,9 @@
 import React, { ReactElement, RefObject, useEffect, useRef, useState } from 'react'
-import { Select, Tag, Tooltip } from 'antd'
+import { Select, Tag } from 'antd'
 import { RefSelectProps, SelectProps } from 'antd/lib/select'
 import { CloseButton } from './CloseButton'
 import { ANTD_TOOLTIP_PLACEMENTS, toString } from 'lib/utils'
+import { Tooltip } from 'lib/components/Tooltip'
 import './SelectGradientOverflow.scss'
 
 interface DropdownGradientRendererProps {
@@ -46,6 +47,7 @@ export type SelectGradientOverflowProps = SelectProps<any> & {
     delayBeforeAutoOpen?: number
     dropdownMatchSelectWidth?: boolean | number
     placement?: 'bottomLeft' | 'topLeft' // Dropdown placement (undefined = auto). See API at https://ant.design/components/dropdown
+    handleBlur?: () => void
 }
 
 export function SelectGradientOverflow({
@@ -53,6 +55,7 @@ export function SelectGradientOverflow({
     defaultOpen = false,
     delayBeforeAutoOpen,
     dropdownMatchSelectWidth = true,
+    handleBlur = () => {},
     placement,
     ...props
 }: SelectGradientOverflowProps): JSX.Element {
@@ -89,6 +92,7 @@ export function SelectGradientOverflow({
     const onBlur = (): void => {
         if (isOpen) {
             setOpen(false)
+            handleBlur()
         }
     }
 

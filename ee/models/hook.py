@@ -5,6 +5,7 @@ from rest_hooks.models import AbstractHook
 from statshog.defaults.django import statsd
 
 from ee.tasks.hooks import DeliverHook
+from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token
 
@@ -19,7 +20,7 @@ class Hook(AbstractHook):
 def find_and_fire_hook(
     event_name: str, instance: models.Model, user_override: Team, payload_override: Optional[dict] = None,
 ):
-    if not user_override.organization.is_feature_available("zapier"):
+    if not user_override.organization.is_feature_available(AvailableFeature.ZAPIER):
         return
     hooks = Hook.objects.filter(event=event_name, team=user_override)
     if event_name == "action_performed":

@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag, Tooltip } from 'antd'
+import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -29,6 +29,7 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -91,10 +92,13 @@ export function PluginCard({
         showPluginLogs,
         showPluginMetrics,
     } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const hasSpecifiedMaintainer = maintainer || (plugin.url && pluginUrlToMaintainer[plugin.url])
+    const pluginMaintainer = maintainer || pluginUrlToMaintainer[plugin.url || '']
 
     return (
         <Col
@@ -152,7 +156,9 @@ export function PluginCard({
                     <Col style={{ flex: 1 }}>
                         <div>
                             <strong style={{ marginRight: 8 }}>{name}</strong>
-                            {maintainer && !pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
+                            {hasSpecifiedMaintainer && (
+                                <CommunityPluginTag isCommunity={pluginMaintainer === 'community'} />
+                            )}
                             {pluginConfig?.error ? (
                                 <PluginError
                                     error={pluginConfig.error}

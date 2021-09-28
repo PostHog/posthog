@@ -1,13 +1,17 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from itertools import groupby
-from typing import Optional, Tuple, Type, Union
+from typing import Optional, Tuple, Type, Union, cast
 
 from dateutil.relativedelta import relativedelta
 
 from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
 from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-from ee.clickhouse.queries.util import get_time_diff, get_trunc_func_ch
-from posthog.constants import BREAKDOWN
+from ee.clickhouse.queries.util import (
+    format_ch_timestamp,
+    get_earliest_timestamp,
+    get_interval_func_ch,
+    get_trunc_func_ch,
+)
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -66,7 +70,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     ) -> str:
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
 
-        interval_method = get_trunc_func_ch(self._filter.interval)
+        trunc_func = get_trunc_func_ch(self._filter.interval)
 
         # This is used by funnel trends when we only need data for one period, e.g. person per data point
         if specific_entrance_period_start:
@@ -76,7 +80,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         return f"""
             SELECT
                 person_id,
-                {interval_method}(timestamp) AS entrance_period_start,
+                {trunc_func}(timestamp) AS entrance_period_start,
                 max(steps) AS steps_completed
                 {breakdown_clause}
             FROM (
@@ -91,12 +95,25 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         self.params.update(self.funnel_order.params)
 
         reached_from_step_count_condition, reached_to_step_count_condition, _ = self.get_steps_reached_conditions()
-        interval_method = get_trunc_func_ch(self._filter.interval)
-        num_intervals, seconds_in_interval, _ = get_time_diff(
-            self._filter.interval or "day", self._filter.date_from, self._filter.date_to, team_id=self._team.pk
-        )
+        trunc_func = get_trunc_func_ch(self._filter.interval)
+        interval_func = get_interval_func_ch(self._filter.interval)
+
+        if self._filter.date_from is None:
+            _date_from = get_earliest_timestamp(self._team.pk)
+        else:
+            _date_from = self._filter.date_from
 
         breakdown_clause = self._get_breakdown_prop()
+        formatted_date_from = format_ch_timestamp(_date_from, self._filter)
+        formatted_date_to = format_ch_timestamp(self._filter.date_to, self._filter)
+
+        self.params.update(
+            {
+                "formatted_date_from": formatted_date_from,
+                "formatted_date_to": formatted_date_to,
+                "interval": self._filter.interval,
+            }
+        )
 
         query = f"""
             SELECT
@@ -117,9 +134,9 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             ) data
             RIGHT OUTER JOIN (
                 SELECT
-                    {interval_method}(toDateTime('{self._filter.date_from.strftime(TIMESTAMP_FORMAT)}') + number * {seconds_in_interval}) AS entrance_period_start
+                    {trunc_func}(toDateTime(%(formatted_date_from)s) + {interval_func}(number)) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
-                FROM numbers({num_intervals}) AS period_offsets
+                FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s), toDateTime(%(formatted_date_to)s)) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
             ) fill
             USING (entrance_period_start {breakdown_clause})
@@ -189,10 +206,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         days = []
         labels = []
         for row in summary:
+            timestamp: datetime = row["timestamp"]
             data.append(row["conversion_rate"])
             hour_min_sec = " %H:%M:%S" if self._filter.interval == "hour" or self._filter.interval == "minute" else ""
-            days.append(row["timestamp"].strftime(f"%Y-%m-%d{hour_min_sec}"))
-            labels.append(row["timestamp"].strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
+            days.append(timestamp.strftime(f"%Y-%m-%d{hour_min_sec}"))
+            labels.append(timestamp.strftime(HUMAN_READABLE_TIMESTAMP_FORMAT))
         return {
             "count": count,
             "data": data,
@@ -203,11 +221,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
     def _is_period_final(self, timestamp: Union[datetime, date]):
         # difference between current date and timestamp greater than window
         now = datetime.utcnow().date()
-        intervals_to_subtract = self._filter.funnel_window_interval * -1
+        intervals_to_subtract = cast(int, self._filter.funnel_window_interval) * -1
         interval_unit = (
             "day" if self._filter.funnel_window_interval_unit is None else self._filter.funnel_window_interval_unit
         )
-        delta = relativedelta(**{f"{interval_unit}s": intervals_to_subtract})
+        delta = relativedelta(**{f"{interval_unit}s": intervals_to_subtract})  # type: ignore
         completed_end = now + delta
         compare_timestamp = timestamp.date() if isinstance(timestamp, datetime) else timestamp
         is_final = compare_timestamp <= completed_end

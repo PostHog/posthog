@@ -13,7 +13,9 @@ import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import dayjs from 'dayjs'
 import './LineGraph.scss'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { InsightTooltip } from '../InsightTooltip'
+import { InsightTooltip } from '../InsightTooltip/InsightTooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 //--Chart Style Options--//
 Chart.defaults.global.legend.display = false
@@ -32,12 +34,13 @@ export function LineGraph({
     isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
-    dashboardItemId,
+    dashboardItemId /* used only for annotations, not to init any other logic */,
     inSharedMode,
     percentage = false,
     interval = undefined,
     totalValue,
     showPersonsModal = true,
+    tooltipPreferAltTitle = false,
 }) {
     const chartRef = useRef()
     const myLineChart = useRef()
@@ -61,7 +64,9 @@ export function LineGraph({
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
     const [annotationInRange, setInRange] = useState(false)
+    const [tooltipVisible, setTooltipVisible] = useState(false)
     const size = useWindowSize()
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const annotationsCondition =
         type === 'line' &&
@@ -77,6 +82,20 @@ export function LineGraph({
     useEffect(() => {
         buildChart()
     }, [datasets, color, visibilityMap])
+
+    // Hacky! - Chartjs doesn't internally call tooltip callback on mouseout from right border.
+    // Let's manually remove tooltips when the chart is being hovered over. #5061
+    useEffect(() => {
+        const removeTooltip = () => {
+            const tooltipEl = document.getElementById('ph-graph-tooltip')
+
+            if (tooltipEl && !tooltipVisible) {
+                tooltipEl.style.opacity = 0
+            }
+        }
+        removeTooltip()
+        return removeTooltip // remove tooltip on component unmount
+    }, [tooltipVisible])
 
     // annotation related effects
 
@@ -146,6 +165,7 @@ export function LineGraph({
             pointHoverBorderWidth: 2,
             pointHitRadius: 8,
             ...dataset,
+            type,
         }
     }
 
@@ -184,7 +204,7 @@ export function LineGraph({
                     }
 
                     datasetCopy.data =
-                        datasetCopy.data.length > 2
+                        datasetCopy.data?.length > 2
                             ? datasetCopy.data.map((datum, idx) =>
                                   idx === datasetLength - 1 || idx === datasetLength - 2 ? datum : null
                               )
@@ -207,7 +227,7 @@ export function LineGraph({
             precision: 0,
         }
 
-        const inspectUsersLabel = !dashboardItemId && onClick && showPersonsModal
+        const inspectPersonsLabel = !dashboardItemId && onClick && showPersonsModal
 
         const tooltipOptions = {
             enabled: false, // disable builtin tooltip (use custom markup)
@@ -257,10 +277,15 @@ export function LineGraph({
                             hasMultipleSeries={numberOfSeries > 1}
                             breakdownValue={
                                 entityData.breakdownValues // Used in `horizontalBar`
-                                    ? entityData.breakdownValues[tooltipItem.index]
+                                    ? entityData.breakdownValues[tooltipItem.index] === ''
+                                        ? 'None'
+                                        : entityData.breakdownValues[tooltipItem.index]
+                                    : entityData.breakdown_value === ''
+                                    ? 'None'
                                     : entityData.breakdown_value
                             }
                             seriesStatus={entityData.status}
+                            useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
                         />
                     )
                 },
@@ -293,11 +318,11 @@ export function LineGraph({
 
                 if (tooltipModel.body) {
                     const referenceDataPoint = tooltipModel.dataPoints[0] // Use this point as reference to get the date
-                    const comparing = datasets[referenceDataPoint.datasetIndex].compare
-                    const altTitle = tooltipModel.title && comparing ? tooltipModel.title[0] : ''
-                    const referenceDate = !comparing
-                        ? datasets[referenceDataPoint.datasetIndex].days[referenceDataPoint.index]
-                        : undefined
+                    const dataset = datasets[referenceDataPoint.datasetIndex]
+
+                    const altTitle =
+                        tooltipModel.title && (dataset.compare || tooltipPreferAltTitle) ? tooltipModel.title[0] : '' // When comparing we show the whole range for clarity; when on stickiness we show the relative timeframe (e.g. `5 days`)
+                    const referenceDate = !dataset.compare ? dataset.days[referenceDataPoint.index] : undefined
                     const bodyLines = tooltipModel.body
                         .flatMap(({ lines }) => lines)
                         .map((component, idx) => ({
@@ -311,8 +336,9 @@ export function LineGraph({
                             referenceDate={referenceDate}
                             interval={interval}
                             bodyLines={bodyLines}
-                            inspectUsersLabel={inspectUsersLabel}
-                            chartType={type}
+                            inspectPersonsLabel={inspectPersonsLabel}
+                            preferAltTitle={tooltipPreferAltTitle}
+                            hideHeader={type === 'horizontalBar'}
                         />,
                         tooltipEl
                     )
@@ -373,6 +399,11 @@ export function LineGraph({
                         } else {
                             evt.target.style.cursor = 'default'
                         }
+                    }
+                    if (evt.type === 'mouseout') {
+                        setTooltipVisible(false)
+                    } else {
+                        setTooltipVisible(true)
                     }
                 },
             },

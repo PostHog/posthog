@@ -1,8 +1,8 @@
-import { Avatar, Card, Divider, Image, List, Spin, Tooltip, Typography, Collapse } from 'antd'
+import { Avatar, Card, Divider, Image, List, Spin, Typography, Collapse } from 'antd'
 import React, { useState } from 'react'
-
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useActions, useValues } from 'kea'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const { Title } = Typography
 
@@ -46,8 +46,7 @@ const LESSONS = [
     },
     {
         title: 'Custom Behavioral Cohorts',
-        hover:
-            'A walk-through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
+        hover: 'A walk-through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
         target: `https://posthog.com/docs/tutorials/cohorts?utm_content=project-home${UTM_TAGS}`,
         imgSrc: analyzeBehavior,
     },
@@ -153,7 +152,7 @@ export function CommunityIcons(): JSX.Element {
                         reportProjectHomeItemClicked('community', tile.title)
                     }}
                 >
-                    <Tooltip placement="bottom" title={tile.hoverText ? tile.hoverText : ''}>
+                    <Tooltip placement="top" title={tile.hoverText ? tile.hoverText : ''}>
                         <List.Item className="insight-container" key={tile.title}>
                             <Avatar
                                 size={55}

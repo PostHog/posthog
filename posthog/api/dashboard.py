@@ -93,15 +93,28 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         return instance
 
+    def add_dive_source_item(self, items: QuerySet, dive_source_id: int):
+        item_as_list = list(i for i in items if i.id == dive_source_id)
+        if not item_as_list:
+            item_as_list = [DashboardItem.objects.get(pk=dive_source_id)]
+        others = list(i for i in items if i.id != dive_source_id)
+        return item_as_list + others
+
     def get_items(self, dashboard: Dashboard):
         if self.context["view"].action == "list":
             return None
 
         if self.context["request"].GET.get("refresh"):
             update_dashboard_items_cache(dashboard)
+            dashboard.refresh_from_db()
 
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
+
+        dive_source_id = self.context["request"].GET.get("dive_source_id")
+        if dive_source_id is not None:
+            items = self.add_dive_source_item(items, int(dive_source_id))
+
         return DashboardItemSerializer(items, many=True, context=self.context).data
 
 
@@ -167,6 +180,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "order",
             "deleted",
             "dashboard",
+            "dive_dashboard",
             "layouts",
             "color",
             "last_refresh",
@@ -176,6 +190,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "saved",
             "created_at",
             "created_by",
+            "updated_at",
         ]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardItem:
@@ -183,7 +198,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         team = Team.objects.get(id=self.context["team_id"])
         validated_data.pop("last_refresh", None)  # last_refresh sometimes gets sent if dashboard_item is duplicated
 
-        if not validated_data.get("dashboard", None):
+        if not validated_data.get("dashboard", None) and not validated_data.get("dive_dashboard", None):
             dashboard_item = DashboardItem.objects.create(team=team, created_by=request.user, **validated_data)
             return dashboard_item
         elif validated_data["dashboard"].team == team:
@@ -208,22 +223,24 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters_hash:
             return None
 
-        if self.context["request"].GET.get("refresh"):
-            update_dashboard_item_cache(dashboard_item, None)
-
         result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result.get("result")
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
-        if self.get_result(dashboard_item):
+        result = self.get_result(dashboard_item)
+        if result is not None:
             return dashboard_item.last_refresh
         dashboard_item.last_refresh = None
         dashboard_item.save()
         return None
 
     def to_representation(self, instance):
+        if self.context["request"].GET.get("refresh"):
+            update_dashboard_item_cache(instance, None)
+            instance.refresh_from_db()
+
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
         return representation

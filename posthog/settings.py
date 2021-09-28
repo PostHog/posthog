@@ -24,7 +24,7 @@ from sentry_sdk.integrations.celery import CeleryIntegration
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
-from posthog.constants import RDBMS
+from posthog.constants import AnalyticsDBMS
 from posthog.utils import print_warning, str_to_bool
 
 
@@ -65,15 +65,17 @@ if E2E_TESTING:
 
 # These flags will be force-enabled on the frontend **in addition to** flags from `/decide`
 # The features here are released, but the flags are just not yet removed from the code.
-PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) or [
-    # Add flags here
-    "4267-taxonomic-property-filter",
-    "4535-funnel-bar-viz",
-]
+# To ignore this persisted feature flag behavior, set `PERSISTED_FEATURE_FLAGS = 0`
+env_feature_flags = os.getenv("PERSISTED_FEATURE_FLAGS", "")
+PERSISTED_FEATURE_FLAGS = []
+if env_feature_flags != "0" and env_feature_flags.lower() != "false":
+    PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
+        # Add hard-coded feature flags for static releases here
+    ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
-SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
+CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 
@@ -139,6 +141,7 @@ TRUST_ALL_PROXIES = os.getenv("TRUST_ALL_PROXIES", False)
 
 if IS_BEHIND_PROXY:
     USE_X_FORWARDED_HOST = True
+    USE_X_FORWARDED_PORT = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
     if not TRUST_ALL_PROXIES and not TRUSTED_PROXIES:
@@ -171,6 +174,8 @@ CLICKHOUSE_ASYNC = get_from_env("CLICKHOUSE_ASYNC", False, type_cast=str_to_bool
 CLICKHOUSE_CONN_POOL_MIN = get_from_env("CLICKHOUSE_CONN_POOL_MIN", 20, type_cast=int)
 CLICKHOUSE_CONN_POOL_MAX = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, type_cast=int)
 
+CLICKHOUSE_STABLE_HOST = get_from_env("CLICKHOUSE_STABLE_HOST", CLICKHOUSE_HOST)
+
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:
@@ -188,11 +193,11 @@ KAFKA_HOSTS = ",".join(KAFKA_HOSTS_LIST)
 KAFKA_BASE64_KEYS = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)
 
 _primary_db = os.getenv("PRIMARY_DB", "postgres")
-PRIMARY_DB: RDBMS
+PRIMARY_DB: AnalyticsDBMS
 try:
-    PRIMARY_DB = RDBMS(_primary_db)
+    PRIMARY_DB = AnalyticsDBMS(_primary_db)
 except ValueError:
-    PRIMARY_DB = RDBMS.POSTGRES
+    PRIMARY_DB = AnalyticsDBMS.POSTGRES
 
 EE_AVAILABLE = False
 
@@ -233,7 +238,7 @@ AXES_ENABLED = get_from_env("AXES_ENABLED", not TEST, type_cast=str_to_bool)
 AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = int(os.getenv("AXES_FAILURE_LIMIT", 5))
 AXES_COOLOFF_TIME = timedelta(minutes=15)
-AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axess_logout"
+AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
 AXES_META_PRECEDENCE_ORDER = [
     "HTTP_X_FORWARDED_FOR",
     "REMOTE_ADDR",
@@ -271,6 +276,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "posthog.middleware.CSVNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
 ]
@@ -327,17 +333,16 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 
 # Social Auth
 
-SOCIAL_AUTH_POSTGRES_JSONFIELD = True
+SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
-AUTHENTICATION_BACKENDS = (
+AUTHENTICATION_BACKENDS = [
     "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
-    "social_core.backends.google.GoogleOAuth2",
     "django.contrib.auth.backends.ModelBackend",
-)
+]
 
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
@@ -461,13 +466,14 @@ CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
 
-if PRIMARY_DB == RDBMS.CLICKHOUSE:
+if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
     try:
         from ee.apps import EnterpriseConfig  # noqa: F401
     except ImportError:
         pass
     else:
         CELERY_IMPORTS.append("ee.tasks.webhooks_ee")
+        CELERY_IMPORTS.append("ee.tasks.materialized_columns")
 
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
@@ -485,6 +491,18 @@ TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached r
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
 ]
+
+# shell_plus settings
+# https://django-extensions.readthedocs.io/en/latest/shell_plus.html
+
+SHELL_PLUS_PRINT_SQL = get_from_env("PRINT_SQL", False, type_cast=str_to_bool)
+SHELL_PLUS_POST_IMPORTS = [
+    ("posthog.models.filters", ("Filter",)),
+    ("posthog.models.property", ("Property",)),
+]
+
+if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
+    SHELL_PLUS_POST_IMPORTS.append(("ee.clickhouse.client", ("sync_execute",)))
 
 
 # Internationalization

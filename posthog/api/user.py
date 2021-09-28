@@ -8,7 +8,7 @@ import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
@@ -19,14 +19,10 @@ from rest_framework import mixins, permissions, serializers, viewsets
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
-from posthog.ee import is_clickhouse_enabled
-from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.tasks import user_identify
-from posthog.utils import get_instance_realm
-from posthog.version import VERSION
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -176,123 +172,6 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.G
         raise serializers.ValidationError(
             "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
         )
-
-
-@authenticate_secondarily
-def user(request):
-    """
-    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/users/@me/
-    and will be removed soon.
-    """
-    organization: Optional[Organization] = request.user.organization
-    organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
-    team: Optional[Team] = request.user.team
-    teams = list(request.user.teams.order_by("-created_at").values("name", "id"))
-    user = cast(User, request.user)
-
-    if request.method == "PATCH":
-        data = json.loads(request.body)
-
-        if team is not None and "team" in data:
-            team.app_urls = data["team"].get("app_urls", team.app_urls)
-            team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
-            team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
-            team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
-            team.session_recording_retention_period_days = data["team"].get(
-                "session_recording_retention_period_days", team.session_recording_retention_period_days,
-            )
-            team.completed_snippet_onboarding = data["team"].get(
-                "completed_snippet_onboarding", team.completed_snippet_onboarding,
-            )
-            team.test_account_filters = data["team"].get("test_account_filters", team.test_account_filters)
-            team.timezone = data["team"].get("timezone", team.timezone)
-            team.save()
-
-        if "user" in data:
-            try:
-                user.current_organization = user.organizations.get(id=data["user"]["current_organization_id"])
-                assert user.organization is not None, "Organization should have been just set"
-                user.current_team = user.organization.teams.first()
-            except (KeyError, ValueError):
-                pass
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Organization not found for user."}, status=404)
-            except KeyError:
-                pass
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Organization not found for user."}, status=404)
-            if user.organization is not None:
-                try:
-                    user.current_team = user.organization.teams.get(id=int(data["user"]["current_team_id"]))
-                except (KeyError, TypeError):
-                    pass
-                except ValueError:
-                    return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
-                except ObjectDoesNotExist:
-                    return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
-            user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
-            user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
-            user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
-            user.save()
-
-    user_identify.identify_task.delay(user_id=user.id)
-
-    return JsonResponse(
-        {
-            "deprecation": "Endpoint has been deprecated. Please use `/api/users/@me/`.",
-            "id": user.pk,
-            "distinct_id": user.distinct_id,
-            "name": user.first_name,
-            "email": user.email,
-            "email_opt_in": user.email_opt_in,
-            "anonymize_data": user.anonymize_data,
-            "toolbar_mode": user.toolbar_mode,
-            "organization": None
-            if organization is None
-            else {
-                "id": organization.id,
-                "name": organization.name,
-                "billing_plan": organization.billing_plan,
-                "available_features": organization.available_features,
-                "plugins_access_level": organization.plugins_access_level,
-                "created_at": organization.created_at,
-                "updated_at": organization.updated_at,
-                "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],
-            },
-            "organizations": organizations,
-            "team": None
-            if team is None
-            else {
-                "id": team.id,
-                "name": team.name,
-                "app_urls": team.app_urls,
-                "api_token": team.api_token,
-                "anonymize_ips": team.anonymize_ips,
-                "slack_incoming_webhook": team.slack_incoming_webhook,
-                "completed_snippet_onboarding": team.completed_snippet_onboarding,
-                "session_recording_opt_in": team.session_recording_opt_in,
-                "session_recording_retention_period_days": team.session_recording_retention_period_days,
-                "ingested_event": team.ingested_event,
-                "is_demo": team.is_demo,
-                "test_account_filters": team.test_account_filters,
-                "timezone": team.timezone,
-                "data_attributes": team.data_attributes,
-            },
-            "teams": teams,
-            "has_password": user.has_usable_password(),
-            "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
-            "posthog_version": VERSION,
-            "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
-            "ee_available": settings.EE_AVAILABLE,
-            "is_clickhouse_enabled": is_clickhouse_enabled(),
-            "email_service_available": is_email_available(with_absolute_urls=True),
-            "is_debug": getattr(settings, "DEBUG", False),
-            "is_staff": user.is_staff,
-            "is_impersonated": is_impersonated_session(request),
-            "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
-            "realm": get_instance_realm(),
-        }
-    )
 
 
 @authenticate_secondarily

@@ -1,12 +1,25 @@
-from typing import Dict, Generator, List
+import glob
+import subprocess
+import tempfile
+import uuid
+from os.path import abspath, basename, dirname, join
+from typing import Dict, Generator, List, Tuple
 
+import sqlparse
+from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+from sentry_sdk.api import capture_exception
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import make_ch_pool, sync_execute
+from ee.clickhouse.models.event import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
+from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_STABLE_HOST, CLICKHOUSE_USER
 
 SLOW_THRESHOLD_MS = 10000
 SLOW_AFTER = relativedelta(hours=6)
+
+CLICKHOUSE_FLAMEGRAPH_EXECUTABLE = abspath(join(dirname(__file__), "bin", "clickhouse-flamegraph"))
+FLAMEGRAPH_PL = abspath(join(dirname(__file__), "bin", "flamegraph.pl"))
 
 SystemStatusRow = Dict
 
@@ -17,6 +30,18 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
 
     if not alive:
         return
+
+    yield {"key": "clickhouse_event_count", "metric": "Events in ClickHouse", "value": get_event_count()}
+    yield {
+        "key": "clickhouse_event_count_last_month",
+        "metric": "Events recorded last month",
+        "value": get_event_count_for_last_month(),
+    }
+    yield {
+        "key": "clickhouse_event_count_month_to_date",
+        "metric": "Events recorded month to date",
+        "value": get_event_count_month_to_date(),
+    }
 
     disk_status = sync_execute(
         "SELECT formatReadableSize(total_space), formatReadableSize(free_space) FROM system.disks"
@@ -80,6 +105,8 @@ def get_clickhouse_slow_log() -> List[Dict]:
             FROM system.query_log
             WHERE query_duration_ms > {SLOW_THRESHOLD_MS}
               AND event_time > %(after)s
+              AND query NOT LIKE '%%system.query_log%%'
+              AND query NOT LIKE '%%analyze_query:%%'
             ORDER BY duration DESC
             LIMIT 200
         """,
@@ -116,3 +143,112 @@ def query_with_columns(query, args=None, columns_to_remove=[]) -> List[Dict]:
         rows.append(result)
 
     return rows
+
+
+def analyze_query(query: str):
+    random_id = str(uuid.uuid4())
+
+    # :TRICKY: Ensure all queries run on the same host.
+    ch_pool = make_ch_pool(host=CLICKHOUSE_STABLE_HOST)
+
+    with ch_pool.get_client() as conn:
+        conn.execute(
+            f"""
+            -- analyze_query:{random_id}
+            {query}
+            """,
+            settings={
+                "allow_introspection_functions": 1,
+                "query_profiler_real_time_period_ns": 40000000,
+                "query_profiler_cpu_time_period_ns": 40000000,
+                "memory_profiler_step": 1048576,
+                "max_untracked_memory": 1048576,
+                "memory_profiler_sample_probability": 0.01,
+                "use_uncompressed_cache": 0,
+                "readonly": 1,
+                "allow_ddl": 0,
+            },
+        )
+
+        query_id, timing_info = get_query_timing_info(random_id, conn)
+
+        return {
+            "query": sqlparse.format(query, reindent_aligned=True),
+            "timing": timing_info,
+            "flamegraphs": get_flamegraphs(query_id),
+        }
+
+
+def get_query_timing_info(random_id: str, conn: Client) -> Tuple[str, Dict]:
+    conn.execute("SYSTEM FLUSH LOGS")
+    results = conn.execute(
+        """
+        SELECT
+            query_id,
+            event_time,
+            query_duration_ms,
+            read_rows,
+            formatReadableSize(read_bytes) as read_size,
+            result_rows,
+            formatReadableSize(result_bytes) as result_size,
+            formatReadableSize(memory_usage) as memory_usage
+        FROM system.query_log
+        WHERE query NOT LIKE '%%query_log%%'
+          AND match(query, %(expr)s)
+          AND type = 'QueryFinish'
+        LIMIT 1
+    """,
+        {"expr": f"analyze_query:{random_id}"},
+    )
+
+    return (
+        results[0][0],
+        dict(
+            zip(
+                [
+                    "query_id",
+                    "event_time",
+                    "query_duration_ms",
+                    "read_rows",
+                    "read_size",
+                    "result_rows",
+                    "result_size",
+                    "memory_usage",
+                ],
+                results[0],
+            )
+        ),
+    )
+
+
+def get_flamegraphs(query_id: str) -> Dict:
+    try:
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            subprocess.run(
+                [
+                    CLICKHOUSE_FLAMEGRAPH_EXECUTABLE,
+                    "--query-id",
+                    query_id,
+                    "--clickhouse-dsn",
+                    f"http://{CLICKHOUSE_USER}:{CLICKHOUSE_PASSWORD}@{CLICKHOUSE_STABLE_HOST}:8123/",
+                    "--console",
+                    "--flamegraph-script",
+                    FLAMEGRAPH_PL,
+                    "--date-from",
+                    "2021-01-01",
+                    "--width",
+                    "1900",
+                ],
+                cwd=tmpdirname,
+                check=True,
+            )
+
+            flamegraphs = {}
+            for file_path in glob.glob(join(tmpdirname, "*/*/global*.svg")):
+                with open(file_path) as file:
+                    flamegraphs[basename(file_path)] = file.read()
+
+            return flamegraphs
+    except Exception as err:
+        capture_exception(err)
+        return {}

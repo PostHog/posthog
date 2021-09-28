@@ -2,9 +2,9 @@ import React, { useState } from 'react'
 import { uuid, deleteWithUndo } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useValues, useActions } from 'kea'
-import { actionEditLogic } from './actionEditLogic'
+import { actionEditLogic } from './actionEditLogic.ts'
 import './Actions.scss'
-import { ActionStep } from './ActionStep'
+import { ActionStep } from './ActionStep.tsx'
 import { Button, Col, Input, Row } from 'antd'
 import { InfoCircleOutlined, PlusOutlined, SaveOutlined, DeleteOutlined, LoadingOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
@@ -14,10 +14,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import dayjs from 'dayjs'
 import { compactNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-
-function AsyncActionMappingNotice() {
-    return <p>Please note that actions may be delayed up to 5 minutes due to open-source PostHog configuration.</p>
-}
 
 export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, temporaryToken }) {
     let logic = actionEditLogic({
@@ -191,7 +187,6 @@ export function ActionEdit({ action: loadedAction, actionId, apiURL, onSave, tem
                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                             </Link>
                         </p>
-                        {!preflight?.is_clickhouse_enabled && <AsyncActionMappingNotice />}
                         {action.post_to_slack && (
                             <>
                                 <Input

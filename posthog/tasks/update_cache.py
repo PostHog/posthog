@@ -21,28 +21,33 @@ from posthog.constants import (
     INSIGHT_TRENDS,
     TRENDS_LINEAR,
     TRENDS_STICKINESS,
+    FunnelOrderType,
     FunnelVizType,
 )
 from posthog.decorators import CacheType
-from posthog.ee import is_clickhouse_enabled
 from posthog.models import Dashboard, DashboardItem, Filter, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.settings import CACHED_RESULTS_TTL
 from posthog.types import FilterType
-from posthog.utils import generate_cache_key
+from posthog.utils import generate_cache_key, is_clickhouse_enabled
 
 PARALLEL_DASHBOARD_ITEM_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = logging.getLogger(__name__)
 
 if is_clickhouse_enabled():
-    from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
+    from ee.clickhouse.queries import ClickhousePaths
     from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
     from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
-    from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
-    from ee.clickhouse.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
-    from ee.clickhouse.queries.funnels.funnel_trends import ClickhouseFunnelTrends
+    from ee.clickhouse.queries.funnels import (
+        ClickhouseFunnel,
+        ClickhouseFunnelBase,
+        ClickhouseFunnelStrict,
+        ClickhouseFunnelTimeToConvert,
+        ClickhouseFunnelTrends,
+        ClickhouseFunnelUnordered,
+    )
     from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
     from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 
@@ -71,18 +76,21 @@ else:
 
 
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> None:
-
     result: Optional[Union[List, Dict]] = None
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
     filter = get_filter(data=filter_dict, team=Team(pk=team_id))
+
+    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
+    dashboard_items.update(refreshing=True)
+
     if cache_type == CacheType.FUNNEL:
         result = _calculate_funnel(filter, key, team_id)
     else:
         result = _calculate_by_filter(filter, key, team_id, cache_type)
+    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
 
-    if result:
-        cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, CACHED_RESULTS_TTL)
+    dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
 
 
 def update_dashboard_items_cache(dashboard: Dashboard) -> None:
@@ -93,6 +101,7 @@ def update_dashboard_items_cache(dashboard: Dashboard) -> None:
 def update_dashboard_item_cache(dashboard_item: DashboardItem, dashboard: Optional[Dashboard]) -> None:
     cache_key, cache_type, payload = dashboard_item_update_task_params(dashboard_item, dashboard)
     update_cache_item(cache_key, cache_type, payload)
+    dashboard_item.refresh_from_db()
 
 
 def get_cache_type(filter: FilterType) -> CacheType:
@@ -151,31 +160,34 @@ def dashboard_item_update_task_params(
 
 
 def _calculate_by_filter(filter: FilterType, key: str, team_id: int, cache_type: CacheType) -> List[Dict[str, Any]]:
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
-    dashboard_items.update(refreshing=True)
-
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
-    result = insight_class().run(filter, Team(pk=team_id))
-    dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
+    if cache_type == CacheType.PATHS:
+        result = insight_class(filter, Team(pk=team_id)).run(filter, Team(pk=team_id))
+    else:
+        result = insight_class().run(filter, Team(pk=team_id))
     return result
 
 
 def _calculate_funnel(filter: Filter, key: str, team_id: int) -> List[Dict[str, Any]]:
-    dashboard_items = DashboardItem.objects.filter(team_id=team_id, filters_hash=key)
-    dashboard_items.update(refreshing=True)
+    team = Team(pk=team_id)
 
-    insight_class: Union[Type[Funnel]]
     if is_clickhouse_enabled():
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            insight_class = ClickhouseFunnelTrends
-        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            insight_class = ClickhouseFunnelTimeToConvert
-        else:
-            insight_class = ClickhouseFunnel
-    else:
-        insight_class = Funnel
+        funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
+        if filter.funnel_order_type == FunnelOrderType.UNORDERED:
+            funnel_order_class = ClickhouseFunnelUnordered
+        elif filter.funnel_order_type == FunnelOrderType.STRICT:
+            funnel_order_class = ClickhouseFunnelStrict
 
-    result = insight_class(filter=filter, team=Team(pk=team_id)).run()
-    dashboard_items.update(last_refresh=timezone.now(), refreshing=False)
+        if filter.funnel_viz_type == FunnelVizType.TRENDS:
+            result = ClickhouseFunnelTrends(team=team, filter=filter, funnel_order_class=funnel_order_class).run()
+        elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
+            result = ClickhouseFunnelTimeToConvert(
+                team=team, filter=filter, funnel_order_class=funnel_order_class
+            ).run()
+        else:
+            result = funnel_order_class(team=team, filter=filter).run()
+    else:
+        result = Funnel(filter=filter, team=team).run()
+
     return result

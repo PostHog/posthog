@@ -5,13 +5,9 @@
     width: 100% !important;
 }
 
-.cohort-type-description {
-    text-align: center;
-}
-
 .cohort-recalculating {
     background-color: $bg_mid;
-    padding: $default_spacing / 2 $default_spacing;
+    padding: $default_spacing * 0.5 $default_spacing;
     margin-top: $default_spacing;
     border-radius: $radius;
     .ant-spin-spinning {

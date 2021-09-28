@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Iterable, List, Tuple, cast
 
 from django.db.models.query import Prefetch
 
@@ -6,6 +6,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.models.person import get_persons_by_uuids
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.queries.retention.retention_event_query import RetentionEventsQuery
 from ee.clickhouse.queries.util import get_trunc_func_ch
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from ee.clickhouse.sql.retention.people_in_period import (
@@ -22,107 +23,60 @@ from ee.clickhouse.sql.retention.retention import (
     RETENTION_PEOPLE_SQL,
     RETENTION_SQL,
 )
-from posthog.constants import RETENTION_FIRST_TIME, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TRENDS_LINEAR
+from posthog.constants import (
+    RETENTION_FIRST_TIME,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_LINEAR,
+    RetentionQueryType,
+)
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import RetentionFilter
 from posthog.models.person import Person
 from posthog.models.team import Team
-from posthog.queries.retention import Retention
+from posthog.queries.retention import AppearanceRow, Retention
 
 
 class ClickhouseRetention(Retention):
     def _execute_sql(self, filter: RetentionFilter, team: Team,) -> Dict[Tuple[int, int], Dict[str, Any]]:
         period = filter.period
-        prop_filters, prop_filter_params = parse_prop_clauses(
-            filter.properties, team.pk, filter_test_accounts=filter.filter_test_accounts
-        )
-        target_entity = filter.target_entity
-        returning_entity = filter.returning_entity
         is_first_time_retention = filter.retention_type == RETENTION_FIRST_TIME
         date_from = filter.date_from
-        date_to = filter.date_to
-
-        target_query = ""
-        target_params: Dict = {}
         trunc_func = get_trunc_func_ch(period)
 
-        target_query, target_params = self._get_condition(target_entity, table="e")
-        returning_query, returning_params = self._get_condition(returning_entity, table="e", prepend="returning")
+        returning_event_query, returning_event_params = RetentionEventsQuery(
+            filter=filter, team_id=team.pk, event_query_type=RetentionQueryType.RETURNING
+        ).get_query()
+        target_event_query, target_event_params = RetentionEventsQuery(
+            filter=filter,
+            team_id=team.pk,
+            event_query_type=RetentionQueryType.TARGET_FIRST_TIME
+            if is_first_time_retention
+            else RetentionQueryType.TARGET,
+        ).get_query()
 
-        target_query_formatted = "AND {target_query}".format(target_query=target_query)
-        returning_query_formatted = "AND {returning_query}".format(returning_query=returning_query)
+        all_params = {
+            "team_id": team.pk,
+            "start_date": date_from.strftime(
+                "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
+            ),
+            **returning_event_params,
+            **target_event_params,
+            "period": period,
+        }
 
-        reference_event_sql = (REFERENCE_EVENT_UNIQUE_SQL if is_first_time_retention else REFERENCE_EVENT_SQL).format(
-            target_query=target_query_formatted,
-            filters=prop_filters,
-            trunc_func=trunc_func,
-            GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-        )
-
-        target_condition, _ = self._get_condition(target_entity, table="reference_event")
-        if is_first_time_retention:
-            target_condition = target_condition.replace("reference_event.uuid", "reference_event.min_uuid")
-            target_condition = target_condition.replace("reference_event.event", "reference_event.min_event")
-        returning_condition, _ = self._get_condition(returning_entity, table="event", prepend="returning")
         result = sync_execute(
             RETENTION_SQL.format(
-                target_query=target_query_formatted,
-                returning_query=returning_query_formatted,
-                filters=prop_filters,
+                returning_event_query=returning_event_query,
                 trunc_func=trunc_func,
-                extra_union="UNION ALL {} ".format(reference_event_sql),
-                reference_event_sql=reference_event_sql,
-                target_condition=target_condition,
-                returning_condition=returning_condition,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
+                target_event_query=target_event_query,
             ),
-            {
-                "team_id": team.pk,
-                "start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_end_date": (
-                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
-                ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
-                **prop_filter_params,
-                **target_params,
-                **returning_params,
-                "period": period,
-            },
+            all_params,
         )
 
         initial_interval_result = sync_execute(
-            INITIAL_INTERVAL_SQL.format(
-                reference_event_sql=reference_event_sql,
-                trunc_func=trunc_func,
-                GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-            ),
-            {
-                "team_id": team.pk,
-                "start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "end_date": date_to.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_start_date": date_from.strftime(
-                    "%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")
-                ),
-                "reference_end_date": (
-                    (date_from + filter.period_increment) if filter.display == TRENDS_LINEAR else date_to
-                ).strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.period == "Hour" else " 00:00:00")),
-                **prop_filter_params,
-                **target_params,
-                **returning_params,
-                "period": period,
-            },
+            INITIAL_INTERVAL_SQL.format(reference_event_sql=target_event_query, trunc_func=trunc_func,), all_params
         )
 
         result_dict = {}
@@ -242,7 +196,8 @@ class ClickhouseRetention(Retention):
 
         filter = filter.with_data({"total_intervals": filter.total_intervals - filter.selected_interval})
 
-        query_result = sync_execute(
+        # NOTE: I'm using `Any` here to avoid typing issues when trying to iterate.
+        query_result: Any = sync_execute(
             RETENTION_PEOPLE_PER_PERIOD_SQL.format(
                 returning_query=return_query_formatted,
                 filters=prop_filters,
@@ -267,15 +222,19 @@ class ClickhouseRetention(Retention):
                 **prop_filter_params,
             },
         )
-        people_dict = {}
+
+        people_appearances = [
+            AppearanceRow(person_id=row[0], appearance_count=row[1], appearances=row[2]) for row in query_result
+        ]
 
         from posthog.api.person import PersonSerializer
 
         people = get_persons_by_uuids(team_id=team.pk, uuids=[val[0] for val in query_result])
         people = people.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
 
-        for person in people:
-            people_dict.update({str(person.uuid): PersonSerializer(person).data})
+        people_dict = {str(person.uuid): PersonSerializer(person).data for person in people}
 
-        result = self.process_people_in_period(filter, query_result, people_dict)
+        result = self.process_people_in_period(
+            filter=filter, people_appearances=people_appearances, people_dict=people_dict
+        )
         return result

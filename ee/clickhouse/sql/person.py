@@ -1,11 +1,18 @@
 from ee.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, STORAGE_POLICY, kafka_engine, table_engine
+from .clickhouse import (
+    COLLAPSING_MERGE_TREE,
+    KAFKA_COLUMNS,
+    REPLACING_MERGE_TREE,
+    STORAGE_POLICY,
+    kafka_engine,
+    table_engine,
+)
 
-DROP_PERSON_TABLE_SQL = f"DROP TABLE person ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
-DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE IF EXISTS person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
 
 PERSONS_TABLE = "person"
 
@@ -95,33 +102,43 @@ PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
 CREATE TABLE {table_name} ON CLUSTER {cluster}
 (
-    id Int64,
     distinct_id VARCHAR,
     person_id UUID,
     team_id Int64,
-    is_deleted Int8 DEFAULT 0
+    _sign Int8 DEFAULT 1,
+    is_deleted Int8 ALIAS if(_sign==-1, 1, 0)
     {extra_fields}
 ) ENGINE = {engine}
 """
 
 PERSONS_DISTINCT_ID_TABLE_SQL = (
     PERSONS_DISTINCT_ID_TABLE_BASE_SQL
-    + """Order By (team_id, distinct_id, person_id, id)
+    + """Order By (team_id, distinct_id, person_id)
 {storage_policy}
 """
 ).format(
     table_name=PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_timestamp", REPLACING_MERGE_TREE),
+    engine=table_engine(PERSONS_DISTINCT_ID_TABLE, "_sign", COLLAPSING_MERGE_TREE),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY,
 )
 
-KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = PERSONS_DISTINCT_ID_TABLE_BASE_SQL.format(
+# :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
+#    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = """
+CREATE TABLE {table_name} ON CLUSTER {cluster}
+(
+    distinct_id VARCHAR,
+    person_id UUID,
+    team_id Int64,
+    _sign Nullable(Int8),
+    is_deleted Nullable(Int8)
+) ENGINE = {engine}
+""".format(
     table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
-    extra_fields="",
 )
 
 # You must include the database here because of a bug in clickhouse
@@ -130,11 +147,10 @@ PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
 TO {database}.{table_name}
 AS SELECT
-id,
 distinct_id,
 person_id,
 team_id,
-is_deleted,
+coalesce(_sign, if(is_deleted==0, 1, -1)) AS _sign,
 _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
@@ -171,7 +187,9 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
     extra_fields=KAFKA_COLUMNS,
 )
 
-DROP_PERSON_STATIC_COHORT_TABLE_SQL = f"DROP TABLE {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_STATIC_COHORT_TABLE_SQL = (
+    f"DROP TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+)
 
 INSERT_PERSON_STATIC_COHORT = (
     f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp) VALUES"
@@ -193,25 +211,12 @@ WHERE team_id = %(team_id)s
     GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
 )
 
-GET_PERSON_BY_DISTINCT_ID = """
-SELECT p.id
-FROM ({latest_person_sql}) AS p
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON p.id = pdi.person_id
-WHERE team_id = %(team_id)s
-  AND pdi.distinct_id = %(distinct_id)s
-  {distinct_query}
-""".format(
-    latest_person_sql=GET_LATEST_PERSON_SQL,
-    distinct_query="{distinct_query}",
-    GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS,
-)
-
 INSERT_PERSON_SQL = """
 INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0
 """
 
 INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, 0, now(), 0 VALUES
+INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(_sign)s, now(), 0 VALUES
 """
 
 DELETE_PERSON_BY_ID = """
@@ -226,34 +231,9 @@ WHERE distinct_id IN (
 AND team_id = %(team_id)s
 """
 
-DELETE_PERSON_DISTINCT_ID_BY_PERSON_ID = """
-INSERT INTO person_distinct_id (id, distinct_id, person_id, team_id, is_deleted, _timestamp, _offset) SELECT %(id)s, %(distinct_id)s, %(person_id)s, %(team_id)s, 0, now(), 0
-"""
-
-PERSON_TREND_SQL = """
-SELECT DISTINCT distinct_id FROM events WHERE team_id = %(team_id)s {entity_filter} {filters} {parsed_date_from} {parsed_date_to} {person_filter}
-"""
-
-PEOPLE_THROUGH_DISTINCT_SQL = """
-SELECT id, created_at, team_id, properties, is_identified, groupArray(distinct_id) FROM (
-    {latest_person_sql}
-) as person INNER JOIN (
-    SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql})
-) as pdi ON person.id = pdi.person_id
-WHERE team_id = %(team_id)s
-GROUP BY id, created_at, team_id, properties, is_identified
-LIMIT 200 OFFSET %(offset)s
-"""
-
-INSERT_COHORT_ALL_PEOPLE_THROUGH_DISTINCT_SQL = """
+INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, 0 FROM (
-    SELECT id FROM (
-        {latest_person_sql}
-    ) as person INNER JOIN (
-        SELECT person_id, distinct_id FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE distinct_id IN ({content_sql})
-    ) as pdi ON person.id = pdi.person_id
-    WHERE team_id = %(team_id)s
-    GROUP BY id
+    SELECT person_id FROM ({query})
 )
 """
 
@@ -307,4 +287,23 @@ ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) as keysAndValues
 WHERE team_id = %(team_id)s
 GROUP BY tupleElement(keysAndValues, 1)
 ORDER BY count DESC, key ASC
+"""
+
+GET_PERSONS_FROM_EVENT_QUERY = """
+SELECT
+    person_id,
+    created_at,
+    team_id,
+    person_props,
+    is_identified,
+    arrayReduce('groupUniqArray', groupArray(distinct_id)) AS distinct_ids
+FROM ({events_query})
+GROUP BY
+    person_id,
+    created_at,
+    team_id,
+    person_props,
+    is_identified
+LIMIT %(limit)s
+OFFSET %(offset)s
 """

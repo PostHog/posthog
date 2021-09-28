@@ -1,16 +1,16 @@
 /* Only styles that are shared across multiple components (i.e. global) should go here, trying to keep this file
 nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
-style files without adding already imported styles. */
+style files without adding already imported styles.
+
+Font weights: only `normal` (400), `$medium` (500) or `bold` (700) should be used.
+NOTE: $medium is a SCSS var; not a keyword
+
+*/
 
 // Global components
 @import 'react-toastify/dist/ReactToastify';
 @import '~/vars';
-
-@font-face {
-    font-family: 'GoshaSans-Bold';
-    src: url('../../public/GoshaSans-Bold.woff2') format('woff2'),
-        url('../../public/GoshaSans-Bold.woff') format('woff');
-}
+@import 'fonts';
 
 :root {
     --primary: #{$primary};
@@ -22,9 +22,13 @@ style files without adding already imported styles. */
     --bg-mid: #{$bg_mid};
     --bg-charcoal: #{$bg_charcoal};
     --text-default: #{$text_default};
+    --text-muted: #{$text_muted};
     --text-light: #{$text_light};
     --muted: #{$text_muted};
+    --muted-alt: #{$text_muted_alt};
+    --border-light: #{$border_light};
     --border: #{$border};
+    --border-dark: #{$border_dark};
     // Used for graph series
     --blue: #{$blue_500};
     --purple: #{$purple_500};
@@ -85,9 +89,7 @@ style files without adding already imported styles. */
     font-size: 28px;
     line-height: 34px;
     margin-top: 0.5em;
-    font-weight: 700;
-    color: $text_default;
-    font-family: $gosha_sans;
+    font-weight: bold;
 }
 
 .page-caption {
@@ -106,23 +108,28 @@ style files without adding already imported styles. */
     margin-top: 12px;
     font-size: 22px;
     line-height: 26px;
-    font-weight: 700;
+    font-weight: bold;
 
     &.highlighted {
-        padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
+        padding: $default_spacing $default_spacing $default_spacing $default_spacing * 0.5;
     }
 }
 
 .l3 {
     /* Level 3 title (ideally H3) */
     font-size: 16px;
-    font-weight: 700;
+    font-weight: bold;
     line-height: 19px;
 }
 
 .l4 {
     font-size: 14px;
-    font-weight: 700;
+    font-weight: bold;
+}
+
+.l5 {
+    font-size: 13px;
+    font-weight: bold;
 }
 
 .text-right {
@@ -208,6 +215,16 @@ code.code {
 
 .ml-025 {
     margin-left: $default_spacing * 0.25;
+}
+
+.mx-0 {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+
+.my-0 {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
 }
 
 .pa {
@@ -307,17 +324,16 @@ code.code {
 .Toastify__toast-container {
     opacity: 1;
     transform: none;
+    margin-top: $top_nav_height;
 }
 
 .Toastify__toast {
     padding: 16px;
     border-radius: $radius;
-    color: $text_default;
     font-family: inherit;
     background-color: $bg_light;
     border: 1px solid $border;
     @extend .text-default;
-    color: $text_default;
 
     h1 {
         font-size: 1.14rem;
@@ -327,7 +343,7 @@ code.code {
     .action-bar {
         @extend .text-small;
         color: $text_muted;
-        margin-top: $default_spacing / 2;
+        margin-top: $default_spacing * 0.5;
         display: flex;
         align-items: center;
         a {
@@ -390,7 +406,7 @@ code.code {
 }
 
 .card-elevated {
-    @extend .mixin-elevated;
+    @extend %mixin-elevated;
 }
 
 // Form & input styles
@@ -432,15 +448,11 @@ code.code {
     }
 }
 
-.ant-form-item-label {
-    font-weight: bold;
+.ant-form-item-label label {
+    font-weight: $medium;
 }
 
 // Button styles
-
-button.ant-btn {
-    border-radius: $button_radius;
-}
 
 .btn-close {
     color: $text_muted;
@@ -508,6 +520,9 @@ button.ant-btn {
         border-color: $border;
         background-color: white;
         color: $primary_alt;
+        height: 23px;
+        width: 23px;
+        font-size: unset;
     }
 }
 

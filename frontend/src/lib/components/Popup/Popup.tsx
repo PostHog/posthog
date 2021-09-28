@@ -8,10 +8,11 @@ import { Placement } from '@popperjs/core'
 interface PopupProps {
     visible?: boolean
     onClickOutside?: (event: Event) => void
-    children: React.ReactChild | ((props: { setRef?: (ref: HTMLElement) => void }) => JSX.Element)
+    children: React.ReactChild | ((props: { setRef: (ref: HTMLElement | null) => void }) => JSX.Element)
     overlay: React.ReactNode
     placement?: Placement
     fallbackPlacements?: Placement[]
+    className?: string
 }
 
 // if we're inside a popup inside a popup, prevent the parent's onClickOutside from working
@@ -27,6 +28,7 @@ export function Popup({
     onClickOutside,
     placement = 'bottom-start',
     fallbackPlacements = ['bottom-end', 'top-start', 'top-end'],
+    className,
 }: PopupProps): JSX.Element {
     const popupId = useMemo(() => ++uniqueMemoizedIndex, [])
 
@@ -68,7 +70,7 @@ export function Popup({
     const clonedChildren =
         typeof children === 'function'
             ? children({
-                  setRef: setReferenceElement as (ref: HTMLElement) => void,
+                  setRef: setReferenceElement as (ref: HTMLElement | null) => void,
               })
             : React.Children.toArray(children).map((child) =>
                   React.cloneElement(child as ReactElement, {
@@ -82,7 +84,7 @@ export function Popup({
             {visible
                 ? ReactDOM.createPortal(
                       <div
-                          className="popper-tooltip"
+                          className={className ? `popper-tooltip ${className}` : 'popper-tooltip'}
                           ref={setPopperElement}
                           style={styles.popper}
                           {...attributes.popper}

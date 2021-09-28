@@ -21,9 +21,7 @@ from posthog.queries.trends import Trends
 from posthog.utils import relative_date_parse
 
 
-class ClickhouseTrends(
-    ClickhouseTrendsTotalVolume, ClickhouseTrendsBreakdown, ClickhouseLifecycle, ClickhouseTrendsFormula, Trends
-):
+class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, ClickhouseTrendsFormula, Trends):
     def _set_default_dates(self, filter: Filter, team_id: int) -> Filter:
         data = {}
         if not filter._date_from:
@@ -36,7 +34,7 @@ class ClickhouseTrends(
 
     def _get_sql_for_entity(self, filter: Filter, entity: Entity, team_id: int) -> Tuple[str, Dict, Callable]:
         if filter.breakdown:
-            sql, params, parse_function = self._format_breakdown_query(entity, filter, team_id)
+            sql, params, parse_function = ClickhouseTrendsBreakdown(entity, filter, team_id).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
             sql, params, parse_function = self._format_lifecycle_query(entity, filter, team_id)
         else:

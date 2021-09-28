@@ -8,44 +8,30 @@ import {
     RETENTION_FIRST_TIME,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
+    COHORT_DYNAMIC,
+    COHORT_STATIC,
+    BinCountAuto,
+    TeamMembershipLevel,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { Dayjs } from 'dayjs'
 import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
-export type AvailableFeatures =
-    | 'zapier'
-    | 'organizations_projects'
-    | 'google_login'
-    | 'dashboard_collaboration'
-    | 'clickhouse'
-    | 'ingestion_taxonomy'
+export enum AvailableFeature {
+    ZAPIER = 'zapier',
+    ORGANIZATIONS_PROJECTS = 'organizations_projects',
+    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
+    GOOGLE_LOGIN = 'google_login',
+    SAML = 'saml',
+    DASHBOARD_COLLABORATION = 'dashboard_collaboration',
+    INGESTION_TAXONOMY = 'ingestion_taxonomy',
+}
 
 export interface ColumnConfig {
     active: string[] | 'DEFAULT'
-}
-export interface UserType {
-    uuid: string
-    date_joined: string
-    first_name: string
-    email: string
-    email_opt_in: boolean
-    events_column_config: ColumnConfig
-    anonymize_data: boolean
-    distinct_id: string
-    toolbar_mode: 'disabled' | 'toolbar'
-    has_password: boolean
-    is_staff: boolean
-    is_impersonated: boolean
-    organization: OrganizationType | null
-    team: TeamBasicType | null
-    organizations: OrganizationBasicType[]
-    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
-    posthog_version?: string
 }
 
 /* Type for User objects in nested serializers (e.g. created_by) */
@@ -55,6 +41,23 @@ export interface UserBasicType {
     distinct_id: string
     first_name: string
     email: string
+}
+
+/** Full User model. */
+export interface UserType extends UserBasicType {
+    date_joined: string
+    email_opt_in: boolean
+    events_column_config: ColumnConfig
+    anonymize_data: boolean
+    toolbar_mode: 'disabled' | 'toolbar'
+    has_password: boolean
+    is_staff: boolean
+    is_impersonated: boolean
+    organization: OrganizationType | null
+    team: TeamBasicType | null
+    organizations: OrganizationBasicType[]
+    realm: 'cloud' | 'hosted' | 'hosted-clickhouse'
+    posthog_version?: string
 }
 
 export interface PluginAccess {
@@ -81,22 +84,54 @@ export interface OrganizationBasicType {
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
-    membership_level: OrganizationMembershipLevel | null
     personalization: PersonalizationData
     setup: SetupState
     setup_section_2_completed: boolean
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
-    available_features: AvailableFeatures[]
+    available_features: AvailableFeature[]
     domain_whitelist: string[]
+    is_member_join_email_enabled: boolean
+    membership_level: OrganizationMembershipLevel | null
 }
 
-export interface OrganizationMemberType {
+/** Member properties relevant at both organization and project level. */
+export interface BaseMemberType {
     id: string
     user: UserBasicType
-    level: OrganizationMembershipLevel
     joined_at: string
     updated_at: string
+}
+
+export interface OrganizationMemberType extends BaseMemberType {
+    /** Level at which the user is in the organization. */
+    level: OrganizationMembershipLevel
+}
+
+export interface ExplicitTeamMemberType extends BaseMemberType {
+    /** Level at which the user explicitly is in the project. */
+    level: TeamMembershipLevel
+    /** Level at which the user is in the organization. */
+    parent_level: OrganizationMembershipLevel
+    /** Effective level of the user within the project, which may be higher than parent level, but not lower. */
+    effective_level: OrganizationMembershipLevel
+}
+
+/**
+ * While OrganizationMemberType and ExplicitTeamMemberType refer to actual Django models,
+ * this interface is only used in the frontend for fusing the data from these models together.
+ */
+export interface FusedTeamMemberType extends BaseMemberType {
+    /**
+     * Level at which the user explicitly is in the project.
+     * Null means that membership is implicit (when showing permitted members)
+     * or that there's no membership at all (when showing addable members).
+     */
+    explicit_team_level: TeamMembershipLevel | null
+    /** Level at which the user is in the organization. */
+    organization_level: OrganizationMembershipLevel
+    /** Effective level of the user within the project. */
+    level: OrganizationMembershipLevel
 }
 
 export interface APIErrorType {
@@ -117,6 +152,7 @@ export interface PropertyUsageType {
     usage_count: number
     volume: number
 }
+
 export interface TeamBasicType {
     id: number
     uuid: string
@@ -127,6 +163,10 @@ export interface TeamBasicType {
     ingested_event: boolean
     is_demo: boolean
     timezone: string
+    /** Whether the project is private. */
+    access_control: boolean
+    /** Effective access level of the user in this specific team. Null if user has no access. */
+    effective_membership_level: OrganizationMembershipLevel | null
 }
 
 export interface TeamType extends TeamBasicType {
@@ -161,15 +201,16 @@ export enum ActionStepUrlMatching {
 
 export interface ActionStepType {
     event?: string
-    href?: string
+    href?: string | null
     id?: number
     name?: string
     properties?: []
-    selector?: string
+    selector?: string | null
     tag_name?: string
-    text?: string
-    url?: string
+    text?: string | null
+    url?: string | null
     url_matching?: ActionStepUrlMatching
+    isNew?: string
 }
 
 export interface ElementType {
@@ -194,8 +235,9 @@ export type EditorProps = {
     userIntent?: ToolbarUserIntent
     instrument?: boolean
     distinctId?: string
-    userEmail?: boolean
+    userEmail?: string
     dataAttributes?: string[]
+    featureFlags?: Record<string, string | boolean>
 }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
@@ -223,6 +265,12 @@ export enum PropertyOperator {
     LessThan = 'lt',
     IsSet = 'is_set',
     IsNotSet = 'is_not_set',
+}
+
+export enum SavedInsightsTabs {
+    All = 'all',
+    Yours = 'yours',
+    Favorites = 'favorites',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -297,9 +345,11 @@ export type SessionsPropertyFilter =
     | EventTypePropertyFilter
 
 export type EntityType = 'actions' | 'events' | 'new_entity'
+
 export interface Entity {
     id: string | number
     name: string
+    custom_name?: string
     order: number
     type: EntityType
 }
@@ -314,12 +364,14 @@ export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
     name: string | null
+    custom_name?: string
     index?: number
     order?: number
 }
 
-export interface EntityWithProperties extends Entity {
-    properties: Record<string, any>
+export interface FunnelStepRangeEntityFilter extends EntityFilter {
+    funnel_from_step: number
+    funnel_to_step: number
 }
 
 export interface PersonType {
@@ -345,6 +397,7 @@ export interface CohortGroupType {
 }
 
 export type MatchType = typeof ENTITY_MATCH_TYPE | typeof PROPERTY_MATCH_TYPE
+export type CohortTypeType = typeof COHORT_STATIC | typeof COHORT_DYNAMIC
 
 export interface CohortType {
     count?: number
@@ -374,24 +427,43 @@ export interface SavedFunnel extends InsightHistory {
     created_by: string
 }
 
+export type BinCountValue = number | typeof BinCountAuto
+
+// https://github.com/PostHog/posthog/blob/master/posthog/constants.py#L106
+export enum StepOrderValue {
+    STRICT = 'strict',
+    UNORDERED = 'unordered',
+    ORDERED = 'ordered',
+}
+
 export enum PersonsTabType {
     EVENTS = 'events',
     SESSIONS = 'sessions',
 }
 
+export enum LayoutView {
+    Card = 'card',
+    List = 'list',
+}
+
+export interface EventsTableAction {
+    name: string
+    id: string
+}
+
 export interface EventType {
     elements: ElementType[]
     elements_hash: string | null
-    event: string
     id: number | string
     properties: Record<string, any>
     timestamp: string
     person?: Partial<PersonType> | null
+    event: string
 }
 
-export interface EventFormattedType {
-    event: EventType
-    date_break?: Dayjs
+export interface EventsTableRowItem {
+    event?: EventType
+    date_break?: string
     new_events?: boolean
 }
 
@@ -401,18 +473,23 @@ export interface SessionType {
     length: number
     start_time: string
     end_time: string
-    session_recordings: SessionTypeSessionRecording[]
+    session_recordings: SessionRecordingType[]
     start_url: string | null
     end_url: string | null
     email?: string | null
     matching_events: Array<number | string>
 }
 
-export interface SessionTypeSessionRecording {
+export interface SessionRecordingType {
     id: string
+    /** Whether this recording has been viewed already. */
     viewed: boolean
-    /** Length of recording in seconds */
+    /** Length of recording in seconds. */
     recording_duration: number
+    /** When the recording starts in ISO format. */
+    start_time: string
+    /** When the recording ends in ISO format. */
+    end_time: string
 }
 
 export interface BillingType {
@@ -443,7 +520,8 @@ export interface DashboardItemType {
     name: string
     short_id: string
     description?: string
-    filters: Record<string, any>
+    favorited?: boolean
+    filters: Partial<FilterType>
     filters_hash: string
     order: number
     deleted: boolean
@@ -456,7 +534,10 @@ export interface DashboardItemType {
     created_by: UserBasicType | null
     is_sample: boolean
     dashboard: number
+    dive_dashboard?: number
     result: any | null
+    updated_at: string
+    tags: string[]
 }
 
 export interface DashboardType {
@@ -475,6 +556,8 @@ export interface DashboardType {
     tags: string[]
 }
 
+export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
+
 export interface OrganizationInviteType {
     id: string
     target_email: string
@@ -485,6 +568,7 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
 }
+
 export interface PluginType {
     id: number
     plugin_type: PluginInstallationType
@@ -501,8 +585,17 @@ export interface PluginType {
     organization_name: string
     metrics?: Record<string, StoredMetricMathOperations>
     capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    public_jobs?: Record<string, JobSpec>
 }
 
+export interface JobPayloadFieldOptions {
+    type: 'string' | 'boolean' | 'json' | 'number' | 'date'
+    required?: boolean
+}
+
+export interface JobSpec {
+    payload?: Record<string, JobPayloadFieldOptions>
+}
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -577,6 +670,7 @@ export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 // NB! Keep InsightType and ViewType in sync!
 export type InsightType = 'TRENDS' | 'SESSIONS' | 'FUNNELS' | 'RETENTION' | 'PATHS' | 'LIFECYCLE' | 'STICKINESS'
+
 export enum ViewType {
     TRENDS = 'TRENDS',
     STICKINESS = 'STICKINESS',
@@ -591,7 +685,6 @@ export enum ViewType {
 
 export enum PathType {
     PageView = '$pageview',
-    AutoCapture = '$autocapture',
     Screen = '$screen',
     CustomEvent = 'custom_event',
 }
@@ -604,18 +697,20 @@ export enum FunnelVizType {
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
+export type BreakdownKeyType = string | number | (string | number)[] | null
+
 export interface FilterType {
     insight?: InsightType
     display?: ChartDisplayType
     interval?: IntervalType
-    date_from?: string
-    date_to?: string
+    date_from?: string | null
+    date_to?: string | null
     properties?: PropertyFilter[]
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     breakdown_type?: BreakdownType | null
-    breakdown?: string | number | number[] | null
-    breakdown_value?: string
+    breakdown?: BreakdownKeyType
+    breakdown_value?: string | number
     shown_as?: ShownAsType
     session?: string
     period?: string
@@ -626,6 +721,7 @@ export interface FilterType {
     path_type?: PathType
     start_point?: string | number
     stickiness_days?: number
+    type?: EntityType
     entity_id?: string | number
     entity_type?: EntityType
     entity_math?: string
@@ -633,7 +729,7 @@ export interface FilterType {
     people_action?: any
     formula?: any
     filter_test_accounts?: boolean
-    from_dashboard?: boolean
+    from_dashboard?: boolean | number
     layout?: FunnelLayout // used only for funnels
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
@@ -643,6 +739,12 @@ export interface FilterType {
     funnel_to_step?: number // used in time to convert: ending step index to compute time to convert
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
     compare?: boolean
+    bin_count?: BinCountValue // used in time to convert: number of bins to show in histogram
+    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
+    funnel_window_interval?: number | undefined // length of conversion window
+    funnel_order_type?: StepOrderValue
+    exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
+    hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
 }
 
 export interface SystemStatusSubrows {
@@ -674,6 +776,21 @@ export interface SystemStatusQueriesResult {
     postgres_running: QuerySummary[]
     clickhouse_running?: QuerySummary[]
     clickhouse_slow_log?: QuerySummary[]
+}
+
+export interface SystemStatusAnalyzeResult {
+    query: string
+    timing: {
+        query_id: string
+        event_time: string
+        query_duration_ms: number
+        read_rows: number
+        read_size: string
+        result_rows: number
+        result_size: string
+        memory_usage: string
+    }
+    flamegraphs: Record<string, string>
 }
 
 export type PersonalizationData = Record<string, string | string[] | null>
@@ -724,19 +841,20 @@ export interface FunnelStep {
     average_conversion_time: number | null
     count: number
     name: string
+    custom_name?: string
     order: number
     people?: string[]
     type: EntityType
     labels?: string[]
-    breakdown?: string
-    breakdown_value?: string
+    breakdown?: BreakdownKeyType
+    breakdown_value?: string | number
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
     nested_breakdown?: FunnelStep[]
 }
 
-export interface FunnelResult<ResultType = FunnelStep[]> {
+export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
@@ -744,24 +862,8 @@ export interface FunnelResult<ResultType = FunnelStep[]> {
 }
 
 export interface FunnelsTimeConversionBins {
-    bins: [number, number][] | []
+    bins: [number, number][]
     average_conversion_time: number
-}
-
-export interface FunnelsTimeConversionResult {
-    result: FunnelsTimeConversionBins
-    last_refresh: string | null
-    is_cached: boolean
-    type: 'Funnel'
-}
-
-// Indexing boundaries = [from_step, to_step)
-export interface FunnelTimeConversionStep {
-    from_step: number // set this to -1 if querying for all steps
-    to_step: number
-    label?: string
-    average_conversion_time?: number
-    count?: number
 }
 
 export interface FunnelTimeConversionMetrics {
@@ -770,15 +872,31 @@ export interface FunnelTimeConversionMetrics {
     totalRate: number
 }
 
+export interface FunnelConversionWindow {
+    funnel_window_interval_unit?: FunnelConversionWindowTimeUnit
+    funnel_window_interval?: number | undefined
+}
+
+// https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
+export enum FunnelConversionWindowTimeUnit {
+    Minute = 'minute',
+    Hour = 'hour',
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+}
+
 export interface FunnelRequestParams extends FilterType {
     refresh?: boolean
-    from_dashboard?: boolean
+    from_dashboard?: boolean | number
     funnel_window_days?: number
 }
 
+export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+
 export interface LoadedRawFunnelResults {
-    results: FunnelStep[] | FunnelStep[][]
-    timeConversionResults: FunnelsTimeConversionBins
+    results: FunnelAPIResponse
+    filters: Partial<FilterType>
 }
 
 export interface FunnelStepWithConversionMetrics extends FunnelStep {
@@ -789,12 +907,26 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
         fromBasisStep: number // either fromPrevious or total, depending on FunnelStepReference
     }
     nested_breakdown?: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>[]
+    rowKey?: number | string
 }
 
 export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
     rowKey: number | string
+    nestedRowKeys?: string[]
     isBreakdownParent?: boolean
     breakdownIndex?: number
+}
+
+export interface FlattenedFunnelStepByBreakdown {
+    rowKey: number | string
+    isBaseline?: boolean
+    breakdown?: string | number
+    breakdown_value?: string | number
+    breakdownIndex?: number
+    conversionRates?: {
+        total: number
+    }
+    steps?: FunnelStepWithConversionMetrics[]
 }
 
 export interface ChartParams {
@@ -803,17 +935,41 @@ export interface ChartParams {
     filters: Partial<FilterType>
     inSharedMode?: boolean
     showPersonsModal?: boolean
-    cachedResults?: TrendResult
+    cachedResults?: TrendResult[]
     view: ViewType
+}
+
+// Shared between dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
+export interface SharedInsightLogicProps {
+    // the chart is displayed on a dashboard right now, used in the key if present
+    dashboardItemId?: number | null
+    // the insight is connected to a dashboard item, yet viewed on the insights scene
+    fromDashboardItemId?: number | null
+    cachedResults?: any
+    filters?: Partial<FilterType> | null
+    preventLoading?: boolean
 }
 
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
 }
+
+export interface MultivariateFlagVariant {
+    key: string
+    name: string | null
+    rollout_percentage: number
+}
+
+export interface MultivariateFlagOptions {
+    variants: MultivariateFlagVariant[]
+}
+
 interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
+    multivariate: MultivariateFlagOptions | null
 }
+
 export interface FeatureFlagType {
     id: number | null
     key: string
@@ -827,6 +983,19 @@ export interface FeatureFlagType {
     rollout_percentage: number | null
 }
 
+export interface FeatureFlagOverrideType {
+    id: number
+    feature_flag: number
+    user: number
+    override_value: boolean | string
+}
+
+export interface CombinedFeatureFlagAndOverrideType {
+    feature_flag: FeatureFlagType
+    value_for_user_without_override: boolean | string
+    override: FeatureFlagOverrideType | null
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string
@@ -838,6 +1007,7 @@ interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    saml?: boolean
 }
 
 export interface PreflightStatus {
@@ -869,6 +1039,11 @@ export interface PreflightStatus {
     is_event_property_usage_enabled?: boolean
     licensed_users_available?: number | null
     site_url?: string
+}
+
+export enum ItemMode { // todo: consolidate this and dashboardmode
+    Edit = 'edit',
+    View = 'view',
 }
 
 export enum DashboardMode { // Default mode is null
@@ -988,6 +1163,7 @@ export interface TiledIconModuleProps {
 }
 
 export type EventOrPropType = EventDefinition & PropertyDefinition
+
 export interface AppContext {
     current_user: UserType | null
     preflight: PreflightStatus

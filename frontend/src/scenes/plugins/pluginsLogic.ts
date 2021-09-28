@@ -144,17 +144,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {} as Record<string, PluginConfigType>,
             {
                 loadPluginConfigs: async () => {
-                    if (!!values.pluginConfigPollTimeout) {
-                        clearTimeout(values.pluginConfigPollTimeout)
-                    }
-                    // poll for plugin configs every 5s
-                    // needed for "live" erroring without web sockets
-                    actions.setPluginConfigPollTimeout(
-                        window.setTimeout(() => {
-                            actions.loadPluginConfigs()
-                        }, 5000)
-                    )
-
                     const pluginConfigs: Record<string, PluginConfigType> = {}
                     const { results } = await api.get('api/plugin_config')
 
@@ -417,12 +406,6 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                 setSearchTerm: (_, { term }) => term,
             },
         ],
-        pluginConfigPollTimeout: [
-            null as NodeJS.Timeout | null,
-            {
-                setPluginConfigPollTimeout: (_, { timeout }) => timeout,
-            },
-        ],
         sectionsOpen: [
             [PluginSection.Enabled, PluginSection.Disabled] as PluginSection[],
             {
@@ -625,6 +608,16 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                 )
             },
         ],
+        pluginUrlToMaintainer: [
+            (s) => [s.repository],
+            (repository) => {
+                const pluginNameToMaintainerMap: Record<string, string> = {}
+                for (const plugin of Object.values(repository)) {
+                    pluginNameToMaintainerMap[plugin.url] = plugin.maintainer || ''
+                }
+                return pluginNameToMaintainerMap
+            },
+        ],
     },
 
     listeners: ({ actions, values }) => ({
@@ -693,17 +686,12 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             }
         },
     }),
-    events: ({ actions, values }) => ({
+    events: ({ actions }) => ({
         afterMount: () => {
             actions.loadPlugins()
             actions.loadPluginConfigs()
             if (canGloballyManagePlugins(userLogic.values.user?.organization)) {
                 actions.loadRepository()
-            }
-        },
-        beforeUnmount: () => {
-            if (!!values.pluginConfigPollTimeout) {
-                clearTimeout(values.pluginConfigPollTimeout)
             }
         },
     }),

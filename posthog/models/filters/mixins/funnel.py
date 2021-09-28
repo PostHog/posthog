@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional, Union
+from typing import Dict, Literal, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -24,7 +24,7 @@ from posthog.constants import (
     FunnelOrderType,
     FunnelVizType,
 )
-from posthog.models.filters.mixins.base import BaseParamMixin
+from posthog.models.filters.mixins.base import BaseParamMixin, IntervalType
 from posthog.models.filters.mixins.utils import cached_property, include_dict
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -84,20 +84,20 @@ class FunnelWindowMixin(BaseParamMixin):
         return _amt
 
     @cached_property
-    def funnel_window_interval_unit(self) -> Optional[str]:
+    def funnel_window_interval_unit(self) -> Optional[IntervalType]:
         _unit = self._data.get(FUNNEL_WINDOW_INTERVAL_UNIT, None)
         return _unit.lower() if _unit is not None else _unit
 
     @include_dict
     def funnel_window_to_dict(self):
-        dict_part = {}
+        dict_part: Dict = {}
         if self.funnel_window_interval is not None:
             dict_part[FUNNEL_WINDOW_INTERVAL] = self.funnel_window_interval
         if self.funnel_window_interval_unit is not None:
             dict_part[FUNNEL_WINDOW_INTERVAL_UNIT] = self.funnel_window_interval_unit
         return dict_part
 
-    def funnel_window_interval_unit_ch(self) -> str:
+    def funnel_window_interval_unit_ch(self) -> Literal["DAY", "MINUTE", "HOUR", "WEEK", "MONTH"]:
         if self.funnel_window_interval_unit is None:
             return "DAY"
 
@@ -137,12 +137,12 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
 
     @include_dict
     def funnel_person_breakdown_to_dict(self):
-        return {FUNNEL_STEP_BREAKDOWN: self.funnel_step_breakdown} if self.funnel_step_breakdown else {}
+        return {FUNNEL_STEP_BREAKDOWN: self.funnel_step_breakdown} if self.funnel_step_breakdown is not None else {}
 
 
 class FunnelLayoutMixin(BaseParamMixin):
     @cached_property
-    def layout(self) -> Optional[str]:
+    def layout(self) -> Optional[Literal["horizontal", "vertical"]]:
         return self._data.get(FUNNEL_LAYOUT)
 
     @include_dict
@@ -170,7 +170,7 @@ class FunnelTypeMixin(BaseParamMixin):
 
     @include_dict
     def funnel_type_to_dict(self):
-        result = {}
+        result: Dict[str, str] = {}
         if self.funnel_order_type:
             result[FUNNEL_ORDER_TYPE] = self.funnel_order_type
         if self.funnel_viz_type:
@@ -202,7 +202,7 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
 
     @include_dict
     def funnel_trends_persons_to_dict(self):
-        result_dict = {}
+        result_dict: Dict = {}
         if self.entrance_period_start:
             result_dict[ENTRANCE_PERIOD_START] = self.entrance_period_start.isoformat()
         if self.drop_off is not None:

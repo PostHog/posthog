@@ -63,13 +63,11 @@ export function Histogram({
         })
 
     // y-axis scale
-    const y = d3
-        .scaleLinear()
-        .domain([0, d3.max(data, (d: HistogramDatum) => d.count) as number])
-        .range(config.ranges.y)
-        .nice()
+    const yMax = d3.max(data, (d: HistogramDatum) => d.count) as number
+    const y = d3.scaleLinear().domain([0, yMax]).range(config.ranges.y).nice()
     const yAxis = config.axisFn
         .y(y)
+        .tickValues(y.ticks().filter((tick) => Number.isInteger(tick)))
         .tickSize(0)
         .tickFormat((v: number) => {
             const count = formatYTickLabel(v)
@@ -204,6 +202,9 @@ export function Histogram({
                         })
                     })
 
+                // Always move bar above everything else
+                _svg.node().appendChild(_bars.node())
+
                 // text labels
                 if (!isDashboardItem) {
                     const _labels = getOrCreateEl(_svg, 'g#labels', () => _svg.append('svg:g').attr('id', 'labels'))
@@ -246,6 +247,9 @@ export function Histogram({
                             return y(d.count) + labelDy
                         })
                         .classed('outside', (d) => !d.shouldShowInBar)
+
+                    // Always move labels to top
+                    _svg.node().appendChild(_labels.node())
                 }
 
                 return _svg

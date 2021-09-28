@@ -54,6 +54,9 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
 
     @cached_property
     def total_intervals(self) -> int:
+        assert self.date_from is not None
+        assert self.date_to is not None
+
         _num_intervals = 0
         _total_seconds = (self.date_to - self.date_from).total_seconds()
         if self.interval == "minute":

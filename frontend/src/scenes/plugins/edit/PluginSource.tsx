@@ -11,6 +11,7 @@ import SCAFFOLD_index from '!raw-loader!@posthog/plugin-scaffold/dist/index.d.ts
 import SCAFFOLD_errors from '!raw-loader!@posthog/plugin-scaffold/dist/errors.d.ts'
 // @ts-ignore
 import SCAFFOLD_types from '!raw-loader!@posthog/plugin-scaffold/dist/types.d.ts'
+import { validateJsonFormItem } from 'lib/utils'
 
 const defaultSource = `// Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
 
@@ -159,14 +160,7 @@ export function PluginSource(): JSX.Element {
                             rules={[
                                 requiredRule,
                                 {
-                                    validator(_, value: string) {
-                                        try {
-                                            JSON.parse(value)
-                                            return Promise.resolve()
-                                        } catch (error) {
-                                            return Promise.reject('Not valid JSON!')
-                                        }
-                                    },
+                                    validator: validateJsonFormItem,
                                 },
                             ]}
                         >

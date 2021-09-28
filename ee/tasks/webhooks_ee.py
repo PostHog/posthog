@@ -9,6 +9,7 @@ from statshog.defaults.django import statsd
 
 from ee.clickhouse.models.element import chain_to_elements
 from posthog.celery import app
+from posthog.constants import AvailableFeature
 from posthog.models import Action, Event, Team
 from posthog.tasks.webhooks import determine_webhook_type, get_formatted_message
 
@@ -34,7 +35,7 @@ def post_event_to_webhook_ee(self: Task, event: Dict[str, Any], team_id: int, si
     )
 
     try:
-        is_zapier_available = team.organization.is_feature_available("zapier")
+        is_zapier_available = team.organization.is_feature_available(AvailableFeature.ZAPIER)
 
         actionFilters = {"team_id": team_id, "deleted": False}
         if not is_zapier_available:

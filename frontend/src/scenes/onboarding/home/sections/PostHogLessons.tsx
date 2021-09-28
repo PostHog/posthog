@@ -1,6 +1,6 @@
-import { Card, Carousel, Divider, Image, Space, Spin, Tooltip, Typography } from 'antd'
+import { Card, Carousel, Divider, Image, Space, Spin, Typography } from 'antd'
 import React, { useState } from 'react'
-
+import { Tooltip } from 'lib/components/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useActions } from 'kea'
 
@@ -40,8 +40,7 @@ const LESSONS = [
     },
     {
         title: 'Custom Behavioral Cohorts',
-        hover:
-            'A walk-through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
+        hover: 'A walk-through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
         target: `https://posthog.com/docs/tutorials/cohorts?utm_content=project-home${UTM_TAGS}`,
         imgSrc: analyzeBehavior,
     },

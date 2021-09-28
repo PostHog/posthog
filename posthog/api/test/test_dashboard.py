@@ -1,5 +1,6 @@
 import json
 
+from dateutil import parser
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -207,6 +208,9 @@ class TestDashboard(APIBaseTest):
 
             item_default.refresh_from_db()
             item_sessions.refresh_from_db()
+
+            self.assertEqual(parser.isoparse(response_data["items"][0]["last_refresh"]), item_default.last_refresh)
+            self.assertEqual(parser.isoparse(response_data["items"][1]["last_refresh"]), item_sessions.last_refresh)
 
             self.assertAlmostEqual(item_default.last_refresh, now(), delta=timezone.timedelta(seconds=5))
             self.assertAlmostEqual(item_sessions.last_refresh, now(), delta=timezone.timedelta(seconds=5))

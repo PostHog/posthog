@@ -1,25 +1,24 @@
 import asyncio
 import hashlib
 import json
-import re
-from time import time
+from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
 import sqlparse
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
-from clickhouse_driver.errors import ServerException
 from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
 from django.core.cache import cache
 from django.utils.timezone import now
 from sentry_sdk.api import capture_exception
 
+from ee.clickhouse.errors import wrap_query_error
+from ee.clickhouse.timer import get_timer_thread
 from posthog import redis
-from posthog.constants import RDBMS
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
-from posthog.internal_metrics import timing
+from posthog.constants import AnalyticsDBMS
+from posthog.internal_metrics import incr, timing
 from posthog.settings import (
     CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
@@ -37,20 +36,45 @@ from posthog.settings import (
 from posthog.utils import get_safe_cache
 
 CACHE_TTL = 60  # seconds
+SLOW_QUERY_THRESHOLD_MS = 15000
+QUERY_TIMEOUT_THREAD = get_timer_thread("ee.clickhouse.client", SLOW_QUERY_THRESHOLD_MS)
 
 _request_information: Optional[Dict] = None
 
-if PRIMARY_DB != RDBMS.CLICKHOUSE:
+
+def make_ch_pool(**overrides) -> ChPool:
+    kwargs = {
+        "host": CLICKHOUSE_HOST,
+        "database": CLICKHOUSE_DATABASE,
+        "secure": CLICKHOUSE_SECURE,
+        "user": CLICKHOUSE_USER,
+        "password": CLICKHOUSE_PASSWORD,
+        "ca_certs": CLICKHOUSE_CA,
+        "verify": CLICKHOUSE_VERIFY,
+        "connections_min": CLICKHOUSE_CONN_POOL_MIN,
+        "connections_max": CLICKHOUSE_CONN_POOL_MAX,
+        "settings": {"mutations_sync": "1"} if TEST else {},
+        **overrides,
+    }
+
+    return ChPool(**kwargs)
+
+
+if PRIMARY_DB != AnalyticsDBMS.CLICKHOUSE:
     ch_client = None  # type: Client
 
+    class ClickHouseNotConfigured(NotImplementedError):
+        def __init__(self, msg='This function only works if PRIMARY_DB is set to indicate ClickHouse!"', *args):
+            super().__init__(msg, *args)
+
     def async_execute(query, args=None, settings=None, with_column_types=False):
-        return
+        raise ClickHouseNotConfigured()
 
     def sync_execute(query, args=None, settings=None, with_column_types=False):
-        return
+        raise ClickHouseNotConfigured()
 
     def cache_sync_execute(query, args=None, redis_client=None, ttl=None, settings=None, with_column_types=False):
-        return
+        raise ClickHouseNotConfigured()
 
 
 else:
@@ -65,17 +89,7 @@ else:
             verify=CLICKHOUSE_VERIFY,
         )
 
-        ch_pool = ChPool(
-            host=CLICKHOUSE_HOST,
-            database=CLICKHOUSE_DATABASE,
-            secure=CLICKHOUSE_SECURE,
-            user=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
-            ca_certs=CLICKHOUSE_CA,
-            verify=CLICKHOUSE_VERIFY,
-            connections_min=CLICKHOUSE_CONN_POOL_MIN,
-            connections_max=CLICKHOUSE_CONN_POOL_MAX,
-        )
+        ch_pool = make_ch_pool()
 
         @async_to_sync
         async def async_execute(query, args=None, settings=None, with_column_types=False):
@@ -95,19 +109,10 @@ else:
             password=CLICKHOUSE_PASSWORD,
             ca_certs=CLICKHOUSE_CA,
             verify=CLICKHOUSE_VERIFY,
+            settings={"mutations_sync": "1"} if TEST else {},
         )
 
-        ch_pool = ChPool(
-            host=CLICKHOUSE_HOST,
-            database=CLICKHOUSE_DATABASE,
-            secure=CLICKHOUSE_SECURE,
-            user=CLICKHOUSE_USER,
-            password=CLICKHOUSE_PASSWORD,
-            ca_certs=CLICKHOUSE_CA,
-            verify=CLICKHOUSE_VERIFY,
-            connections_min=CLICKHOUSE_CONN_POOL_MIN,
-            connections_max=CLICKHOUSE_CONN_POOL_MAX,
-        )
+        ch_pool = make_ch_pool()
 
         def async_execute(query, args=None, settings=None, with_column_types=False):
             return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
@@ -126,21 +131,30 @@ else:
 
     def sync_execute(query, args=None, settings=None, with_column_types=False):
         with ch_pool.get_client() as client:
-            start_time = time()
+            start_time = perf_counter()
             tags = {}
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print()
                 print(format_sql(query, args))
+
+            sql, tags = _annotate_tagged_query(query, args)
+            timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
+
             try:
-                sql, tags = _annotate_tagged_query(query, args)
                 result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
             except Exception as err:
+                err = wrap_query_error(err)
                 tags["failed"] = True
                 tags["reason"] = type(err).__name__
-                raise _wrap_api_error(err)
+                incr("clickhouse_sync_execution_failure", tags=tags)
+
+                raise err
             finally:
-                execution_time = time() - start_time
+                execution_time = perf_counter() - start_time
+
+                QUERY_TIMEOUT_THREAD.cancel(timeout_task)
                 timing("clickhouse_sync_execution_time", execution_time * 1000.0, tags=tags)
+
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print("Execution time: %.6fs" % (execution_time,))
                 if _request_information is not None and _request_information.get("save", False):
@@ -175,16 +189,10 @@ def _annotate_tagged_query(query, args):
     return query, tags
 
 
-def _wrap_api_error(err: Exception) -> Exception:
-    if not isinstance(err, ServerException):
-        return err
-
-    # Return a 512 error for queries which would time out
-    match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)
-    if match:
-        return EstimatedQueryExecutionTimeTooLong(detail=match.group(0))
-
-    return err
+def _notify_of_slow_query_failure(tags: Dict[str, Any]):
+    tags["failed"] = True
+    tags["reason"] = "timeout"
+    incr("clickhouse_sync_execution_failure", tags=tags)
 
 
 def format_sql(sql, params, colorize=True):

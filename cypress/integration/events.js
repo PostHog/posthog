@@ -3,8 +3,8 @@ describe('Events', () => {
         // Before each should reset the column config to DEFAULT config
         cy.getCookie('csrftoken').then((csrftoken) => {
             cy.request({
-                url: '/api/user/',
-                body: { user: { events_column_config: { active: 'DEFAULT' } } },
+                url: '/api/users/@me/',
+                body: { events_column_config: { active: 'DEFAULT' } },
                 method: 'PATCH',
                 headers: {
                     'X-CSRFToken': csrftoken.value,

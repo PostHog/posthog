@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from posthog.ee import is_clickhouse_enabled
+from posthog.utils import is_clickhouse_enabled
 
 
 class Command(BaseCommand):

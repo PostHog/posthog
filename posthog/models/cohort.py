@@ -10,8 +10,8 @@ from django.db.models.expressions import F
 from django.utils import timezone
 from sentry_sdk import capture_exception
 
-from posthog.ee import is_clickhouse_enabled
 from posthog.models.utils import sane_repr
+from posthog.utils import is_clickhouse_enabled
 
 from .action import Action
 from .event import Event
@@ -19,7 +19,7 @@ from .filters import Filter
 from .person import Person
 
 DELETE_QUERY = """
-DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id};
+DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
 """
 
 UPDATE_QUERY = """
@@ -71,6 +71,7 @@ class CohortManager(models.Manager):
 
 class Cohort(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
     groups: models.JSONField = models.JSONField(default=list)
@@ -109,15 +110,20 @@ class Cohort(models.Model):
             if not use_clickhouse:
                 self.is_calculating = True
                 self.save()
+                persons_query = self._postgres_persons_query()
+            else:
+                persons_query = self._clickhouse_persons_query()
 
-            persons_query = self._clickhouse_persons_query() if use_clickhouse else self._postgres_persons_query()
             try:
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
             except EmptyResultSet:
                 query = DELETE_QUERY.format(cohort_id=self.pk)
                 params = {}
             else:
-                query = "{}{}".format(DELETE_QUERY, UPDATE_QUERY).format(
+                query = f"""
+                    {DELETE_QUERY};
+                    {UPDATE_QUERY};
+                """.format(
                     cohort_id=self.pk,
                     values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
                 )
@@ -125,36 +131,34 @@ class Cohort(models.Model):
             cursor = connection.cursor()
             with transaction.atomic():
                 cursor.execute(query, params)
-
                 if not use_clickhouse:
-                    self.is_calculating = False
                     self.last_calculation = timezone.now()
                     self.errors_calculating = 0
-                    self.save()
         except Exception as err:
-            if settings.DEBUG:
-                raise err
+            if not use_clickhouse:
+                self.errors_calculating = F("errors_calculating") + 1
+            raise err
+        finally:
             if not use_clickhouse:
                 self.is_calculating = False
-                self.errors_calculating = F("errors_calculating") + 1
                 self.save()
-            capture_exception(err)
 
     def calculate_people_ch(self):
         if is_clickhouse_enabled():
             from ee.clickhouse.models.cohort import recalculate_cohortpeople
+            from posthog.tasks.calculate_cohort import calculate_cohort
 
             try:
                 recalculate_cohortpeople(self)
-                self.is_calculating = False
+                calculate_cohort(self.id)
                 self.last_calculation = timezone.now()
                 self.errors_calculating = 0
-                self.save()
-            except Exception as err:
-                self.is_calculating = False
+            except Exception as e:
                 self.errors_calculating = F("errors_calculating") + 1
+                raise e
+            finally:
+                self.is_calculating = False
                 self.save()
-                capture_exception(err)
 
     def insert_users_by_list(self, items: List[str]) -> None:
         """
@@ -249,7 +253,7 @@ class Cohort(models.Model):
                             if group.get("days")
                             else {}
                         ),
-                        **(extra_filter if extra_filter else {})
+                        **(extra_filter if extra_filter else {}),
                     )
                     .order_by("distinct_id")
                     .distinct("distinct_id")
