@@ -11,6 +11,7 @@ import { RetentionDatePicker } from '../RetentionDatePicker'
 import { FunnelStepReferencePicker } from './FunnelTab/FunnelStepReferencePicker'
 import { FunnelDisplayLayoutPicker } from './FunnelTab/FunnelDisplayLayoutPicker'
 import { FunnelBinsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelBinsPicker'
+import { PathStepPicker } from './PathTab/PathStepPicker'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
     allFilters: FilterType
@@ -81,6 +82,7 @@ export function InsightDisplayConfig({
     clearAnnotationsToCreate,
 }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === ViewType.FUNNELS
+    const showPathOptions = activeView === ViewType.PATHS
     const dateFilterDisabled = showFunnelBarOptions && isFunnelEmpty(allFilters)
 
     return (
@@ -114,6 +116,12 @@ export function InsightDisplayConfig({
                 {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.TimeToConvert && (
                     <>
                         <FunnelBinsPicker />
+                    </>
+                )}
+
+                {showPathOptions && (
+                    <>
+                        <PathStepPicker />
                     </>
                 )}
 
