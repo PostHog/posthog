@@ -1,8 +1,9 @@
 import csv
-import datetime
 import json
 import os
+import re
 
+from dateutil import parser
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import connection
@@ -10,11 +11,12 @@ from smart_open import smart_open
 
 from posthog.celery import app as celery_app
 from posthog.utils import is_clickhouse_enabled
-import re
+
 
 def match_snapshot(haystack):
-    needle = "event.*:.*\$snapshot."
+    needle = r"event.*:.*\$snapshot."
     return bool(re.search(needle, haystack))
+
 
 class Command(BaseCommand):
     help = "Consume from a Kafka topic into S3"
@@ -30,7 +32,6 @@ class Command(BaseCommand):
             exit(1)
 
         bucket_path = options["bucketpath"]
-
 
         files_to_read = os.environ.get("S3_IMPORT_FILES").split(",")
 
@@ -50,7 +51,7 @@ class Command(BaseCommand):
                     continue
                 if line_index == 1:
                     for row in csv.reader([line.decode("utf-8")]):
-                        timestamp = datetime.datetime.fromisoformat(row[5])
+                        timestamp = parser.parse(row[5])
                         ordered_files.append((timestamp, file_name))
                         break
                     break
@@ -71,15 +72,15 @@ class Command(BaseCommand):
                     continue
 
                 total_events_processed += 1
-                print('total events processed:', total_events_processed)
+                print("total events processed:", total_events_processed)
 
-                decoded_line = line.decode('utf-8')
+                decoded_line = line.decode("utf-8")
                 if match_snapshot(decoded_line):
                     # print('skipping $snapshot event')
                     continue
 
-                team_ids = options["teamids"].split(',') if options["teamids"] else []
-                team_ids_ignore = options["teamidsignore"].split(',') if options["teamidsignore"] else []
+                team_ids = options["teamids"].split(",") if options["teamids"] else []
+                team_ids_ignore = options["teamidsignore"].split(",") if options["teamidsignore"] else []
                 for row in csv.reader([decoded_line]):
                     if (len(team_ids) and row[4] not in team_ids) or row[4] in team_ids_ignore:
                         # print(f"skipping event not from target team")
@@ -99,17 +100,17 @@ class Command(BaseCommand):
                     # )
 
                     print(row[5])
-
                     if is_clickhouse_enabled():
                         from posthog.api.capture import log_event
+
                         log_event(
                             distinct_id=row[0],
                             site_url=row[1],
                             ip=row[2],
                             data=json.loads(row[3]),
                             team_id=int(row[4]),
-                            now=datetime.datetime.fromisoformat(row[5]),
-                            sent_at=row[6],
+                            now=parser.parse(row[5]),
+                            sent_at=parser.parse(row[6]) if row[6] else None,
                             event_uuid=row[7],
                         )
                     else:
@@ -128,3 +129,9 @@ class Command(BaseCommand):
                                 row[6],
                             ],
                         )
+
+                    try:
+                        with open("/tmp/uuids", "a") as f:
+                            f.write(row[7] + "\n")
+                    except:
+                        pass

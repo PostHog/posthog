@@ -38,8 +38,8 @@ if is_clickhouse_enabled():
         *,
         topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,
     ) -> None:
-        if settings.DEBUG:
-            print(f'Logging event {data["event"]} to Kafka topic {topic}')
+        # if settings.DEBUG:
+        #     print(f'Logging event {data["event"]} to Kafka topic {topic}')
         data = {
             "uuid": str(event_uuid),
             "distinct_id": distinct_id,
@@ -122,7 +122,8 @@ def get_event(request):
     except RequestParsingError as error:
         capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
         return cors_response(
-            request, generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
+            request,
+            generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
         )
     if not data:
         return cors_response(
@@ -254,7 +255,10 @@ def get_event(request):
 
     timer.stop()
     statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
+        f"posthog_cloud_raw_endpoint_success",
+        tags={
+            "endpoint": "capture",
+        },
     )
     return cors_response(request, JsonResponse({"status": 1}))
 
@@ -279,5 +283,13 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id):
         celery_app.send_task(
             name=task_name,
             queue=celery_queue,
-            args=[distinct_id, ip, site_url, event, team_id, now.isoformat(), sent_at,],
+            args=[
+                distinct_id,
+                ip,
+                site_url,
+                event,
+                team_id,
+                now.isoformat(),
+                sent_at,
+            ],
         )
