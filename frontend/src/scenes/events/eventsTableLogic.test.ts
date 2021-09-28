@@ -342,7 +342,7 @@ describe('eventsTableLogic', () => {
 
             it('can filter partial properties inside the array', async () => {
                 const propertyFilter = makePropertyFilter()
-                const partialPropertyFilter = { key: 'value' } as EmptyPropertyFilter
+                const partialPropertyFilter = { type: 't' } as EmptyPropertyFilter
                 await expectLogic(logic, () => {
                     logic.actions.setProperties([propertyFilter, partialPropertyFilter])
                 }).toMatchValues({ properties: [propertyFilter] })
