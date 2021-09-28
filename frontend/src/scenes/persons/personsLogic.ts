@@ -53,7 +53,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     selectors: {
         exampleEmail: [
             (s) => [s.persons],
-            (persons: PersonPaginatedResponse): string => {
+            (persons) => {
                 const match = persons && persons.results.find((person) => person.properties?.email)
                 return match?.properties?.email || 'example@gmail.com'
             },
@@ -66,17 +66,13 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         ],
         showTabs: [
             (s) => [s.featureFlags, s.showSessionRecordings],
-            (featureFlags: Record<string, string | boolean>, showSessionRecordings: boolean): boolean => {
+            (featureFlags, showSessionRecordings) => {
                 return !featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] || showSessionRecordings
             },
         ],
         currentTab: [
             (s) => [s.activeTab, s.showSessionRecordings, s.featureFlags],
-            (
-                activeTab: PersonsTabType | null,
-                showSessionRecordings: boolean,
-                featureFlags: Record<string, string | boolean>
-            ) => {
+            (activeTab, showSessionRecordings, featureFlags) => {
                 // Ensure the activeTab reflects a valid tab given the available tabs
                 if (
                     !activeTab ||

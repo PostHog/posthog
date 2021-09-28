@@ -6,6 +6,7 @@ import { useValues } from 'kea'
 import { ArrowTopLeftOutlined } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Button } from 'antd'
 
 interface SessionPlayerDrawerProps {
     isPersonPage?: boolean
@@ -14,17 +15,18 @@ interface SessionPlayerDrawerProps {
 
 export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPlayerDrawerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+
     return (
         <Drawer destroyOnClose visible width="100%" onClose={onClose}>
             <>
-                <a onClick={onClose}>
+                <Button type="link" onClick={onClose}>
                     <ArrowTopLeftOutlined /> Back to{' '}
                     {isPersonPage
                         ? 'persons'
                         : featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]
                         ? 'sessions recordings'
                         : 'sessions'}
-                </a>
+                </Button>
                 <SessionsPlay />
             </>
         </Drawer>

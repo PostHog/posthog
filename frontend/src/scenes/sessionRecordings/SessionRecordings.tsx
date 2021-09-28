@@ -20,7 +20,7 @@ export function SessionsRecordings(): JSX.Element {
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <Alert
                     style={{ marginBottom: 16 }}
-                    message="Session recordings is not enabled for this project"
+                    message="Session recordings are not enabled for this project"
                     description="To use this feature, please go to your project settings and enable it."
                     type="info"
                     showIcon
