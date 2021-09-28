@@ -97,6 +97,12 @@ class ClickhouseLifecycle(LifecycleTrend):
                 label = "{} - {}".format(entity.name, val[2])
                 additional_values = {"label": label, "status": val[2]}
                 parsed_result = parse_response(val, filter, additional_values)
+
+                # HACK: here I'm abusing the breakdown_value to highlight which
+                # person status it references, and avoiding incorrect
+                # deduplication within the ClickhouseTrends object
+                parsed_result["breakdown_value"] = val[2]
+
                 res.append(parsed_result)
 
             return res
