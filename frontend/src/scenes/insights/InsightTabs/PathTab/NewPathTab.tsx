@@ -3,6 +3,7 @@ import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Row, Select } from 'antd'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
 import { PathType } from '~/types'
 import './NewPathTab.scss'
@@ -13,6 +14,7 @@ import { PathItemSelector } from 'lib/components/PropertyFilters/components/Path
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { CloseButton } from 'lib/components/CloseButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function NewPathTab(): JSX.Element {
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
@@ -108,6 +110,18 @@ export function NewPathTab(): JSX.Element {
                         <Row align="middle">
                             <Col>
                                 <b>Wildcard groups: (optional)</b>
+                                <Tooltip
+                                    title={
+                                        <>
+                                            Use wildcard matching to group events by unique values in path item names.
+                                            Use an asterisk (*) in place of unique values. For example, instead of
+                                            /merchant/1234/payment, replace the unique value with an asterisk
+                                            /merchant/*/payment.
+                                        </>
+                                    }
+                                >
+                                    <InfoCircleOutlined className="info-indicator" />
+                                </Tooltip>
                             </Col>
                             <Select
                                 mode="tags"
