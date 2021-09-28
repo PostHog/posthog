@@ -32,3 +32,5 @@ docker-compose.prod.yml
 *.isorted
 build-storybook.log
 storybook-static
+.asv
+ee/benchmarks/results
