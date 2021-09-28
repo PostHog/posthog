@@ -20,14 +20,14 @@ class SessionRecordingList(BaseQuery):
     _query: str = """
         SELECT
             session_id,
-            distinct_id,
+            a_distinct_id_for_user as distinct_id,
             start_time,
             end_time,
             end_time - start_time as duration
         FROM (
             SELECT
                 session_id,
-                MIN(distinct_id) as distinct_id,
+                MIN(distinct_id) as a_distinct_id_for_user,
                 MIN(timestamp) as start_time,
                 MAX(timestamp) as end_time,
                 MAX(timestamp) - MIN(timestamp) as duration,

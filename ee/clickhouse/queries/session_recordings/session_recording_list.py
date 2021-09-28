@@ -8,14 +8,14 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     _query: str = """
     SELECT
         session_id,
-        distinct_id,
+        a_distinct_id_for_user as distinct_id,
         start_time,
         end_time,
         dateDiff('second', toDateTime(start_time), toDateTime(end_time)) as duration
     FROM (
         SELECT
             session_id,
-            MIN(distinct_id) AS distinct_id,
+            MIN(distinct_id) AS a_distinct_id_for_user,
             MIN(timestamp) AS start_time,
             MAX(timestamp) AS end_time,
             COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
