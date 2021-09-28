@@ -8,11 +8,25 @@ import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { signupLogic } from './signupLogic'
 import { Rule } from 'rc-field-form/lib/interface'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, ExclamationCircleFilled } from '@ant-design/icons'
 import { userLogic } from '../userLogic'
 import { WelcomeLogo } from './WelcomeLogo'
+import hedgehogMain from 'public/hedgehog-bridge-page.png'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
+
+const requiredRule = (message: string): Rule[] | undefined => {
+    return [
+        {
+            required: true,
+            message: (
+                <>
+                    <ExclamationCircleFilled style={{ marginLeft: 4 }} /> {message}
+                </>
+            ),
+        },
+    ]
+}
 
 function FormStepOne(): JSX.Element {
     const { formStep, signupResponse, initialEmail } = useValues(signupLogic)
@@ -34,12 +48,7 @@ function FormStepOne(): JSX.Element {
             <Form.Item
                 name="email"
                 label="Email"
-                rules={[
-                    {
-                        required: true,
-                        message: 'Please enter your email to continue',
-                    },
-                ]}
+                rules={requiredRule('Please enter your email to continue')}
                 validateStatus={signupResponse?.errorAttribute === 'email' ? 'error' : undefined}
                 help={signupResponse?.errorAttribute === 'email' ? signupResponse.errorDetail : undefined}
             >
@@ -75,24 +84,19 @@ function FormStepTwo(): JSX.Element {
 
     const firstNameInputRef = useRef<Input | null>(null)
 
+    const wrappedRequireRule = (message: string): Rule[] | undefined => {
+        // Required rule only enabled when the user is in the current step to allow the user to freely move between steps
+        if (formStep !== 2) {
+            return undefined
+        }
+        return requiredRule(message)
+    }
+
     useEffect(() => {
         if (formStep === 2) {
             firstNameInputRef?.current?.focus()
         }
     }, [formStep])
-
-    const requiredRule = (message: string): Rule[] | undefined => {
-        // Required rule only enabled when the user is in the current step to allow the user to freely move between steps
-        if (formStep !== 2) {
-            return undefined
-        }
-        return [
-            {
-                required: true,
-                message,
-            },
-        ]
-    }
 
     return (
         <div className={`form-step${formStep !== 2 ? ' hide' : ''}`}>
@@ -109,7 +113,11 @@ function FormStepTwo(): JSX.Element {
             <div className="mb">
                 <b>Just a few more details ...</b>
             </div>
-            <Form.Item name="first_name" label="Your full name" rules={requiredRule('Please enter your first name')}>
+            <Form.Item
+                name="first_name"
+                label="Your full name"
+                rules={wrappedRequireRule('Please enter your first name')}
+            >
                 <Input
                     className="ph-ignore-input"
                     autoFocus
@@ -122,7 +130,7 @@ function FormStepTwo(): JSX.Element {
             <Form.Item
                 name="organization_name"
                 label="Organization name"
-                rules={requiredRule('Please enter the name of your organization')}
+                rules={wrappedRequireRule('Please enter the name of your organization')}
             >
                 <Input
                     className="ph-ignore-input"
@@ -173,52 +181,67 @@ export function Signup(): JSX.Element | null {
         }
     }
 
+    const footerHighlights = {
+        cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Community, Slack & email support'],
+        selfHosted: ['Fully featured product', 'Unlimited events', 'Data in your own infrastructure'],
+    }
+
     return !user ? (
         <div className="bridge-page signup">
             <Row>
                 <Col span={24} className="auth-main-content">
-                    <WelcomeLogo view="signup" />
-                    <div className="inner">
-                        <h2 className="subtitle" style={{ justifyContent: 'center' }}>
-                            Get started
-                        </h2>
-                        {(preflight?.cloud || preflight?.initiated) && ( // For now, if you're not on Cloud, you wouldn't see
-                            // this page, but future-proofing this (with `preflight.initiated`) in case this changes.
-                            <div className="text-center" style={{ marginBottom: 32 }}>
-                                Already have an account?{' '}
-                                <Link to="/login" data-attr="signup-login-link">
-                                    Sign in
-                                </Link>
-                            </div>
-                        )}
-                        {!signupResponseLoading &&
-                            signupResponse?.errorCode &&
-                            !['email', 'password'].includes(signupResponse?.errorAttribute || '') && (
-                                <Alert
-                                    message="Could not complete your signup. Please try again."
-                                    description={signupResponse?.errorDetail}
-                                    type="error"
-                                    showIcon
-                                    style={{ marginBottom: 16 }}
-                                />
+                    <img src={hedgehogMain} alt="" className="main-art" />
+                    <div className="inner-wrapper">
+                        <WelcomeLogo view="signup" />
+                        <div className="inner">
+                            <h2 className="subtitle" style={{ justifyContent: 'center' }}>
+                                Get started
+                            </h2>
+                            {(preflight?.cloud || preflight?.initiated) && ( // For now, if you're not on Cloud, you wouldn't see
+                                // this page, but future-proofing this (with `preflight.initiated`) in case this changes.
+                                <div className="text-center" style={{ marginBottom: 32 }}>
+                                    Already have an account?{' '}
+                                    <Link to="/login" data-attr="signup-login-link">
+                                        Sign in
+                                    </Link>
+                                </div>
                             )}
-                        <Form
-                            layout="vertical"
-                            form={form}
-                            onFinish={handleFormSubmit}
-                            requiredMark={false}
-                            initialValues={{ email: initialEmail }}
-                            noValidate
-                        >
-                            <FormStepOne />
-                            <FormStepTwo />
-                        </Form>
-                        <div style={{ marginTop: 48 }}>
-                            <SocialLoginButtons caption="Or sign up with:" />
+                            {!signupResponseLoading &&
+                                signupResponse?.errorCode &&
+                                !['email', 'password'].includes(signupResponse?.errorAttribute || '') && (
+                                    <Alert
+                                        message="Could not complete your signup. Please try again."
+                                        description={signupResponse?.errorDetail}
+                                        type="error"
+                                        showIcon
+                                        style={{ marginBottom: 16 }}
+                                    />
+                                )}
+                            <Form
+                                layout="vertical"
+                                form={form}
+                                onFinish={handleFormSubmit}
+                                requiredMark={false}
+                                initialValues={{ email: initialEmail }}
+                                noValidate
+                            >
+                                <FormStepOne />
+                                <FormStepTwo />
+                            </Form>
+                            <div style={{ marginTop: 48 }}>
+                                <SocialLoginButtons caption="Or sign up with:" />
+                            </div>
                         </div>
                     </div>
                 </Col>
             </Row>
+            <footer>
+                <div className="footer-inner">
+                    {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (
+                        <span key={idx}>{val}</span>
+                    ))}
+                </div>
+            </footer>
         </div>
     ) : null
 }

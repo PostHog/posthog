@@ -43,6 +43,10 @@
         min-height: 100vh;
         padding-bottom: 64px;
 
+        .inner-wrapper {
+            max-width: 400px; // same as for .inner
+        }
+
         .inner {
             @extend %mixin-elevated;
             width: 100%;
@@ -55,8 +59,15 @@
 
     .header-logo {
         padding-bottom: $default_spacing * 2;
+        text-align: center;
         img {
             height: 24px;
+        }
+    }
+
+    @media screen and (max-width: $sm) {
+        .auth-main-content {
+            align-items: flex-start;
         }
     }
 }
