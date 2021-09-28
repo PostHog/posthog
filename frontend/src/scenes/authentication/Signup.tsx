@@ -183,7 +183,11 @@ export function Signup(): JSX.Element | null {
 
     const footerHighlights = {
         cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Community, Slack & email support'],
-        selfHosted: ['Fully featured product', 'Unlimited events', 'Data in your own infrastructure'],
+        selfHosted: [
+            'Fully featured product, unlimited events',
+            'Data in your own infrastructure',
+            'Community, Slack & email support',
+        ],
     }
 
     return !user ? (
@@ -228,8 +232,8 @@ export function Signup(): JSX.Element | null {
                                 <FormStepOne />
                                 <FormStepTwo />
                             </Form>
-                            <div style={{ marginTop: 48 }}>
-                                <SocialLoginButtons caption="Or sign up with:" />
+                            <div>
+                                <SocialLoginButtons caption="Or sign up with" />
                             </div>
                         </div>
                     </div>
