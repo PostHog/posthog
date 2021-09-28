@@ -1,4 +1,4 @@
-import { Col, Row, Form, Input, Button, Alert } from 'antd'
+import { Col, Row, Form, Input, Button } from 'antd'
 import React, { useEffect, useRef } from 'react'
 import './Signup.scss'
 import { Link } from 'lib/components/Link'
@@ -12,6 +12,7 @@ import { ArrowLeftOutlined, ExclamationCircleFilled } from '@ant-design/icons'
 import { userLogic } from '../userLogic'
 import { WelcomeLogo } from './WelcomeLogo'
 import hedgehogMain from 'public/hedgehog-bridge-page.png'
+import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
@@ -212,13 +213,10 @@ export function Signup(): JSX.Element | null {
                             {!signupResponseLoading &&
                                 signupResponse?.errorCode &&
                                 !['email', 'password'].includes(signupResponse?.errorAttribute || '') && (
-                                    <Alert
-                                        message="Could not complete your signup. Please try again."
-                                        description={signupResponse?.errorDetail}
-                                        type="error"
-                                        showIcon
-                                        style={{ marginBottom: 16 }}
-                                    />
+                                    <ErrorMessage style={{ marginBottom: 16 }}>
+                                        {signupResponse?.errorDetail ||
+                                            'Could not complete your signup. Please try again.'}
+                                    </ErrorMessage>
                                 )}
                             <Form
                                 layout="vertical"
