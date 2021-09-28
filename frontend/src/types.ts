@@ -750,6 +750,7 @@ export interface FilterType {
     hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
+    funnel_filter?: Record<string, any> // Funnel Filter used in Paths
 }
 
 export interface SystemStatusSubrows {

@@ -34,6 +34,7 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
         date_to: filters.date_to,
         insight: ViewType.PATHS,
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        funnel_filter: filters.funnel_filter || {},
     }
 }
 
@@ -163,6 +164,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 } else {
                     insightLogic.actions.updateInsightFilters(values.filter)
                 }
+            }
+        },
+        [insightLogic.actionTypes.setActiveView]: ({ type, props: extra_props }) => {
+            if (type == ViewType.PATHS) {
+                actions.setFilter({ funnel_filter: extra_props })
             }
         },
     }),

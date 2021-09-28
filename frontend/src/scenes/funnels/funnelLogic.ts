@@ -137,6 +137,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
         toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+        queryPaths: (filters: Partial<FilterType>) => ({ funnel_filter: filters }),
     }),
 
     connect: {
@@ -831,6 +832,9 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
+        },
+        queryPaths: ({ funnel_filter }) => {
+            insightLogic.actions.setActiveView(ViewType.PATHS, funnel_filter)
         },
     }),
     actionToUrl: ({ values, props }) => ({
