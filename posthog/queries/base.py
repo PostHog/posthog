@@ -1,5 +1,14 @@
 import json
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    TypedDict,
+    Union,
+    cast,
+)
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q, QuerySet
@@ -64,7 +73,20 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
 """
 
 
-def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
+class InsightResult(TypedDict):
+    action: Optional[Dict[str, Any]]
+    breakdown_value: Optional[str]
+    label: str
+    aggregated_value: Optional[Union[float]]
+    count: int
+    data: List[float]
+    # Prior to the fix this would also include '29-Aug-2021'
+    labels: List[str]
+    days: List[str]
+    compare: Optional[bool]
+
+
+def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List[Dict[str, Any]]:
     entities_list = []
     trend_entity = func(filter=filter, team_id=team.pk, **kwargs)
     if filter.compare:

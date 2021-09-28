@@ -38,6 +38,7 @@ pickleshare==0.7.5
 posthoganalytics==1.4.2
 protobuf==3.13.0
 psycopg2-binary==2.8.6
+py-expression-eval==0.3.14
 python-dateutil==2.8.1
 pytz==2021.1
 redis==3.4.1

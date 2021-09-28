@@ -145,6 +145,8 @@ psycopg2-binary==2.8.6
     # via -r requirements.in
 ptyprocess==0.6.0
     # via pexpect
+py-expression-eval==0.3.14
+    # via -r requirements.in
 pycparser==2.20
     # via cffi
 pyjwt==2.1.0
