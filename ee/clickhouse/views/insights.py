@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Type
 
 from rest_framework.decorators import action
@@ -69,8 +70,9 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
 
         funnel_filter = None
-        if "funnel_filter" in request.data:
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **request.data["funnel_filter"]})
+        funnel_filter_data = request.GET.get("funnel_filter")
+        if funnel_filter_data:
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **json.loads(funnel_filter_data)})
 
         #  backwards compatibility
         if filter.path_type:

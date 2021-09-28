@@ -692,6 +692,12 @@ export enum PathType {
     CustomEvent = 'custom_event',
 }
 
+export enum FunnelPathType {
+    before = 'funnel_path_before_step',
+    between = 'funnel_path_between_steps',
+    after = 'funnel_path_after_step',
+}
+
 export enum FunnelVizType {
     Steps = 'steps',
     TimeToConvert = 'time_to_convert',
@@ -754,6 +760,7 @@ export interface FilterType {
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
+    funnel_paths?: FunnelPathType
 }
 
 export interface SystemStatusSubrows {
