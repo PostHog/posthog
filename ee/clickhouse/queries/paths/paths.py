@@ -14,6 +14,7 @@ from posthog.models.filters.path_filter import PathFilter
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
+EDGE_LIMIT_DEFAULT = 50
 
 
 class ClickhousePaths:
@@ -50,7 +51,7 @@ class ClickhousePaths:
 
         if self._filter.edge_limit is None and not (self._filter.start_point and self._filter.end_point):
             # no edge restriction when both start and end points are defined
-            self._filter = self._filter.with_data({PATH_EDGE_LIMIT: 100})
+            self._filter = self._filter.with_data({PATH_EDGE_LIMIT: EDGE_LIMIT_DEFAULT})
 
         if (
             self._filter.max_edge_weight
