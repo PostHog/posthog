@@ -17,7 +17,7 @@ import { zeroPad } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 
 export function getColor(step: FlattenedFunnelStep, fallbackColor: string, isBreakdown?: boolean): string {
-    return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order) || fallbackColor
+    return getSeriesColor(isBreakdown ? step.breakdownIndex : step.order, false, fallbackColor)
 }
 
 export function getStepColor(step: FlattenedFunnelStep, isBreakdown?: boolean): string {

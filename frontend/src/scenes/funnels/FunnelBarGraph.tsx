@@ -99,7 +99,7 @@ export function BreakdownVerticalBarGroup({
                 const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
                 const previousBarHeight =
                     (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
-                const color = getSeriesColor(breakdown.order, isSingleSeries) as string
+                const color = getSeriesColor(breakdown.order, isSingleSeries)
 
                 const popoverMetrics = [
                     {
