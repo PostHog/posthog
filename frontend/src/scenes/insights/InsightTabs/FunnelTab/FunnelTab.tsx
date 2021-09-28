@@ -44,9 +44,11 @@ export function FunnelTab(): JSX.Element {
     return (
         <>
             <Row gutter={16} data-attr="funnel-tab" className="funnel-tab">
-                <Col>
-                    <Button onClick={() => queryPaths(filters)}>Click for Paths</Button>
-                </Col>
+                {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && (
+                    <Col>
+                        <Button onClick={() => queryPaths(filters)}>Click for Paths</Button>
+                    </Col>
+                )}
                 <Col xs={24} md={16} xl={isHorizontalUIEnabled ? undefined : 24}>
                     <div style={{ paddingRight: isSmallScreen ? undefined : 16 }}>
                         <ToggleButtonChartFilter />
