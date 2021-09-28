@@ -719,7 +719,10 @@ export interface FilterType {
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     path_type?: PathType
-    start_point?: string | number
+    include_event_types?: PathType[]
+    start_point?: string
+    end_point?: string
+    path_groupings?: string[]
     stickiness_days?: number
     type?: EntityType
     entity_id?: string | number
@@ -745,6 +748,8 @@ export interface FilterType {
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
     hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
+    exclude_events?: string[] // Paths Exclusion type
+    step_limit?: number // Paths Step Limit
 }
 
 export interface SystemStatusSubrows {

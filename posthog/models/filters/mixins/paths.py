@@ -95,11 +95,17 @@ class TargetEventDerivedMixin(PropTypeDerivedMixin):
 class TargetEventsMixin(BaseParamMixin):
     @cached_property
     def target_events(self) -> List[str]:
-        return self._data.get(PATHS_INCLUDE_EVENT_TYPES, [])
+        target_events = self._data.get(PATHS_INCLUDE_EVENT_TYPES, [])
+        if isinstance(target_events, str):
+            return json.loads(target_events)
+        return target_events
 
     @cached_property
     def custom_events(self) -> List[str]:
-        return self._data.get(PATHS_INCLUDE_CUSTOM_EVENTS, [])
+        custom_events = self._data.get(PATHS_INCLUDE_CUSTOM_EVENTS, [])
+        if isinstance(custom_events, str):
+            return json.loads(custom_events)
+        return custom_events
 
     @cached_property
     def exclude_events(self) -> List[str]:
@@ -137,8 +143,10 @@ class TargetEventsMixin(BaseParamMixin):
 
 class PathStepLimitMixin(BaseParamMixin):
     @cached_property
-    def step_limit(self) -> Optional[str]:
-        return self._data.get(STEP_LIMIT, None)
+    def step_limit(self) -> Optional[int]:
+        if self._data.get(STEP_LIMIT) is not None:
+            return int(self._data[STEP_LIMIT])
+        return None
 
     @include_dict
     def step_limit_to_dict(self):

@@ -2,10 +2,16 @@ import React from 'react'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export function GlobalFiltersTitle({ unit = 'series' }: { unit?: string }): JSX.Element {
+export function GlobalFiltersTitle({
+    unit = 'series',
+    title = 'Filters',
+}: {
+    unit?: string
+    title?: string
+}): JSX.Element {
     return (
         <h4 className="secondary">
-            Filters{' '}
+            {title}{' '}
             <Tooltip
                 title={
                     <>
