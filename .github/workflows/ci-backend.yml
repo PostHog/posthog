@@ -119,6 +119,7 @@ jobs:
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
+                  KAFKA_URL: 'kafka://localhost' 
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
@@ -278,6 +279,7 @@ jobs:
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
+                  KAFKA_URL: 'kafka://localhost' 
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
@@ -289,6 +291,7 @@ jobs:
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
+                  KAFKA_URL: 'kafka://localhost' 
                   CLICKHOUSE_HOST: 'localhost'
                   CLICKHOUSE_SECURE: 'False'
                   CLICKHOUSE_VERIFY: 'False'
