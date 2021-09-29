@@ -1,3 +1,5 @@
+@import '~/vars';
+
 .paths {
     .ant-btn {
         border-radius: 4px;
@@ -19,6 +21,8 @@
 
 .paths-options-dropdown {
     padding: 8px;
+    border-radius: 4px;
+    border: 1px solid $primary;
     .ant-dropdown-menu-item {
         &:hover {
             background-color: rgba(83, 117, 255, 0.08);
