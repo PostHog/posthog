@@ -27,6 +27,9 @@ export async function ingestEvent(hub: Hub, event: PluginEvent): Promise<IngestE
             const person = await hub.db.fetchPerson(team_id, distinctId)
             const actionMatches = await hub.actionMatcher.match(event, person, result.elements)
             await hub.hookCannon.findAndFireHooks(event, person, site_url, actionMatches)
+
+            // eventId is undefined for CH deployments
+            // CH deployments calculate actions on the fly
             if (actionMatches.length && result.eventId !== undefined) {
                 await hub.db.registerActionMatch(result.eventId, actionMatches)
             }
