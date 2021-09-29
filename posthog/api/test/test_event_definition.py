@@ -15,7 +15,6 @@ from posthog.test.base import APIBaseTest
 
 @freeze_time("2020-01-02")
 class TestEventDefinitionAPI(APIBaseTest):
-
     demo_team: Team = None  # type: ignore
 
     EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
@@ -51,7 +50,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         calculate_event_property_usage_for_team(cls.demo_team.pk)
 
     def test_list_event_definitions(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/")
+        response = self.client.get(f"/api/projects/{self.demo_team.id}/event_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], len(self.EXPECTED_EVENT_DEFINITIONS))
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_EVENT_DEFINITIONS))
@@ -71,7 +70,7 @@ class TestEventDefinitionAPI(APIBaseTest):
             [EventDefinition(team=self.demo_team, name="z_event_{}".format(i)) for i in range(1, 301)]
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/")
+        response = self.client.get(f"/api/projects/{self.demo_team.id}/event_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 306)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
@@ -101,7 +100,7 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         EventDefinition.objects.create(team=team, name="should_be_invisible")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/")
+        response = self.client.get(f"/api/projects/{self.demo_team.id}/event_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         for item in response.json()["results"]:
             self.assertNotIn("should_be_invisible", item["name"])
@@ -112,33 +111,32 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response())
 
     def test_query_event_definitions(self):
-
         # Regular search
-        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/?search=app")
+        response = self.client.get(f"/api/projects/{self.demo_team.id}/event_definitions/?search=app")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # rated app, installed app
 
         # Search should be case insensitive
-        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/?search=App")
+        response = self.client.get(f"/api/projects/{self.demo_team.id}/event_definitions/?search=App")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2)  # rated app, installed app
 
         # Fuzzy search 1
-        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/?search=free tri")
+        response = self.client.get(f"/api/projects/{self.demo_team.id}/event_definitions/?search=free tri")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["entered_free_trial"])
 
         # Handles URL encoding properly
-        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/?search=free%20tri%20")
+        response = self.client.get(f"/api/projects/{self.demo_team.id}/event_definitions/?search=free%20tri%20")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["entered_free_trial"])
 
         # Fuzzy search 2
-        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/?search=ed mov")
+        response = self.client.get(f"/api/projects/{self.demo_team.id}/event_definitions/?search=ed mov")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:

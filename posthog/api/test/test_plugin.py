@@ -264,7 +264,7 @@ class TestPluginAPI(APIBaseTest):
         self.user.current_organization = other_org
         self.user.save()
 
-        api_url = f"/api/organizations/{self.organization.id}/plugins/{response.json()['id']}"
+        api_url = f"/api/organizations/{other_org.id}/plugins/{response.json()['id']}"
         response = self.client.delete(api_url)
 
         self.assertEqual(response.status_code, 404)

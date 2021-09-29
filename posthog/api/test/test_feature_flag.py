@@ -518,10 +518,10 @@ class TestFeatureFlag(APIBaseTest):
 
     def test_create_override_for_feature_flag_in_another_team(self):
         feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
-        _, _, team_2_user = User.objects.bootstrap("Test", "team2@posthog.com", None)
+        _, team_2, team_2_user = User.objects.bootstrap("Test", "team2@posthog.com", None)
         self.client.force_login(team_2_user)
         response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flag_overrides/my_overrides",
+            f"/api/projects/{team_2.id}/feature_flag_overrides/my_overrides",
             {"feature_flag": feature_flag_instance.id, "override_value": True},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
