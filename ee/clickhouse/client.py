@@ -137,11 +137,23 @@ else:
                 print()
                 print(format_sql(query, args))
 
-            sql, tags = _annotate_tagged_query(query, args)
+            parameterized_sql, tags = _annotate_tagged_query(query, args)
+
+            #  NOTE: `client.execute` would normally handle substitution, but
+            #  because we want to strip the comments to make it easier to copy
+            #  and past queries from the `system.query_log` easily with metabase
+            #  (metabase doesn't show new lines, so with comments, you can't get
+            #  a working query without exporting to csv or similar), we need to
+            #  do it manually.
+            rendered_sql = client.substitute_params(parameterized_sql, args or {})
+            rendered_sql = sqlparse.format(rendered_sql, strip_comments=True)
+
             timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
             try:
-                result = client.execute(sql, args, settings=settings, with_column_types=with_column_types)
+                result = client.execute(
+                    rendered_sql, params=None, settings=settings, with_column_types=with_column_types
+                )
             except Exception as err:
                 err = wrap_query_error(err)
                 tags["failed"] = True

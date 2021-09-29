@@ -1,10 +1,12 @@
 import datetime
+from unittest.mock import patch
 
 import fakeredis
+from clickhouse_driver import Client
 from django.test import TestCase
 from freezegun import freeze_time
 
-from ee.clickhouse.client import CACHE_TTL, _deserialize, _key_hash, cache_sync_execute
+from ee.clickhouse.client import CACHE_TTL, _deserialize, _key_hash, cache_sync_execute, sync_execute
 
 
 class ClickhouseClientTestCase(TestCase):
@@ -43,3 +45,23 @@ class ClickhouseClientTestCase(TestCase):
         with freeze_time(start + datetime.timedelta(seconds=CACHE_TTL + 10)):
             exists = self.redis_client.exists(_key_hash(query, args=args))
             self.assertFalse(exists)
+
+    def test_client_strips_comments_from_request(self):
+        """
+        To ensure we can easily copy queries from `system.query_log` in e.g.
+        Metabase, we strip comments from the query we send. Metabase doesn't
+        display multilined output.
+
+        See https://github.com/metabase/metabase/issues/14253
+
+        Note I'm not really testing much complexity, I trust that those will
+        come out as failures in other tests.
+        """
+        query = f"""
+            -- this request returns 1
+            SELECT 1
+        """
+        with patch.object(Client, "execute") as mock_execute:
+            sync_execute(query)
+            self.assertIn(f"SELECT 1", mock_execute.call_args[0][0])
+            self.assertNotIn("this request returns", mock_execute.call_args[0][0])
