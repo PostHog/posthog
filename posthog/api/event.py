@@ -6,7 +6,7 @@ from django.db.models import Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.utils import timezone
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -90,7 +90,7 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         return representation
 
 
-class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
 
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)

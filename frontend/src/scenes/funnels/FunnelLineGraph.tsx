@@ -28,7 +28,7 @@ export function FunnelLineGraph({
             datasets={steps}
             labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId || fromItem}
+            dashboardItemId={dashboardItemId || fromItem /* used only for annotations, not to init any other logic */}
             inSharedMode={inSharedMode}
             percentage={true}
             onClick={

@@ -42,6 +42,7 @@ export function RetentionTab(): JSX.Element {
                                 singleFilter
                                 hideMathSelector
                                 hideFilter
+                                hideRename
                                 buttonCopy="Add graph series"
                                 filters={actionFilterTargetEntity} // retention filters use target and returning entity instead of events
                                 setFilters={(newFilters: FilterType) => {
@@ -101,6 +102,7 @@ export function RetentionTab(): JSX.Element {
                                 singleFilter
                                 hideMathSelector
                                 hideFilter
+                                hideRename
                                 buttonCopy="Add graph series"
                                 filters={actionFilterReturningEntity}
                                 setFilters={(newFilters: FilterType) => {

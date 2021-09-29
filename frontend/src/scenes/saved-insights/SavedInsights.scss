@@ -1,6 +1,10 @@
 @import '~/vars';
 
 .saved-insights {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+
     .new-insight-dropdown-btn {
         height: 40px;
         background-color: $primary;
@@ -100,5 +104,45 @@
         border-top: 1px solid var(--muted);
         width: 100%;
         font-size: 11px;
+    }
+
+    .saved-insight-empty-state {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex: 1;
+        text-align: center;
+
+        .insight-empty-state__wrapper {
+            max-width: 600px;
+            margin-top: 5rem;
+            margin-bottom: 17rem;
+
+            .illustration-main {
+                font-size: 5rem;
+                line-height: 1em;
+                text-align: center;
+                margin-bottom: 1rem;
+                color: $border;
+            }
+
+            .empty-state__title {
+                font-weight: 600;
+                font-size: 1.5rem;
+                line-height: 1.6rem;
+            }
+
+            .empty-state__description {
+                font-weight: 500;
+                font-size: 1rem;
+                line-height: 1.7rem;
+                color: $text_muted;
+            }
+
+            button.add-insight-button {
+                height: 50px;
+                padding: 0 3rem;
+            }
+        }
     }
 }

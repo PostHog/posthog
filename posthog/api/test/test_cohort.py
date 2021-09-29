@@ -46,6 +46,7 @@ class TestCohort(APIBaseTest):
             "/api/cohort/%s/" % response.json()["id"],
             data={
                 "name": "whatever2",
+                "description": "A great cohort!",
                 "groups": [{"properties": {"team_id": 6}}],
                 "created_by": "something something",
                 "last_calculation": "some random date",
@@ -54,7 +55,7 @@ class TestCohort(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()["name"], "whatever2")
+        self.assertDictContainsSubset({"name": "whatever2", "description": "A great cohort!"}, response.json())
         self.assertEqual(patch_calculate_cohort.call_count, 2)
 
         # Assert analytics are sent

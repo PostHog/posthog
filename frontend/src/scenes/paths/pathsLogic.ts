@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { DashboardItemLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
+import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 export const pathOptionsToLabels = {
@@ -23,7 +23,13 @@ export const pathOptionsToProperty = {
 function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
     return {
         start_point: filters.start_point,
-        path_type: filters.path_type || PathType.PageView,
+        end_point: filters.end_point,
+        // TODO: use FF for path_type undefined
+        path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
+        include_event_types: filters.include_event_types || [PathType.PageView],
+        path_groupings: filters.path_groupings || [],
+        exclude_events: filters.exclude_events || [],
+        ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
         date_from: filters.date_from,
         date_to: filters.date_to,
         insight: ViewType.PATHS,
@@ -32,7 +38,6 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
 }
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
-
 interface PathResult {
     paths: PathNode[]
     filter: Partial<FilterType>
@@ -46,18 +51,20 @@ interface PathNode {
 }
 
 export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
-    props: {} as DashboardItemLogicProps,
+    props: {} as SharedInsightLogicProps,
     key: (props) => {
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
     connect: {
         actions: [insightHistoryLogic, ['createInsight']],
     },
-    actions: () => ({
+    actions: {
         setProperties: (properties) => ({ properties }),
         setFilter: (filter) => filter,
         setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
-    }),
+        showPathEvents: (event) => ({ event }),
+        updateExclusions: (filters: AnyPropertyFilter[]) => ({ exclusions: filters.map(({ value }) => value) }),
+    },
     loaders: ({ values, props }) => ({
         results: {
             __default: { paths: [], filter: {} } as PathResult,
@@ -75,9 +82,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId as number | undefined
+                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
                 insightLogic.actions.startQuery(queryId)
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                if (dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                }
 
                 let paths
                 try {
@@ -85,13 +94,17 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                    if (dashboardItemId) {
+                        dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                    }
 
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()
                 insightLogic.actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
-                dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, paths.last_refresh)
+                if (dashboardItemId) {
+                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, paths.last_refresh)
+                }
 
                 return { paths: paths.result, filter }
             },
@@ -106,6 +119,15 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             >,
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
+                showPathEvents: (state, { event }) => {
+                    if (state.include_event_types) {
+                        const include_event_types = state.include_event_types.includes(event)
+                            ? state.include_event_types.filter((e) => e !== event)
+                            : [...state.include_event_types, event]
+                        return { ...state, include_event_types }
+                    }
+                    return { ...state, include_event_types: [event] }
+                },
             },
         ],
         properties: [
@@ -121,6 +143,9 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     listeners: ({ actions, values, props }) => ({
         setProperties: () => {
             actions.loadResults(true)
+        },
+        updateExclusions: ({ exclusions }) => {
+            actions.setFilter({ exclude_events: exclusions })
         },
         setFilter: () => {
             actions.loadResults(true)

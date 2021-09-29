@@ -21,6 +21,7 @@ from posthog.models.filters.mixins.paths import (
     EndPointMixin,
     FunnelPathsMixin,
     PathGroupingMixin,
+    PathLimitsMixin,
     PathPersonsMixin,
     PathStepLimitMixin,
     PropTypeDerivedMixin,
@@ -54,6 +55,7 @@ class PathFilter(
     PathPersonsMixin,
     LimitMixin,
     OffsetMixin,
+    PathLimitsMixin,
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):

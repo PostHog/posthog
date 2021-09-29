@@ -5,6 +5,8 @@ import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
 import { errorToast, identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
+import dayjs from 'dayjs'
+import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -29,6 +31,10 @@ interface InitKeaProps {
 }
 
 export function initKea({ state, routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
+    // necessary for any localised date formatting to work
+    // doesn't matter if it is called multiple times but must be called once
+    dayjs.extend(LocalizedFormat)
+
     resetContext({
         plugins: [
             ...(beforePlugins || []),

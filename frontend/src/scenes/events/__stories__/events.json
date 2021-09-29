@@ -776,7 +776,7 @@
                 "tab": "live"
             },
             "eventsTableLogic": {
-                "all-eventsundefined": {
+                "all-events": {
                     "initialPathname": "/events",
                     "properties": {},
                     "eventFilter": "",

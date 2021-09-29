@@ -21,13 +21,13 @@ export function ToolbarApp(props: EditorProps = {}): JSX.Element {
         }
 
         // add styles that webpack has rendered until now
-        const styles = (((window as any)['__PHGTLB_STYLES__'] || []) as unknown) as HTMLStyleElement[]
+        const styles = ((window as any)['__PHGTLB_STYLES__'] || []) as unknown as HTMLStyleElement[]
         if (styles) {
             styles.forEach((element) => addStyleElementToShadowRoot(element))
         }
 
         // add function to render styles in the future
-        ;(window as any)['__PHGTLB_ADD_STYLES__'] = (element: HTMLStyleElement) => addStyleElementToShadowRoot(element)
+        (window as any)['__PHGTLB_ADD_STYLES__'] = (element: HTMLStyleElement) => addStyleElementToShadowRoot(element)
     })
 
     return (

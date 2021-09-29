@@ -12,6 +12,7 @@ import {
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
     FunnelsTimeConversionBins,
+    FunnelAPIResponse,
 } from '~/types'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
@@ -55,10 +56,14 @@ export function humanizeOrder(order: number): number {
     return order + 1
 }
 
-export function getSeriesColor(index?: number): string | undefined {
+export function getSeriesColor(index?: number, isSingleSeries: boolean = false, fallbackColor?: string): string {
+    if (isSingleSeries) {
+        return 'var(--primary)'
+    }
     if (typeof index === 'number' && index >= 0) {
         return getChartColors('white')[index]
     }
+    return fallbackColor ?? getChartColors('white')[0]
 }
 
 export function getBreakdownMaxIndex(breakdown?: FunnelStep[]): number | undefined {
@@ -191,9 +196,7 @@ export function aggregateBreakdownResult(
     return []
 }
 
-export function isBreakdownFunnelResults(
-    results: FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
-): results is FunnelStep[][] {
+export function isBreakdownFunnelResults(results: FunnelAPIResponse): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 

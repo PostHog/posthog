@@ -4,7 +4,7 @@ import { toFinishAllListeners } from './toFinishAllListeners'
 import { toFinishListeners } from './toFinishListeners'
 import { toMatchValues } from './toMatchValues'
 import { toMount } from './toMount'
-import { printActions } from './printActions'
+import { printActions, PrintActionsOptions } from './printActions'
 import { delay } from './delay'
 import { ActionToDispatch, ExpectFunction } from '~/test/kea-test-utils'
 import { BuiltLogic, LogicWrapper } from 'kea'
@@ -21,7 +21,7 @@ export interface ExpectLogicMethods {
     toMatchValues: ((values: Record<string, any>) => ExpectLogicMethods) &
         ((logic: BuiltLogic | LogicWrapper, values: Record<string, any>) => ExpectLogicMethods)
     toMount: (otherLogics?: BuiltLogic | LogicWrapper | (BuiltLogic | LogicWrapper)[]) => ExpectLogicMethods
-    printActions: (payload?: string) => ExpectLogicMethods
+    printActions: (options?: PrintActionsOptions) => ExpectLogicMethods
     delay: (ms: number) => ExpectLogicMethods
 }
 

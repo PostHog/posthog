@@ -4,13 +4,21 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathOptionsToLabels, pathOptionsToProperty, pathsLogic } from 'scenes/paths/pathsLogic'
 import { Col, Row, Select } from 'antd'
 import { PropertyValue } from 'lib/components/PropertyFilters'
-import { TestAccountFilter } from '../TestAccountFilter'
+import { TestAccountFilter } from '../../TestAccountFilter'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { PathType } from '~/types'
-import { GlobalFiltersTitle } from '../common'
+import { GlobalFiltersTitle } from '../../common'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { NewPathTab } from './NewPathTab'
 
 export function PathTab(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] ? <NewPathTab /> : <OldPathTab />
+}
+
+export function OldPathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))

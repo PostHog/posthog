@@ -24,6 +24,7 @@ export interface TaxonomicFilterGroup {
     options?: Record<string, any>[]
     logic?: LogicWrapper
     value?: string
+    searchAlias?: string
     getName: (object: any) => string
     getValue: (object: any) => TaxonomicFilterValue
 }
@@ -36,6 +37,9 @@ export enum TaxonomicFilterGroupType {
     Events = 'events',
     EventProperties = 'event_properties',
     PersonProperties = 'person_properties',
+    PageviewUrls = 'pageview_urls',
+    Screens = 'screens',
+    CustomEvents = 'custom_events',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

@@ -1,0 +1,11 @@
+.paths {
+    .ant-btn {
+        border-radius: 4px;
+        z-index: 100;
+        &:hover {
+            border-radius: 4px 4px 0px 0px;
+            color: black;
+            z-index: 999;
+        }
+    }
+}

@@ -25,8 +25,9 @@ import {
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelStepRangeEntityFilter,
-    DashboardItemLogicProps,
+    SharedInsightLogicProps,
     FlattenedFunnelStepByBreakdown,
+    FunnelAPIResponse,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -91,7 +92,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
     }
 }
 
-export interface FunnelLogicProps extends DashboardItemLogicProps {
+export interface FunnelLogicProps extends SharedInsightLogicProps {
     refresh?: boolean
     exclusionFilters?: Partial<FilterType>
 }
@@ -132,7 +133,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
-        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
+        setCachedResults: (filters: Partial<FilterType>, results: FunnelAPIResponse) => ({ filters, results }),
         toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
@@ -140,7 +141,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
 
     connect: {
         actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
-        logic: [insightLogic, eventUsageLogic],
+        logic: [insightLogic, eventUsageLogic, dashboardsModel],
     },
 
     loaders: ({ props, values }) => ({
@@ -148,10 +149,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             { results: [], filters: {} } as LoadedRawFunnelResults,
             {
                 setCachedResults: ({ results, filters }) => {
-                    return {
-                        results: results as FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins,
-                        filters: filters,
-                    }
+                    return { results, filters }
                 },
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
                     const { apiParams, eventCount, actionCount, interval, filters } = values
@@ -161,10 +159,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                         (props.cachedResults || props.preventLoading) &&
                         equal(cleanFunnelParams(values.filters, true), cleanFunnelParams(props.filters || {}, true))
                     ) {
-                        return {
-                            results: props.cachedResults,
-                            filters,
-                        }
+                        return { results: props.cachedResults, filters }
                     }
 
                     // Don't bother making any requests if filters aren't valid
@@ -207,7 +202,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     }
 
                     const queryId = uuid()
-                    const dashboardItemId = props.dashboardItemId as number | undefined
+                    const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
 
                     insightLogic.actions.startQuery(queryId)
                     if (dashboardItemId) {
@@ -279,6 +274,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                         : [],
                 }),
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
+                setCachedResultsSuccess: (_, { rawResults }) => rawResults.filters,
             },
         ],
         people: {
@@ -312,12 +308,6 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             true,
             {
                 setIsGroupingOutliers: (_, { isGroupingOutliers }) => isGroupingOutliers,
-            },
-        ],
-        binCount: [
-            BinCountAuto as BinCountValue,
-            {
-                setBinCount: (_, { binCount }) => binCount,
             },
         ],
         error: [
@@ -475,6 +465,11 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     ...cleanedParams,
                 }
             },
+        ],
+        filterSteps: [
+            () => [selectors.apiParams],
+            (apiParams) =>
+                [...(apiParams.events ?? []), ...(apiParams.actions ?? [])].sort((a, b) => a.order - b.order),
         ],
         eventCount: [() => [selectors.apiParams], (apiParams) => apiParams.events?.length || 0],
         actionCount: [() => [selectors.apiParams], (apiParams) => apiParams.actions?.length || 0],
@@ -676,12 +671,12 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             },
         ],
         numericBinCount: [
-            () => [selectors.binCount, selectors.timeConversionResults],
-            (binCount, timeConversionResults): number => {
-                if (binCount === BinCountAuto) {
+            () => [selectors.filters, selectors.timeConversionResults],
+            (filters, timeConversionResults): number => {
+                if (filters.bin_count === BinCountAuto) {
                     return timeConversionResults?.bins?.length ?? 0
                 }
-                return binCount
+                return filters.bin_count ?? 0
             },
         ],
         exclusionDefaultStepRange: [
@@ -824,8 +819,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 funnel_to_step,
             })
         },
-        setBinCount: async () => {
-            const { binCount } = values
+        setBinCount: async ({ binCount }) => {
             actions.setFilters(binCount && binCount !== BinCountAuto ? { bin_count: binCount } : {})
         },
         setConversionWindow: async () => {

@@ -1,5 +1,5 @@
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
 
 import pytz
 from django.conf import settings
@@ -173,9 +173,3 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
-
-
-@receiver(models.signals.pre_delete, sender=Team)
-def team_deleted(sender, instance, **kwargs):
-    instance.event_set.all().delete()
-    instance.elementgroup_set.all().delete()

@@ -3,8 +3,15 @@
 
     &.in-dropdown {
         min-width: 300px;
-        max-width: calc(100vw - 25px);
         background: white;
+    }
+
+    &.large {
+        max-width: calc(100vw - 25px);
+    }
+
+    &.small {
+        max-width: calc(50vw - 25px);
     }
 
     .taxonomic-filter-row {
@@ -12,6 +19,12 @@
         grid-column-gap: 0.5rem;
         grid-row-gap: 0.25rem;
         grid-template-columns: 70px minmax(180px, 1fr) minmax(100px, auto);
+
+        &.symmetric {
+            grid-template-columns: auto auto;
+        }
+
+        align-items: center;
 
         // only setting grid properties here, the rest are below
         .taxonomic-where {
@@ -37,6 +50,9 @@
         // small screens
         @media (max-width: 512px) {
             grid-template-columns: 35px auto 70px;
+            &.symmetric {
+                grid-template-columns: auto auto;
+            }
             .taxonomic-where {
                 .arrow {
                     display: none;
@@ -47,6 +63,11 @@
         // bigger screens
         @media (min-width: 1080px) {
             grid-template-columns: 70px minmax(140px, 160px) minmax(100px, 120px) minmax(100px, 400px);
+
+            &.symmetric {
+                grid-template-columns: 70px minmax(140px, 160px) minmax(70px, 80px) minmax(180px, 200px);
+            }
+
             .taxonomic-where {
                 grid-column: 1;
                 grid-row: 1;
@@ -67,6 +88,10 @@
         // even more space for huge screens
         @media (min-width: 1280px) {
             grid-template-columns: 70px minmax(140px, 220px) minmax(80px, 160px) minmax(100px, 500px);
+
+            &.symmetric {
+                grid-template-columns: 70px minmax(140px, 160px) minmax(70px, 80px) minmax(180px, 200px);
+            }
         }
     }
 

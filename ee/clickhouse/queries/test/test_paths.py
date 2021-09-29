@@ -1,6 +1,8 @@
 from typing import Tuple
+from unittest.mock import MagicMock
 from uuid import uuid4
 
+from django.test import TestCase
 from freezegun import freeze_time
 
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -35,8 +37,10 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
 
     maxDiff = None
 
-    def _get_people_at_path(self, filter, path_start, path_end, funnel_filter=None):
-        person_filter = filter.with_data({"path_start_key": path_start, "path_end_key": path_end})
+    def _get_people_at_path(self, filter, path_start=None, path_end=None, funnel_filter=None, path_dropoff=None):
+        person_filter = filter.with_data(
+            {"path_start_key": path_start, "path_end_key": path_end, "path_dropoff_key": path_dropoff}
+        )
         result = ClickhousePathsPersons(person_filter, self.team, funnel_filter)._exec_query()
         return [row[0] for row in result]
 
@@ -351,6 +355,89 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             0, len(self._get_people_at_path(path_filter, "4_step branch", "3_step dropoff2", funnel_filter))
         )
 
+    def test_path_by_funnel_after_step_respects_conversion_window(self):
+        # note events happen after 1 day
+        for i in range(5):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(
+                event="between_step_1_a", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-02 00:00:00"
+            )
+            _create_event(
+                event="between_step_1_b", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00"
+            )
+            _create_event(
+                event="between_step_1_c", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-04 00:00:00"
+            )
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-05 00:00:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-06 00:00:00")
+
+        for i in range(15, 35):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(
+                event="step dropoff1", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-02 00:00:00"
+            )
+            _create_event(
+                event="step dropoff2", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-03 00:00:00"
+            )
+            if i % 2 == 0:
+                _create_event(
+                    event="step branch", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-04 00:00:00"
+                )
+
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": -2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+        funnel_filter = Filter(data=data)
+        path_filter = PathFilter(data=data)
+        response = ClickhousePaths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {
+                    "source": "1_step one",
+                    "target": "2_step dropoff1",
+                    "value": 20,
+                    "average_conversion_time": ONE_MINUTE * 60 * 24,
+                },
+                {
+                    "source": "2_step dropoff1",
+                    "target": "3_step dropoff2",
+                    "value": 20,
+                    "average_conversion_time": ONE_MINUTE * 60 * 24,
+                },
+                {
+                    "source": "3_step dropoff2",
+                    "target": "4_step branch",
+                    "value": 10,
+                    "average_conversion_time": ONE_MINUTE * 60 * 24,
+                },
+            ],
+        )
+        self.assertEqual(20, len(self._get_people_at_path(path_filter, "1_step one", "2_step dropoff1", funnel_filter)))
+        self.assertEqual(
+            20, len(self._get_people_at_path(path_filter, "2_step dropoff1", "3_step dropoff2", funnel_filter))
+        )
+        self.assertEqual(
+            10, len(self._get_people_at_path(path_filter, "3_step dropoff2", "4_step branch", funnel_filter))
+        )
+        self.assertEqual(
+            0, len(self._get_people_at_path(path_filter, "4_step branch", "3_step dropoff2", funnel_filter))
+        )
+
     def test_path_by_funnel_after_step(self):
         self._create_sample_data_multiple_dropoffs()
         data = {
@@ -390,7 +477,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ],
         )
 
-    def test_path_by_funneL_before_dropoff(self):
+    def test_path_by_funnel_before_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
         data = {
             "insight": INSIGHT_FUNNELS,
@@ -819,7 +906,7 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             {
                 "include_event_types": ["$pageview", "$screen", "custom_event"],
                 "include_custom_events": [],
-                "exclude_events": ["/custom1", "$pageview"],
+                "exclude_events": ["/custom1", "/1", "/2", "/3"],
             }
         )
         response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -831,6 +918,100 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 {"source": "2_/screen2", "target": "3_/screen3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
             ],
         )
+
+    def test_event_exclusion_filters_with_wildcards(self):
+
+        # P1 for pageview event /2/bar/1/foo
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/2/bar/1/foo"},  # regex matches, despite beginning with `/2/`
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="p1",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        # P2 for pageview event /bar/2/foo
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="p2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/bar/2/foo"},
+            distinct_id="p2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="p2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        # P3 for pageview event /bar/3/foo
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"])
+        _create_event(
+            properties={"$current_url": "/1"},
+            distinct_id="p3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:21:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/bar/33/foo"},
+            distinct_id="p3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:22:34.000Z",
+        )
+        _create_event(
+            properties={"$current_url": "/3"},
+            distinct_id="p3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2012-01-01T03:24:34.000Z",
+        )
+
+        filter = PathFilter(
+            data={
+                "step_limit": 4,
+                "date_from": "2012-01-01",
+                "exclude_events": ["/bar/*/foo"],
+                "include_event_types": ["$pageview"],
+                "path_groupings": ["/bar/*/foo"],
+            }
+        )
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(
+            response, [{"source": "1_/1", "target": "2_/3", "value": 3, "average_conversion_time": 3 * ONE_MINUTE},],
+        )
+
+        filter = filter.with_data({"path_groupings": ["/xxx/invalid/*"]})
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+        self.assertEqual(len(response), 6)
 
     def test_event_inclusion_exclusion_filters_across_single_person(self):
 
@@ -1197,6 +1378,20 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
         )
         self.assertCountEqual(self._get_people_at_path(filter, "1_/5", "2_/about"), [p1.uuid, p2.uuid])
 
+        # test aggregation for long paths
+        filter = filter.with_data({"start_point": "/2", "step_limit": 4})
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/2", "target": "2_/3", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "2_/3", "target": "3_...", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "3_...", "target": "4_/5", "value": 1, "average_conversion_time": ONE_MINUTE},
+                {"source": "4_/5", "target": "5_/about", "value": 1, "average_conversion_time": ONE_MINUTE},
+            ],
+        )
+        self.assertCountEqual(self._get_people_at_path(filter, "3_...", "4_/5"), [p1.uuid])
+
     def test_properties_queried_using_path_filter(self):
         def should_query_list(filter) -> Tuple[bool, bool]:
             path_query = PathEventQuery(filter, self.team.id)
@@ -1397,3 +1592,310 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
                 {"source": "2_/2/bar/aaa", "target": "3_/3*", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
             ],
         )
+
+    def test_paths_person_dropoffs(self):
+
+        # 5 people do 2 events
+        for i in range(5):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
+
+        # 10 people do 3 events
+        for i in range(5, 15):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:00")
+
+        # 20 people do 4 events
+        for i in range(15, 35):
+            Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00")
+            _create_event(event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:04:00")
+            _create_event(event="step three", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:05:00")
+            _create_event(event="step four", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:06:00")
+
+        filter = PathFilter(
+            data={
+                "include_event_types": ["custom_event"],
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+            }
+        )
+        self.assertEqual(5, len(self._get_people_at_path(filter, path_dropoff="2_step two")))  # 5 dropoff at step 2
+        self.assertEqual(35, len(self._get_people_at_path(filter, path_end="2_step two")))  # 35 total reach step 2
+        self.assertEqual(
+            30, len(self._get_people_at_path(filter, path_start="2_step two"))
+        )  # 30 total reach after step 2
+
+        self.assertEqual(10, len(self._get_people_at_path(filter, path_dropoff="3_step three")))  # 10 dropoff at step 3
+        self.assertEqual(30, len(self._get_people_at_path(filter, path_end="3_step three")))  # 30 total reach step 3
+        self.assertEqual(
+            20, len(self._get_people_at_path(filter, path_start="3_step three"))
+        )  # 20 total reach after step 3
+
+        self.assertEqual(20, len(self._get_people_at_path(filter, path_dropoff="4_step four")))  # 20 dropoff at step 4
+        self.assertEqual(20, len(self._get_people_at_path(filter, path_end="4_step four")))  # 20 total reach step 4
+        self.assertEqual(
+            0, len(self._get_people_at_path(filter, path_start="4_step four"))
+        )  # 0 total reach after step 4
+
+    def test_paths_start_dropping_orphaned_edges(self):
+
+        for i in range(5):
+            # 5 people going through this route to increase weights
+            Person.objects.create(team_id=self.team.pk, distinct_ids=[f"person_{i}"])
+            _create_event(
+                properties={"$current_url": "/1"},
+                distinct_id=f"person_{i}",
+                event="$pageview",
+                team=self.team,
+                timestamp="2021-05-01 00:01:00",
+            )
+            _create_event(
+                properties={"$current_url": "/2"},
+                distinct_id=f"person_{i}",
+                event="$pageview",
+                team=self.team,
+                timestamp="2021-05-01 00:02:00",
+            )
+            _create_event(
+                properties={"$current_url": "/3"},
+                distinct_id=f"person_{i}",
+                event="$pageview",
+                team=self.team,
+                timestamp="2021-05-01 00:03:00",
+            )
+            _create_event(
+                properties={"$current_url": "/4"},
+                distinct_id=f"person_{i}",
+                event="$pageview",
+                team=self.team,
+                timestamp="2021-05-01 00:04:00",
+            )
+            _create_event(
+                properties={"$current_url": "/5"},
+                distinct_id=f"person_{i}",
+                event="$pageview",
+                team=self.team,
+                timestamp="2021-05-01 00:05:00",
+            )
+            _create_event(
+                properties={"$current_url": "/about"},
+                distinct_id=f"person_{i}",
+                event="$pageview",
+                team=self.team,
+                timestamp="2021-05-01 00:06:00",
+            )
+            _create_event(
+                properties={"$current_url": "/after"},
+                distinct_id=f"person_{i}",
+                event="$pageview",
+                team=self.team,
+                timestamp="2021-05-01 00:07:00",
+            )
+
+        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_r_2"])
+        _create_event(
+            properties={"$current_url": "/2"},
+            distinct_id="person_r_2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+        )
+        _create_event(
+            properties={"$current_url": "/a"},
+            distinct_id="person_r_2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:01:30",
+        )
+        _create_event(
+            properties={"$current_url": "/x"},
+            distinct_id="person_r_2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+        )
+        _create_event(
+            properties={"$current_url": "/about"},
+            distinct_id="person_r_2",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:03:00",
+        )
+
+        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_r_3"])
+        _create_event(
+            properties={"$current_url": "/2"},
+            distinct_id="person_r_3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+        )
+        _create_event(
+            properties={"$current_url": "/b"},
+            distinct_id="person_r_3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:01:30",
+        )
+        _create_event(
+            properties={"$current_url": "/x"},
+            distinct_id="person_r_3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+        )
+        _create_event(
+            properties={"$current_url": "/about"},
+            distinct_id="person_r_3",
+            event="$pageview",
+            team=self.team,
+            timestamp="2021-05-01 00:03:00",
+        )
+
+        # /x -> /about has higher weight than /2 -> /a -> /x and /2 -> /b -> /x
+
+        filter = PathFilter(
+            data={
+                "path_type": "$pageview",
+                "start_point": "/2",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-07 00:00:00",
+                "edge_limit": "6",
+            }
+        )
+        response = ClickhousePaths(team=self.team, filter=filter).run(team=self.team, filter=filter,)
+        self.assertEqual(
+            response,
+            [
+                {"source": "1_/2", "target": "2_/3", "value": 5, "average_conversion_time": 60000.0},
+                {"source": "2_/3", "target": "3_/4", "value": 5, "average_conversion_time": 60000.0},
+                {"source": "3_/4", "target": "4_/5", "value": 5, "average_conversion_time": 60000.0},
+                {"source": "4_/5", "target": "5_/about", "value": 5, "average_conversion_time": 60000.0},
+                # {'source': '3_/x', 'target': '4_/about', 'value': 2, 'average_conversion_time': 60000.0}, # gets deleted by validation since dangling
+                {"source": "1_/2", "target": "2_/a", "value": 1, "average_conversion_time": 30000.0},
+            ],
+        )
+
+    def test_path_min_edge_weight(self):
+        # original data from test_path_by_grouping.py
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "min_edge_weight": 15,
+            "path_groupings": ["between_step_1_*", "between_step_2_*", "step drop*"],
+        }
+        path_filter = PathFilter(data=data)
+        response = ClickhousePaths(team=self.team, filter=path_filter).run()
+        self.assertCountEqual(
+            response,
+            [
+                {
+                    "source": "1_step one",
+                    "target": "2_step drop*",
+                    "value": 20,
+                    "average_conversion_time": 2 * ONE_MINUTE,
+                },
+                # when we group events for a single user, these effectively become duplicate events, and we choose the last event from
+                # a list of duplicate events.
+                {
+                    "source": "1_step one",
+                    "target": "2_between_step_1_*",
+                    "value": 15,
+                    "average_conversion_time": (5 * 3 + 10 * 2)
+                    * ONE_MINUTE
+                    / 15,  # first 5 go till between_step_1_c, next 10 go till between_step_1_b
+                },
+                {
+                    "source": "2_between_step_1_*",
+                    "target": "3_step two",
+                    "value": 15,
+                    "average_conversion_time": ONE_MINUTE,
+                },
+            ],
+        )
+
+        path_filter = path_filter.with_data({"edge_limit": 2})
+        response = ClickhousePaths(team=self.team, filter=path_filter).run()
+        self.assertCountEqual(
+            response,
+            [
+                {
+                    "source": "1_step one",
+                    "target": "2_step drop*",
+                    "value": 20,
+                    "average_conversion_time": 2 * ONE_MINUTE,
+                },
+                # when we group events for a single user, these effectively become duplicate events, and we choose the last event from
+                # a list of duplicate events.
+                {
+                    "source": "1_step one",
+                    "target": "2_between_step_1_*",
+                    "value": 15,
+                    "average_conversion_time": (5 * 3 + 10 * 2)
+                    * ONE_MINUTE
+                    / 15,  # first 5 go till between_step_1_c, next 10 go till between_step_1_b
+                },
+            ],
+        )
+
+        path_filter = path_filter.with_data({"edge_limit": 20, "max_edge_weight": 11, "min_edge_weight": 6})
+        response = ClickhousePaths(team=self.team, filter=path_filter).run()
+        self.assertCountEqual(
+            response,
+            [
+                {
+                    "source": "2_step drop*",
+                    "target": "3_step branch",
+                    "value": 10,
+                    "average_conversion_time": ONE_MINUTE,
+                },
+                {
+                    "source": "3_step two",
+                    "target": "4_between_step_2_*",
+                    "value": 10,
+                    "average_conversion_time": 160000,
+                },
+            ],
+        )
+
+
+class TestClickhousePathsEdgeValidation(TestCase):
+
+    BASIC_PATH = [("1_a", "2_b"), ("2_b", "3_c"), ("3_c", "4_d")]  # a->b->c->d
+    BASIC_PATH_2 = [("1_x", "2_y"), ("2_y", "3_z")]  # x->y->z
+
+    def test_basic_forest(self):
+        edges = self.BASIC_PATH + self.BASIC_PATH_2
+
+        results = ClickhousePaths(PathFilter(), MagicMock()).validate_results(edges)
+
+        self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
+
+    def test_basic_forest_with_dangling_edges(self):
+        edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_xxx", "3_yyy")]
+
+        results = ClickhousePaths(PathFilter(), MagicMock()).validate_results(edges)
+
+        self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
+
+    def test_basic_forest_with_dangling_and_cross_edges(self):
+        edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_y", "3_c")]
+
+        results = ClickhousePaths(PathFilter(), MagicMock()).validate_results(edges)
+
+        self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2 + [("2_y", "3_c")])
+
+    def test_no_start_point(self):
+        edges = set(self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d")])
+        edges.remove(("1_a", "2_b"))  # remove first start point
+        edges = list(edges)  # type: ignore
+
+        results = ClickhousePaths(PathFilter(), MagicMock()).validate_results(edges)
+
+        self.assertCountEqual(results, self.BASIC_PATH_2)

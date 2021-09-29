@@ -1,3 +1,4 @@
+from collections import defaultdict
 from re import escape
 from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
@@ -7,12 +8,13 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from ee.clickhouse.queries.paths.path_event_query import PathEventQuery
 from ee.clickhouse.sql.paths.path import PATH_ARRAY_QUERY
-from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT
+from posthog.constants import FUNNEL_PATH_BETWEEN_STEPS, LIMIT, PATH_EDGE_LIMIT
 from posthog.models import Filter, Team
 from posthog.models.filters.path_filter import PathFilter
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
+EDGE_LIMIT_DEFAULT = 50
 
 
 class ClickhousePaths:
@@ -47,11 +49,23 @@ class ClickhousePaths:
                 regex_groupings.append(regex_grouping)
             self.params["regex_groupings"] = regex_groupings
 
-        # TODO: don't allow including $pageview and excluding $pageview at the same time
+        if self._filter.edge_limit is None and not (self._filter.start_point and self._filter.end_point):
+            # no edge restriction when both start and end points are defined
+            self._filter = self._filter.with_data({PATH_EDGE_LIMIT: EDGE_LIMIT_DEFAULT})
+
+        if (
+            self._filter.max_edge_weight
+            and self._filter.min_edge_weight
+            and self._filter.max_edge_weight < self._filter.min_edge_weight
+        ):
+            raise ValidationError("Max Edge weight can't be lower than min edge weight")
 
     def run(self, *args, **kwargs):
-
         results = self._exec_query()
+
+        if not self._filter.min_edge_weight and not self._filter.max_edge_weight:
+            results = self.validate_results(results)
+
         return self._format_results(results)
 
     def _format_results(self, results):
@@ -87,8 +101,13 @@ class ClickhousePaths:
         target_clause, target_params = self.get_target_clause()
         self.params.update(target_params)
 
+        session_threshold_clause = self.get_session_threshold_clause()
+
         return PATH_ARRAY_QUERY.format(
-            path_event_query=path_event_query, boundary_event_filter=boundary_event_filter, target_clause=target_clause
+            path_event_query=path_event_query,
+            boundary_event_filter=boundary_event_filter,
+            target_clause=target_clause,
+            session_threshold_clause=session_threshold_clause,
         )
 
     def should_query_funnel(self) -> bool:
@@ -100,6 +119,11 @@ class ClickhousePaths:
 
         paths_per_person_query = self.get_paths_per_person_query()
 
+        self.params["edge_limit"] = self._filter.edge_limit
+
+        edge_weight_filter, edge_weight_params = self.get_edge_weight_clause()
+        self.params.update(edge_weight_params)
+
         return f"""
             SELECT last_path_key as source_event,
                 path_key as target_event,
@@ -109,10 +133,11 @@ class ClickhousePaths:
             WHERE source_event IS NOT NULL
             GROUP BY source_event,
                     target_event
+            {edge_weight_filter}
             ORDER BY event_count DESC,
                     source_event,
                     target_event
-            LIMIT 30
+            {'LIMIT %(edge_limit)s' if self._filter.edge_limit else ''}
         """
 
     def get_path_query_funnel_cte(self, funnel_filter: Filter):
@@ -133,6 +158,24 @@ class ClickhousePaths:
         )
         """
 
+    def get_edge_weight_clause(self) -> Tuple[str, Dict]:
+        params: Dict[str, int] = {}
+
+        conditions = []
+
+        if self._filter.min_edge_weight:
+            params["min_edge_weight"] = self._filter.min_edge_weight
+            conditions.append("event_count >= %(min_edge_weight)s")
+
+        if self._filter.max_edge_weight:
+            params["max_edge_weight"] = self._filter.max_edge_weight
+            conditions.append("event_count <= %(max_edge_weight)s")
+
+        if conditions:
+            return f"HAVING {' AND '.join(conditions)}", params
+
+        return "", params
+
     def get_target_point_filter(self) -> str:
         if self._filter.end_point and self._filter.start_point:
             return "WHERE start_target_index > 0 AND end_target_index > 0"
@@ -140,6 +183,26 @@ class ClickhousePaths:
             return f"WHERE target_index > 0"
         else:
             return ""
+
+    def get_session_threshold_clause(self) -> str:
+
+        if self.should_query_funnel():
+            self._funnel_filter = cast(Filter, self._funnel_filter)  # typing mess
+
+            # TODO: cleanup funnels interval interpolation mess so this can get cleaned up
+            if self._funnel_filter.funnel_window_interval:
+                funnel_window_interval = self._funnel_filter.funnel_window_interval
+                funnel_window_interval_unit = self._funnel_filter.funnel_window_interval_unit_ch()
+            elif self._funnel_filter.funnel_window_days:
+                funnel_window_interval = self._funnel_filter.funnel_window_days
+                funnel_window_interval_unit = "DAY"
+            else:
+                funnel_window_interval = 14
+                funnel_window_interval_unit = "DAY"
+            # Not possible to directly compare two interval data types, so using a proxy Date.
+            return f"arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(x.3 / 1000) < toDateTime('2018-01-01') + INTERVAL {funnel_window_interval} {funnel_window_interval_unit}, 0, 1), paths_tuple)"
+
+        return "arraySplit(x -> if(x.3 < %(session_time_threshold)s, 0, 1), paths_tuple)"
 
     def get_target_clause(self) -> Tuple[str, Dict]:
         params: Dict[str, Union[str, None]] = {"target_point": None, "secondary_target_point": None}
@@ -154,11 +217,11 @@ class ClickhousePaths:
             , indexOf(start_filtered_path, %(target_point)s) as end_target_index
             , if(end_target_index > 0, arrayResize(start_filtered_path, end_target_index), start_filtered_path) as filtered_path
             , if(end_target_index > 0, arrayResize(start_filtered_timings, end_target_index), start_filtered_timings) as filtered_timings
-            , arraySlice(filtered_path, 1, 5) as limited_path
-            , arraySlice(filtered_timings, 1, 5) as limited_timings
+            , if(length(filtered_path) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_path, 1, intDiv(%(event_in_session_limit)s,2)), ['...'], arraySlice(filtered_path, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_path) AS limited_path
+            , if(length(filtered_timings) > %(event_in_session_limit)s, arrayConcat(arraySlice(filtered_timings, 1, intDiv(%(event_in_session_limit)s, 2)), [filtered_timings[1+intDiv(%(event_in_session_limit)s, 2)]], arraySlice(filtered_timings, (-1)*intDiv(%(event_in_session_limit)s, 2), intDiv(%(event_in_session_limit)s, 2))), filtered_timings) AS limited_timings
             """,
                 params,
-            )  # hardcode limit of 5 for now
+            )
         else:
             path_limiting_clause, time_limiting_clause = self.get_filtered_path_ordering()
             compacting_function = self.get_array_compacting_function()
@@ -192,3 +255,33 @@ class ClickhousePaths:
                 "arraySlice(filtered_path, 1, %(event_in_session_limit)s)",
                 "arraySlice(filtered_timings, 1, %(event_in_session_limit)s)",
             )
+
+    def validate_results(self, results):
+        # Query guarantees results list to be:
+        # 1. Directed, Acyclic Tree where each node has only 1 child
+        # 2. All start nodes beginning with 1_
+
+        seen = set()  # source nodes that've been traversed
+        edges = defaultdict(list)
+        validated_results = []
+        starting_nodes_stack = []
+
+        for result in results:
+            edges[result[0]].append(result[1])
+            if result[0].startswith("1_"):
+                # All nodes with 1_ are valid starting nodes
+                starting_nodes_stack.append(result[0])
+
+        while starting_nodes_stack:
+            current_node = starting_nodes_stack.pop()
+            seen.add(current_node)
+
+            for node in edges[current_node]:
+                if node not in seen:
+                    starting_nodes_stack.append(node)
+
+        for result in results:
+            if result[0] in seen:
+                validated_results.append(result)
+
+        return validated_results
