@@ -10,6 +10,7 @@ import {
     ProjectFilled,
     PushpinFilled,
     SettingOutlined,
+    PlayCircleFilled,
 } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
@@ -333,14 +334,26 @@ export function MainNavigation(): JSX.Element {
                         hotkey="e"
                         tooltip="List of events and actions"
                     />
-                    <MenuItem
-                        title="Sessions"
-                        icon={<ClockCircleFilled />}
-                        identifier="sessions"
-                        to={urls.sessions()}
-                        hotkey="s"
-                        tooltip="Understand interactions based by visits and watch session recordings"
-                    />
+                    {featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? (
+                        <MenuItem
+                            title="Session Rec."
+                            icon={<PlayCircleFilled />}
+                            identifier="sessionRecordings"
+                            to={urls.sessionRecordings()}
+                            hotkey="s"
+                            tooltip="Watch session recordings"
+                        />
+                    ) : (
+                        <MenuItem
+                            title="Sessions"
+                            icon={<ClockCircleFilled />}
+                            identifier="sessions"
+                            to={urls.sessions()}
+                            hotkey="s"
+                            tooltip="Understand interactions based by visits and watch session recordings"
+                        />
+                    )}
+
                     <div className="divider" />
                     <MenuItem
                         title="Persons"
