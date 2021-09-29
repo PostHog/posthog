@@ -418,7 +418,7 @@ export function clearDOMTextSelection(): void {
         }
     } else if ((document as any).selection) {
         // IE?
-        ;(document as any).selection.empty()
+        (document as any).selection.empty()
     }
 }
 

@@ -27,7 +27,7 @@ export function ToolbarApp(props: EditorProps = {}): JSX.Element {
         }
 
         // add function to render styles in the future
-        ;(window as any)['__PHGTLB_ADD_STYLES__'] = (element: HTMLStyleElement) => addStyleElementToShadowRoot(element)
+        (window as any)['__PHGTLB_ADD_STYLES__'] = (element: HTMLStyleElement) => addStyleElementToShadowRoot(element)
     })
 
     return (

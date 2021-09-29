@@ -761,6 +761,9 @@ export interface FilterType {
     step_limit?: number // Paths Step Limit
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     funnel_paths?: FunnelPathType
+    edge_limit?: number | undefined // Paths edge limit
+    min_edge_weight?: number | undefined // Paths
+    max_edge_weight?: number | undefined // Paths
 }
 
 export interface SystemStatusSubrows {
@@ -1188,3 +1191,9 @@ export interface AppContext {
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
+
+export interface PathEdgeParameters {
+    edge_limit?: number | undefined
+    min_edge_weight?: number | undefined
+    max_edge_weight?: number | undefined
+}
