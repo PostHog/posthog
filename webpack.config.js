@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 /* global require, module, process, __dirname */
 const path = require('path')
-const webpack = require('webpack')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 const AntdDayjsWebpackPlugin = require('antd-dayjs-webpack-plugin')
@@ -43,13 +42,12 @@ function createEntry(entry) {
     return {
         name: entry,
         cache: {
-            type: "filesystem"
+            type: 'filesystem',
         },
         mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
         target: 'web',
         optimization: {
-            // runtimeChunk: 'single'
-            runtimeChunk: true
+            runtimeChunk: 'single',
         },
         devtool:
             process.env.GENERATE_SOURCEMAP === 'false'
@@ -92,8 +90,8 @@ function createEntry(entry) {
                 cypress: path.resolve(__dirname, 'cypress'),
                 // 'react-dom': '@hot-loader/react-dom',
             },
-            fallback: { 
-                path: require.resolve("path-browserify"),
+            fallback: {
+                path: require.resolve('path-browserify'),
             },
         },
         module: {
@@ -101,9 +99,11 @@ function createEntry(entry) {
                 {
                     test: /\.[jt]sx?$/,
                     exclude: /(node_modules)/,
-                    use: [{
-                        loader: 'babel-loader',
-                    }],
+                    use: [
+                        {
+                            loader: 'babel-loader',
+                        },
+                    ],
                 },
                 {
                     // Apply rule for .sass, .scss or .css files
@@ -212,39 +212,41 @@ function createEntry(entry) {
             // this.mode === 'development' && new ReactRefreshWebpackPlugin(),
             // new webpack.debug.ProfilingPlugin(),
             // common plugins for all entrypoints
-        ].filter(Boolean).concat(
-            entry === 'main'
-                ? [
-                      // we need these only once per build
-                      new HtmlWebpackPlugin({
-                          alwaysWriteToDisk: true,
-                          title: 'PostHog',
-                          template: path.join(__dirname, 'frontend', 'src', 'index.html'),
-                      }),
+        ]
+            .filter(Boolean)
+            .concat(
+                entry === 'main'
+                    ? [
+                          // we need these only once per build
+                          new HtmlWebpackPlugin({
+                              alwaysWriteToDisk: true,
+                              title: 'PostHog',
+                              template: path.join(__dirname, 'frontend', 'src', 'index.html'),
+                          }),
 
-                      new HtmlWebpackPlugin({
-                          alwaysWriteToDisk: true,
-                          title: 'PostHog',
-                          filename: 'layout.html',
-                          inject: false,
-                          template: path.join(__dirname, 'frontend', 'src', 'layout.ejs'),
-                      }),
-                      new HtmlWebpackHarddiskPlugin(),
-                  ]
-                : entry === 'shared_dashboard'
-                ? [
-                      new HtmlWebpackPlugin({
-                          alwaysWriteToDisk: true,
-                          title: 'PostHog',
-                          filename: 'shared_dashboard.html',
-                          template: path.join(__dirname, 'frontend', 'src', 'shared_dashboard.ejs'),
-                      }),
-                      new HtmlWebpackHarddiskPlugin(),
-                  ]
-                : entry === 'cypress'
-                ? [new HtmlWebpackHarddiskPlugin()]
-                : []
-        ),
+                          new HtmlWebpackPlugin({
+                              alwaysWriteToDisk: true,
+                              title: 'PostHog',
+                              filename: 'layout.html',
+                              inject: false,
+                              template: path.join(__dirname, 'frontend', 'src', 'layout.ejs'),
+                          }),
+                          new HtmlWebpackHarddiskPlugin(),
+                      ]
+                    : entry === 'shared_dashboard'
+                    ? [
+                          new HtmlWebpackPlugin({
+                              alwaysWriteToDisk: true,
+                              title: 'PostHog',
+                              filename: 'shared_dashboard.html',
+                              template: path.join(__dirname, 'frontend', 'src', 'shared_dashboard.ejs'),
+                          }),
+                          new HtmlWebpackHarddiskPlugin(),
+                      ]
+                    : entry === 'cypress'
+                    ? [new HtmlWebpackHarddiskPlugin()]
+                    : []
+            ),
     }
 }
 
