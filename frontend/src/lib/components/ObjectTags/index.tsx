@@ -48,25 +48,29 @@ export function ObjectTags({
         }
     }, [saving])
 
+    console.log('TAGS', tags)
+
     return (
         <div style={style}>
-            {tags.map((tag, index) => {
-                return (
-                    <Tag key={index} color={COLOR_OVERRIDES[tag] || colorForString(tag)} style={{ marginTop: 8 }}>
-                        {tag}{' '}
-                        {!staticOnly &&
-                            onTagDelete &&
-                            (deletedTags.includes(tag) ? (
-                                <SyncOutlined spin />
-                            ) : (
-                                <CloseOutlined
-                                    style={{ cursor: 'pointer' }}
-                                    onClick={() => handleDelete(tag, tags, id)}
-                                />
-                            ))}
-                    </Tag>
-                )
-            })}
+            {tags
+                .filter((t) => !!t)
+                .map((tag, index) => {
+                    return (
+                        <Tag key={index} color={COLOR_OVERRIDES[tag] || colorForString(tag)} style={{ marginTop: 8 }}>
+                            {tag}{' '}
+                            {!staticOnly &&
+                                onTagDelete &&
+                                (deletedTags.includes(tag) ? (
+                                    <SyncOutlined spin />
+                                ) : (
+                                    <CloseOutlined
+                                        style={{ cursor: 'pointer' }}
+                                        onClick={() => handleDelete(tag, tags, id)}
+                                    />
+                                ))}
+                        </Tag>
+                    )
+                })}
             {!staticOnly && onTagSave && saving !== undefined && (
                 <span style={{ display: 'inline-flex', fontWeight: 400 }}>
                     <Tag

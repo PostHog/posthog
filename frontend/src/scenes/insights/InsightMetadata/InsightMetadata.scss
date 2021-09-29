@@ -2,15 +2,23 @@
 
 .insight-metadata {
     .insight-metadata-input {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
         max-width: 400px;
         width: 100%;
-        height: 40px;
+        min-height: 30px;
+
+        &.edit {
+            min-height: 40px;
+        }
     }
 
     .insight-metadata-title {
         .title {
             font-size: 28px;
             font-weight: 600;
+            line-height: unset;
         }
     }
 
@@ -22,9 +30,8 @@
     }
 
     .insight-metadata-tags {
-        .tags {
-            margin-bottom: 4px;
-            margin-top: 8px;
+        .ant-tag {
+            margin-top: 0 !important;
         }
     }
 }

@@ -95,7 +95,7 @@ export function Insights(): JSX.Element {
         <div className="insights-page">
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
                 <div className="insight-metadata">
-                    <Row justify="space-between" align="middle" style={{ marginTop: 24, marginBottom: 16 }}>
+                    <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
                         <InsightMetadata.Title insight={insight} />
                         <div>
                             <SaveToDashboard
@@ -126,7 +126,7 @@ export function Insights(): JSX.Element {
                     </Row>
                     <InsightMetadata.Description insight={insight} />
                     <InsightMetadata.Tags insight={insight} />
-                    <Col span={24}>
+                    <Col span={24} style={{ marginTop: 16 }}>
                         <InsightContainer loadResults={loadResults} resultsLoading={resultsLoading} />
                     </Col>
                 </div>
@@ -145,12 +145,8 @@ export function Insights(): JSX.Element {
                     <div className="insight-metadata">
                         {insight.id && (
                             <>
-                                <Row
-                                    align="middle"
-                                    style={{ marginTop: 24, justifyContent: 'space-between' }}
-                                    className="mb-05"
-                                >
-                                    <Col>
+                                <Row align="middle" style={{ marginTop: 24, justifyContent: 'space-between' }}>
+                                    <Col style={{ flex: 1 }}>
                                         <InsightMetadata.Title
                                             insight={insight}
                                             isEditable={!!featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]}
