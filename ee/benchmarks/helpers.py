@@ -1,7 +1,6 @@
-import inspect
 import os
 import sys
-from functools import lru_cache, wraps
+from functools import wraps
 from os.path import dirname
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
