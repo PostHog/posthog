@@ -114,9 +114,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         filter: [
             (props.filters
                 ? cleanPathParams(props.filters)
-                : (state: Record<string, any>) => cleanPathParams(router.selectors.searchParams(state))) as Partial<
-                FilterType
-            >,
+                : (state: Record<string, any>) =>
+                      cleanPathParams(router.selectors.searchParams(state))) as Partial<FilterType>,
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
                 showPathEvents: (state, { event }) => {

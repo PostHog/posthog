@@ -371,9 +371,8 @@ function MenuItems(): JSX.Element {
 export function MainNavigation(): JSX.Element {
     const { menuCollapsed, toolbarModalOpen, hotkeyNavigationEngaged } = useValues(navigationLogic)
     const { isCurrentTeamUnavailable } = useValues(teamLogic)
-    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setHotkeyNavigationEngaged } = useActions(
-        navigationLogic
-    )
+    const { setMenuCollapsed, collapseMenu, setToolbarModalOpen, setHotkeyNavigationEngaged } =
+        useActions(navigationLogic)
     const navRef = useRef<HTMLDivElement | null>(null)
     const [canScroll, setCanScroll] = useState(false)
 

@@ -58,7 +58,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         return []
                     }
 
-                    (window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
+                    ;(window['posthog'] as PostHog).featureFlags.reloadFeatureFlags()
                     return [...values.userFlags].map((userFlag) =>
                         userFlag?.override?.id === overrideId ? { ...userFlag, override: null } : userFlag
                     )
@@ -103,7 +103,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         afterMount: () => {
             actions.getUserFlags()
             if (window && window['posthog']) {
-                (window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
+                ;(window['posthog'] as PostHog).onFeatureFlags((_, variants) => {
                     if (variants) {
                         toolbarLogic.actions.updateFeatureFlags(variants)
                     }

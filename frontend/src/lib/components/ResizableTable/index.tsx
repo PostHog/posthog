@@ -117,16 +117,18 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         unsetLastColumnStyle()
     }
 
-    const handleColumnResize = (index: number): ResizeHandler => (_, { size: { width } }) => {
-        if (timeout.current) {
-            cancelAnimationFrame(timeout.current)
+    const handleColumnResize =
+        (index: number): ResizeHandler =>
+        (_, { size: { width } }) => {
+            if (timeout.current) {
+                cancelAnimationFrame(timeout.current)
+            }
+            timeout.current = requestAnimationFrame(function () {
+                updateColumnWidth(index, width)
+                updateTableWidth()
+            })
+            updateScrollGradient()
         }
-        timeout.current = requestAnimationFrame(function () {
-            updateColumnWidth(index, width)
-            updateTableWidth()
-        })
-        updateScrollGradient()
-    }
 
     function handleWrapperResize(newWidth: number): void {
         // Recalculate column widths if the wrapper changes size.
