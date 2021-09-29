@@ -108,7 +108,7 @@ class DashboardSerializer(serializers.ModelSerializer):
             update_dashboard_items_cache(dashboard)
             dashboard.refresh_from_db()
 
-        items = dashboard.items.filter(deleted=False).order_by("order").all()
+        items = dashboard.items.filter(deleted=False).order_by("order", "pk").all()
         self.context.update({"dashboard": dashboard})
 
         dive_source_id = self.context["request"].GET.get("dive_source_id")
@@ -216,6 +216,9 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def get_result(self, dashboard_item: DashboardItem):
+        if self.context["request"].GET.get("refresh"):
+            return update_dashboard_item_cache(dashboard_item, None)
+
         # If it's more than a day old, don't return anything
         if dashboard_item.last_refresh and (now() - dashboard_item.last_refresh).days > 0:
             return None
@@ -229,9 +232,12 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         return result.get("result")
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
-        result = self.get_result(dashboard_item)
-        if result is not None:
+        if self.context["request"].GET.get("refresh"):
+            return now()  # will be set on the dashboard item by update_dashboard_item_cache
+
+        if get_safe_cache(dashboard_item.filters_hash):
             return dashboard_item.last_refresh
+
         dashboard_item.last_refresh = None
         dashboard_item.save()
         return None

@@ -138,7 +138,10 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
     """
 
     try:
+        from ee.clickhouse.client import sync_execute
         from ee.clickhouse.materialized_columns import materialize
+        from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
+        from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL
     except:
         # EE not available? Just run the main test
         return lambda fn: fn
@@ -146,6 +149,9 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
     def decorator(fn):
         @pytest.mark.ee
         def fn_with_materialized(self, *args, **kwargs):
+            sync_execute(DROP_EVENTS_TABLE_SQL)
+            sync_execute(EVENTS_TABLE_SQL)
+
             # Don't run these tests under non-clickhouse classes even if decorated in base classes
             if not getattr(self, "RUN_MATERIALIZED_COLUMN_TESTS", False):
                 return
@@ -162,6 +168,9 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
                 for sql in sqls:
                     self.assertNotIn("JSONExtract", sql)
                     self.assertNotIn("properties", sql)
+
+            sync_execute(DROP_EVENTS_TABLE_SQL)
+            sync_execute(EVENTS_TABLE_SQL)
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
