@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from ee.kafka_client.client import build_kafka_consumer, _KafkaProducer
+from ee.kafka_client.client import _KafkaProducer, build_kafka_consumer
 
 
 class KafkaClientTestCase(TestCase):

@@ -4,8 +4,8 @@ from typing import Any, Callable, Dict, Optional
 
 from google.protobuf.internal.encoder import _VarintBytes  # type: ignore
 from google.protobuf.json_format import MessageToJson
-from kafka import KafkaProducer as KP
 from kafka import KafkaConsumer as KC
+from kafka import KafkaProducer as KP
 
 from ee.clickhouse.client import async_execute, sync_execute
 from ee.kafka_client import helper
