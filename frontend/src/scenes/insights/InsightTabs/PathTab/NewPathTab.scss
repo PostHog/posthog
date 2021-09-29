@@ -42,3 +42,16 @@
         padding: 0;
     }
 }
+
+.paths-close-button {
+    cursor: 'pointer';
+    float: 'none';
+    padding-left: 8;
+    align-self: 'center';
+
+    &:hover {
+        border-radius: 4px 4px 0px 0px;
+        color: black;
+        z-index: 999;
+    }
+}

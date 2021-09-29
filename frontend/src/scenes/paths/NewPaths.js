@@ -99,6 +99,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
         elements.forEach((node) => node.parentNode.removeChild(node))
 
         if (!paths || paths.nodes.length === 0) {
+            setPathItemCards([])
             return
         }
         let width = canvas.current.offsetWidth

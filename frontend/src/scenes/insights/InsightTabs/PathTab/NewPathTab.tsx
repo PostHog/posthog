@@ -185,19 +185,24 @@ export function NewPathTab(): JSX.Element {
                                     >
                                         {filter.start_point ? (
                                             <>
-                                                {filter.start_point}
-                                                <CloseButton
-                                                    onClick={(e: Event) => {
-                                                        setFilter({ start_point: null })
-                                                        e.stopPropagation()
-                                                    }}
-                                                    style={{
-                                                        cursor: 'pointer',
-                                                        float: 'none',
-                                                        paddingLeft: 8,
-                                                        alignSelf: 'center',
-                                                    }}
-                                                />
+                                                <Col span={22} style={{ overflow: 'hidden' }}>
+                                                    {filter.start_point}
+                                                </Col>
+                                                <Col span={2}>
+                                                    <CloseButton
+                                                        onClick={(e: Event) => {
+                                                            setFilter({ start_point: null })
+                                                            e.stopPropagation()
+                                                        }}
+                                                        className="paths-close-button"
+                                                        style={{
+                                                            cursor: 'pointer',
+                                                            float: 'none',
+                                                            paddingLeft: 8,
+                                                            alignSelf: 'center',
+                                                        }}
+                                                    />
+                                                </Col>
                                             </>
                                         ) : (
                                             <span style={{ color: 'var(--muted)' }}>Add start point</span>
@@ -241,6 +246,7 @@ export function NewPathTab(): JSX.Element {
                                                         setFilter({ end_point: null })
                                                         e.stopPropagation()
                                                     }}
+                                                    className="paths-close-button"
                                                     style={{
                                                         cursor: 'pointer',
                                                         float: 'none',
