@@ -52,6 +52,8 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                     {people?.breakdown_value !== undefined &&
                         `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
                 </>
+            ) : filters.insight === ViewType.PATHS ? (
+                <>People on Path</>
             ) : (
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> on{' '}

@@ -78,6 +78,7 @@ class ClickhousePersonViewSet(PersonViewSet):
         if request.user.is_anonymous or not request.user.team:
             return Response(data=[])
 
+        print(request.data, request.GET)
         results_package = self.calculate_path_persons(request)
 
         if not results_package:
@@ -102,6 +103,8 @@ class ClickhousePersonViewSet(PersonViewSet):
 
         team = request.user.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
+
+        print("Filter: ", filter)
 
         people, should_paginate = ClickhousePathsPersons(filter, team).run()
         limit = filter.limit or 100

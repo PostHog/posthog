@@ -7,6 +7,7 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { pathsLogicType } from './pathsLogicType'
 import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
@@ -20,10 +21,10 @@ export const pathOptionsToProperty = {
     [PathType.CustomEvent]: 'custom_event',
 }
 
-function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
+export function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
     return {
-        start_point: filters.start_point,
-        end_point: filters.end_point,
+        start_point: filters.start_point || undefined,
+        end_point: filters.end_point || undefined,
         // TODO: use FF for path_type undefined
         path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
         include_event_types: filters.include_event_types || [PathType.PageView],
@@ -34,6 +35,9 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
         date_to: filters.date_to,
         insight: ViewType.PATHS,
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        path_start_key: filters.path_start_key || undefined,
+        path_end_key: filters.path_end_key || undefined,
+        path_dropoff_key: filters.path_dropoff_key || undefined,
     }
 }
 
@@ -64,6 +68,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
         showPathEvents: (event) => ({ event }),
         updateExclusions: (filters: AnyPropertyFilter[]) => ({ exclusions: filters.map(({ value }) => value) }),
+        openPersonsModal: (path_start_key?: string, path_end_key?: string, path_dropoff_key?: string) => ({
+            path_start_key,
+            path_end_key,
+            path_dropoff_key,
+        }),
     },
     loaders: ({ values, props }) => ({
         results: {
@@ -159,6 +168,16 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     insightLogic.actions.updateInsightFilters(values.filter)
                 }
             }
+        },
+        openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
+            personsModalLogic.actions.loadPeople({
+                action: 'session', // Not necessary - make optional
+                label: 'Person',
+                date_from: '',
+                date_to: '',
+                filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
+                saveOriginal: true, // TODO: what does this really do? Pagination help?
+            })
         },
     }),
     selectors: {

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { stripHTTP } from 'lib/utils'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
@@ -10,6 +10,7 @@ import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
+import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -87,6 +88,8 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
+    const { openPersonsModal } = useActions(pathsLogic({ dashboardItemId, filters }))
+
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
         renderPaths()
@@ -280,7 +283,11 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     Completed
                                                 </span>{' '}
                                                 <span style={{ color: 'var(--primary)' }}>
-                                                    {completedValue(pathItemCard.sourceLinks)}{' '}
+                                                    <ValueInspectorButton
+                                                        onClick={() => openPersonsModal(undefined, pathItemCard.name)}
+                                                    >
+                                                        {completedValue(pathItemCard.sourceLinks)}{' '}
+                                                    </ValueInspectorButton>
                                                     {pathItemCard.targetLinks.length > 0 && (
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
                                                             {(
@@ -314,7 +321,17 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     </span>{' '}
                                                     <span style={{ color: 'var(--primary)' }} />
                                                     <span style={{ color: 'var(--primary)' }}>
-                                                        {dropOffValue(pathItemCard)}{' '}
+                                                        <ValueInspectorButton
+                                                            onClick={() =>
+                                                                openPersonsModal(
+                                                                    undefined,
+                                                                    undefined,
+                                                                    pathItemCard.name
+                                                                )
+                                                            }
+                                                        >
+                                                            {dropOffValue(pathItemCard)}{' '}
+                                                        </ValueInspectorButton>
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
                                                             {(
                                                                 (dropOffValue(pathItemCard) / pathItemCard.value) *
