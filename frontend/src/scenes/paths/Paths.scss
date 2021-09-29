@@ -8,4 +8,21 @@
             z-index: 999;
         }
     }
+
+    .paths-dropdown-ellipsis {
+        &:hover {
+            background-color: rgba(83, 117, 255, 0.08);
+            border-radius: 4px;
+        }
+    }
+}
+
+.paths-options-dropdown {
+    padding: 8px;
+    .ant-dropdown-menu-item {
+        &:hover {
+            background-color: rgba(83, 117, 255, 0.08);
+            border-radius: 4;
+        }
+    }
 }

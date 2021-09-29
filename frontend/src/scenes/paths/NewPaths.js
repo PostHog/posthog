@@ -5,9 +5,9 @@ import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, Menu, Dropdown } from 'antd'
+import { Button, Menu, Dropdown, Row } from 'antd'
 import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
-import { ClockCircleOutlined } from '@ant-design/icons'
+import { ClockCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
 
@@ -69,7 +69,7 @@ function pageUrl(d) {
         // discard if invalid url
     }
 
-    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
+    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-5) : name
 }
 
 function NoData() {
@@ -371,11 +371,36 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                             textAlign: 'start',
                                         }}
                                     >
-                                        <span
-                                            className="text-muted"
-                                            style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
-                                        >{`0${pathItemCard.name[0]}`}</span>{' '}
-                                        <span style={{ fontSize: 13, fontWeight: 600 }}>{pageUrl(pathItemCard)}</span>
+                                        <Row justify="space-between" align="center">
+                                            <div>
+                                                <span
+                                                    className="text-muted"
+                                                    style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
+                                                >{`0${pathItemCard.name[0]}`}</span>{' '}
+                                                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                                                    {pageUrl(pathItemCard)}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <Dropdown
+                                                    visible={true}
+                                                    trigger={['click']}
+                                                    overlay={
+                                                        <Menu className="paths-options-dropdown">
+                                                            <Menu.Item onClick={() => setAsPathStart()}>
+                                                                Set as path start
+                                                            </Menu.Item>
+                                                            <Menu.Item>Set as path end</Menu.Item>
+                                                        </Menu>
+                                                    }
+                                                >
+                                                    <EllipsisOutlined
+                                                        className="paths-dropdown-ellipsis"
+                                                        style={{ fontSize: 24 }}
+                                                    />
+                                                </Dropdown>
+                                            </div>
+                                        </Row>
                                     </Button>
                                 </Dropdown>
                             </>
