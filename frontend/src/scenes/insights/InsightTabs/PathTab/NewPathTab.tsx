@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Collapse, InputNumber, Row, Select } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
 import { PathType, FunnelPathType, PathEdgeParameters } from '~/types'
 import './NewPathTab.scss'
@@ -80,19 +80,27 @@ export function NewPathTab(): JSX.Element {
     }
 
     function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {
-        const targetEvent = filters.events?.filter((event: Record<string, any>) => {
-            return event.order === index - 1
-        })
-        return targetEvent?.[0].name || ''
+        const targetEntity =
+            filters.events?.filter((event: Record<string, any>) => {
+                return event.order === index - 1
+            })?.[0] ||
+            filters.actions?.filter((action: Record<string, any>) => {
+                return action.order === index - 1
+            })?.[0]
+
+        return targetEntity?.name || ''
     }
 
     function _getStepLabel(funnelFilters?: Record<string, any>, index?: number, shift: number = 0): JSX.Element {
         if (funnelFilters && index) {
             return (
-                <span className="label">{`From funnel step ${index + shift}: ${_getStepNameAtIndex(
-                    funnelFilters,
-                    index + shift
-                )}`}</span>
+                <div>
+                    <BarChartOutlined />
+                    <span className="label">{`From funnel step ${index + shift}: ${_getStepNameAtIndex(
+                        funnelFilters,
+                        index + shift
+                    )}`}</span>
+                </div>
             )
         } else {
             return <span />
@@ -265,19 +273,20 @@ export function NewPathTab(): JSX.Element {
                                     >
                                         <div className="label-container">
                                             {getStartPointLabel()}
-                                            {(filter.start_point || (!overrideEndInput && overrideStartInput)) && (
-                                                <CloseButton
-                                                    onClick={(e: Event) => {
-                                                        setFilter({
-                                                            start_point: undefined,
-                                                            funnel_filter: undefined,
-                                                            funnel_paths: undefined,
-                                                        })
-                                                        e.stopPropagation()
-                                                    }}
-                                                    className="close-button"
-                                                />
-                                            )}
+                                            {filter.start_point ||
+                                                (overrideStartInput && (
+                                                    <CloseButton
+                                                        onClick={(e: Event) => {
+                                                            setFilter({
+                                                                start_point: undefined,
+                                                                funnel_filter: undefined,
+                                                                funnel_paths: undefined,
+                                                            })
+                                                            e.stopPropagation()
+                                                        }}
+                                                        className="close-button"
+                                                    />
+                                                ))}
                                         </div>
                                     </Button>
                                 </PathItemSelector>
@@ -330,7 +339,7 @@ export function NewPathTab(): JSX.Element {
                                     >
                                         <div className="label-container">
                                             {getEndPointLabel()}
-                                            {filter.end_point || (!overrideStartInput && overrideEndInput) ? (
+                                            {filter.end_point || overrideEndInput ? (
                                                 <CloseButton
                                                     onClick={(e: Event) => {
                                                         setFilter({
