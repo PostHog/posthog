@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react'
-import { useValues } from 'kea'
-import { stripHTTP } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { copyToClipboard, stripHTTP } from 'lib/utils'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -69,7 +69,7 @@ function pageUrl(d) {
         // discard if invalid url
     }
 
-    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-5) : name
+    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-8) : name
 }
 
 function NoData() {
@@ -87,8 +87,10 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
+    const { setFilter } = useActions(pathsLogic({ dashboardItemId, filters }))
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
+        setPathItemCards([])
         renderPaths()
     }, [paths, !pathsLoading, size, color])
 
@@ -253,6 +255,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                         return (
                             <>
                                 <Dropdown
+                                    key={idx}
                                     overlay={
                                         <Menu
                                             style={{
@@ -383,14 +386,28 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                             </div>
                                             <div>
                                                 <Dropdown
-                                                    visible={true}
                                                     trigger={['click']}
                                                     overlay={
                                                         <Menu className="paths-options-dropdown">
-                                                            <Menu.Item onClick={() => setAsPathStart()}>
+                                                            <Menu.Item
+                                                                onClick={() =>
+                                                                    setFilter({ start_point: pathItemCard.name })
+                                                                }
+                                                            >
                                                                 Set as path start
                                                             </Menu.Item>
-                                                            <Menu.Item>Set as path end</Menu.Item>
+                                                            <Menu.Item
+                                                                onClick={() =>
+                                                                    setFilter({ end_point: pathItemCard.name })
+                                                                }
+                                                            >
+                                                                Set as path end
+                                                            </Menu.Item>
+                                                            <Menu.Item
+                                                                onClick={() => copyToClipboard(pathItemCard.name)}
+                                                            >
+                                                                Copy path item name
+                                                            </Menu.Item>
                                                         </Menu>
                                                     }
                                                 >
