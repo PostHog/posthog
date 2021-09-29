@@ -31,9 +31,13 @@ export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
 }
 
 function DashboardView(): JSX.Element {
-    const { dashboard, allItemsLoading: loadingFirstTime, items, filters: dashboardFilters, dashboardMode } = useValues(
-        dashboardLogic
-    )
+    const {
+        dashboard,
+        allItemsLoading: loadingFirstTime,
+        items,
+        filters: dashboardFilters,
+        dashboardMode,
+    } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
 

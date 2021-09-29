@@ -38,17 +38,12 @@ export function Annotations({
         })
     )
 
-    const {
-        createAnnotation,
-        createAnnotationNow,
-        deleteAnnotation,
-        deleteGlobalAnnotation,
-        createGlobalAnnotation,
-    } = useActions(
-        annotationsLogic({
-            pageKey: dashboardItemId ? dashboardItemId : null,
-        })
-    )
+    const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
+        useActions(
+            annotationsLogic({
+                pageKey: dashboardItemId ? dashboardItemId : null,
+            })
+        )
 
     const markers: JSX.Element[] = []
     dates &&

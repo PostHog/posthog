@@ -16,7 +16,7 @@ type APIRoute = {
     method: string
 }
 
-export const api = (apiNoMock as any) as APIMockReturnType
+export const api = apiNoMock as any as APIMockReturnType
 
 export const mockAPI = (cb: (url: APIRoute) => any): void => {
     beforeEach(async () => {

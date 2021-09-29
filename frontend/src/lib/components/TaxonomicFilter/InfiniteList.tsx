@@ -151,9 +151,8 @@ export function InfiniteList(): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
 
-    const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } = useValues(
-        infiniteListLogic
-    )
+    const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
+        useValues(infiniteListLogic)
     const { onRowsRendered, setIndex } = useActions(infiniteListLogic)
 
     const isActiveTab = listGroupType === activeTab

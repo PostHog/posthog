@@ -37,15 +37,8 @@ export function Person(): JSX.Element {
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
     const [splitModalOpen, setSplitModalOpen] = useState(false)
-    const {
-        person,
-        personLoading,
-        deletedPersonLoading,
-        hasNewKeys,
-        currentTab,
-        showSessionRecordings,
-        showTabs,
-    } = useValues(personsLogic)
+    const { person, personLoading, deletedPersonLoading, hasNewKeys, currentTab, showSessionRecordings, showTabs } =
+        useValues(personsLogic)
     const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)

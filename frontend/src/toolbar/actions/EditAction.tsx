@@ -15,14 +15,8 @@ export function EditAction(): JSX.Element {
     const [form] = Form.useForm()
 
     const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
-    const {
-        selectAction,
-        inspectForElementWithIndex,
-        setEditingFields,
-        setForm,
-        saveAction,
-        deleteAction,
-    } = useActions(actionsTabLogic)
+    const { selectAction, inspectForElementWithIndex, setEditingFields, setForm, saveAction, deleteAction } =
+        useActions(actionsTabLogic)
 
     const { getFieldValue } = form
 
