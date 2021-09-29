@@ -88,12 +88,12 @@ export function NewPathTab(): JSX.Element {
                 return <span />
             }
         } else {
-            return filter.end_point ? (
+            return filter.start_point ? (
                 <>
-                    {filter.end_point}
+                    {filter.start_point}
                     <CloseButton
                         onClick={(e: Event) => {
-                            setFilter({ end_point: null })
+                            setFilter({ start_point: null })
                             e.stopPropagation()
                         }}
                         style={{
@@ -105,7 +105,7 @@ export function NewPathTab(): JSX.Element {
                     />
                 </>
             ) : (
-                <span style={{ color: 'var(--muted)' }}>Add end point</span>
+                <span style={{ color: 'var(--muted)' }}>Add start point</span>
             )
         }
     }
