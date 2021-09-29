@@ -4,18 +4,14 @@ import React from 'react'
 import { WelcomeLogo } from './WelcomeLogo'
 import { ExclamationCircleFilled } from '@ant-design/icons'
 import './PasswordReset.scss'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { passwordResetLogic } from './passwordResetLogic'
 
 export function PasswordReset(): JSX.Element {
-    const responseLoading = false // TODO
-    const response: Record<string, any> = {} // TODO
-    const reset = (vals: any): void => {
-        console.log(vals)
-    } // TODO
-    const [form] = Form.useForm()
     const { preflight, preflightLoading } = useValues(preflightLogic)
+    const { resetResponse } = useValues(passwordResetLogic)
 
     return (
         <div className="bridge-page password-reset">
@@ -30,61 +26,10 @@ export function PasswordReset(): JSX.Element {
                             <Skeleton active paragraph={{ rows: 4 }} />
                         ) : !preflight?.email_service_available ? (
                             <EmailUnavailable />
+                        ) : resetResponse?.success ? (
+                            <ResetSuccess />
                         ) : (
-                            <>
-                                <div className="text-center mb">
-                                    Enter your email address. If it exists, you’ll receive an email with a reset link
-                                    soon.
-                                </div>
-                                {!responseLoading && response?.errorCode && (
-                                    <ErrorMessage style={{ marginBottom: 16 }}>
-                                        {response.errorDetail ||
-                                            'Could not complete your password reset request. Please try again.'}
-                                    </ErrorMessage>
-                                )}
-                                <Form
-                                    layout="vertical"
-                                    form={form}
-                                    onFinish={(values) => reset(values)}
-                                    requiredMark={false}
-                                    noValidate
-                                >
-                                    <Form.Item
-                                        name="email"
-                                        label="Email"
-                                        rules={[
-                                            {
-                                                required: true,
-                                                message: (
-                                                    <>
-                                                        <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Please
-                                                        enter your email to continue
-                                                    </>
-                                                ),
-                                            },
-                                        ]}
-                                    >
-                                        <Input
-                                            className="ph-ignore-input"
-                                            autoFocus
-                                            data-attr="reset-email"
-                                            placeholder="email@yourcompany.com"
-                                            type="email"
-                                        />
-                                    </Form.Item>
-                                    <Form.Item>
-                                        <Button
-                                            className="btn-bridge"
-                                            htmlType="submit"
-                                            data-attr="password-reset"
-                                            loading={responseLoading}
-                                            block
-                                        >
-                                            Continue
-                                        </Button>
-                                    </Form.Item>
-                                </Form>
-                            </>
+                            <ResetForm />
                         )}
                     </div>
                 </Col>
@@ -116,6 +61,83 @@ function EmailUnavailable(): JSX.Element {
                 <CodeSnippet language={Language.Bash} hideCopyButton>
                     {'python manage.py changepassword [email]'}
                 </CodeSnippet>
+            </div>
+        </div>
+    )
+}
+
+function ResetForm(): JSX.Element {
+    const { resetResponseLoading, resetResponse } = useValues(passwordResetLogic)
+    const { reset } = useActions(passwordResetLogic)
+    const [form] = Form.useForm()
+
+    return (
+        <>
+            <div className="text-center mb">
+                Enter your email address. If it exists, you’ll receive an email with a reset link soon.
+            </div>
+            {!resetResponseLoading && resetResponse?.errorCode && (
+                <ErrorMessage style={{ marginBottom: 16 }}>
+                    {resetResponse.errorDetail || 'Could not complete your password reset request. Please try again.'}
+                </ErrorMessage>
+            )}
+            <Form
+                layout="vertical"
+                form={form}
+                onFinish={(values) => reset({ email: values.email })}
+                requiredMark={false}
+                noValidate
+            >
+                <Form.Item
+                    name="email"
+                    label="Email"
+                    rules={[
+                        {
+                            required: true,
+                            message: (
+                                <>
+                                    <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Please enter your email to
+                                    continue
+                                </>
+                            ),
+                        },
+                    ]}
+                >
+                    <Input
+                        className="ph-ignore-input"
+                        autoFocus
+                        data-attr="reset-email"
+                        placeholder="email@yourcompany.com"
+                        type="email"
+                        disabled={resetResponseLoading}
+                    />
+                </Form.Item>
+                <Form.Item>
+                    <Button
+                        className="btn-bridge"
+                        htmlType="submit"
+                        data-attr="password-reset"
+                        loading={resetResponseLoading}
+                        block
+                    >
+                        Continue
+                    </Button>
+                </Form.Item>
+            </Form>
+        </>
+    )
+}
+
+function ResetSuccess(): JSX.Element {
+    const { resetResponse } = useValues(passwordResetLogic)
+    return (
+        <div>
+            Request received successfully! If the email <b>{resetResponse?.email || 'you typed'}</b> exists, you’ll
+            receive an email with a reset link soon.
+            <div className="mt">
+                <Button className="btn-bridge" data-attr="back-to-login" block>
+                    Back to login
+                </Button>
             </div>
         </div>
     )
