@@ -140,7 +140,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Start stack with Docker Compose
-              run: docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse
+              run: docker-compose -f ee/docker-compose.ch.yml up -d db clickhouse zookeeper kafka
 
             - name: Set up Python
               uses: actions/setup-python@v2
