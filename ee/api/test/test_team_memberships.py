@@ -19,7 +19,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         self.assertEqual(self.team.explicit_memberships.count(), 0)
 
-        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
         self.assertDictContainsSubset(
@@ -38,7 +38,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         self.assertEqual(self.team.explicit_memberships.count(), 0)
 
-        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
         self.assertDictContainsSubset(
@@ -57,7 +57,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         self.assertEqual(self.team.explicit_memberships.count(), 0)
 
-        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
         self.assertDictEqual(
@@ -73,7 +73,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         self.assertEqual(self.team.explicit_memberships.count(), 0)
 
-        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": self.user.uuid})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": self.user.uuid})
         response_data = response.json()
 
         self.assertDictEqual(
@@ -89,7 +89,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         self.assertEqual(self.team.explicit_memberships.count(), 0)
 
-        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": self.user.uuid})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": self.user.uuid})
         response_data = response.json()
 
         self.assertDictEqual(
@@ -110,7 +110,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         self.assertEqual(self.team.explicit_memberships.count(), 1)
 
-        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
         self.assertDictEqual(
@@ -131,7 +131,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
 
-        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
         self.assertDictContainsSubset(
@@ -151,7 +151,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
 
-        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
         self.assertDictContainsSubset(
@@ -167,7 +167,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
 
         response = self.client.post(
-            "/api/projects/@current/explicit_members/",
+            f"/api/projects/{self.team.id}/explicit_members/",
             {"user_uuid": new_user.uuid, "level": ExplicitTeamMembership.Level.ADMIN},
         )
         response_data = response.json()
@@ -188,7 +188,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
 
         response = self.client.post(
-            "/api/projects/@current/explicit_members/",
+            f"/api/projects/{self.team.id}/explicit_members/",
             {"user_uuid": new_user.uuid, "level": ExplicitTeamMembership.Level.ADMIN},
         )
         response_data = response.json()
@@ -208,7 +208,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
 
         response = self.client.post(
-            "/api/projects/@current/explicit_members/",
+            f"/api/projects/{self.team.id}/explicit_members/",
             {"user_uuid": new_user.uuid, "level": ExplicitTeamMembership.Level.ADMIN},
         )
         response_data = response.json()
@@ -255,7 +255,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
         self.organization_membership.save()
         _, new_team, new_user = User.objects.bootstrap("Acme", "mallory@acme.com", None)
 
-        response = self.client.post(f"/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid,})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": new_user.uuid,})
         response_data = response.json()
 
         self.assertDictEqual(
@@ -287,7 +287,8 @@ class TestTeamMembershipsAPI(APILicensedTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/@current/explicit_members/{new_user.uuid}", {"level": ExplicitTeamMembership.Level.ADMIN}
+            f"/api/projects/{self.team.id}/explicit_members/{new_user.uuid}",
+            {"level": ExplicitTeamMembership.Level.ADMIN},
         )
         response_data = response.json()
 
@@ -310,7 +311,8 @@ class TestTeamMembershipsAPI(APILicensedTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/@current/explicit_members/{new_user.uuid}", {"level": ExplicitTeamMembership.Level.ADMIN}
+            f"/api/projects/{self.team.id}/explicit_members/{new_user.uuid}",
+            {"level": ExplicitTeamMembership.Level.ADMIN},
         )
         response_data = response.json()
 
@@ -327,7 +329,8 @@ class TestTeamMembershipsAPI(APILicensedTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/@current/explicit_members/{self.user.uuid}", {"level": ExplicitTeamMembership.Level.MEMBER}
+            f"/api/projects/{self.team.id}/explicit_members/{self.user.uuid}",
+            {"level": ExplicitTeamMembership.Level.MEMBER},
         )
         response_data = response.json()
 
@@ -352,7 +355,8 @@ class TestTeamMembershipsAPI(APILicensedTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/@current/explicit_members/{new_user.uuid}", {"level": ExplicitTeamMembership.Level.ADMIN}
+            f"/api/projects/{self.team.id}/explicit_members/{new_user.uuid}",
+            {"level": ExplicitTeamMembership.Level.ADMIN},
         )
         response_data = response.json()
 
@@ -374,7 +378,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
             team=self.team, parent_membership=new_org_membership
         )
 
-        response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.uuid}")
+        response = self.client.delete(f"/api/projects/{self.team.id}/explicit_members/{new_user.uuid}")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
@@ -390,7 +394,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
             team=self.team, parent_membership=new_org_membership
         )
 
-        response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.uuid}")
+        response = self.client.delete(f"/api/projects/{self.team.id}/explicit_members/{new_user.uuid}")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -409,7 +413,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
             team=self.team, parent_membership=new_org_membership
         )
 
-        response = self.client.delete(f"/api/projects/@current/explicit_members/{new_user.uuid}")
+        response = self.client.delete(f"/api/projects/{self.team.id}/explicit_members/{new_user.uuid}")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
@@ -421,7 +425,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
 
         new_user: User = User.objects.create_and_join(self.organization, "rookie@posthog.com", None)
 
-        response = self.client.post("/api/projects/@current/explicit_members/", {"user_uuid": new_user.uuid})
+        response = self.client.post(f"/api/projects/{self.team.id}/explicit_members/", {"user_uuid": new_user.uuid})
         response_data = response.json()
 
         self.assertDictEqual(
@@ -441,7 +445,7 @@ class TestTeamMembershipsAPI(APILicensedTest):
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
         )
 
-        response = self.client.delete(f"/api/projects/@current/explicit_members/{self.user.uuid}")
+        response = self.client.delete(f"/api/projects/{self.team.id}/explicit_members/{self.user.uuid}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_leave_project_as_admin_member(self):
@@ -452,5 +456,5 @@ class TestTeamMembershipsAPI(APILicensedTest):
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
         )
 
-        response = self.client.delete(f"/api/projects/@current/explicit_members/{self.user.uuid}")
+        response = self.client.delete(f"/api/projects/{self.team.id}/explicit_members/{self.user.uuid}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)

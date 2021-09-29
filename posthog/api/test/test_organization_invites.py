@@ -45,7 +45,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_email_required(self, mock_capture):
-        response = self.client.post("/api/organizations/@current/invites/")
+        response = self.client.post(f"/api/organizations/{self.organization.id}/invites/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
         self.assertDictEqual(
@@ -65,7 +65,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         email = "x@x.com"
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
+            response = self.client.post(f"/api/organizations/{self.organization.id}/invites/", {"target_email": email})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(OrganizationInvite.objects.exists())
@@ -112,7 +112,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         count = OrganizationInvite.objects.count()
 
         for _ in range(0, 2):
-            response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
+            response = self.client.post(f"/api/organizations/{self.organization.id}/invites/", {"target_email": email})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             obj = OrganizationInvite.objects.get(id=response.json()["id"])
             self.assertEqual(obj.target_email, email)
@@ -139,7 +139,9 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload = self.helper_generate_bulk_invite_payload(7)
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/invites/bulk/", payload, format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
 
@@ -176,7 +178,9 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload = self.helper_generate_bulk_invite_payload(21)
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/invites/bulk/", payload, format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -201,7 +205,9 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         payload[4]["target_email"] = None
 
         with self.settings(EMAIL_ENABLED=True, EMAIL_HOST="localhost", SITE_URL="http://test.posthog.com"):
-            response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json",)
+            response = self.client.post(
+                f"/api/organizations/{self.organization.id}/invites/bulk/", payload, format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -235,7 +241,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
-        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/invites/{invite.id}")
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(OrganizationInvite.objects.exists())

@@ -35,7 +35,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     def test_list_property_definitions(self):
 
-        response = self.client.get("/api/projects/@current/property_definitions/")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS))
 
@@ -51,7 +51,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             [PropertyDefinition(team=self.demo_team, name="z_property_{}".format(i)) for i in range(1, 301)]
         )
 
-        response = self.client.get("/api/projects/@current/property_definitions/")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 308)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
@@ -80,7 +80,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         team.event_properties = self.demo_team.event_properties + [f"should_be_invisible_{i}" for i in range(0, 5)]
         team.save()
 
-        response = self.client.get("/api/projects/@current/property_definitions/")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         for item in response.json()["results"]:
             self.assertNotIn("should_be_invisible", item["name"])
@@ -93,27 +93,27 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     def test_query_property_definitions(self):
 
         # Regular search
-        response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/?search=firs")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["count"], 2)  # first_visit, is_first_movie
 
         # Fuzzy search
-        response = self.client.get("/api/projects/@current/property_definitions/?search=p ting")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/?search=p ting")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["app_rating"])
 
         # Handles URL encoding properly
-        response = self.client.get("/api/projects/@current/property_definitions/?search=%24cur")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/?search=%24cur")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["$current_url"])
 
         # Fuzzy search 2
-        response = self.client.get("/api/projects/@current/property_definitions/?search=hase%20")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/?search=hase%20")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(response.json()["count"], 2)

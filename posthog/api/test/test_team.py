@@ -27,7 +27,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_retrieve_project(self):
 
-        response = self.client.get("/api/projects/@current/")
+        response = self.client.get(f"/api/projects/{self.team.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
@@ -72,7 +72,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_update_project_timezone(self):
 
-        response = self.client.patch("/api/projects/@current/", {"timezone": "Europe/Istanbul"})
+        response = self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "Europe/Istanbul"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
@@ -83,7 +83,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(self.team.timezone, "Europe/Istanbul")
 
     def test_cannot_set_invalid_timezone_for_project(self):
-        response = self.client.patch("/api/projects/@current/", {"timezone": "America/I_Dont_Exist"})
+        response = self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "America/I_Dont_Exist"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),

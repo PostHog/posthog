@@ -18,7 +18,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         event = EnterpriseEventDefinition.objects.create(
             team=self.team, name="enterprise event", owner=self.user, tags=["deprecated"]
         )
-        response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["name"], "enterprise event")
@@ -31,7 +31,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EventDefinition.objects.create(team=self.team, name="event")
-        response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         enterprise_event = EnterpriseEventDefinition.objects.all().first()
         event.refresh_from_db()
@@ -50,7 +50,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             team=self.team, name="regular event", owner=self.user, tags=["deprecated"]
         )
 
-        response = self.client.get(f"/api/projects/@current/event_definitions/?search=enter")
+        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
@@ -60,17 +60,17 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["results"][0]["tags"], ["deprecated"])
         self.assertEqual(response_data["results"][0]["owner"]["id"], self.user.id)
 
-        response = self.client.get(f"/api/projects/@current/event_definitions/?search=enterprise")
+        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/?search=enterprise")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
 
-        response = self.client.get(f"/api/projects/@current/event_definitions/?search=e ev")
+        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/?search=e ev")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 2)
 
-        response = self.client.get(f"/api/projects/@current/event_definitions/?search=bust")
+        response = self.client.get(f"/api/projects/{self.team.id}/event_definitions/?search=bust")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 0)
@@ -81,7 +81,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event", owner=self.user)
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}/",
+            f"/api/projects/{self.team.id}/event_definitions/{str(event.id)}/",
             {"description": "This is a description.", "tags": ["official", "internal"],},
         )
         response_data = response.json()
@@ -96,7 +96,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     def test_update_event_without_license(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="enterprise event")
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}/", data={"description": "test"},
+            f"/api/projects/{self.team.id}/event_definitions/{str(event.id)}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
@@ -107,7 +107,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}/", data={"description": "test"},
+            f"/api/projects/{self.team.id}/event_definitions/{str(event.id)}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])

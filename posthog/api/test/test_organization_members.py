@@ -8,7 +8,7 @@ from posthog.test.base import APIBaseTest
 class TestOrganizationMembersAPI(APIBaseTest):
     def test_list_organization_members(self):
 
-        response = self.client.get("/api/organizations/@current/members/")
+        response = self.client.get(f"/api/organizations/{self.organization.id}/members/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()["results"]
@@ -37,19 +37,19 @@ class TestOrganizationMembersAPI(APIBaseTest):
         self.assertTrue(membership_queryset.exists())
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        response = self.client.delete(f"/api/organizations/@current/members/{user.uuid}/")
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/members/{user.uuid}/")
         self.assertEqual(response.status_code, 403)
         self.assertTrue(membership_queryset.exists())
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        response = self.client.delete(f"/api/organizations/@current/members/{user.uuid}/")
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/members/{user.uuid}/")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(membership_queryset.exists(), False)
 
     def test_leave_organization(self):
         membership_queryset = OrganizationMembership.objects.filter(user=self.user, organization=self.organization)
         self.assertEqual(membership_queryset.count(), 1)
-        response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/members/{self.user.uuid}/")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(membership_queryset.count(), 0)
 
@@ -60,7 +60,8 @@ class TestOrganizationMembersAPI(APIBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}", {"level": OrganizationMembership.Level.ADMIN},
+            f"/api/organizations/{self.organization.id}/members/{user.uuid}",
+            {"level": OrganizationMembership.Level.ADMIN},
         )
         self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -90,7 +91,8 @@ class TestOrganizationMembersAPI(APIBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}", {"level": OrganizationMembership.Level.ADMIN},
+            f"/api/organizations/{self.organization.id}/members/{user.uuid}",
+            {"level": OrganizationMembership.Level.ADMIN},
         )
         self.assertEqual(response.status_code, 200)
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -101,7 +103,8 @@ class TestOrganizationMembersAPI(APIBaseTest):
         membership = OrganizationMembership.objects.create(user=user, organization=self.organization)
         self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}/", {"level": OrganizationMembership.Level.ADMIN},
+            f"/api/organizations/{self.organization.id}/members/{user.uuid}/",
+            {"level": OrganizationMembership.Level.ADMIN},
         )
 
         updated_membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
@@ -121,7 +124,8 @@ class TestOrganizationMembersAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{self.user.uuid}", {"level": OrganizationMembership.Level.MEMBER},
+            f"/api/organizations/{self.organization.id}/members/{self.user.uuid}",
+            {"level": OrganizationMembership.Level.MEMBER},
         )
         self.organization_membership.refresh_from_db()
         self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
@@ -144,7 +148,8 @@ class TestOrganizationMembersAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}/", {"level": OrganizationMembership.Level.OWNER},
+            f"/api/organizations/{self.organization.id}/members/{user.uuid}/",
+            {"level": OrganizationMembership.Level.OWNER},
         )
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()
@@ -166,7 +171,8 @@ class TestOrganizationMembersAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current/members/{user.uuid}/", {"level": OrganizationMembership.Level.OWNER},
+            f"/api/organizations/{self.organization.id}/members/{user.uuid}/",
+            {"level": OrganizationMembership.Level.OWNER},
         )
         self.organization_membership.refresh_from_db()
         membership.refresh_from_db()

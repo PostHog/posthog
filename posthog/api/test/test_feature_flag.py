@@ -409,7 +409,7 @@ class TestFeatureFlag(APIBaseTest):
         # Boolean override value
         feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
         response = self.client.post(
-            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/my_overrides",
             {"feature_flag": feature_flag_instance.id, "override_value": True},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -422,7 +422,7 @@ class TestFeatureFlag(APIBaseTest):
         # String override value
         feature_flag_instance_2 = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature-2")
         response = self.client.post(
-            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/my_overrides",
             {"feature_flag": feature_flag_instance_2.id, "override_value": "hey-hey"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -452,7 +452,7 @@ class TestFeatureFlag(APIBaseTest):
         # Create an override and, and make sure the my_flags response shows it
         feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
         response = self.client.post(
-            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/my_overrides",
             {"feature_flag": feature_flag_instance.id, "override_value": "hey-hey"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -465,7 +465,7 @@ class TestFeatureFlag(APIBaseTest):
 
         # Update the override, and make sure the my_flags response reflects the update
         response = self.client.post(
-            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/my_overrides",
             {"feature_flag": feature_flag_instance.id, "override_value": "new-override"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -485,7 +485,7 @@ class TestFeatureFlag(APIBaseTest):
         # Create an override and, and make sure the my_flags response shows it
         feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
         response = self.client.post(
-            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/my_overrides",
             {"feature_flag": feature_flag_instance.id, "override_value": "hey-hey"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -498,7 +498,7 @@ class TestFeatureFlag(APIBaseTest):
 
         # Delete the override, and make sure the my_flags response reflects the update
         existing_override_id = first_flag["override"]["id"]
-        response = self.client.delete(f"/api/projects/@current/feature_flag_overrides/{existing_override_id}",)
+        response = self.client.delete(f"/api/projects/{self.team.id}/feature_flag_overrides/{existing_override_id}",)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         response = self.client.get("/api/feature_flag/my_flags")
@@ -511,7 +511,7 @@ class TestFeatureFlag(APIBaseTest):
     def test_create_override_with_invalid_override(self):
         feature_flag_instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
         response = self.client.post(
-            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/my_overrides",
             {"feature_flag": feature_flag_instance.id, "override_value": {"key": "a dict"}},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -521,7 +521,7 @@ class TestFeatureFlag(APIBaseTest):
         _, _, team_2_user = User.objects.bootstrap("Test", "team2@posthog.com", None)
         self.client.force_login(team_2_user)
         response = self.client.post(
-            "/api/projects/@current/feature_flag_overrides/my_overrides",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/my_overrides",
             {"feature_flag": feature_flag_instance.id, "override_value": True},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -534,7 +534,9 @@ class TestFeatureFlag(APIBaseTest):
         feature_flag_override_id = feature_flag_override.id
         _, _, user_2 = User.objects.bootstrap(self.organization.name, "user2@posthog.com", None)
         self.client.force_login(user_2)
-        response = self.client.delete(f"/api/projects/@current/feature_flag_overrides/{feature_flag_override_id}",)
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/feature_flag_overrides/{feature_flag_override_id}",
+        )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_standard_viewset_endpoints_are_not_available(self):
@@ -545,25 +547,25 @@ class TestFeatureFlag(APIBaseTest):
         feature_flag_override_id = feature_flag_override.id
 
         response = self.client.put(
-            f"/api/projects/@current/feature_flag_overrides/{feature_flag_override_id}",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/{feature_flag_override_id}",
             {"feature_flag": feature_flag_instance.id, "override_value": True},
         )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
         response = self.client.patch(
-            f"/api/projects/@current/feature_flag_overrides/{feature_flag_override_id}",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/{feature_flag_override_id}",
             {"feature_flag": feature_flag_instance.id, "override_value": True},
         )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-        response = self.client.get(f"/api/projects/@current/feature_flag_overrides/{feature_flag_override_id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flag_overrides/{feature_flag_override_id}")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-        response = self.client.get(f"/api/projects/@current/feature_flag_overrides/")
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flag_overrides/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         response = self.client.post(
-            f"/api/projects/@current/feature_flag_overrides/",
+            f"/api/projects/{self.team.id}/feature_flag_overrides/",
             {"feature_flag": feature_flag_instance.id, "override_value": True},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

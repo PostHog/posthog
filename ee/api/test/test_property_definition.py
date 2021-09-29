@@ -17,7 +17,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="enterprise property", tags=["deprecated"]
         )
-        response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["name"], "enterprise property")
@@ -29,7 +29,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
         property = PropertyDefinition.objects.create(team=self.team, name="property")
-        response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         enterprise_property = EnterprisePropertyDefinition.objects.all().first()
         property.refresh_from_db()
@@ -48,7 +48,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             team=self.team, name="other property", description="", tags=["deprecated"]
         )
 
-        response = self.client.get(f"/api/projects/@current/property_definitions/?search=enter")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/?search=enter")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
@@ -57,17 +57,17 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["results"][0]["description"], "")
         self.assertEqual(response_data["results"][0]["tags"], ["deprecated"])
 
-        response = self.client.get(f"/api/projects/@current/property_definitions/?search=enterprise")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/?search=enterprise")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
 
-        response = self.client.get(f"/api/projects/@current/property_definitions/?search=er pr")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/?search=er pr")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 2)
 
-        response = self.client.get(f"/api/projects/@current/property_definitions/?search=bust")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/?search=bust")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 0)
@@ -78,7 +78,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            f"/api/projects/{self.team.id}/property_definitions/{str(property.id)}/",
             {"description": "This is a description.", "tags": ["official", "internal"],},
         )
         response_data = response.json()
@@ -92,7 +92,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     def test_update_property_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"},
+            f"/api/projects/{self.team.id}/property_definitions/{str(property.id)}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
@@ -103,7 +103,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"},
+            f"/api/projects/{self.team.id}/property_definitions/{str(property.id)}/", data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
         self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
@@ -116,7 +116,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         EnterprisePropertyDefinition.objects.create(team=self.team, name="purchase")
         EnterprisePropertyDefinition.objects.create(team=self.team, name="app_rating")
 
-        response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,app_rating")
+        response = self.client.get(f"/api/projects/{self.team.id}/property_definitions/?properties=plan,app_rating")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(response.json()["count"], 2)

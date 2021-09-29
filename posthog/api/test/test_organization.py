@@ -14,7 +14,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.domain_whitelist = ["hogflix.posthog.com"]
         self.organization.save()
 
-        response = self.client.get("/api/organizations/@current")
+        response = self.client.get(f"/api/organizations/{self.organization.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["id"], str(self.organization.id))
@@ -27,7 +27,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.setup_section_2_completed = False
         self.organization.save()
 
-        response_data = self.client.get("/api/organizations/@current").json()
+        response_data = self.client.get(f"/api/organizations/{self.organization.id}").json()
         self.assertEqual(response_data["setup"]["is_active"], True)
         self.assertEqual(response_data["setup"]["current_section"], 1)
         self.assertEqual(response_data["setup"]["any_project_completed_snippet_onboarding"], False)
@@ -41,7 +41,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.team.is_demo = True
         self.team.save()
 
-        response_data = self.client.get("/api/organizations/@current").json()
+        response_data = self.client.get(f"/api/organizations/{self.organization.id}").json()
 
         self.assertEqual(response_data["id"], str(self.organization.id))
         self.assertEqual(response_data["setup"]["any_project_ingested_events"], False)
@@ -133,7 +133,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         response = self.client.patch(
-            f"/api/organizations/@current", {"domain_whitelist": ["posthog.com", "movies.posthog.com"]}
+            f"/api/organizations/{self.organization.id}", {"domain_whitelist": ["posthog.com", "movies.posthog.com"]}
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.organization.refresh_from_db()
@@ -151,7 +151,7 @@ class TestOrganizationAPI(APIBaseTest):
             self.organization.setup_section_2_completed = False
             self.organization.save()
 
-            response = self.client.post(f"/api/organizations/@current/onboarding")
+            response = self.client.post(f"/api/organizations/{self.organization.id}/onboarding")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["setup"], {"is_active": False, "current_section": None})
             self.organization.refresh_from_db()
@@ -185,7 +185,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.setup_section_2_completed = True
         self.organization.save()
 
-        response = self.client.post(f"/api/organizations/@current/onboarding")
+        response = self.client.post(f"/api/organizations/{self.organization.id}/onboarding")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),

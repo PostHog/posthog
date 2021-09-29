@@ -102,7 +102,7 @@ class TestUserAPI(APIBaseTest):
     def test_creating_users_on_this_endpoint_is_not_supported(self):
         """
         At this moment we don't support creating users on this endpoint. Refer to /api/signup or
-        /api/organization/@current/members to add users.
+        /api/organization/:id/members to add users.
         """
         count = User.objects.count()
 
