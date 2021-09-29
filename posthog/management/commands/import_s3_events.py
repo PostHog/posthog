@@ -2,6 +2,9 @@ import csv
 import json
 import os
 import re
+import sys
+import threading
+from multiprocessing import Queue
 
 from dateutil import parser
 from django.conf import settings
@@ -11,6 +14,8 @@ from smart_open import smart_open
 
 from posthog.celery import app as celery_app
 from posthog.utils import is_clickhouse_enabled
+
+IS_DRY_RUN = bool(os.environ.get("IS_DRY_RUN", False))
 
 
 def match_snapshot(haystack):
@@ -26,6 +31,8 @@ class Command(BaseCommand):
         parser.add_argument("--teamids", default=None)
         parser.add_argument("--teamidsignore", default=None)
         parser.add_argument("--startindex", default=None)
+        parser.add_argument("--teamidlte", default=None)
+        parser.add_argument("--teamidgt", default=None)
 
     def handle(self, *args, **options):
         if not options["bucketpath"]:
@@ -40,7 +47,10 @@ class Command(BaseCommand):
 
         print(files_to_read)
 
-        csv.field_size_limit(9999999999999)
+        team_id_lte = int(options["teamidlte"]) if options["teamidlte"] else sys.maxsize
+        team_id_gt = int(options["teamidgt"]) if options["teamidgt"] else 0
+
+        csv.field_size_limit(99999999999)
 
         # read one line from each file and sort by timestamp to process events in order
         for file_name in files_to_read:
@@ -92,12 +102,23 @@ class Command(BaseCommand):
 
                 for row in csv.reader([decoded_line]):
                     try:
-                        if (len(team_ids) and row[4] not in team_ids) or row[4] in team_ids_ignore:
+                        is_team_id_in_range = int(row[4]) > team_id_gt and int(row[4]) <= team_id_lte
+                        if (
+                            (len(team_ids) and row[4] not in team_ids)
+                            or row[4] in team_ids_ignore
+                            or not is_team_id_in_range
+                        ):
+                            print(is_team_id_in_range, row[4])
                             continue
 
                         print(row[5])
                         if is_clickhouse_enabled():
                             from posthog.api.capture import log_event
+
+                            if IS_DRY_RUN:
+                                print("KAFKA")
+                                print(row)
+                                return
 
                             log_event(
                                 distinct_id=row[0],
@@ -112,6 +133,12 @@ class Command(BaseCommand):
                         else:
                             task_name = "posthog.tasks.process_event.process_event_with_plugins"
                             celery_queue = settings.PLUGINS_CELERY_QUEUE
+
+                            if IS_DRY_RUN:
+                                print("CELERY")
+                                print(row)
+                                return
+
                             celery_app.send_task(
                                 name=task_name,
                                 queue=celery_queue,
