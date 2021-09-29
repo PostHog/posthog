@@ -31,12 +31,6 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                         {({ getFieldValue }) => (
                             <Suspense fallback={<></>}>
                                 <div style={{ display: 'flex', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                    <span
-                                        className="text-muted text-extra-small"
-                                        style={{ paddingRight: 8, marginLeft: 32, fontWeight: 500 }}
-                                    >
-                                        SECURE-O-METER
-                                    </span>
                                     <PasswordStrength password={getFieldValue('password')} />
                                 </div>
                             </Suspense>

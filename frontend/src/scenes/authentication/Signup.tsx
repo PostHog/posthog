@@ -49,7 +49,18 @@ function FormStepOne(): JSX.Element {
             <Form.Item
                 name="email"
                 label="Email"
-                rules={requiredRule('Please enter your email to continue')}
+                rules={[
+                    ...(requiredRule('Please enter your email to continue') || []),
+                    {
+                        type: 'email',
+                        message: (
+                            <>
+                                <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Please input a valid email
+                            </>
+                        ),
+                    },
+                ]}
+                validateTrigger={['onSubmit']}
                 validateStatus={signupResponse?.errorAttribute === 'email' ? 'error' : undefined}
                 help={signupResponse?.errorAttribute === 'email' ? signupResponse.errorDetail : undefined}
             >
