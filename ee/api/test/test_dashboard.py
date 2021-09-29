@@ -30,7 +30,7 @@ class TestDashboardEnterpriseAPI(APILicensedTest):
         response = self.client.get(f"/api/dashboard/{dashboard.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_retrieve_dashboard_forbidden_for_project_member(self):
+    def test_retrieve_dashboard_allowed_for_project_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         ExplicitTeamMembership.objects.create(team=self.team, parent_membership=self.organization_membership)
