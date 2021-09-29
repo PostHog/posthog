@@ -81,7 +81,7 @@ function ProjectRow({ team }: { team: TeamBasicType }): JSX.Element {
             }}
         >
             {isRestricted ? <StopOutlined className="mr-05" /> : <ProjectOutlined className="mr-05" />}
-            <span style={{ flexGrow: 1, fontWeight: isCurrent ? 700 : 400 }}>{team.name}</span>
+            <span style={{ flexGrow: 1, fontWeight: isCurrent ? 'bold' : 'normal' }}>{team.name}</span>
             {!isRestricted && (
                 <span
                     className="subaction"
