@@ -2,6 +2,7 @@ import csv
 import json
 import os
 import re
+import sys
 import threading
 from multiprocessing import Queue
 
@@ -14,7 +15,7 @@ from smart_open import smart_open
 from posthog.celery import app as celery_app
 from posthog.utils import is_clickhouse_enabled
 
-TARGET_QUEUES = 20
+TARGET_QUEUES = int(os.environ.get("TARGET_QUEUES", 2))
 
 
 def produce_event(q, i):
@@ -72,6 +73,8 @@ class Command(BaseCommand):
         parser.add_argument("--teamids", default=None)
         parser.add_argument("--teamidsignore", default=None)
         parser.add_argument("--startindex", default=None)
+        parser.add_argument("--teamidlte", default=None)
+        parser.add_argument("--teamidgt", default=None)
 
     def handle(self, *args, **options):
         if not options["bucketpath"]:
@@ -100,6 +103,9 @@ class Command(BaseCommand):
         ordered_files = []
 
         print(files_to_read)
+
+        team_id_lte = int(options["teamidlte"]) if options["teamidlte"] else sys.maxsize
+        team_id_gt = int(options["teamidgt"]) if options["teamidgt"] else 0
 
         csv.field_size_limit(99999999999)
 
@@ -154,7 +160,13 @@ class Command(BaseCommand):
                 for row in csv.reader([decoded_line]):
 
                     try:
-                        if (len(team_ids) and row[4] not in team_ids) or row[4] in team_ids_ignore:
+                        is_team_id_in_range = int(row[4]) > team_id_gt and int(row[4]) <= team_id_lte
+                        if (
+                            (len(team_ids) and row[4] not in team_ids)
+                            or row[4] in team_ids_ignore
+                            or not is_team_id_in_range
+                        ):
+                            print(is_team_id_in_range, row[4])
                             continue
                         print(row[5])
                         part_key = int(row[0].encode("utf-8").hex(), 16) % TARGET_QUEUES
