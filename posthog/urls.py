@@ -142,7 +142,7 @@ if settings.TEST:
 
 
 # Routes added individually to remove login requirement
-frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*"]
+frontend_unauthenticated_routes = ["preflight", "signup", r"signup\/[A-Za-z0-9\-]*", "reset"]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 

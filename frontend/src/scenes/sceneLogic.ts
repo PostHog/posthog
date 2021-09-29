@@ -44,15 +44,16 @@ export enum Scene {
     Billing = 'billing',
     Plugins = 'plugins',
     SavedInsights = 'savedInsights',
-    // Onboarding / setup routes
+    // Authentication & onboarding routes
     Login = 'login',
-    PreflightCheck = 'preflightCheck',
     Signup = 'signup',
     InviteSignup = 'inviteSignup',
-    Personalization = 'personalization',
+    PasswordReset = 'passwordReset',
+    PreflightCheck = 'preflightCheck',
     Ingestion = 'ingestion',
-    OnboardingSetup = 'onboardingSetup',
-    Home = 'home',
+    Personalization = 'personalization', // DEPRECATED
+    OnboardingSetup = 'onboardingSetup', // DEPRECATED
+    Home = 'home', // DEPRECATED
 }
 
 const preloadedScenes: Record<string, LoadedScene> = {
@@ -106,6 +107,7 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Login]: () => import(/* webpackChunkName: 'login' */ './authentication/Login'),
     [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
     [Scene.SavedInsights]: () => import(/* webpackChunkName: 'savedInsights' */ './saved-insights/SavedInsights'),
+    [Scene.PasswordReset]: () => import(/* webpackChunkName: 'passwordReset' */ './authentication/PasswordReset'),
 }
 
 interface LoadedScene {
@@ -217,11 +219,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Login]: {
         onlyUnauthenticated: true,
     },
+    [Scene.Signup]: {
+        onlyUnauthenticated: true,
+    },
     [Scene.PreflightCheck]: {
         onlyUnauthenticated: true,
     },
-    [Scene.Signup]: {
-        onlyUnauthenticated: true,
+    [Scene.PasswordReset]: {
+        allowUnauthenticated: true,
     },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
@@ -271,9 +276,10 @@ export const urls = {
     systemStatusPage: (page: string) => `/instance/status/${page}`,
     // Onboarding / setup routes
     login: () => '/login',
-    preflight: () => '/preflight',
     signup: () => '/signup',
     inviteSignup: (id: string) => `/signup/${id}`,
+    passwordReset: () => '/reset',
+    preflight: () => '/preflight',
     personalization: () => '/personalization',
     ingestion: () => '/ingestion',
     onboardingSetup: () => '/setup',
@@ -314,6 +320,7 @@ export const routes: Record<string, Scene> = {
     [urls.preflight()]: Scene.PreflightCheck,
     [urls.signup()]: Scene.Signup,
     [urls.inviteSignup(':id')]: Scene.InviteSignup,
+    [urls.passwordReset()]: Scene.PasswordReset,
     [urls.personalization()]: Scene.Personalization,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
