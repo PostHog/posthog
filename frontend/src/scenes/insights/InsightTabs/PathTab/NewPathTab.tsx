@@ -81,7 +81,6 @@ export function NewPathTab(): JSX.Element {
 
     function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {
         const targetEvent = filters.events?.filter((event: Record<string, any>) => {
-            console.log(event)
             return event.order === index - 1
         })
         return targetEvent?.[0].name || ''
@@ -90,7 +89,10 @@ export function NewPathTab(): JSX.Element {
     function _getStepLabel(funnelFilters?: Record<string, any>, index?: number, shift: number = 0): JSX.Element {
         if (funnelFilters && index) {
             return (
-                <span>{`From funnel step ${index + shift}: ${_getStepNameAtIndex(funnelFilters, index + shift)}`}</span>
+                <span className="label">{`From funnel step ${index + shift}: ${_getStepNameAtIndex(
+                    funnelFilters,
+                    index + shift
+                )}`}</span>
             )
         } else {
             return <span />
@@ -108,23 +110,11 @@ export function NewPathTab(): JSX.Element {
             }
         } else {
             return filter.start_point ? (
-                <>
-                    {filter.start_point}
-                    <CloseButton
-                        onClick={(e: Event) => {
-                            setFilter({ start_point: null })
-                            e.stopPropagation()
-                        }}
-                        style={{
-                            cursor: 'pointer',
-                            float: 'none',
-                            paddingLeft: 8,
-                            alignSelf: 'center',
-                        }}
-                    />
-                </>
+                <span className="label">{filter.start_point}</span>
             ) : (
-                <span style={{ color: 'var(--muted)' }}>Add start point</span>
+                <span className="label" style={{ color: 'var(--muted)' }}>
+                    Add start point
+                </span>
             )
         }
     }
@@ -138,21 +128,7 @@ export function NewPathTab(): JSX.Element {
             }
         } else {
             return filter.end_point ? (
-                <>
-                    {filter.end_point}
-                    <CloseButton
-                        onClick={(e: Event) => {
-                            setFilter({ end_point: null })
-                            e.stopPropagation()
-                        }}
-                        style={{
-                            cursor: 'pointer',
-                            float: 'none',
-                            paddingLeft: 8,
-                            alignSelf: 'center',
-                        }}
-                    />
-                </>
+                <span className="label">{filter.end_point}</span>
             ) : (
                 <span style={{ color: 'var(--muted)' }}>Add end point</span>
             )
@@ -262,12 +238,9 @@ export function NewPathTab(): JSX.Element {
                                     <Button
                                         data-attr={'new-prop-filter-' + 1}
                                         block={true}
+                                        className="paths-endpoint-field"
                                         style={{
-                                            maxWidth: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            overflow: 'hidden',
+                                            textAlign: 'left',
                                             backgroundColor:
                                                 overrideStartInput || overrideEndInput
                                                     ? 'var(--border-light)'
@@ -290,7 +263,22 @@ export function NewPathTab(): JSX.Element {
                                                 : () => {}
                                         }
                                     >
-                                        {getStartPointLabel()}
+                                        <div className="label-container">
+                                            {getStartPointLabel()}
+                                            {(filter.start_point || (!overrideEndInput && overrideStartInput)) && (
+                                                <CloseButton
+                                                    onClick={(e: Event) => {
+                                                        setFilter({
+                                                            start_point: undefined,
+                                                            funnel_filter: undefined,
+                                                            funnel_paths: undefined,
+                                                        })
+                                                        e.stopPropagation()
+                                                    }}
+                                                    className="close-button"
+                                                />
+                                            )}
+                                        </div>
                                     </Button>
                                 </PathItemSelector>
                             </Col>
@@ -315,14 +303,11 @@ export function NewPathTab(): JSX.Element {
                                     <Button
                                         data-attr={'new-prop-filter-' + 0}
                                         block={true}
+                                        className="paths-endpoint-field"
                                         style={{
-                                            maxWidth: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            overflow: 'hidden',
+                                            textAlign: 'left',
                                             backgroundColor:
-                                                overrideEndInput || overrideStartInput
+                                                overrideStartInput || overrideEndInput
                                                     ? 'var(--border-light)'
                                                     : 'white',
                                         }}
@@ -343,7 +328,22 @@ export function NewPathTab(): JSX.Element {
                                                 : () => {}
                                         }
                                     >
-                                        {getEndPointLabel()}
+                                        <div className="label-container">
+                                            {getEndPointLabel()}
+                                            {filter.end_point || (!overrideStartInput && overrideEndInput) ? (
+                                                <CloseButton
+                                                    onClick={(e: Event) => {
+                                                        setFilter({
+                                                            end_point: undefined,
+                                                            funnel_filter: undefined,
+                                                            funnel_paths: undefined,
+                                                        })
+                                                        e.stopPropagation()
+                                                    }}
+                                                    className="close-button"
+                                                />
+                                            ) : null}
+                                        </div>
                                     </Button>
                                 </PathItemSelector>
                             </Col>
