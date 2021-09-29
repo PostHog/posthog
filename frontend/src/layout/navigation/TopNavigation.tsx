@@ -57,7 +57,7 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
 function ProjectRow({ team }: { team: TeamBasicType }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(userLogic)
-    const { push } = router.actions
+    const { push } = useActions(router)
 
     const isCurrent = team.id === currentTeam?.id
     const isRestricted = !team.effective_membership_level
@@ -204,49 +204,52 @@ export function TopNavigation(): JSX.Element {
             >
                 Organization settings
             </LinkButton>
-            <div className="organizations">
-                {user?.organizations
-                    .sort((orgA, orgB) =>
-                        orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
-                    )
-                    .map(
-                        (organization) =>
-                            organization.id !== user.organization?.id && (
-                                <button
-                                    type="button"
-                                    className="plain-button"
-                                    key={organization.id}
-                                    onClick={() => updateCurrentOrganization(organization.id)}
-                                >
-                                    <IconBuilding className="mr-05" style={{ width: 14 }} />
-                                    {organization.name}
-                                </button>
+            {console.log(user, user.organizations.length > 0, preflight?.can_create_org) &&
+                ((user && user.organizations.length > 0) || preflight?.can_create_org) && (
+                    <div className="organizations">
+                        {user?.organizations
+                            .sort((orgA, orgB) =>
+                                orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
                             )
-                    )}
-                {preflight?.can_create_org && (
-                    <button
-                        type="button"
-                        className="plain-button"
-                        onClick={() =>
-                            guardAvailableFeature(
-                                AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                'multiple organizations',
-                                'Organizations group people building products together. An organization can then have multiple projects.',
-                                () => {
-                                    setOrganizationModalShown(true)
-                                },
-                                {
-                                    cloud: false,
-                                    selfHosted: true,
+                            .map(
+                                (organization) =>
+                                    organization.id !== user.organization?.id && (
+                                        <button
+                                            type="button"
+                                            className="plain-button"
+                                            key={organization.id}
+                                            onClick={() => updateCurrentOrganization(organization.id)}
+                                        >
+                                            <IconBuilding className="mr-05" style={{ width: 14 }} />
+                                            {organization.name}
+                                        </button>
+                                    )
+                            )}
+                        {preflight?.can_create_org && (
+                            <button
+                                type="button"
+                                className="plain-button text-primary"
+                                onClick={() =>
+                                    guardAvailableFeature(
+                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                        'multiple organizations',
+                                        'Organizations group people building products together. An organization can then have multiple projects.',
+                                        () => {
+                                            setOrganizationModalShown(true)
+                                        },
+                                        {
+                                            cloud: false,
+                                            selfHosted: true,
+                                        }
+                                    )
                                 }
-                            )
-                        }
-                    >
-                        <PlusOutlined className="mr-05" />
-                        Create new organization
-                    </button>
+                            >
+                                <PlusOutlined className="mr-05" />
+                                Create new organization
+                            </button>
+                        )}
+                    </div>
                 )}
-            </div>
             <button type="button" onClick={logout} className="bottom-button" data-attr="top-menu-item-logout">
                 Log out
             </button>
@@ -270,7 +273,7 @@ export function TopNavigation(): JSX.Element {
             </div>
             <button
                 type="button"
-                className="plain-button"
+                className="plain-button text-primary"
                 disabled={isProjectCreationForbidden}
                 onClick={() =>
                     guardAvailableFeature(
@@ -283,7 +286,7 @@ export function TopNavigation(): JSX.Element {
                     )
                 }
                 style={{
-                    cursor: isProjectCreationForbidden ? 'default' : 'not-allowed',
+                    cursor: isProjectCreationForbidden ? 'not-allowed' : 'default',
                     color: isProjectCreationForbidden ? 'var(--text-muted)' : undefined,
                 }}
             >
