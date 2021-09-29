@@ -108,8 +108,8 @@ class Entity(PropertyMixin):
         try:
             self._action = Action.objects.get(id=self.id)
             return self._action
-        except Action.DoesNotExist as exc:
-            raise ValidationError(f"Action ID {self.id} does not exist!") from exc
+        except:
+            raise ValidationError(f"Action ID {self.id} does not exist!")
 
     __repr__ = sane_repr("id", "type", "order", "name", "custom_name", "math", "math_property", "properties")
 

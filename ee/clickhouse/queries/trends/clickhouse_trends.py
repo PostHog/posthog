@@ -6,6 +6,7 @@ from typing import (
     List,
     Optional,
     Tuple,
+    TypedDict,
     Union,
     cast,
 )
@@ -25,9 +26,29 @@ from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
-from posthog.queries.base import InsightResult, convert_to_comparison, determine_compared_filter, handle_compare
+from posthog.queries.base import convert_to_comparison, determine_compared_filter
 from posthog.queries.trends import Trends
 from posthog.utils import relative_date_parse
+
+
+class InsightResult(TypedDict):
+    """
+    Typing for the structure of the "result" list returned by the api
+
+    NOTE: This structure is probably useful elsewhere, but restricting to this
+    module for now.
+    """
+
+    action: Optional[Dict[str, Any]]
+    breakdown_value: Optional[str]
+    label: str
+    aggregated_value: Optional[Union[float]]
+    count: int
+    data: List[float]
+    # Prior to the fix this would also include '29-Aug-2021'
+    labels: List[str]
+    days: List[str]
+    compare: Optional[bool]
 
 
 class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Trends):

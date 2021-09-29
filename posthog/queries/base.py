@@ -50,17 +50,17 @@ def determine_compared_filter(filter) -> Filter:
 
 def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
     return [
-        dict(
-            entity,
-            labels=[
+        {
+            **entity,
+            "labels": [
                 "{} {}".format(filter.interval if filter.interval is not None else "day", i)
                 for i in range(len(entity["labels"]))
             ],
-            days=entity["days"],
-            label="{} - {}".format(entity["label"], label),
-            chartLabel="{} - {}".format(entity["label"], label),
-            compare=True,
-        )
+            "days": entity["days"],
+            "label": "{} - {}".format(entity["label"], label),
+            "chartLabel": "{} - {}".format(entity["label"], label),
+            "compare": True,
+        }
         for entity in trend_entity
     ]
 
@@ -70,19 +70,6 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
     It'll automatically create a new entity with the 'current' and 'previous' labels and automatically pick the right date_from and date_to filters .
     It will then call func(entity, filter, team_id).
 """
-
-
-class InsightResult(TypedDict):
-    action: Optional[Dict[str, Any]]
-    breakdown_value: Optional[str]
-    label: str
-    aggregated_value: Optional[Union[float]]
-    count: int
-    data: List[float]
-    # Prior to the fix this would also include '29-Aug-2021'
-    labels: List[str]
-    days: List[str]
-    compare: Optional[bool]
 
 
 def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List[Dict[str, Any]]:
