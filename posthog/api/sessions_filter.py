@@ -8,7 +8,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import SessionsFilter
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
 class SessionsFilterSerializer(serializers.ModelSerializer):
@@ -36,4 +36,4 @@ class SessionsFilterViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, 
 
     queryset = SessionsFilter.objects.all().order_by("name")
     serializer_class = SessionsFilterSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
