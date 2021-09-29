@@ -25,6 +25,7 @@ class Command(BaseCommand):
         parser.add_argument("--bucketpath", default=None)
         parser.add_argument("--teamids", default=None)
         parser.add_argument("--teamidsignore", default=None)
+        parser.add_argument("--startindex", default=None)
 
     def handle(self, *args, **options):
         if not options["bucketpath"]:
@@ -62,6 +63,12 @@ class Command(BaseCommand):
         print(ordered_files)
 
         total_events_processed = 0
+        snapshot_events = 0
+        failed_events = 0
+
+        team_ids = options["teamids"].split(",") if options["teamids"] else []
+        team_ids_ignore = options["teamidsignore"].split(",") if options["teamidsignore"] else []
+        start_index = int(options["startindex"]) + 1 if options["startindex"] else 1
 
         # read all files and capture events
         for _, file_name in ordered_files:
@@ -74,61 +81,53 @@ class Command(BaseCommand):
                 total_events_processed += 1
                 print("total events processed:", total_events_processed)
 
-                decoded_line = line.decode("utf-8")
-                if match_snapshot(decoded_line):
-                    # print('skipping $snapshot event')
+                if total_events_processed < start_index:
                     continue
 
-                team_ids = options["teamids"].split(",") if options["teamids"] else []
-                team_ids_ignore = options["teamidsignore"].split(",") if options["teamidsignore"] else []
+                decoded_line = line.decode("utf-8")
+                if match_snapshot(decoded_line):
+                    snapshot_events += 1
+                    print("skipping $snapshot event number", snapshot_events)
+                    continue
+
                 for row in csv.reader([decoded_line]):
-                    if (len(team_ids) and row[4] not in team_ids) or row[4] in team_ids_ignore:
-                        # print(f"skipping event not from target team")
-                        continue
+                    try:
+                        if (len(team_ids) and row[4] not in team_ids) or row[4] in team_ids_ignore:
+                            continue
 
-                    # print(
-                    #     {
-                    #         "distinct_id": row[0],
-                    #         "site_url": row[1],
-                    #         "ip": row[2],
-                    #         "data": json.loads(row[3]),
-                    #         "team_id": int(row[4]),
-                    #         "now": row[5],
-                    #         "sent_at": row[6],
-                    #         "event_uuid": row[7],
-                    #     }
-                    # )
+                        print(row[5])
+                        if is_clickhouse_enabled():
+                            from posthog.api.capture import log_event
 
-                    print(row[5])
-                    if is_clickhouse_enabled():
-                        from posthog.api.capture import log_event
-
-                        log_event(
-                            distinct_id=row[0],
-                            site_url=row[1],
-                            ip=row[2],
-                            data=json.loads(row[3]),
-                            team_id=int(row[4]),
-                            now=parser.parse(row[5]),
-                            sent_at=parser.parse(row[6]) if row[6] else None,
-                            event_uuid=row[7],
-                        )
-                    else:
-                        task_name = "posthog.tasks.process_event.process_event_with_plugins"
-                        celery_queue = settings.PLUGINS_CELERY_QUEUE
-                        celery_app.send_task(
-                            name=task_name,
-                            queue=celery_queue,
-                            args=[
-                                row[0],
-                                row[2],
-                                row[1],
-                                json.loads(row[3]),
-                                int(row[4]),
-                                row[5],
-                                row[6],
-                            ],
-                        )
+                            log_event(
+                                distinct_id=row[0],
+                                site_url=row[1],
+                                ip=row[2],
+                                data=json.loads(row[3]),
+                                team_id=int(row[4]),
+                                now=parser.parse(row[5]),
+                                sent_at=parser.parse(row[6]) if row[6] else None,
+                                event_uuid=row[7],
+                            )
+                        else:
+                            task_name = "posthog.tasks.process_event.process_event_with_plugins"
+                            celery_queue = settings.PLUGINS_CELERY_QUEUE
+                            celery_app.send_task(
+                                name=task_name,
+                                queue=celery_queue,
+                                args=[
+                                    row[0],
+                                    row[2],
+                                    row[1],
+                                    json.loads(row[3]),
+                                    int(row[4]),
+                                    row[5],
+                                    row[6],
+                                ],
+                            )
+                    except:
+                        failed_events += 1
+                        print("events failed:", failed_events)
 
                     try:
                         with open("/tmp/uuids", "a") as f:
