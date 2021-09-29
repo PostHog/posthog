@@ -6,10 +6,10 @@ from .person import GET_TEAM_PERSON_DISTINCT_IDS
 
 EVENTS_TABLE = "events"
 
-DROP_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS {EVENTS_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS {EVENTS_TABLE} "
 
 EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE {table_name} 
 (
     uuid UUID,
     event VARCHAR,
@@ -59,7 +59,7 @@ KAFKA_EVENTS_TABLE_SQL = EVENTS_TABLE_BASE_SQL.format(
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 EVENTS_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW {table_name}_mv 
 TO {database}.{table_name} 
 AS SELECT
 uuid,

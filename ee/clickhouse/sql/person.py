@@ -10,14 +10,14 @@ from .clickhouse import (
     table_engine,
 )
 
-DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_TABLE_SQL = f"DROP TABLE IF EXISTS person "
 
-DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE IF EXISTS person_distinct_id ON CLUSTER {CLICKHOUSE_CLUSTER}"
+DROP_PERSON_DISTINCT_ID_TABLE_SQL = f"DROP TABLE IF EXISTS person_distinct_id "
 
 PERSONS_TABLE = "person"
 
 PERSONS_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE {table_name} 
 (
     id UUID,
     created_at DateTime64,
@@ -49,7 +49,7 @@ KAFKA_PERSONS_TABLE_SQL = PERSONS_TABLE_BASE_SQL.format(
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW {table_name}_mv 
 TO {database}.{table_name}
 AS SELECT
 id,
@@ -100,7 +100,7 @@ GET_LATEST_PERSON_ID_SQL = """
 PERSONS_DISTINCT_ID_TABLE = "person_distinct_id"
 
 PERSONS_DISTINCT_ID_TABLE_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE {table_name} 
 (
     distinct_id VARCHAR,
     person_id UUID,
@@ -127,7 +127,7 @@ PERSONS_DISTINCT_ID_TABLE_SQL = (
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
 #    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
 KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE {table_name} 
 (
     distinct_id VARCHAR,
     person_id UUID,
@@ -144,7 +144,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 PERSONS_DISTINCT_ID_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW {table_name}_mv 
 TO {database}.{table_name}
 AS SELECT
 distinct_id,
@@ -164,7 +164,7 @@ FROM {database}.kafka_{table_name}
 
 PERSON_STATIC_COHORT_TABLE = "person_static_cohort"
 PERSON_STATIC_COHORT_BASE_SQL = """
-CREATE TABLE {table_name} ON CLUSTER {cluster}
+CREATE TABLE {table_name} 
 (
     id UUID,
     person_id UUID,
@@ -187,9 +187,7 @@ PERSON_STATIC_COHORT_TABLE_SQL = (
     extra_fields=KAFKA_COLUMNS,
 )
 
-DROP_PERSON_STATIC_COHORT_TABLE_SQL = (
-    f"DROP TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
-)
+DROP_PERSON_STATIC_COHORT_TABLE_SQL = f"DROP TABLE IF EXISTS {PERSON_STATIC_COHORT_TABLE} "
 
 INSERT_PERSON_STATIC_COHORT = (
     f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp) VALUES"
