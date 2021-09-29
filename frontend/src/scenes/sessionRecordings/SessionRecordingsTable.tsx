@@ -3,11 +3,12 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { Card, Table } from 'antd'
+import { Card, Row, Table, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { useIsTableScrolling } from 'lib/components/Table/utils'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
+import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 
 interface SessionRecordingsTableProps {
     distinctId?: string
@@ -16,10 +17,10 @@ interface SessionRecordingsTableProps {
 
 export function SessionRecordingsTable({ distinctId, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ distinctId })
-    const { sessionRecordings, sessionRecordingsLoading, sessionRecordingId } = useValues(
+    const { sessionRecordings, sessionRecordingsLoading, sessionRecordingId, filters } = useValues(
         sessionRecordingsTableLogicInstance
     )
-    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
+    const { openSessionPlayer, closeSessionPlayer, setFilters } = useActions(sessionRecordingsTableLogicInstance)
     const { tableScrollX } = useIsTableScrolling('lg')
 
     const columns = [
@@ -72,6 +73,23 @@ export function SessionRecordingsTable({ distinctId, isPersonPage = false }: Ses
     return (
         <div className="events" data-attr="events-table">
             <Card>
+                <Row style={{ marginBottom: 16, alignItems: 'center' }}>
+                    <Typography.Text strong>Filter to recordings with a specific event or action:</Typography.Text>
+                    <ActionFilter
+                        filters={filters}
+                        setFilters={(payload) => {
+                            console.log('p', payload)
+                            setFilters(payload)
+                        }}
+                        typeKey={'session-recordings'}
+                        singleFilter
+                        hideMathSelector={true}
+                        buttonCopy="Add action or event"
+                        horizontalUI
+                        customRowPrefix=""
+                        hideRename
+                    />
+                </Row>
                 <Table
                     rowKey="id"
                     dataSource={sessionRecordings}

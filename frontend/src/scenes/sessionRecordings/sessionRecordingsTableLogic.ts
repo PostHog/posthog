@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { SessionRecordingType } from '~/types'
+import { EntityTypes, FilterType, SessionRecordingType } from '~/types'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
 
@@ -20,14 +20,16 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
         getSessionRecordings: true,
         openSessionPlayer: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
         closeSessionPlayer: true,
+        setFilters: (filters: Partial<FilterType>) => ({ filters }),
     },
-    loaders: ({ props }) => ({
+    loaders: ({ props, values }) => ({
         sessionRecordings: [
             [] as SessionRecordingType[],
             {
                 getSessionRecordings: async () => {
                     const params = toParams({
                         distinct_id: props.distinctId ?? '',
+                        ...values.filters,
                     })
                     const response = await api.get(`api/projects/@current/session_recordings?${params}`)
                     return response.results
@@ -48,8 +50,23 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
                 closeSessionPlayer: () => null,
             },
         ],
+        filters: [
+            {
+                id: null,
+                type: EntityTypes.NEW_ENTITY,
+                order: 0,
+                name: null,
+            } as FilterType,
+            {
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
     },
-
+    listeners: ({ actions }) => ({
+        setFilters: () => {
+            actions.getSessionRecordings()
+        },
+    }),
     actionToUrl: ({ values }) => {
         const buildURL = (
             overrides: Partial<Params> = {},
