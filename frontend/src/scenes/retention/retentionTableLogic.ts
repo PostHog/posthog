@@ -25,7 +25,8 @@ export const retentionOptions = {
 
 export const retentionOptionDescriptions = {
     [`${RETENTION_RECURRING}`]: 'A user will belong to any cohort where they have performed the event in its Period 0.',
-    [`${RETENTION_FIRST_TIME}`]: 'A user will only belong to the cohort for which they performed the event for the first time.',
+    [`${RETENTION_FIRST_TIME}`]:
+        'A user will only belong to the cohort for which they performed the event for the first time.',
 }
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'

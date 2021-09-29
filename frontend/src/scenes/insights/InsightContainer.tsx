@@ -53,15 +53,8 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
     } = useValues(router)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const {
-        lastRefresh,
-        isLoading,
-        activeView,
-        allFilters,
-        insightMode,
-        showTimeoutMessage,
-        showErrorMessage,
-    } = useValues(insightLogic)
+    const { lastRefresh, isLoading, activeView, allFilters, insightMode, showTimeoutMessage, showErrorMessage } =
+        useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
 
     // Empty states that completely replace the graph

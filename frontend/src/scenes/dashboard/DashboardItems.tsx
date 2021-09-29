@@ -14,9 +14,8 @@ import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
 const ReactGridLayout = WidthProvider(Responsive)
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode, isRefreshing } = useValues(
-        dashboardLogic
-    )
+    const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode, isRefreshing } =
+        useValues(dashboardLogic)
     const {
         loadDashboardItems,
         updateLayouts,
