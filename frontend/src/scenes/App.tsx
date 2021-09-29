@@ -17,6 +17,7 @@ import { Papercups } from 'lib/components/Papercups'
 import { appLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -125,6 +126,9 @@ function AppScene(): JSX.Element | null {
                     {scene ? (
                         <Layout.Content className="main-app-content" data-attr="layout-content">
                             {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
+                            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] ? (
+                                <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
+                            ) : null}
                             <BillingAlerts />
                             <BackTo />
                             <SceneComponent user={user} {...params} />

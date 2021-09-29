@@ -207,9 +207,8 @@ function PinnedDashboards(): JSX.Element {
 export function MainNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible, hotkeyNavigationEngaged } = useValues(
-        navigationLogic
-    )
+    const { menuCollapsed, toolbarModalOpen, pinnedDashboardsVisible, hotkeyNavigationEngaged } =
+        useValues(navigationLogic)
     const {
         setMenuCollapsed,
         collapseMenu,

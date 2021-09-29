@@ -1,11 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { Button, Checkbox, Col, Row, Select } from 'antd'
+import { Button, Checkbox, Col, Collapse, InputNumber, Row, Select } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
-import { PathType } from '~/types'
+import { PathEdgeParameters, PathType } from '~/types'
 import './NewPathTab.scss'
 import { GlobalFiltersTitle } from '../../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -15,10 +15,19 @@ import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { CloseButton } from 'lib/components/CloseButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/components/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function NewPathTab(): JSX.Element {
     const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId: null }))
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
+        edge_limit: filter.edge_limit,
+        min_edge_weight: filter.min_edge_weight,
+        max_edge_weight: filter.max_edge_weight,
+    })
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
@@ -33,6 +42,16 @@ export function NewPathTab(): JSX.Element {
               }
           })
         : []
+
+    const updateEdgeParameters = (): void => {
+        if (
+            localEdgeParameters.edge_limit !== filter.edge_limit ||
+            localEdgeParameters.min_edge_weight !== filter.min_edge_weight ||
+            localEdgeParameters.max_edge_weight !== filter.max_edge_weight
+        ) {
+            setFilter({ ...localEdgeParameters })
+        }
+    }
 
     const onClickPathtype = (pathType: PathType): void => {
         if (filter.include_event_types) {
@@ -166,19 +185,24 @@ export function NewPathTab(): JSX.Element {
                                     >
                                         {filter.start_point ? (
                                             <>
-                                                {filter.start_point}
-                                                <CloseButton
-                                                    onClick={(e: Event) => {
-                                                        setFilter({ start_point: null })
-                                                        e.stopPropagation()
-                                                    }}
-                                                    style={{
-                                                        cursor: 'pointer',
-                                                        float: 'none',
-                                                        paddingLeft: 8,
-                                                        alignSelf: 'center',
-                                                    }}
-                                                />
+                                                <Col span={22} style={{ overflow: 'hidden' }}>
+                                                    {filter.start_point}
+                                                </Col>
+                                                <Col span={2}>
+                                                    <CloseButton
+                                                        onClick={(e: Event) => {
+                                                            setFilter({ start_point: null })
+                                                            e.stopPropagation()
+                                                        }}
+                                                        className="paths-close-button"
+                                                        style={{
+                                                            cursor: 'pointer',
+                                                            float: 'none',
+                                                            paddingLeft: 8,
+                                                            alignSelf: 'center',
+                                                        }}
+                                                    />
+                                                </Col>
                                             </>
                                         ) : (
                                             <span style={{ color: 'var(--muted)' }}>Add start point</span>
@@ -222,6 +246,7 @@ export function NewPathTab(): JSX.Element {
                                                         setFilter({ end_point: null })
                                                         e.stopPropagation()
                                                     }}
+                                                    className="paths-close-button"
                                                     style={{
                                                         cursor: 'pointer',
                                                         float: 'none',
@@ -237,6 +262,92 @@ export function NewPathTab(): JSX.Element {
                                 </PathItemSelector>
                             </Col>
                         </Row>
+                        {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI_EDGE_WEIGHTS] && (
+                            <>
+                                <hr />
+                                <Row align="middle">
+                                    <Col span={24}>
+                                        <Collapse expandIconPosition="right">
+                                            <Collapse.Panel header="Advanced Options" key="1">
+                                                <Col>
+                                                    <Row gutter={8} align="middle" className="mt-05">
+                                                        <Col>Maximum number of Paths</Col>
+                                                        <Col>
+                                                            <InputNumber
+                                                                style={{
+                                                                    paddingTop: 2,
+                                                                    width: '80px',
+                                                                    marginLeft: 5,
+                                                                    marginRight: 5,
+                                                                }}
+                                                                size="small"
+                                                                min={0}
+                                                                max={1000}
+                                                                defaultValue={50}
+                                                                onChange={(value): void =>
+                                                                    setLocalEdgeParameters((state) => ({
+                                                                        ...state,
+                                                                        edge_limit: Number(value),
+                                                                    }))
+                                                                }
+                                                                onBlur={updateEdgeParameters}
+                                                                onPressEnter={updateEdgeParameters}
+                                                            />
+                                                        </Col>
+                                                    </Row>
+                                                    <Row gutter={8} align="middle" className="mt-05">
+                                                        <Col>Number of people on each Path between</Col>
+                                                        <Col>
+                                                            <InputNumber
+                                                                style={{
+                                                                    paddingTop: 2,
+                                                                    width: '80px',
+                                                                    marginLeft: 5,
+                                                                    marginRight: 5,
+                                                                }}
+                                                                size="small"
+                                                                min={0}
+                                                                max={100000}
+                                                                onChange={(value): void =>
+                                                                    setLocalEdgeParameters((state) => ({
+                                                                        ...state,
+                                                                        min_edge_weight: Number(value),
+                                                                    }))
+                                                                }
+                                                                onBlur={updateEdgeParameters}
+                                                                onPressEnter={updateEdgeParameters}
+                                                            />
+                                                        </Col>
+                                                        <Col>and</Col>
+                                                        <Col>
+                                                            <InputNumber
+                                                                style={{
+                                                                    paddingTop: 2,
+                                                                    width: '80px',
+                                                                    marginLeft: 5,
+                                                                    marginRight: 5,
+                                                                }}
+                                                                size="small"
+                                                                onChange={(value): void =>
+                                                                    setLocalEdgeParameters((state) => ({
+                                                                        ...state,
+                                                                        max_edge_weight: Number(value),
+                                                                    }))
+                                                                }
+                                                                min={0}
+                                                                max={100000}
+                                                                onBlur={updateEdgeParameters}
+                                                                onPressEnter={updateEdgeParameters}
+                                                            />
+                                                        </Col>
+                                                    </Row>
+                                                </Col>
+                                            </Collapse.Panel>
+                                        </Collapse>
+                                    </Col>
+                                </Row>
+                            </>
+                        )}
                     </Col>
                 </Col>
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>

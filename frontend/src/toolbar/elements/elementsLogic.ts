@@ -201,13 +201,13 @@ export const elementsLogic = kea<elementsLogicType<ActionElementMap, ElementMap>
 
         elementsWithActions: [
             (s) => [s.actionsForElementMap],
-            (actionsForElementMap) => [...((actionsForElementMap.keys() as unknown) as HTMLElement[])],
+            (actionsForElementMap) => [...(actionsForElementMap.keys() as unknown as HTMLElement[])],
         ],
 
         actionsListElements: [
             (s) => [s.actionsForElementMap],
             (actionsForElementMap) =>
-                [...((actionsForElementMap.values() as unknown) as ActionElementWithMetadata[][])].map((a) => a[0]),
+                [...(actionsForElementMap.values() as unknown as ActionElementWithMetadata[][])].map((a) => a[0]),
         ],
 
         elementsToDisplayRaw: [

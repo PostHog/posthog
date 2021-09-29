@@ -350,9 +350,9 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                     )
                                     setHiddenById(
                                         Object.fromEntries(
-                                            (
-                                                flattenedSteps?.filter((s) => s.breakdownIndex !== undefined) ?? []
-                                            ).map(({ rowKey }) => [rowKey, !currentState])
+                                            (flattenedSteps?.filter((s) => s.breakdownIndex !== undefined) ?? []).map(
+                                                ({ rowKey }) => [rowKey, !currentState]
+                                            )
                                         )
                                     )
                                 }}

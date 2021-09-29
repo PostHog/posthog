@@ -154,13 +154,15 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
 }
 
 export function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
-    return (filters.insight === ViewType.RETENTION
-        ? 'RetentionContainer'
-        : filters.insight === ViewType.PATHS
-        ? 'PathsViz'
-        : filters.insight === ViewType.FUNNELS
-        ? 'FunnelViz'
-        : filters.display || 'ActionsLineGraph') as DisplayedType
+    return (
+        filters.insight === ViewType.RETENTION
+            ? 'RetentionContainer'
+            : filters.insight === ViewType.PATHS
+            ? 'PathsViz'
+            : filters.insight === ViewType.FUNNELS
+            ? 'FunnelViz'
+            : filters.display || 'ActionsLineGraph'
+    ) as DisplayedType
 }
 
 const dashboardDiveLink = (dive_dashboard: number, dive_source_id: number): string => {
