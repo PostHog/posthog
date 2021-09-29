@@ -48,7 +48,8 @@ const renderItemContents = ({
 }): JSX.Element | string => {
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
-        listGroupType === TaxonomicFilterGroupType.Events ? (
+        listGroupType === TaxonomicFilterGroupType.Events ||
+        listGroupType === TaxonomicFilterGroupType.CustomEvents ? (
         <PropertyKeyInfo value={item.name ?? ''} disablePopover />
     ) : listGroupType === TaxonomicFilterGroupType.Elements ? (
         <PropertyKeyInfo type="element" value={item.name ?? ''} disablePopover />
@@ -150,9 +151,8 @@ export function InfiniteList(): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
 
-    const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } = useValues(
-        infiniteListLogic
-    )
+    const { isLoading, results, totalCount, index, listGroupType, group, selectedItem, selectedItemInView } =
+        useValues(infiniteListLogic)
     const { onRowsRendered, setIndex } = useActions(infiniteListLogic)
 
     const isActiveTab = listGroupType === activeTab
@@ -231,7 +231,7 @@ export function InfiniteList(): JSX.Element {
                             height={height}
                             rowCount={isLoading && totalCount === 0 ? 7 : totalCount}
                             overscanRowCount={100}
-                            rowHeight={32}
+                            rowHeight={40}
                             rowRenderer={renderItem}
                             onRowsRendered={onRowsRendered}
                             scrollToIndex={index}

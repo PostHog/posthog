@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
 import { SessionsView } from '../sessions/SessionsView'
 import { EventsTable } from 'scenes/events'
+import { SessionRecordingsTable } from 'scenes/sessionRecordings/SessionRecordingsTable'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { PersonHeader } from './PersonHeader'
@@ -36,8 +37,8 @@ export function Person(): JSX.Element {
     const [activeCardTab, setActiveCardTab] = useState('properties')
     const [mergeModalOpen, setMergeModalOpen] = useState(false)
     const [splitModalOpen, setSplitModalOpen] = useState(false)
-
-    const { person, personLoading, deletedPersonLoading, hasNewKeys, activeTab } = useValues(personsLogic)
+    const { person, personLoading, deletedPersonLoading, hasNewKeys, currentTab, showSessionRecordings, showTabs } =
+        useValues(personsLogic)
     const { deletePerson, setPerson, editProperty, navigateToTab } = useActions(personsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -58,24 +59,42 @@ export function Person(): JSX.Element {
         <div style={{ paddingTop: 32 }}>
             <Row gutter={16}>
                 <Col span={16}>
-                    <Tabs
-                        defaultActiveKey={PersonsTabType.EVENTS}
-                        activeKey={activeTab}
-                        onChange={(tab) => {
-                            navigateToTab(tab as PersonsTabType)
-                        }}
-                    >
-                        <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key="events" />
-                        <TabPane tab={<span data-attr="person-sessions-tab">Sessions</span>} key="sessions" />
-                    </Tabs>
+                    {showTabs ? (
+                        <Tabs
+                            defaultActiveKey={PersonsTabType.EVENTS}
+                            activeKey={currentTab}
+                            onChange={(tab) => {
+                                navigateToTab(tab as PersonsTabType)
+                            }}
+                        >
+                            {showSessionRecordings ? (
+                                <TabPane
+                                    tab={<span data-attr="person-session-recordings-tab">Session recordings</span>}
+                                    key="sessionRecordings"
+                                />
+                            ) : null}
+                            <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key="events" />
+                            {!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? (
+                                <TabPane tab={<span data-attr="person-sessions-tab">Sessions</span>} key="sessions" />
+                            ) : null}
+                        </Tabs>
+                    ) : null}
                     {person && (
                         <div>
-                            {activeTab === 'events' ? (
-                                <EventsTable
-                                    pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                                    fixedFilters={{ person_id: person.id }}
-                                />
-                            ) : (
+                            {currentTab === PersonsTabType.SESSION_RECORDINGS ? (
+                                <>
+                                    <PageHeader
+                                        title="Session recordings"
+                                        caption="Watch sessions recordings to see how this user interacts with your app."
+                                        style={{ marginTop: 0 }}
+                                    />
+                                    <SessionRecordingsTable
+                                        key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                                        distinctId={person.distinct_ids[0]}
+                                        isPersonPage
+                                    />
+                                </>
+                            ) : currentTab === PersonsTabType.SESSIONS ? (
                                 <>
                                     <PageHeader
                                         title="Sessions"
@@ -88,6 +107,11 @@ export function Person(): JSX.Element {
                                         isPersonPage
                                     />
                                 </>
+                            ) : (
+                                <EventsTable
+                                    pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                                    fixedFilters={{ person_id: person.id }}
+                                />
                             )}
                         </div>
                     )}

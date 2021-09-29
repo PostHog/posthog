@@ -7,8 +7,11 @@ from posthog.constants import (
     FUNNEL_PATHS,
     PAGEVIEW_EVENT,
     PATH_DROPOFF_KEY,
+    PATH_EDGE_LIMIT,
     PATH_END_KEY,
     PATH_GROUPINGS,
+    PATH_MAX_EDGE_WEIGHT,
+    PATH_MIN_EDGE_WEIGHT,
     PATH_START_KEY,
     PATH_TYPE,
     PATHS_EXCLUDE_EVENTS,
@@ -92,11 +95,17 @@ class TargetEventDerivedMixin(PropTypeDerivedMixin):
 class TargetEventsMixin(BaseParamMixin):
     @cached_property
     def target_events(self) -> List[str]:
-        return self._data.get(PATHS_INCLUDE_EVENT_TYPES, [])
+        target_events = self._data.get(PATHS_INCLUDE_EVENT_TYPES, [])
+        if isinstance(target_events, str):
+            return json.loads(target_events)
+        return target_events
 
     @cached_property
     def custom_events(self) -> List[str]:
-        return self._data.get(PATHS_INCLUDE_CUSTOM_EVENTS, [])
+        custom_events = self._data.get(PATHS_INCLUDE_CUSTOM_EVENTS, [])
+        if isinstance(custom_events, str):
+            return json.loads(custom_events)
+        return custom_events
 
     @cached_property
     def exclude_events(self) -> List[str]:
@@ -134,8 +143,10 @@ class TargetEventsMixin(BaseParamMixin):
 
 class PathStepLimitMixin(BaseParamMixin):
     @cached_property
-    def step_limit(self) -> Optional[str]:
-        return self._data.get(STEP_LIMIT, None)
+    def step_limit(self) -> Optional[int]:
+        if self._data.get(STEP_LIMIT) is not None:
+            return int(self._data[STEP_LIMIT])
+        return None
 
     @include_dict
     def step_limit_to_dict(self):
@@ -191,5 +202,36 @@ class PathPersonsMixin(BaseParamMixin):
 
         if self.path_dropoff_key:
             result[PATH_DROPOFF_KEY] = self.path_dropoff_key
+
+        return result
+
+
+class PathLimitsMixin(BaseParamMixin):
+    @cached_property
+    def edge_limit(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_EDGE_LIMIT, None)
+        return int(raw_value) if raw_value is not None else None
+
+    @cached_property
+    def min_edge_weight(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_MIN_EDGE_WEIGHT, None)
+        return int(raw_value) if raw_value else None
+
+    @cached_property
+    def max_edge_weight(self) -> Optional[int]:
+        raw_value = self._data.get(PATH_MAX_EDGE_WEIGHT, None)
+        return int(raw_value) if raw_value else None
+
+    @include_dict
+    def path_edge_limit_to_dict(self):
+        result = {}
+        if self.edge_limit:
+            result[PATH_EDGE_LIMIT] = self.edge_limit
+
+        if self.min_edge_weight:
+            result[PATH_MIN_EDGE_WEIGHT] = self.min_edge_weight
+
+        if self.max_edge_weight:
+            result[PATH_MAX_EDGE_WEIGHT] = self.max_edge_weight
 
         return result
