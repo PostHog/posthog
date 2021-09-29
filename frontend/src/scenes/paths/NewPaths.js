@@ -87,7 +87,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
-    const { setFilter } = useActions(pathsLogic({ dashboardItemId, filters }))
+    const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId, filters }))
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
         setPathItemCards([])
@@ -402,6 +402,13 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                                 }
                                                             >
                                                                 Set as path end
+                                                            </Menu.Item>
+                                                            <Menu.Item
+                                                                onClick={() =>
+                                                                    updateExclusions([{ value: pathItemCard.name }])
+                                                                }
+                                                            >
+                                                                Exclude path item
                                                             </Menu.Item>
                                                             <Menu.Item
                                                                 onClick={() => copyToClipboard(pathItemCard.name)}
