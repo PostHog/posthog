@@ -7,14 +7,14 @@ import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { renameModalLogic } from 'scenes/insights/ActionFilter/renameModalLogic'
 import { InputFocusOptions } from 'antd/es/input/Input'
 
-interface Props {
+interface RenameModalProps {
     typeKey: string
     view?: InsightType
 }
 
-export function RenameModal({ typeKey, view }: Props): JSX.Element {
+export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
     const { selectedFilter, modalVisible } = useValues(entityFilterLogic)
-    const { renameFilter, setModalVisible } = useActions(entityFilterLogic)
+    const { renameFilter, hideModal } = useActions(entityFilterLogic)
 
     const logic = renameModalLogic({ typeKey, filter: selectedFilter })
     const { name } = useValues(logic)
@@ -36,7 +36,7 @@ export function RenameModal({ typeKey, view }: Props): JSX.Element {
             title={title}
             footer={
                 <>
-                    <Button type="link" onClick={() => setModalVisible(false)}>
+                    <Button type="link" onClick={hideModal}>
                         Cancel
                     </Button>
                     <Button type="primary" onClick={onRename}>
@@ -44,7 +44,7 @@ export function RenameModal({ typeKey, view }: Props): JSX.Element {
                     </Button>
                 </>
             }
-            onCancel={() => setModalVisible(false)}
+            onCancel={hideModal}
         >
             Query steps can be renamed to provide a more meaningful label for your insight. Renamed steps are also shown
             on dashboards.

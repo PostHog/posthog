@@ -1079,3 +1079,7 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
         return Promise.reject('Not valid JSON!')
     }
 }
+
+export function ensureStringIsNotBlank(s?: string | null): string | null {
+    return (s ?? '').trim() === '' ? null : s ?? null
+}

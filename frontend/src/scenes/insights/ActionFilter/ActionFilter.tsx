@@ -96,7 +96,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         const { reportFunnelStepReordered } = useActions(eventUsageLogic)
 
         const { localFilters } = useValues(logic)
-        const { addFilter, setLocalFilters, setModalVisible } = useActions(logic)
+        const { addFilter, setLocalFilters, showModal } = useActions(logic)
 
         // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
         // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
@@ -132,7 +132,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             disabled,
             renderRow,
             hideRename,
-            onRenameClick: () => setModalVisible(true),
+            onRenameClick: showModal,
         }
 
         return (
