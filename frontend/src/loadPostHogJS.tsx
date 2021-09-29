@@ -29,5 +29,6 @@ export function loadPostHogJS(): void {
                 integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813)],
             }),
         })
+        ;(window as any).Sentry = Sentry
     }
 }
