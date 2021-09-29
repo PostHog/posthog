@@ -237,8 +237,8 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
         return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
-    const completedValue = (sourceLinks) => {
-        return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
+    const completedValue = (targetLinks) => {
+        return targetLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
     return (
@@ -286,12 +286,12 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     <ValueInspectorButton
                                                         onClick={() => openPersonsModal(undefined, pathItemCard.name)}
                                                     >
-                                                        {completedValue(pathItemCard.sourceLinks)}{' '}
+                                                        {completedValue(pathItemCard.targetLinks)}{' '}
                                                     </ValueInspectorButton>
                                                     {pathItemCard.targetLinks.length > 0 && (
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
                                                             {(
-                                                                (completedValue(pathItemCard.sourceLinks) /
+                                                                (completedValue(pathItemCard.targetLinks) /
                                                                     pathItemCard.value) *
                                                                 100
                                                             ).toFixed(1)}
