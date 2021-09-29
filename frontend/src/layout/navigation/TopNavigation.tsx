@@ -204,52 +204,51 @@ export function TopNavigation(): JSX.Element {
             >
                 Organization settings
             </LinkButton>
-            {console.log(user, user.organizations.length > 0, preflight?.can_create_org) &&
-                ((user && user.organizations.length > 0) || preflight?.can_create_org) && (
-                    <div className="organizations">
-                        {user?.organizations
-                            .sort((orgA, orgB) =>
-                                orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
-                            )
-                            .map(
-                                (organization) =>
-                                    organization.id !== user.organization?.id && (
-                                        <button
-                                            type="button"
-                                            className="plain-button"
-                                            key={organization.id}
-                                            onClick={() => updateCurrentOrganization(organization.id)}
-                                        >
-                                            <IconBuilding className="mr-05" style={{ width: 14 }} />
-                                            {organization.name}
-                                        </button>
-                                    )
-                            )}
-                        {preflight?.can_create_org && (
-                            <button
-                                type="button"
-                                className="plain-button text-primary"
-                                onClick={() =>
-                                    guardAvailableFeature(
-                                        AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                        'multiple organizations',
-                                        'Organizations group people building products together. An organization can then have multiple projects.',
-                                        () => {
-                                            setOrganizationModalShown(true)
-                                        },
-                                        {
-                                            cloud: false,
-                                            selfHosted: true,
-                                        }
-                                    )
-                                }
-                            >
-                                <PlusOutlined className="mr-05" />
-                                Create new organization
-                            </button>
+            {
+                <div className="organizations">
+                    {user?.organizations
+                        .sort((orgA, orgB) =>
+                            orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
+                        )
+                        .map(
+                            (organization) =>
+                                organization.id !== user.organization?.id && (
+                                    <button
+                                        type="button"
+                                        className="plain-button"
+                                        key={organization.id}
+                                        onClick={() => updateCurrentOrganization(organization.id)}
+                                    >
+                                        <IconBuilding className="mr-05" style={{ width: 14 }} />
+                                        {organization.name}
+                                    </button>
+                                )
                         )}
-                    </div>
-                )}
+                    {preflight?.can_create_org && (
+                        <button
+                            type="button"
+                            className="plain-button text-primary"
+                            onClick={() =>
+                                guardAvailableFeature(
+                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                    'multiple organizations',
+                                    'Organizations group people building products together. An organization can then have multiple projects.',
+                                    () => {
+                                        setOrganizationModalShown(true)
+                                    },
+                                    {
+                                        cloud: false,
+                                        selfHosted: true,
+                                    }
+                                )
+                            }
+                        >
+                            <PlusOutlined className="mr-05" />
+                            Create new organization
+                        </button>
+                    )}
+                </div>
+            }
             <button type="button" onClick={logout} className="bottom-button" data-attr="top-menu-item-logout">
                 Log out
             </button>
