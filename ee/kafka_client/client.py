@@ -29,17 +29,21 @@ class TestKafkaConsumer:
     def __init__(self, topic="test", max=0, **kwargs):
         self.max = max
         self.n = 0
-        self.topic = topic 
+        self.topic = topic
+
     def __iter__(self):
-        return self 
+        return self
+
     def __next__(self):
         if self.n <= self.max:
             self.n += 1
             return f"message {self.n} from {self.topic} topic"
         else:
             raise StopIteration
+
     def seek_to_beginning(self):
         return
+
     def seek_to_end(self):
         return
 
@@ -73,13 +77,22 @@ class _KafkaProducer:
 KafkaProducer = SingletonDecorator(_KafkaProducer)
 
 
-def build_kafka_consumer(topic: str, value_deserializer=lambda v: json.loads(v.decode('utf-8')), auto_offset_reset='latest', test=TEST):
+def build_kafka_consumer(
+    topic: str, value_deserializer=lambda v: json.loads(v.decode("utf-8")), auto_offset_reset="latest", test=TEST
+):
     if test:
         consumer = TestKafkaConsumer(topic=topic, auto_offset_reset=auto_offset_reset, max=10)
     elif KAFKA_BASE64_KEYS:
-        consumer = helper.get_kafka_consumer(topic=topic, auto_offset_reset=auto_offset_reset, value_deserializer=value_deserializer)
+        consumer = helper.get_kafka_consumer(
+            topic=topic, auto_offset_reset=auto_offset_reset, value_deserializer=value_deserializer
+        )
     else:
-        consumer = KC(topic, bootstrap_servers=KAFKA_HOSTS, auto_offset_reset=auto_offset_reset, value_deserializer=value_deserializer)
+        consumer = KC(
+            topic,
+            bootstrap_servers=KAFKA_HOSTS,
+            auto_offset_reset=auto_offset_reset,
+            value_deserializer=value_deserializer,
+        )
     return consumer
 
 
