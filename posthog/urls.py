@@ -106,22 +106,14 @@ urlpatterns = [
     path("logout", authentication.logout, name="login"),
     path("signup/finish/", signup.finish_social_signup, name="signup_finish"),
     path("", include("social_django.urls", namespace="social")),
-    *(
-        []
-        if is_email_available()
-        else [
-            path("accounts/password_reset/", TemplateView.as_view(template_name="registration/password_no_smtp.html"),)
-        ]
-    ),
     path(
         "accounts/reset/<uidb64>/<token>/",
-        auth_views.PasswordResetConfirmView.as_view(
+        auth_views.PasswordResetConfirmView.as_view(  # TODO
             success_url="/",
             post_reset_login_backend="django.contrib.auth.backends.ModelBackend",
             post_reset_login=True,
         ),
     ),
-    path("accounts/", include("django.contrib.auth.urls")),
     path("login", login),
 ]
 
