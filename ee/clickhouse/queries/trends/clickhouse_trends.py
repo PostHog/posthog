@@ -32,10 +32,35 @@ from posthog.utils import relative_date_parse
 
 class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Trends):
     def run(self, filter: Filter, team: Team, *args, **kwargs):
+        """
+        Trends are a collection of different aggregations of event data:
+
+         - Total volume: simply filters the events and returns a specified
+           aggregation
+         - Lifecycle: provides a breakdown of users that are either 'new',
+           'returning', 'resurrecting', or 'dormant'
+         - Breakdown: provides a breakdown of events by specified criteron
+
+        There are also some options that can be specified for some/all of these:
+
+         - compare: returns an extra set of results that represents the same
+           request but for the previous time period
+         - formula: allows you to specify a custom formula to calculate the
+           results
+         - display: specifies how the results should be displayed. This can be
+           one of `ActionsLineGraph`, `ActionsPieChart`, `ActionsTable`, etc.
+           that is to say the use case this request is part of.
+         - cumulative: specifies whether the results should be cumulative, not
+           over all of time, but just over the time period specified.
+
+        """
         filter = self._set_default_dates(filter, team.pk)
 
+        # We want to silently ignore any entities that aren't valid
+        valid_entities = self._remove_invalid_entities(entities=filter.entities, team_id=team.id)
+
         # We add names to entities based on their referenced actions
-        entities_with_named_actions = self._add_missing_entity_names(entities=filter.entities, team_id=team.pk)
+        entities_with_named_actions = self._add_missing_entity_names(entities=valid_entities, team_id=team.pk)
 
         # First we get the result for the specified range, including performing
         # any formula, breakdown calculations, accumulation etc.
@@ -67,6 +92,18 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Trends)
             results = [result for pair in zip(results, comparison_results) for result in pair]
 
         return results
+
+    def _remove_invalid_entities(self, entities: List[Entity], team_id: int) -> List[Entity]:
+        """
+        Remove any entities that are not valid. This includes:
+
+         1. entities that reference non-existent actions
+
+        """
+        valid_action_ids = Action.objects.filter(team_id=team_id).values_list("id", flat=True)
+        return [
+            entity for entity in entities if entity.type != TREND_FILTER_TYPE_ACTIONS or entity.id in valid_action_ids
+        ]
 
     def _add_missing_entity_names(self, entities: List[Entity], team_id: int):
         #  The filter does not have names for action items in entities list, so
