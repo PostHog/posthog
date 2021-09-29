@@ -344,7 +344,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         Average time{' '}
                                                     </span>
                                                     {humanFriendlyDuration(
-                                                        pathItemCard.targetLinks[0].average_conversion_time
+                                                        pathItemCard.targetLinks[0].average_conversion_time / 1000
                                                     )}
                                                 </Menu.Item>
                                             )}
