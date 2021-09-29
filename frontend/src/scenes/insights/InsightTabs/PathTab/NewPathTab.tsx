@@ -175,35 +175,22 @@ export function NewPathTab(): JSX.Element {
                                     <Button
                                         data-attr={'new-prop-filter-' + 1}
                                         block={true}
+                                        className="paths-endpoint-field"
                                         style={{
-                                            maxWidth: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            overflow: 'hidden',
+                                            textAlign: 'left',
                                         }}
                                     >
                                         {filter.start_point ? (
-                                            <>
-                                                <Col span={22} style={{ overflow: 'hidden' }}>
-                                                    {filter.start_point}
-                                                </Col>
-                                                <Col span={2}>
-                                                    <CloseButton
-                                                        onClick={(e: Event) => {
-                                                            setFilter({ start_point: null })
-                                                            e.stopPropagation()
-                                                        }}
-                                                        className="paths-close-button"
-                                                        style={{
-                                                            cursor: 'pointer',
-                                                            float: 'none',
-                                                            paddingLeft: 8,
-                                                            alignSelf: 'center',
-                                                        }}
-                                                    />
-                                                </Col>
-                                            </>
+                                            <div className="label-container">
+                                                <span className="label">{filter.start_point}</span>
+                                                <CloseButton
+                                                    onClick={(e: Event) => {
+                                                        setFilter({ start_point: null })
+                                                        e.stopPropagation()
+                                                    }}
+                                                    className="close-button"
+                                                />
+                                            </div>
                                         ) : (
                                             <span style={{ color: 'var(--muted)' }}>Add start point</span>
                                         )}
@@ -230,31 +217,22 @@ export function NewPathTab(): JSX.Element {
                                     <Button
                                         data-attr={'new-prop-filter-' + 0}
                                         block={true}
+                                        className="paths-endpoint-field"
                                         style={{
-                                            maxWidth: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            overflow: 'hidden',
+                                            textAlign: 'left',
                                         }}
                                     >
                                         {filter.end_point ? (
-                                            <>
-                                                {filter.end_point}
+                                            <div className="label-container">
+                                                <span className="label">{filter.end_point}</span>
                                                 <CloseButton
                                                     onClick={(e: Event) => {
                                                         setFilter({ end_point: null })
                                                         e.stopPropagation()
                                                     }}
-                                                    className="paths-close-button"
-                                                    style={{
-                                                        cursor: 'pointer',
-                                                        float: 'none',
-                                                        paddingLeft: 8,
-                                                        alignSelf: 'center',
-                                                    }}
+                                                    className="close-button"
                                                 />
-                                            </>
+                                            </div>
                                         ) : (
                                             <span style={{ color: 'var(--muted)' }}>Add end point</span>
                                         )}
