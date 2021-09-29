@@ -12,7 +12,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Annotation, Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.utils import str_to_bool
 
 
@@ -55,7 +55,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
 
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

@@ -139,7 +139,7 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
-            self.current_team = self.organization.teams.first()
+            self.current_team = self.organization.teams.order_by("access_control").first()  # Prefer open projects
             self.save()
         return self.current_team
 

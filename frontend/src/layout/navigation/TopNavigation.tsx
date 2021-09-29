@@ -350,7 +350,7 @@ export function TopNavigation(): JSX.Element {
                             ) : (
                                 <ProjectOutlined className="mr-05" />
                             )}
-                            {currentTeam?.name}
+                            {currentTeam ? currentTeam.name : <i>Choose project</i>}
                             <DownOutlined className="ml-05" />
                         </div>
                     </Dropdown>
