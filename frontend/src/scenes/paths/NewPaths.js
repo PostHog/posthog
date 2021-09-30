@@ -117,16 +117,12 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
 
         let sankey = new Sankey.sankey()
             .nodeId((d) => d.name)
-            .nodeAlign(Sankey.sankeyJustify)
+            .nodeAlign(Sankey.sankeyLeft)
             .nodeSort(null)
             .nodeWidth(15)
             .size([width, height])
 
-        const { nodes, links } = sankey({
-            nodes: paths.nodes.map((d) => ({ ...d })),
-            links: paths.links.map((d) => ({ ...d })),
-        })
-        console.log(nodes)
+        const { nodes, links } = sankey(paths)
         setPathItemCards(nodes)
 
         svg.append('g')
@@ -236,7 +232,6 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     }
 
     const dropOffValue = (pathItemCard) => {
-        console.log(pathItemCard.layer, filter.step_limit)
         if (pathItemCard.layer === filter.step_limit - 1) {
             // Last Layer has no concept of dropoff
             return 0
