@@ -26,7 +26,7 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
         end_point: filters.end_point,
         // TODO: use FF for path_type undefined
         path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
-        include_event_types: filters.include_event_types || [PathType.PageView],
+        include_event_types: filters.include_event_types || (filters.funnel_filter ? [] : [PathType.PageView]),
         path_groupings: filters.path_groupings || [],
         exclude_events: filters.exclude_events || [],
         ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
@@ -34,6 +34,8 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
         date_to: filters.date_to,
         insight: ViewType.PATHS,
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        funnel_filter: filters.funnel_filter || {},
+        funnel_paths: filters.funnel_paths,
     }
 }
 

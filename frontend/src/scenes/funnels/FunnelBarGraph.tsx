@@ -31,7 +31,7 @@ import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelSte
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
-
+import { FunnelStepDropdown } from './FunnelStepDropdown'
 interface BarProps {
     percentage: number
     name?: string
@@ -445,6 +445,7 @@ export function FunnelBarGraph({
         stepReference,
         barGraphLayout: layout,
         clickhouseFeaturesEnabled,
+        propertiesForUrl,
     } = useValues(logic)
     const { openPersonsModal } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -507,6 +508,9 @@ export function FunnelBarGraph({
                                     filters.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
+                                {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && (
+                                    <FunnelStepDropdown index={stepIndex} filterProps={propertiesForUrl} />
+                                )}
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
                                 {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (

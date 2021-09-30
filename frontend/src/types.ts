@@ -692,6 +692,12 @@ export enum PathType {
     CustomEvent = 'custom_event',
 }
 
+export enum FunnelPathType {
+    before = 'funnel_path_before_step',
+    between = 'funnel_path_between_steps',
+    after = 'funnel_path_after_step',
+}
+
 export enum FunnelVizType {
     Steps = 'steps',
     TimeToConvert = 'time_to_convert',
@@ -753,6 +759,8 @@ export interface FilterType {
     hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
+    funnel_filter?: Record<string, any> // Funnel Filter used in Paths
+    funnel_paths?: FunnelPathType
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
