@@ -19,6 +19,15 @@ export function loadPostHogJS(): void {
             loaded: function (ph) {
                 ph.opt_out_capturing()
             },
+            onXHRError: (failedRequest) => {
+                Sentry.captureException({
+                    name: 'ErrorSendingToPostHog',
+                    message: `Failed with status ${failedRequest.status} while sending to PostHog`,
+                    status: failedRequest.status,
+                    text: failedRequest.statusText,
+                    context: failedRequest,
+                })
+            },
         })
     }
 
@@ -29,6 +38,5 @@ export function loadPostHogJS(): void {
                 integrations: [new posthog.SentryIntegration(posthog, 'posthog', 1899813)],
             }),
         })
-        ;(window as any).Sentry = Sentry
     }
 }
