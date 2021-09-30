@@ -16,11 +16,11 @@ from posthog.models.utils import UUIDT
 get_column = lambda rows, index: [row[index] for row in rows]
 
 
-def run_query(fn):
+def run_query(fn, *args):
     uuid = str(UUIDT())
     client._request_information = {"kind": "benchmark", "id": f"{uuid}::${fn.__name__}"}
     try:
-        fn()
+        fn(*args)
         return get_clickhouse_query_stats(uuid)
     finally:
         client._request_information = None
@@ -55,8 +55,8 @@ def get_clickhouse_query_stats(uuid):
 
 def benchmark_clickhouse(fn):
     @wraps(fn)
-    def inner():
-        results = run_query(fn)
+    def inner(*args):
+        results = run_query(fn, *args)
         return {
             "samples": [results["ch_query_time"]],
             "number": 1,
