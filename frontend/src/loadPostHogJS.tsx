@@ -19,7 +19,7 @@ export function loadPostHogJS(): void {
             loaded: function (ph) {
                 ph.opt_out_capturing()
             },
-            onXHRError: (failedRequest) => {
+            onXHRError: (failedRequest: XMLHttpRequest) => {
                 Sentry.captureException({
                     name: 'ErrorSendingToPostHog',
                     message: `Failed with status ${failedRequest.status} while sending to PostHog`,
