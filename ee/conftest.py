@@ -12,6 +12,8 @@ from posthog.settings import (
 from posthog.test.base import TestMixin
 from posthog.utils import is_clickhouse_enabled
 
+pytestmark = pytest.mark.ee
+
 
 def reset_clickhouse_tables():
     # Reset clickhouse tables to default before running test
