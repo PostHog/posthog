@@ -23,6 +23,7 @@ export interface PersonModalParams {
     saveOriginal?: boolean
     searchTerm?: string
     funnelStep?: number
+    pathsDropoff?: boolean
 }
 
 export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
@@ -123,6 +124,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     saveOriginal,
                     searchTerm,
                     funnelStep,
+                    pathsDropoff,
                 } = peopleParams
                 const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
 
@@ -176,6 +178,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     breakdown_value,
                     next: people.next,
                     funnelStep,
+                    pathsDropoff,
                 } as TrendPeople
 
                 eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!people.next)

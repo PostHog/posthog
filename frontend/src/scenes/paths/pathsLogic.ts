@@ -175,9 +175,10 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             personsModalLogic.actions.loadPeople({
                 action: 'session', // relic from reusing Trend PersonModal
-                label: 'Person',
+                label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                 date_from: '',
                 date_to: '',
+                pathsDropoff: Boolean(path_dropoff_key),
                 filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
             })
         },
