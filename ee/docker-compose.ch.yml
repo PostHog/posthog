@@ -80,8 +80,11 @@ services:
             - '8234:8234'
     plugins:
         build:
-            context: ../plugins
-            dockerfile: Dockerfile
+            context: ../
+            dockerfile: dev.Dockerfile
+        command: ./bin/plugin-server --no-restart-loop
+        volumes:
+            - ..:/code
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
