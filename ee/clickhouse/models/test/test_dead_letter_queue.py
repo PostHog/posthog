@@ -15,6 +15,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
     def test_insert_and_retrieve_failed_event(self):
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
         failure_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
 
         sync_execute(
             INSERT_DEAD_LETTER_QUEUE_EVENT_SQL,
@@ -27,6 +28,9 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
                 "team_id": 1,
                 "elements_chain": "",
                 "created_at": created_at,
+                "ip": "127.0.0.1",
+                "site_url": "https://myawesomewebsite.com",
+                "now": now,
                 "failure_timestamp": failure_timestamp,
                 "error_location": "plugin-server",
                 "error": "createPerson failed",
@@ -37,8 +41,6 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
 
         dlq_event = dead_letter_queue_events[0]
 
-        print(dlq_event)
-
         self.assertEqual(type(dlq_event[0]), UUID)  # id
         self.assertEqual(type(dlq_event[1]), UUID)  # event_uuid
         self.assertEqual(dlq_event[2], "some event")  # event
@@ -47,6 +49,9 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         self.assertEqual(dlq_event[5], 1)  # team_id
         self.assertEqual(dlq_event[6], "")  # elements_chain
         self.assertEqual(dlq_event[7].strftime("%Y-%m-%d %H:%M:%S.%f"), created_at)  # created_at
-        self.assertEqual(dlq_event[8].strftime("%Y-%m-%d %H:%M:%S.%f"), failure_timestamp)  # created_at
-        self.assertEqual(dlq_event[9], "plugin-server")  # error_location
-        self.assertEqual(dlq_event[10], "createPerson failed")  # error
+        self.assertEqual(dlq_event[8], "127.0.0.1")  # ip
+        self.assertEqual(dlq_event[9], "https://myawesomewebsite.com")  # site_url
+        self.assertEqual(dlq_event[10].strftime("%Y-%m-%d %H:%M:%S.%f"), now)  # now
+        self.assertEqual(dlq_event[11].strftime("%Y-%m-%d %H:%M:%S.%f"), failure_timestamp)  # created_at
+        self.assertEqual(dlq_event[12], "plugin-server")  # error_location
+        self.assertEqual(dlq_event[13], "createPerson failed")  # error

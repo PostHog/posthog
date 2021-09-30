@@ -1,7 +1,6 @@
+from ee.clickhouse.sql.clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, kafka_engine, table_engine, ttl_period
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-
-from .clickhouse import KAFKA_COLUMNS, REPLACING_MERGE_TREE, kafka_engine, table_engine, ttl_period
 
 # We pipe our Kafka dead letter queue into CH for easier analysis and longer retention
 # This allows us to explore errors and replay events with ease
@@ -19,6 +18,9 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     team_id Int64,
     elements_chain VARCHAR,
     created_at DateTime64(6, 'UTC'),
+    ip VARCHAR,
+    site_url VARCHAR,
+    now DateTime64(6, 'UTC'),
     failure_timestamp DateTime64(6, 'UTC'),
     error_location VARCHAR,
     error VARCHAR
@@ -59,6 +61,9 @@ distinct_id,
 team_id,
 elements_chain,
 created_at,
+ip,
+site_url,
+now,
 failure_timestamp,
 error_location,
 error,
@@ -71,7 +76,7 @@ FROM {database}.kafka_{table_name}
 
 
 INSERT_DEAD_LETTER_QUEUE_EVENT_SQL = """
-INSERT INTO events_dead_letter_queue SELECT %(id)s, %(event_uuid)s, %(event)s, %(properties)s, %(distinct_id)s, %(team_id)s, %(elements_chain)s, %(created_at)s, %(failure_timestamp)s, %(error_location)s, %(error)s, 0, now()
+INSERT INTO events_dead_letter_queue SELECT %(id)s, %(event_uuid)s, %(event)s, %(properties)s, %(distinct_id)s, %(team_id)s, %(elements_chain)s, %(created_at)s, %(ip)s, %(site_url)s, %(now)s, %(failure_timestamp)s, %(error_location)s, %(error)s, 0, now()
 """
 
 DROP_DEAD_LETTER_QUEUE_TABLE_SQL = f"DROP TABLE IF EXISTS {DEAD_LETTER_QUEUE_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"
