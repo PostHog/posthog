@@ -72,6 +72,48 @@ export function FunnelStepDropdown({ filterProps, index }: { filterProps: Filter
                                 Show user paths after step
                             </A>
                         </Menu.Item>
+                        {adjustedIndex > 1 && (
+                            <Menu.Item key="3">
+                                <A
+                                    href={
+                                        combineUrl(
+                                            '/insights',
+                                            encodeParams(
+                                                {
+                                                    funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
+                                                    insight: ViewType.PATHS,
+                                                    funnel_paths: FunnelPathType.after,
+                                                },
+                                                '?'
+                                            )
+                                        ).url
+                                    }
+                                >
+                                    Show user paths after dropoff
+                                </A>
+                            </Menu.Item>
+                        )}
+                        {adjustedIndex > 1 && (
+                            <Menu.Item key="3">
+                                <A
+                                    href={
+                                        combineUrl(
+                                            '/insights',
+                                            encodeParams(
+                                                {
+                                                    funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
+                                                    insight: ViewType.PATHS,
+                                                    funnel_paths: FunnelPathType.before,
+                                                },
+                                                '?'
+                                            )
+                                        ).url
+                                    }
+                                >
+                                    Show user paths before dropoff
+                                </A>
+                            </Menu.Item>
+                        )}
                     </Menu>
                 }
                 trigger={['click']}
