@@ -87,7 +87,7 @@ const DEFAULT_PATHS_ID = 'default_paths'
 export function NewPaths({ dashboardItemId = null, filters = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
-    const { paths, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
+    const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
     const { openPersonsModal } = useActions(pathsLogic({ dashboardItemId, filters }))
 
     const [pathItemCards, setPathItemCards] = useState([])
@@ -125,6 +125,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             nodes: paths.nodes.map((d) => ({ ...d })),
             links: paths.links.map((d) => ({ ...d })),
         })
+        console.log(nodes)
         setPathItemCards(nodes)
 
         svg.append('g')
@@ -234,11 +235,17 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     }
 
     const dropOffValue = (pathItemCard) => {
+        console.log(pathItemCard.layer, filter.step_limit)
+        if (pathItemCard.layer === filter.step_limit - 1) {
+            // Last Layer has no concept of dropoff
+            return 0
+        }
         return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
-    const completedValue = (targetLinks) => {
-        return targetLinks.reduce((prev, curr) => prev + curr.value, 0)
+    const completedValuePercentage = (pathItemCard) => {
+        const baseValue = pathItemCard.targetLinks.reduce((prev, curr) => prev + curr.source.value, 0)
+        return (pathItemCard.value / baseValue) * 100
     }
 
     return (
@@ -286,16 +293,11 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     <ValueInspectorButton
                                                         onClick={() => openPersonsModal(undefined, pathItemCard.name)}
                                                     >
-                                                        {completedValue(pathItemCard.targetLinks)}{' '}
+                                                        {pathItemCard.value}{' '}
                                                     </ValueInspectorButton>
                                                     {pathItemCard.targetLinks.length > 0 && (
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {(
-                                                                (completedValue(pathItemCard.targetLinks) /
-                                                                    pathItemCard.value) *
-                                                                100
-                                                            ).toFixed(1)}
-                                                            %
+                                                            {completedValuePercentage(pathItemCard).toFixed(1)}%
                                                         </span>
                                                     )}
                                                 </span>

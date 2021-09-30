@@ -4,13 +4,13 @@ import { Select } from 'antd'
 import { BarsOutlined } from '@ant-design/icons'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 
 interface StepOption {
     label: string
     value: number
 }
 
-const DEFAULT_STEP_LIMIT = 5
 const MIN = 2,
     MAX = 20
 

@@ -9,6 +9,8 @@ import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
+export const DEFAULT_STEP_LIMIT = 5
+
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
     [PathType.Screen]: 'Screen views (Mobile)',
@@ -25,6 +27,7 @@ export function cleanPathParams(filters: Partial<FilterType>): Partial<FilterTyp
     return {
         start_point: filters.start_point || undefined,
         end_point: filters.end_point || undefined,
+        step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
         // TODO: use FF for path_type undefined
         path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
         include_event_types: filters.include_event_types || [PathType.PageView],
@@ -171,12 +174,11 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             personsModalLogic.actions.loadPeople({
-                action: 'session', // Not necessary - make optional
+                action: 'session', // relic from reusing Trend PersonModal
                 label: 'Person',
                 date_from: '',
                 date_to: '',
                 filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
-                saveOriginal: true, // TODO: what does this really do? Pagination help?
             })
         },
     }),
