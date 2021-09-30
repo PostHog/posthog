@@ -537,10 +537,11 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                     importedScene = await scenes[scene]()
                 } catch (error) {
                     if (error.name === 'ChunkLoadError') {
+                        posthog.capture('Network error shown')
                         if (scene !== null) {
                             // We were on another page (not the first loaded scene)
                             console.error('App assets regenerated. Reloading this page.')
-                            window.location.reload()
+                            actions.setScene(Scene.ErrorNetwork, {})
                             return
                         } else {
                             // First scene, show an error page
