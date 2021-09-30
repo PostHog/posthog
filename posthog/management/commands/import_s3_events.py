@@ -27,11 +27,17 @@ def produce_event(q, i):
             return
 
         row = payload
-        # print(f'Queue {i} processing ', row[7])
+        is_dry_run = bool(os.environ.get("DRY_RUN", False))
+
+        if is_dry_run:
+            print(f"Queue {i} processing ", row[7])
 
         if is_clickhouse_enabled():
             from posthog.api.capture import log_event
 
+            if is_dry_run:
+                print("KAFKA")
+                return
             log_event(
                 distinct_id=row[0],
                 site_url=row[1],
@@ -45,6 +51,9 @@ def produce_event(q, i):
         else:
             task_name = "posthog.tasks.process_event.process_event_with_plugins"
             celery_queue = settings.PLUGINS_CELERY_QUEUE
+            if is_dry_run:
+                print("CELERY")
+                return
             celery_app.send_task(
                 name=task_name,
                 queue=celery_queue,
