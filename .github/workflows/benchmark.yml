@@ -54,6 +54,13 @@ jobs:
                   # Checkout repo with full history
                   fetch-depth: 0
 
+            - name: Check out PostHog/benchmarks-results repo
+              uses: actions/checkout@v2
+              with:
+                  path: ee/benchmarks/results
+                  repository: PostHog/benchmark-results
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
             - name: Set up Python 3.8
               uses: actions/setup-python@v2
               with:
@@ -84,3 +91,17 @@ jobs:
 
             - name: Run benchmarks
               run: asv run --config ee/benchmarks/asv.conf.json --show-stderr --strict
+
+            - name: Generate HTML report of results
+              run: asv publish --config ee/benchmarks/asv.conf.json
+
+            - name: Commit update for benchmark results
+              if: github.repository == 'PostHog/posthog'
+              uses: stefanzweifel/git-auto-commit-action@v4
+              with:
+                  repository: ee/benchmarks/results
+                  branch: master
+                  commit_message: 'Save benchmark results'
+                  commit_user_name: PostHog Bot
+                  commit_user_email: hey@posthog.com
+                  commit_author: PostHog Bot <hey@posthog.com>
