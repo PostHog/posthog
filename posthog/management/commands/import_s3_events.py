@@ -152,12 +152,15 @@ class Command(BaseCommand):
                                     row[6],
                                 ],
                             )
-                    except:
+                    except Exception as e:
+                        if IS_DRY_RUN:
+                            print(e)
+                            return
                         failed_events += 1
                         print("events failed:", failed_events)
 
-                    try:
-                        with open("/tmp/uuids", "a") as f:
-                            f.write(row[7] + "\n")
-                    except:
-                        pass
+                    # try:
+                    #     with open("/tmp/uuids", "a") as f:
+                    #         f.write(row[7] + "\n")
+                    # except:
+                    #     pass
