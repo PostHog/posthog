@@ -133,26 +133,29 @@ else:
         with ch_pool.get_client() as client:
             start_time = perf_counter()
             tags = {}
+
+            # NOTE: `client.execute` would normally handle substitution, but
+            # because we want to strip the comments to make it easier to copy
+            # and past queries from the `system.query_log` easily with metabase
+            # (metabase doesn't show new lines, so with comments, you can't get
+            # a working query without exporting to csv or similar), we need to
+            # do it manually.
+            rendered_sql = client.substitute_params(query, args or {})
+            formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
+
+            # Adds in a /* */ so we can look in clickhouses `system.query_log`
+            # to easily marry up to the generating code.
+            annotated_sql, tags = _annotate_tagged_query(formatted_sql, args)
+
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print()
-                print(format_sql(query, args))
-
-            parameterized_sql, tags = _annotate_tagged_query(query, args)
-
-            #  NOTE: `client.execute` would normally handle substitution, but
-            #  because we want to strip the comments to make it easier to copy
-            #  and past queries from the `system.query_log` easily with metabase
-            #  (metabase doesn't show new lines, so with comments, you can't get
-            #  a working query without exporting to csv or similar), we need to
-            #  do it manually.
-            rendered_sql = client.substitute_params(parameterized_sql, args or {})
-            rendered_sql = sqlparse.format(rendered_sql, strip_comments=True)
+                print(format_sql(rendered_sql))
 
             timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
             try:
                 result = client.execute(
-                    rendered_sql, params=None, settings=settings, with_column_types=with_column_types
+                    annotated_sql, params=None, settings=settings, with_column_types=with_column_types
                 )
             except Exception as err:
                 err = wrap_query_error(err)
@@ -207,24 +210,20 @@ def _notify_of_slow_query_failure(tags: Dict[str, Any]):
     incr("clickhouse_sync_execution_failure", tags=tags)
 
 
-def format_sql(sql, params, colorize=True):
-    substitute_params = (
-        ch_client.substitute_params if isinstance(ch_client, SyncClient) else ch_client._client.substitute_params
-    )
-    sql = substitute_params(sql, params or {})
-    sql = sqlparse.format(sql, reindent_aligned=True)
+def format_sql(rendered_sql, colorize=True):
+    formatted_sql = sqlparse.format(rendered_sql, reindent_aligned=True)
     if colorize:
         try:
             import pygments.formatters
             import pygments.lexers
 
-            sql = pygments.highlight(
-                sql, pygments.lexers.get_lexer_by_name("sql"), pygments.formatters.TerminalFormatter()
+            return pygments.highlight(
+                formatted_sql, pygments.lexers.get_lexer_by_name("sql"), pygments.formatters.TerminalFormatter()
             )
         except:
             pass
 
-    return sql
+    return formatted_sql
 
 
 def save_query(sql: str, params: Dict, execution_time: float) -> None:
