@@ -14,22 +14,6 @@
         padding-right: 48px;
     }
 
-    .form-step {
-        transform-origin: bottom;
-        transition: transform 0.4s ease-out;
-        transform: scaleY(1);
-
-        &.form-step-one {
-            transform-origin: top;
-        }
-
-        &.hide {
-            transform: scaleY(0);
-            height: 0;
-            transition: none;
-        }
-    }
-
     footer {
         margin-bottom: $default_spacing * 2;
         .footer-inner {

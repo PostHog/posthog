@@ -12,20 +12,21 @@ interface AccountResponse {
 
 export const signupLogic = kea<signupLogicType<AccountResponse>>({
     actions: {
-        setFormStep: (step: 1 | 2) => ({ step }),
         setInitialEmail: (email: string) => ({ email }),
+        setFormSubmitted: (submitted: boolean) => ({ submitted }),
     },
     reducers: {
-        formStep: [
-            1,
-            {
-                setFormStep: (_, { step }) => step,
-            },
-        ],
         initialEmail: [
             '',
             {
                 setInitialEmail: (_, { email }) => email,
+            },
+        ],
+        // Whether the user has attempted to submit the form; used to trigger validation only after initial submission
+        formSubmitted: [
+            false,
+            {
+                setFormSubmitted: (_, { submitted }) => submitted,
             },
         ],
     },
@@ -44,14 +45,10 @@ export const signupLogic = kea<signupLogicType<AccountResponse>>({
             },
         ],
     }),
-    listeners: ({ actions }) => ({
+    listeners: () => ({
         signupSuccess: ({ signupResponse }) => {
             if (signupResponse?.success) {
                 location.href = signupResponse.redirect_url || '/'
-            } else {
-                if (['email', 'password'].includes(signupResponse?.errorAttribute || '')) {
-                    actions.setFormStep(1)
-                }
             }
         },
     }),
