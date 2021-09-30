@@ -40,8 +40,7 @@ const LESSONS = [
     },
     {
         title: 'Custom Behavioral Cohorts',
-        hover:
-            'A walk-through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
+        hover: 'A walk-through on how you can analyze sets of users in groups based on behaviors or properties that you define.',
         target: `https://posthog.com/docs/tutorials/cohorts?utm_content=project-home${UTM_TAGS}`,
         imgSrc: analyzeBehavior,
     },

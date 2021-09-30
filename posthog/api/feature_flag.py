@@ -1,7 +1,6 @@
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, Optional, Union, cast
 
 import posthoganalytics
-from django.core.exceptions import PermissionDenied
 from django.db.models import Prefetch, QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -12,9 +11,9 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import FeatureFlag, team
-from posthog.models.feature_flag import FeatureFlagOverride, get_active_feature_flags
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.models import FeatureFlag
+from posthog.models.feature_flag import FeatureFlagOverride
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -114,7 +113,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
 
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     authentication_classes = [
         PersonalAPIKeyAuthentication,
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
@@ -226,7 +225,7 @@ class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
 class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.GenericViewSet):
     queryset = FeatureFlagOverride.objects.all()
     serializer_class = FeatureFlagOverrideSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     authentication_classes = [
         PersonalAPIKeyAuthentication,
         TemporaryTokenAuthentication,

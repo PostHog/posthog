@@ -7,12 +7,10 @@ import { PropertyDefinition } from '~/types'
 import { definitionDrawerLogic } from './definitionDrawerLogic'
 
 export function EventPropertiesStats(): JSX.Element {
-    const { eventPropertiesDefinitions, eventsSnippet, eventPropertiesDefinitionTags, tagLoading } = useValues(
-        definitionDrawerLogic
-    )
-    const { setNewEventPropertyTag, deleteEventPropertyTag, setEventPropertyDescription, saveAll } = useActions(
-        definitionDrawerLogic
-    )
+    const { eventPropertiesDefinitions, eventsSnippet, eventPropertiesDefinitionTags, tagLoading } =
+        useValues(definitionDrawerLogic)
+    const { setNewEventPropertyTag, deleteEventPropertyTag, setEventPropertyDescription, saveAll } =
+        useActions(definitionDrawerLogic)
     const propertyExamples = eventsSnippet[0]?.properties
     const tableColumns = [
         {

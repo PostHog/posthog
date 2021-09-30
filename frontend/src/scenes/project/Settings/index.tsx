@@ -17,7 +17,7 @@ import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { RestrictedArea } from '../../../lib/components/RestrictedArea'
+import { RestrictedArea, RestrictionScope } from '../../../lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
@@ -249,7 +249,11 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                             )}
                     </>
                 )}
-                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
+                <RestrictedArea
+                    Component={DangerZone}
+                    minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                    scope={RestrictionScope.Project}
+                />
             </Card>
         </div>
     )
