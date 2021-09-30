@@ -10,6 +10,7 @@ class TestUser(BaseTest):
         self.assertNotEqual(user.distinct_id, None)
 
     def test_analytics_metadata(self):
+        self.maxDiff = None
 
         # One org, one team, anonymized
         organization, team, user = User.objects.bootstrap(
