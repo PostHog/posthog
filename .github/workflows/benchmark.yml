@@ -1,0 +1,83 @@
+name: Benchmark
+
+on:
+    - pull_request
+
+concurrency: 'benchmarks' # Ensure only one of this runs at a time
+
+jobs:
+    run-benchmarks:
+        name: Clickhouse queries
+        runs-on: ubuntu-20.04
+        environment: clickhouse-benchmarks
+
+        env:
+            SAML_DISABLED: '1'
+            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_test'
+            REDIS_URL: 'redis://localhost'
+            PRIMARY_DB: 'clickhouse'
+            CLICKHOUSE_DATABASE: posthog
+            CLICKHOUSE_HOST: ${{ secrets.BENCHMARKS_CLICKHOUSE_HOST }}
+            CLICKHOUSE_USER: ${{ secrets.BENCHMARKS_CLICKHOUSE_USER }}
+            CLICKHOUSE_PASSWORD: ${{ secrets.BENCHMARKS_CLICKHOUSE_PASSWORD }}
+            SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+
+        services:
+            postgres:
+                image: postgres:12
+                env:
+                    POSTGRES_USER: posthog
+                    POSTGRES_PASSWORD: posthog
+                    POSTGRES_DB: posthog_test
+                ports:
+                    # Maps port 5432 on service container to the host
+                    # Needed because `postgres` host is not discoverable for some reason
+                    - 5432:5432
+                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+            redis:
+                image: redis
+                ports:
+                    # Maps port 6379 on service container to the host
+                    # Needed because `redis` host is not discoverable for some reason
+                    - 6379:6379
+                options: >-
+                    --health-cmd "redis-cli ping"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+        steps:
+            - uses: actions/checkout@v2
+              with:
+                  # Checkout repo with full history
+                  fetch-depth: 0
+
+            - name: Set up Python 3.8
+              uses: actions/setup-python@v2
+              with:
+                  python-version: 3.8
+
+            - uses: syphar/restore-virtualenv@v1.2
+              id: cache-backend-tests
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+              run: |
+                  python -m pip install -r requirements-dev.txt
+                  python -m pip install -r requirements.txt
+
+            - name: Install asv
+              run: python -m pip install asv virtualenv
+
+            - name: Set up PostHog
+              run: |
+                  ./bin/docker-migrate & wait
+                  python manage.py setup_dev --no-data
+
+            - name: Configure benchmarks
+              run: asv machine --yes --machine ci-benchmarks --config ee/benchmarks/asv.conf.json
+
+            - name: Run benchmarks
+              run: asv run --config ee/benchmarks/asv.conf.json
