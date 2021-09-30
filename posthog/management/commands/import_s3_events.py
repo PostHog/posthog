@@ -32,32 +32,35 @@ def produce_event(q, i):
         if is_clickhouse_enabled():
             from posthog.api.capture import log_event
 
-            log_event(
-                distinct_id=row[0],
-                site_url=row[1],
-                ip=row[2],
-                data=json.loads(row[3]),
-                team_id=int(row[4]),
-                now=parser.parse(row[5]),
-                sent_at=parser.parse(row[6]) if row[6] else None,
-                event_uuid=row[7],
-            )
+            print("KAFKA")
+            # log_event(
+            #     distinct_id=row[0],
+            #     site_url=row[1],
+            #     ip=row[2],
+            #     data=json.loads(row[3]),
+            #     team_id=int(row[4]),
+            #     now=parser.parse(row[5]),
+            #     sent_at=parser.parse(row[6]) if row[6] else None,
+            #     event_uuid=row[7],
+            # )
         else:
             task_name = "posthog.tasks.process_event.process_event_with_plugins"
             celery_queue = settings.PLUGINS_CELERY_QUEUE
-            celery_app.send_task(
-                name=task_name,
-                queue=celery_queue,
-                args=[
-                    row[0],
-                    row[2],
-                    row[1],
-                    json.loads(row[3]),
-                    int(row[4]),
-                    row[5],
-                    row[6],
-                ],
-            )
+            print("CELERY")
+
+            # celery_app.send_task(
+            #     name=task_name,
+            #     queue=celery_queue,
+            #     args=[
+            #         row[0],
+            #         row[2],
+            #         row[1],
+            #         json.loads(row[3]),
+            #         int(row[4]),
+            #         row[5],
+            #         row[6],
+            #     ],
+            # )
 
 
 def match_snapshot(haystack):
