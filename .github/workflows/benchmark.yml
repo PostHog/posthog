@@ -1,7 +1,10 @@
 name: Benchmark
 
 on:
-    - pull_request
+    pull_request:
+        branches: ['*']
+    schedule:
+        - cron: '0 4 * * 1-5' # Mon-Fri 4AM UTC
 
 concurrency: 'benchmarks' # Ensure only one of this runs at a time
 
@@ -10,6 +13,9 @@ jobs:
         name: Clickhouse queries
         runs-on: ubuntu-20.04
         environment: clickhouse-benchmarks
+
+        # Benchmarks are expensive to run so we only run them (periodically) against master branch and for PRs labeled `performance`
+        if: ${{ github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'performance')  }}
 
         env:
             SAML_DISABLED: '1'
@@ -90,7 +96,7 @@ jobs:
               run: asv machine --yes --machine ci-benchmarks --config ee/benchmarks/asv.conf.json
 
             - name: Run benchmarks
-              run: asv run --config ee/benchmarks/asv.conf.json --show-stderr --strict
+              run: asv run --config ee/benchmarks/asv.conf.json --show-stderr --strict HEAD
 
             - name: Generate HTML report of results
               run: asv publish --config ee/benchmarks/asv.conf.json
