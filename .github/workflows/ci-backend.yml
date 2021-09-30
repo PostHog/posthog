@@ -4,7 +4,13 @@ on:
     - pull_request
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
+    KAFKA_HOSTS: 'localhost:9092'
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    SAML_DISABLED: 1
     TEST: 1
 
 jobs:
@@ -60,8 +66,6 @@ jobs:
                   flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
 
             - name: Typecheck
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   mypy .
 
@@ -99,16 +103,12 @@ jobs:
                   python -m pip install -r requirements.txt
 
             - name: Check migrations
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
                   git diff --name-only origin/master..HEAD | grep migrations | python manage.py test_migrations_are_null
 
             - name: Run posthog tests
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -117,13 +117,7 @@ jobs:
                   pytest -m "not ee" posthog/
             - name: Run EE tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
-                  KAFKA_HOSTS: 'localhost:9092'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
-                  SAML_DISABLED: '1'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -134,7 +128,6 @@ jobs:
     saml:
         name: Django tests – with SAML
         runs-on: ubuntu-latest
-
         steps:
             - uses: actions/checkout@v1
               with:
@@ -165,8 +158,6 @@ jobs:
                   python -m pip install python3-saml==1.12.0
 
             - name: Run posthog tests
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -175,12 +166,7 @@ jobs:
                   pytest -m "not ee" posthog/
             - name: Run EE tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
-                  KAFKA_HOSTS: 'localhost:9092'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
               run: |
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
@@ -229,8 +215,6 @@ jobs:
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
             - name: Migrate initially at master, then remove master deploy code
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   python deploy/manage.py migrate
                   rm -rf deploy
@@ -257,16 +241,12 @@ jobs:
                   cat requirements.txt >> deploy/requirements.txt
 
             - name: Check migrations
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   cd deploy
                   python manage.py makemigrations --check --dry-run
                   python manage.py migrate
 
             - name: Run posthog tests
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: |
                   cd deploy
                   mkdir -p frontend/dist
@@ -277,24 +257,14 @@ jobs:
 
             - name: Run cloud tests (posthog-cloud)
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
-                  KAFKA_HOSTS: 'localhost:9092'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
               run: |
                   source .env.template
                   cd deploy
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy"
             - name: Run EE tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   PRIMARY_DB: 'clickhouse'
-                  KAFKA_HOSTS: 'localhost:9092'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
               run: |
                   cd deploy/
                   pytest ee -m "not skip_on_multitenancy"
@@ -340,13 +310,10 @@ jobs:
                   rm -rf ee/
 
             - name: Check migrations
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
               run: python manage.py makemigrations --check --dry-run
 
             - name: Run tests
               env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:${{ job.services.postgres.ports[5432] }}/posthog'
                   SAML_DISABLED: '1'
               run: |
                   mkdir -p frontend/dist
