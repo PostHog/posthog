@@ -1,3 +1,4 @@
+# isort: skip_file
 # Needs to be first to set up django environment
 from .helpers import *
 
