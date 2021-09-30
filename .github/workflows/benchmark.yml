@@ -80,4 +80,4 @@ jobs:
               run: asv machine --yes --machine ci-benchmarks --config ee/benchmarks/asv.conf.json
 
             - name: Run benchmarks
-              run: asv run --config ee/benchmarks/asv.conf.json
+              run: asv run --config ee/benchmarks/asv.conf.json --show-stderr
