@@ -39,16 +39,15 @@ class ClickhouseTestMixin:
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
-                    queries.append(query)
+                    if sqlparse.format(query, strip_comments=True).strip().startswith("SELECT"):
+                        queries.append(query)
                     return original_client_execute(query, *args, **kwargs)
 
                 with patch.object(client, "execute", wraps=execute_wrapper) as _:
                     yield client
 
         with patch("ee.clickhouse.client.ch_pool.get_client", wraps=get_client) as _:
-            yield [
-                query for query in queries if sqlparse.format(query, strip_comments=True).strip().startswith("SELECT")
-            ]
+            yield queries
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):

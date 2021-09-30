@@ -37,6 +37,10 @@ from posthog.settings import (
 )
 from posthog.utils import get_safe_cache
 
+InsertParams = Union[list, tuple, types.GeneratorType]
+NonInsertParams = Union[Dict[str, Any]]
+QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
+
 CACHE_TTL = 60  # seconds
 SLOW_QUERY_THRESHOLD_MS = 15000
 QUERY_TIMEOUT_THREAD = get_timer_thread("ee.clickhouse.client", SLOW_QUERY_THRESHOLD_MS)
@@ -131,52 +135,11 @@ else:
             redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
-    InsertParams = Union[list, tuple, types.GeneratorType]
-    NonInsertParams = Union[Dict[str, Any]]
-    QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
-
-    def prepare_query(client: SyncClient, query: str, args: QueryArgs):
-        """
-        Given a string query with placeholders we do one of two things:
-
-         1. for a insert query we just format, and remove comments
-         2. for non-insert queries, we return the sql with placeholders
-            evaluated with the contents of `args`
-
-        We also return `tags` which contains some detail around the context
-        within which the query was executed e.g. the django view name
-
-        NOTE: `client.execute` would normally handle substitution, but
-        because we want to strip the comments to make it easier to copy
-        and past queries from the `system.query_log` easily with metabase
-        (metabase doesn't show new lines, so with comments, you can't get
-        a working query without exporting to csv or similar), we need to
-        do it manually.
-    
-        We only want to try to substitue for SELECT queries, which
-        clickhouse_driver at this moment in time decides based on the
-        below predicate.
-        """
-        if isinstance(args, (list, tuple, types.GeneratorType)):
-            rendered_sql = query
-        else:
-            rendered_sql = client.substitute_params(query, args or {})
-            args = None
-
-        formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
-        annotated_sql, tags = _annotate_tagged_query(formatted_sql, args)
-
-        if app_settings.SHELL_PLUS_PRINT_SQL:
-            print()
-            print(format_sql(rendered_sql))
-
-        return annotated_sql, args, tags
-
     def sync_execute(query, args=None, settings=None, with_column_types=False):
         with ch_pool.get_client() as client:
             start_time = perf_counter()
 
-            prepared_sql, prepared_args, tags = prepare_query(client=client, query=query, args=args)
+            prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
 
             timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
@@ -202,6 +165,44 @@ else:
                 if _request_information is not None and _request_information.get("save", False):
                     save_query(prepared_sql, execution_time)
         return result
+
+
+def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
+    """
+    Given a string query with placeholders we do one of two things:
+
+        1. for a insert query we just format, and remove comments
+        2. for non-insert queries, we return the sql with placeholders
+        evaluated with the contents of `args`
+
+    We also return `tags` which contains some detail around the context
+    within which the query was executed e.g. the django view name
+
+    NOTE: `client.execute` would normally handle substitution, but
+    because we want to strip the comments to make it easier to copy
+    and past queries from the `system.query_log` easily with metabase
+    (metabase doesn't show new lines, so with comments, you can't get
+    a working query without exporting to csv or similar), we need to
+    do it manually.
+
+    We only want to try to substitue for SELECT queries, which
+    clickhouse_driver at this moment in time decides based on the
+    below predicate.
+    """
+    if isinstance(args, (list, tuple, types.GeneratorType)):
+        rendered_sql = query
+    else:
+        rendered_sql = client.substitute_params(query, args or {})
+        args = None
+
+    formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
+    annotated_sql, tags = _annotate_tagged_query(formatted_sql, args)
+
+    if app_settings.SHELL_PLUS_PRINT_SQL:
+        print()
+        print(format_sql(rendered_sql))
+
+    return annotated_sql, args, tags
 
 
 def _deserialize(result_bytes: bytes) -> List[Tuple]:
