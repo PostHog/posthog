@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import types
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -140,7 +141,14 @@ else:
             # (metabase doesn't show new lines, so with comments, you can't get
             # a working query without exporting to csv or similar), we need to
             # do it manually.
-            rendered_sql = client.substitute_params(query, args or {})
+            #
+            # We only want to try to substitue for SELECT queries, which
+            # clickhouse_driver at this moment in time decides based on the
+            # below predicate.
+            if isinstance(args, (list, tuple, types.GeneratorType)):
+                rendered_sql = query
+            else:
+                rendered_sql = client.substitute_params(query, args or {})
             formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
 
             # Adds in a /* */ so we can look in clickhouses `system.query_log`
@@ -155,7 +163,7 @@ else:
 
             try:
                 result = client.execute(
-                    annotated_sql, params=None, settings=settings, with_column_types=with_column_types
+                    annotated_sql, params=args, settings=settings, with_column_types=with_column_types
                 )
             except Exception as err:
                 err = wrap_query_error(err)
@@ -173,7 +181,7 @@ else:
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print("Execution time: %.6fs" % (execution_time,))
                 if _request_information is not None and _request_information.get("save", False):
-                    save_query(query, args, execution_time)
+                    save_query(annotated_sql, execution_time)
         return result
 
 
@@ -226,7 +234,7 @@ def format_sql(rendered_sql, colorize=True):
     return formatted_sql
 
 
-def save_query(sql: str, params: Dict, execution_time: float) -> None:
+def save_query(sql: str, execution_time: float) -> None:
     """
     Save query for debugging purposes
     """
@@ -241,7 +249,7 @@ def save_query(sql: str, params: Dict, execution_time: float) -> None:
             0,
             {
                 "timestamp": now().isoformat(),
-                "query": format_sql(sql, params, colorize=False),
+                "query": format_sql(sql, colorize=False),
                 "execution_time": execution_time,
             },
         )
