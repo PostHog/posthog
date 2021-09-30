@@ -12,6 +12,8 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
     actions: {
         setInsightMetadata: (insight: Partial<DashboardItemType>) => ({ insight }),
         updateInsightMetadata: (insight: Partial<DashboardItemType>) => ({ insight }),
+        showEditMode: (property: keyof DashboardItemType) => ({ property }),
+        showViewMode: (property: keyof DashboardItemType) => ({ property }),
     },
     connect: {
         actions: [insightLogic, ['setInsight', 'updateInsight']],
@@ -21,6 +23,13 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
             props.insight ?? {},
             {
                 setInsightMetadata: (state, { insight }) => ({ ...state, ...insight }),
+            },
+        ],
+        editableProps: [
+            new Set(),
+            {
+                showEditMode: (state, { property }) => new Set([...Array.from(state), property]),
+                showViewMode: (state, { property }) => new Set([...Array.from(state)].filter((p) => p !== property)),
             },
         ],
     }),

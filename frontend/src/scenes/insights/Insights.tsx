@@ -152,7 +152,7 @@ export function Insights(): JSX.Element {
                                             isEditable={!!featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]}
                                         />
                                     </Col>
-                                    <Col>
+                                    <Col className="insights-tab-actions">
                                         <>
                                             <Popconfirm
                                                 title="Are you sure? This will clear all filters and any progress will be lost."

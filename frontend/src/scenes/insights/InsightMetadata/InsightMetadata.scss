@@ -12,13 +12,17 @@
         &.edit {
             min-height: 40px;
         }
+
+        .btn-cancel {
+            color: $primary;
+        }
     }
 
     .insight-metadata-title {
         .title {
             font-size: 28px;
             font-weight: 600;
-            line-height: unset;
+            line-height: 40px;
         }
     }
 
