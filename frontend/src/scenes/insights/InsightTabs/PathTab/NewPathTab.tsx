@@ -45,9 +45,9 @@ export function NewPathTab(): JSX.Element {
         : []
 
     const overrideStartInput =
-        filter.funnel_paths === FunnelPathType.between || filter.funnel_paths === FunnelPathType.after
+        filter.funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(filter.funnel_paths)
     const overrideEndInput =
-        filter.funnel_paths === FunnelPathType.between || filter.funnel_paths === FunnelPathType.before
+        filter.funnel_paths && [FunnelPathType.between, FunnelPathType.before].includes(filter.funnel_paths)
 
     const updateEdgeParameters = (): void => {
         if (
