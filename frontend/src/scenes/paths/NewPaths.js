@@ -46,7 +46,7 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     return retval
 }
 
-function pageUrl(d) {
+function pageUrl(d, display) {
     const incomingUrls = d.targetLinks
         .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
         .filter((a) => {
@@ -69,7 +69,11 @@ function pageUrl(d) {
         // discard if invalid url
     }
 
-    return name.length > 25 ? name.substring(0, 6) + '...' + name.slice(-8) : name
+    if (display) {
+        return name.length > 5 ? name.substring(0, 6) + '...' + name.slice(-8) : name
+    }
+
+    return name
 }
 
 function NoData() {
@@ -381,7 +385,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
                                                 >{`0${pathItemCard.name[0]}`}</span>{' '}
                                                 <span style={{ fontSize: 13, fontWeight: 600 }}>
-                                                    {pageUrl(pathItemCard)}
+                                                    {pageUrl(pathItemCard, true)}
                                                 </span>
                                             </div>
                                             <div>
