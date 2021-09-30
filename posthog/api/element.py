@@ -1,15 +1,15 @@
 from typing import cast
 
-from django.db.models import Count, Prefetch, QuerySet
-from rest_framework import authentication, exceptions, request, response, serializers, viewsets
+from django.db.models import Count, Prefetch
+from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.models import Element, ElementGroup, Event, Filter, Team
+from posthog.models import Element, ElementGroup, Event, Filter
 from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import properties_to_Q
 
 
@@ -41,7 +41,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:

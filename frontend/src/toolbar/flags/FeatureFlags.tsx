@@ -27,7 +27,7 @@ export function FeatureFlags(): JSX.Element {
                         <Button
                             type="primary"
                             onClick={() => {
-                                ;(window['posthog'] as PostHog).feature_flags.override(false)
+                                (window['posthog'] as PostHog).feature_flags.override(false)
                                 setShowLocalFeatureFlagWarning(false)
                             }}
                         >

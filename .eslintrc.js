@@ -12,7 +12,7 @@ module.exports = {
             version: 'detect',
         },
     },
-    extends: ['plugin:@typescript-eslint/recommended', 'plugin:react/recommended', 'prettier/@typescript-eslint'],
+    extends: ['plugin:@typescript-eslint/recommended', 'plugin:react/recommended', 'prettier'],
     globals: {
         Atomics: 'readonly',
         SharedArrayBuffer: 'readonly',

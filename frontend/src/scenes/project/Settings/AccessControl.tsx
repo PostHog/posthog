@@ -47,7 +47,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
             </p>
             <Switch
                 // @ts-expect-error - id works just fine despite not being in CompoundedComponent
-                id="project-based-permissioning-switch"
+                id="access-control-switch"
                 onChange={(checked) => {
                     guardAvailableFeature(
                         AvailableFeature.PROJECT_BASED_PERMISSIONING,
@@ -64,7 +64,7 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                 style={{
                     marginLeft: '10px',
                 }}
-                htmlFor="project-based-permissioning-switch"
+                htmlFor="access-control-switch"
             >
                 Make project private
             </label>

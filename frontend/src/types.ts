@@ -753,6 +753,9 @@ export interface FilterType {
     hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
+    edge_limit?: number | undefined // Paths edge limit
+    min_edge_weight?: number | undefined // Paths
+    max_edge_weight?: number | undefined // Paths
 }
 
 export interface SystemStatusSubrows {
@@ -1180,3 +1183,9 @@ export interface AppContext {
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
+
+export interface PathEdgeParameters {
+    edge_limit?: number | undefined
+    min_edge_weight?: number | undefined
+    max_edge_weight?: number | undefined
+}
