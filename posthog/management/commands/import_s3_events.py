@@ -153,9 +153,7 @@ class Command(BaseCommand):
                                 ],
                             )
                     except Exception as e:
-                        if IS_DRY_RUN:
-                            print(e)
-                            return
+                        print(e)
                         failed_events += 1
                         print("events failed:", failed_events)
 
