@@ -17,6 +17,22 @@ class SessionRecordingList(BaseQuery):
         self._filter = filter
         self._team = team
 
+    _core_session_recording_query: str = """
+        SELECT
+            session_id,
+            distinct_id,
+            MIN(timestamp) as start_time,
+            MAX(timestamp) as end_time,
+            MAX(timestamp) - MIN(timestamp) as duration,
+            COUNT(*) FILTER(where snapshot_data->>'type' = '2' OR (snapshot_data->>'has_full_snapshot')::boolean) as full_snapshots
+        FROM posthog_sessionrecordingevent
+        WHERE
+            team_id = %(team_id)s
+            {distinct_id_clause}
+            {timestamp_clause}
+        GROUP BY session_id, distinct_id
+    """
+
     _basic_session_recordings_query: str = """
         SELECT
             session_id,
@@ -25,23 +41,12 @@ class SessionRecordingList(BaseQuery):
             end_time,
             end_time - start_time as duration
         FROM (
-            SELECT
-                session_id,
-                distinct_id,
-                MIN(timestamp) as start_time,
-                MAX(timestamp) as end_time,
-                MAX(timestamp) - MIN(timestamp) as duration,
-                COUNT(*) FILTER(where snapshot_data->>'type' = '2' OR (snapshot_data->>'has_full_snapshot')::boolean) as full_snapshots
-            FROM posthog_sessionrecordingevent
-            WHERE
-                team_id = %(team_id)s
-                {distinct_id_clause}
-                {timestamp_clause}
-            GROUP BY session_id, distinct_id
+            {core_session_recording_query}
         ) AS p
-        WHERE full_snapshots > 0 
+        WHERE full_snapshots > 0
+        {duration_clause}
         ORDER BY start_time DESC
-    LIMIT %(limit)s OFFSET %(offset)s
+        LIMIT %(limit)s OFFSET %(offset)s
     """
 
     def _has_entity_filters(self):
@@ -68,6 +73,21 @@ class SessionRecordingList(BaseQuery):
             distinct_id_clause = f"AND distinct_id IN %(distinct_ids)s"
             distinct_id_params = {"distinct_ids": distinct_ids}
         return distinct_id_params, distinct_id_clause
+
+    def _get_duration_clause(self):
+        duration_clause = ""
+        duration_params = {}
+        if self._filter.recording_duration_filter:
+            if self._filter.recording_duration_filter.operator == "gt":
+                operator = ">"
+            else:
+                operator = "<"
+
+            duration_clause = f"AND duration {operator} INTERVAL '%(recording_duration)s seconds'"
+            duration_params = {
+                "recording_duration": filter.recording_duration_filter.value,
+            }
+        return duration_params, duration_clause
 
     def _build_query(self) -> Tuple[str, Dict]:
         params = {"team_id": self._team.pk, "limit": self.SESSION_RECORDINGS_DEFAULT_LIMIT, "offset": 0}

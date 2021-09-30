@@ -16,6 +16,8 @@ class AvailableFeature(str, Enum):
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
+SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
+
 SESSIONS_FILTER_RECORDING_TYPE = "recording"
 SESSIONS_FILTER_COHORT_TYPE = "cohort"
 SESSIONS_FILTER_PERSON_TYPE = "person"

@@ -1,6 +1,6 @@
 from posthog.models import Filter
-from posthog.models.filters.mixins.sessions import DistinctIdMixin
+from posthog.models.filters.mixins.session_recordings import DistinctIdMixin, SessionRecordingsMixin
 
 
-class SessionRecordingsFilter(DistinctIdMixin, Filter):
+class SessionRecordingsFilter(SessionRecordingsMixin, DistinctIdMixin, Filter):
     pass
