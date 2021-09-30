@@ -60,7 +60,7 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                                   required: true,
                                   message: (
                                       <>
-                                          <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Please enter your
+                                          <ExclamationCircleFilled style={{ marginRight: 4 }} /> Please enter your
                                           password to continue
                                       </>
                                   ),
@@ -69,7 +69,7 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                                   min: validateMinLength ? 8 : undefined,
                                   message: (
                                       <>
-                                          <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Password must be at
+                                          <ExclamationCircleFilled style={{ marginRight: 4 }} /> Password must be at
                                           least 8 characters
                                       </>
                                   ),
@@ -79,11 +79,6 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                 }
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
                 {...props}
-                // help={
-                //     showStrengthIndicator && !formRef?.getFieldError('password')?.length
-                //         ? 'Passwords must be at least 8 characters'
-                //         : undefined
-                // }
             >
                 <Input
                     ref={ref}

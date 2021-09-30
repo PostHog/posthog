@@ -138,13 +138,17 @@ export function Signup(): JSX.Element | null {
                                     showStrengthIndicator
                                     validateStatus={signupResponse?.errorAttribute === 'password' ? 'error' : undefined}
                                     help={
-                                        signupResponse?.errorAttribute === 'password'
-                                            ? signupResponse.errorDetail
-                                            : undefined
+                                        signupResponse?.errorAttribute === 'password' ? (
+                                            signupResponse.errorDetail
+                                        ) : (
+                                            <span style={{ paddingBottom: 24 }}>
+                                                <ExclamationCircleFilled style={{ marginRight: 4 }} />
+                                                Passwords must be at least 8 characters
+                                            </span>
+                                        )
                                     }
                                     validateMinLength
                                     validationDisabled={!formSubmitted}
-                                    //formRef={form}
                                 />
                                 <Form.Item
                                     name="first_name"

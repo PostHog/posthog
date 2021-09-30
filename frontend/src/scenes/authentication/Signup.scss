@@ -32,6 +32,14 @@
         }
     }
 
+    .ant-form-item-explain {
+        &:not(.ant-form-item-explain-error) {
+            .anticon-exclamation-circle {
+                display: none;
+            }
+        }
+    }
+
     @media (max-width: $md) {
         .auth-main-content {
             min-height: 100vh;
