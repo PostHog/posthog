@@ -430,7 +430,11 @@ export async function toolbarFetch(
         ...payloadData,
     })
     if (response.status === 403) {
-        toolbarLogic.actions.authenticate()
+        const responseData = await response.json()
+        // Do not try to authenticate if the user has no project access altogether
+        if (responseData.detail !== "You don't have access to the project.") {
+            toolbarLogic.actions.authenticate()
+        }
     }
     return response
 }

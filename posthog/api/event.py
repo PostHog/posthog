@@ -6,7 +6,7 @@ from django.db.models import Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.utils import timezone
 from django.utils.timezone import now
-from rest_framework import request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -21,7 +21,7 @@ from posthog.models.action import Action
 from posthog.models.event import EventManager
 from posthog.models.filters.sessions_filter import SessionEventsFilter, SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import properties_to_Q
 from posthog.queries.sessions.session_recording import SessionRecording
 from posthog.utils import convert_property_value, flatten, relative_date_parse
@@ -90,14 +90,14 @@ class EventSerializer(serializers.HyperlinkedModelSerializer):
         return representation
 
 
-class EventViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
 
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Event.objects.all()
     serializer_class = EventSerializer
     pagination_class = LimitOffsetPagination
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     # Return at most this number of events in CSV export
     CSV_EXPORT_DEFAULT_LIMIT = 10_000

@@ -756,6 +756,9 @@ export interface FilterType {
     path_start_key?: string // Paths People Start Key
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
+    edge_limit?: number | undefined // Paths edge limit
+    min_edge_weight?: number | undefined // Paths
+    max_edge_weight?: number | undefined // Paths
 }
 
 export interface SystemStatusSubrows {
@@ -1183,3 +1186,9 @@ export interface AppContext {
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
+
+export interface PathEdgeParameters {
+    edge_limit?: number | undefined
+    min_edge_weight?: number | undefined
+    max_edge_weight?: number | undefined
+}

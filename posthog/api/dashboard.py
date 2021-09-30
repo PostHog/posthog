@@ -19,7 +19,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks.update_cache import update_dashboard_item_cache, update_dashboard_items_cache
 from posthog.utils import get_safe_cache, render_template, str_to_bool
 
@@ -129,8 +129,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    # Empty list means we can allow users to not be authenticated.
-    permission_classes = []  # type: ignore
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset().order_by("name")
@@ -139,14 +138,17 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(
             Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
         )
+        # See get_permissions() for share_token mechanics
         if self.request.GET.get("share_token"):
             return queryset.filter(share_token=self.request.GET["share_token"])
-        elif self.request.user.is_authenticated and not self.request.user.team:
-            raise NotFound()
-        elif not self.request.user.is_authenticated or "team_id" not in self.get_parents_query_dict():
-            raise AuthenticationFailed(detail="You're not logged in, but also not using add share_token.")
-
         return queryset
+
+    def get_permissions(self):
+        # Allow unauthenticated requests if share_token is provided
+        # but make sure that get_queryset() filters on share_token then!
+        if self.request.GET.get("share_token"):
+            return []
+        return super().get_permissions()
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
@@ -251,7 +253,7 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     queryset = DashboardItem.objects.all()
     serializer_class = DashboardItemSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -266,6 +268,13 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.order_by("order")
 
         return queryset
+
+    def get_permissions(self):
+        # Layouts are accessible without permissions,
+        # as they are not sensitive while being required for shared dashboards
+        if self.action == "layouts":
+            return []
+        return super().get_permissions()
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
