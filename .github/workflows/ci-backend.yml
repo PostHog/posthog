@@ -7,6 +7,7 @@ env:
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
     KAFKA_HOSTS: 'localhost:9092'
+    KAFKA_ADVERTISED_HOST_NAME: 'localhost'
     CLICKHOUSE_HOST: 'localhost'
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
