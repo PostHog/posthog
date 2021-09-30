@@ -16,10 +16,13 @@ jobs:
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_test'
             REDIS_URL: 'redis://localhost'
             PRIMARY_DB: 'clickhouse'
+            DEBUG: '1'
             CLICKHOUSE_DATABASE: posthog
             CLICKHOUSE_HOST: ${{ secrets.BENCHMARKS_CLICKHOUSE_HOST }}
             CLICKHOUSE_USER: ${{ secrets.BENCHMARKS_CLICKHOUSE_USER }}
             CLICKHOUSE_PASSWORD: ${{ secrets.BENCHMARKS_CLICKHOUSE_PASSWORD }}
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
 
         services:
@@ -57,19 +60,19 @@ jobs:
                   python-version: 3.8
 
             - uses: syphar/restore-virtualenv@v1.2
-              id: cache-backend-tests
+              id: cache-benchmark-tests
 
             - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+              if: steps.cache-benchmark-tests.outputs.cache-hit != 'true'
 
             - name: Install python dependencies
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+              if: steps.cache-benchmark-tests.outputs.cache-hit != 'true'
               run: |
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
             - name: Install asv
-              run: python -m pip install asv virtualenv
+              run: python -m pip install pip install git+https://github.com/airspeed-velocity/asv.git virtualenv
 
             - name: Set up PostHog
               run: |
@@ -80,4 +83,4 @@ jobs:
               run: asv machine --yes --machine ci-benchmarks --config ee/benchmarks/asv.conf.json
 
             - name: Run benchmarks
-              run: asv run --config ee/benchmarks/asv.conf.json --show-stderr
+              run: asv run --config ee/benchmarks/asv.conf.json --show-stderr --strict
