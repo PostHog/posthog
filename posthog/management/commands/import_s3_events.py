@@ -16,6 +16,7 @@ from posthog.celery import app as celery_app
 from posthog.utils import is_clickhouse_enabled
 
 TARGET_QUEUES = int(os.environ.get("TARGET_QUEUES", 2))
+IS_DRY_RUN = bool(os.environ.get("DRY_RUN", False))
 
 
 def produce_event(q, i):
@@ -27,46 +28,45 @@ def produce_event(q, i):
             return
 
         row = payload
-        is_dry_run = bool(os.environ.get("DRY_RUN", False))
 
-        if is_dry_run:
+        if IS_DRY_RUN:
             print(f"Queue {i} processing ", row[7])
 
         if is_clickhouse_enabled():
             from posthog.api.capture import log_event
 
-            if is_dry_run:
+            if IS_DRY_RUN:
                 print("KAFKA")
                 return
-            log_event(
-                distinct_id=row[0],
-                site_url=row[1],
-                ip=row[2],
-                data=json.loads(row[3]),
-                team_id=int(row[4]),
-                now=parser.parse(row[5]),
-                sent_at=parser.parse(row[6]) if row[6] else None,
-                event_uuid=row[7],
-            )
+            # log_event(
+            #     distinct_id=row[0],
+            #     site_url=row[1],
+            #     ip=row[2],
+            #     data=json.loads(row[3]),
+            #     team_id=int(row[4]),
+            #     now=parser.parse(row[5]),
+            #     sent_at=parser.parse(row[6]) if row[6] else None,
+            #     event_uuid=row[7],
+            # )
         else:
             task_name = "posthog.tasks.process_event.process_event_with_plugins"
             celery_queue = settings.PLUGINS_CELERY_QUEUE
-            if is_dry_run:
+            if IS_DRY_RUN:
                 print("CELERY")
                 return
-            celery_app.send_task(
-                name=task_name,
-                queue=celery_queue,
-                args=[
-                    row[0],
-                    row[2],
-                    row[1],
-                    json.loads(row[3]),
-                    int(row[4]),
-                    row[5],
-                    row[6],
-                ],
-            )
+            # celery_app.send_task(
+            #     name=task_name,
+            #     queue=celery_queue,
+            #     args=[
+            #         row[0],
+            #         row[2],
+            #         row[1],
+            #         json.loads(row[3]),
+            #         int(row[4]),
+            #         row[5],
+            #         row[6],
+            #     ],
+            # )
 
 
 def match_snapshot(haystack):
@@ -89,6 +89,9 @@ class Command(BaseCommand):
         if not options["bucketpath"]:
             print("The argument --bucket-path is required")
             exit(1)
+
+        if IS_DRY_RUN:
+            print("dry run!!!!")
 
         queues = []
         threads = []
