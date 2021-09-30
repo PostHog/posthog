@@ -25,7 +25,7 @@ ENV LC_ALL en_US.UTF-8
 ENV TZ UTC
 
 RUN apt-get -y install git cmake python ninja-build
-RUN git clone --depth 1 --branch $GIT_TAG --recursive https://github.com/ClickHouse/ClickHouse.git
+RUN git clone --depth 1 --shallow-submodules --branch $GIT_TAG --recursive https://github.com/ClickHouse/ClickHouse.git
 
 RUN apt-get -y install clang-12 build-essential
 ENV CC clang-12
