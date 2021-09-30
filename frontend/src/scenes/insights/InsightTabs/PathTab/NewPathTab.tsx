@@ -112,6 +112,7 @@ export function NewPathTab(): JSX.Element {
             if (filter.funnel_paths === FunnelPathType.after) {
                 return _getStepLabel(filter.funnel_filter, filter.funnel_filter?.funnel_step)
             } else if (filter.funnel_paths === FunnelPathType.between) {
+                // funnel_step targets the later of the 2 events when specifying between so the start point index is shifted back 1
                 return _getStepLabel(filter.funnel_filter, filter.funnel_filter?.funnel_step, -1)
             } else {
                 return <span />
