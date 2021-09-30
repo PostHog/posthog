@@ -7,7 +7,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { Button, Menu, Dropdown, Row } from 'antd'
 import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
-import { ClockCircleOutlined, EllipsisOutlined } from '@ant-design/icons'
+import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
 
@@ -69,7 +69,7 @@ function pageUrl(d) {
         // discard if invalid url
     }
 
-    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-8) : name
+    return name.length > 25 ? name.substring(0, 6) + '...' + name.slice(-8) : name
 }
 
 function NoData() {
@@ -391,21 +391,21 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         <Menu className="paths-options-dropdown">
                                                             <Menu.Item
                                                                 onClick={() =>
-                                                                    setFilter({ start_point: pathItemCard.name })
+                                                                    setFilter({ start_point: pageUrl(pathItemCard) })
                                                                 }
                                                             >
                                                                 Set as path start
                                                             </Menu.Item>
                                                             <Menu.Item
                                                                 onClick={() =>
-                                                                    setFilter({ end_point: pathItemCard.name })
+                                                                    setFilter({ end_point: pageUrl(pathItemCard) })
                                                                 }
                                                             >
                                                                 Set as path end
                                                             </Menu.Item>
                                                             <Menu.Item
                                                                 onClick={() =>
-                                                                    updateExclusions([{ value: pathItemCard.name }])
+                                                                    updateExclusions([{ value: pageUrl(pathItemCard) }])
                                                                 }
                                                             >
                                                                 Exclude path item
@@ -418,10 +418,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         </Menu>
                                                     }
                                                 >
-                                                    <EllipsisOutlined
-                                                        className="paths-dropdown-ellipsis"
-                                                        style={{ fontSize: 24 }}
-                                                    />
+                                                    <Button className="paths-dropdown-ellipsis">...</Button>
                                                 </Dropdown>
                                             </div>
                                         </Row>
