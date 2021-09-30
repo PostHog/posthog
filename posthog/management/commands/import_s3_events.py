@@ -92,6 +92,7 @@ class Command(BaseCommand):
 
         if IS_DRY_RUN:
             print("dry run!!!!")
+            print(TARGET_QUEUES)
 
         queues = []
         threads = []
