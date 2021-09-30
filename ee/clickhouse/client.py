@@ -3,12 +3,13 @@ import hashlib
 import json
 import types
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import sqlparse
 from aioch import Client
 from asgiref.sync import async_to_sync
 from clickhouse_driver import Client as SyncClient
+from clickhouse_driver.util.escape import escape_params
 from clickhouse_pool import ChPool
 from django.conf import settings as app_settings
 from django.core.cache import cache
@@ -130,40 +131,58 @@ else:
             redis_client.set(key, _serialize(result), ex=ttl)
             return result
 
+    InsertParams = Union[list, tuple, types.GeneratorType]
+    NonInsertParams = Union[Dict[str, Any]]
+    QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
+
+    def prepare_query(client: SyncClient, query: str, args: QueryArgs):
+        """
+        Given a string query with placeholders we do one of two things:
+
+         1. for a insert query we just format, and remove comments
+         2. for non-insert queries, we return the sql with placeholders
+            evaluated with the contents of `args`
+
+        We also return `tags` which contains some detail around the context
+        within which the query was executed e.g. the django view name
+
+        NOTE: `client.execute` would normally handle substitution, but
+        because we want to strip the comments to make it easier to copy
+        and past queries from the `system.query_log` easily with metabase
+        (metabase doesn't show new lines, so with comments, you can't get
+        a working query without exporting to csv or similar), we need to
+        do it manually.
+    
+        We only want to try to substitue for SELECT queries, which
+        clickhouse_driver at this moment in time decides based on the
+        below predicate.
+        """
+        if isinstance(args, (list, tuple, types.GeneratorType)):
+            rendered_sql = query
+        else:
+            rendered_sql = client.substitute_params(query, args or {})
+            args = None
+
+        formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
+        annotated_sql, tags = _annotate_tagged_query(formatted_sql, args)
+
+        if app_settings.SHELL_PLUS_PRINT_SQL:
+            print()
+            print(format_sql(rendered_sql))
+
+        return annotated_sql, args, tags
+
     def sync_execute(query, args=None, settings=None, with_column_types=False):
         with ch_pool.get_client() as client:
             start_time = perf_counter()
-            tags = {}
 
-            # NOTE: `client.execute` would normally handle substitution, but
-            # because we want to strip the comments to make it easier to copy
-            # and past queries from the `system.query_log` easily with metabase
-            # (metabase doesn't show new lines, so with comments, you can't get
-            # a working query without exporting to csv or similar), we need to
-            # do it manually.
-            #
-            # We only want to try to substitue for SELECT queries, which
-            # clickhouse_driver at this moment in time decides based on the
-            # below predicate.
-            if isinstance(args, (list, tuple, types.GeneratorType)):
-                rendered_sql = query
-            else:
-                rendered_sql = client.substitute_params(query, args or {})
-            formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
-
-            # Adds in a /* */ so we can look in clickhouses `system.query_log`
-            # to easily marry up to the generating code.
-            annotated_sql, tags = _annotate_tagged_query(formatted_sql, args)
-
-            if app_settings.SHELL_PLUS_PRINT_SQL:
-                print()
-                print(format_sql(rendered_sql))
+            prepared_sql, prepared_args, tags = prepare_query(client=client, query=query, args=args)
 
             timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
 
             try:
                 result = client.execute(
-                    annotated_sql, params=args, settings=settings, with_column_types=with_column_types
+                    prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types
                 )
             except Exception as err:
                 err = wrap_query_error(err)
@@ -181,7 +200,7 @@ else:
                 if app_settings.SHELL_PLUS_PRINT_SQL:
                     print("Execution time: %.6fs" % (execution_time,))
                 if _request_information is not None and _request_information.get("save", False):
-                    save_query(annotated_sql, execution_time)
+                    save_query(prepared_sql, execution_time)
         return result
 
 
@@ -202,6 +221,10 @@ def _key_hash(query: str, args: Any) -> bytes:
 
 
 def _annotate_tagged_query(query, args):
+    """
+    Adds in a /* */ so we can look in clickhouses `system.query_log`
+    to easily marry up to the generating code.
+    """
     tags = {"kind": (_request_information or {}).get("kind"), "id": (_request_information or {}).get("id")}
     if isinstance(args, dict) and "team_id" in args:
         tags["team_id"] = args["team_id"]
