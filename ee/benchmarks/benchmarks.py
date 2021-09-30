@@ -7,21 +7,85 @@ from typing import List, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
+from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from posthog.models import Team, Organization
+from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
-
-# :TODO: Raise an error if not in right environment?
-# :TODO: Manipulate materialized properties somehow?
 
 MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [("events", "$host"), ("person", "email")]
 
+DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01"}
+SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01"}
+
 
 class QuerySuite:
+    timeout = 300.0  # Timeout for individual benchmarks
+
+    team: Team
+
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:
             if property not in get_materialized_columns(table):
                 materialize(table, property)
                 backfill_materialized_columns(table, [property], backfill_period=timedelta(days=1_000))
 
+        # :TRICKY: Data in benchmark servers has ID=2
+        team = Team.objects.filter(id=2).first()
+        if team is None:
+            organization = Organization.objects.create()
+            team = Team.objects.create(id=2, organization=organization, name="The Bakery")
+        self.team = team
+
     @benchmark_clickhouse
-    def track_foobar(self):
-        print(sync_execute("SELECT count(*) FROM events WHERE event = '$pageview'"))
+    def track_trends_no_filter(self):
+        filter = Filter(data={"events": [{"id": "$pageview"}], **DATE_RANGE})
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_event_property_filter(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview"}],
+                "properties": [
+                    {
+                        "key": "$host",
+                        "operator": "is_not",
+                        "value": [
+                            "localhost:8000",
+                            "localhost:5000",
+                            "127.0.0.1:8000",
+                            "127.0.0.1:3000",
+                            "localhost:3000",
+                        ],
+                    }
+                ],
+                **SHORT_DATE_RANGE,
+            }
+        )
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_event_property_filter_materialized(self):
+        get_materialized_columns.__cache = {}
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview"}],
+                "properties": [
+                    {
+                        "key": "$host",
+                        "operator": "is_not",
+                        "value": [
+                            "localhost:8000",
+                            "localhost:5000",
+                            "127.0.0.1:8000",
+                            "127.0.0.1:3000",
+                            "localhost:3000",
+                        ],
+                    }
+                ],
+                **DATE_RANGE,
+            }
+        )
+        ClickhouseTrends().run(filter, self.team)

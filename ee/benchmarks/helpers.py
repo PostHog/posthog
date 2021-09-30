@@ -1,8 +1,12 @@
 import os
 import sys
+from contextlib import contextmanager
 from functools import wraps
 from os.path import dirname
 
+from django.utils.timezone import now
+
+os.environ["POSTHOG_DB_NAME"] = "posthog_test"
 os.environ["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
 sys.path.append(dirname(dirname(dirname(__file__))))
 
@@ -11,6 +15,7 @@ import django
 django.setup()
 
 from ee.clickhouse import client
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from posthog.models.utils import UUIDT
 
 get_column = lambda rows, index: [row[index] for row in rows]
@@ -56,10 +61,21 @@ def get_clickhouse_query_stats(uuid):
 def benchmark_clickhouse(fn):
     @wraps(fn)
     def inner(*args):
-        results = run_query(fn, *args)
+        samples = [run_query(fn, *args)["ch_query_time"] for _ in range(4)]
         return {
-            "samples": [results["ch_query_time"]],
-            "number": 1,
+            "samples": samples,
+            "number": len(samples),
         }
 
     return inner
+
+
+@contextmanager
+def no_materialized_columns():
+    "Allows running a function without any materialized columns being used in query"
+    get_materialized_columns._cache = {
+        ("events",): (now(), {}),
+        ("person",): (now(), {}),
+    }
+    yield
+    get_materialized_columns._cache = {}
