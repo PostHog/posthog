@@ -3,9 +3,9 @@ import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Checkbox, Col, Collapse, InputNumber, Row, Select } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
-import { PathEdgeParameters, PathType } from '~/types'
+import { PathType, FunnelPathType, PathEdgeParameters } from '~/types'
 import './NewPathTab.scss'
 import { GlobalFiltersTitle } from '../../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -15,6 +15,7 @@ import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { CloseButton } from 'lib/components/CloseButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/components/Tooltip'
+import { combineUrl, encodeParams, router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -43,6 +44,11 @@ export function NewPathTab(): JSX.Element {
           })
         : []
 
+    const overrideStartInput =
+        filter.funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(filter.funnel_paths)
+    const overrideEndInput =
+        filter.funnel_paths && [FunnelPathType.between, FunnelPathType.before].includes(filter.funnel_paths)
+
     const updateEdgeParameters = (): void => {
         if (
             localEdgeParameters.edge_limit !== filter.edge_limit ||
@@ -70,6 +76,70 @@ export function NewPathTab(): JSX.Element {
             setFilter({
                 include_event_types: [pathType],
             })
+        }
+    }
+
+    function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {
+        const targetEntity =
+            filters.events?.filter((event: Record<string, any>) => {
+                return event.order === index - 1
+            })?.[0] ||
+            filters.actions?.filter((action: Record<string, any>) => {
+                return action.order === index - 1
+            })?.[0]
+
+        return targetEntity?.name || ''
+    }
+
+    function _getStepLabel(funnelFilters?: Record<string, any>, index?: number, shift: number = 0): JSX.Element {
+        if (funnelFilters && index) {
+            return (
+                <div>
+                    <BarChartOutlined />
+                    <span className="label">{`From funnel step ${index + shift}: ${_getStepNameAtIndex(
+                        funnelFilters,
+                        index + shift
+                    )}`}</span>
+                </div>
+            )
+        } else {
+            return <span />
+        }
+    }
+
+    function getStartPointLabel(): JSX.Element {
+        if (filter.funnel_paths) {
+            if (filter.funnel_paths === FunnelPathType.after) {
+                return _getStepLabel(filter.funnel_filter, filter.funnel_filter?.funnel_step)
+            } else if (filter.funnel_paths === FunnelPathType.between) {
+                return _getStepLabel(filter.funnel_filter, filter.funnel_filter?.funnel_step, -1)
+            } else {
+                return <span />
+            }
+        } else {
+            return filter.start_point ? (
+                <span className="label">{filter.start_point}</span>
+            ) : (
+                <span className="label" style={{ color: 'var(--muted)' }}>
+                    Add start point
+                </span>
+            )
+        }
+    }
+
+    function getEndPointLabel(): JSX.Element {
+        if (filter.funnel_paths) {
+            if (filter.funnel_paths === FunnelPathType.before || filter.funnel_paths === FunnelPathType.between) {
+                return _getStepLabel(filter.funnel_filter, filter.funnel_filter?.funnel_step)
+            } else {
+                return <span />
+            }
+        } else {
+            return filter.end_point ? (
+                <span className="label">{filter.end_point}</span>
+            ) : (
+                <span style={{ color: 'var(--muted)' }}>Add end point</span>
+            )
         }
     }
 
@@ -171,42 +241,53 @@ export function NewPathTab(): JSX.Element {
                                         })
                                     }
                                     groupTypes={groupTypes}
+                                    disabled={overrideStartInput || overrideEndInput}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 1}
                                         block={true}
+                                        className="paths-endpoint-field"
                                         style={{
-                                            maxWidth: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            overflow: 'hidden',
+                                            textAlign: 'left',
+                                            backgroundColor:
+                                                overrideStartInput || overrideEndInput
+                                                    ? 'var(--border-light)'
+                                                    : 'white',
                                         }}
+                                        disabled={overrideEndInput && !overrideStartInput}
+                                        onClick={
+                                            filter.funnel_filter && overrideStartInput
+                                                ? () => {
+                                                      router.actions.push(
+                                                          combineUrl(
+                                                              '/insights',
+                                                              encodeParams(
+                                                                  filter.funnel_filter as Record<string, any>,
+                                                                  '?'
+                                                              )
+                                                          ).url
+                                                      )
+                                                  }
+                                                : () => {}
+                                        }
                                     >
-                                        {filter.start_point ? (
-                                            <>
-                                                <Col span={22} style={{ overflow: 'hidden' }}>
-                                                    {filter.start_point}
-                                                </Col>
-                                                <Col span={2}>
+                                        <div className="label-container">
+                                            {getStartPointLabel()}
+                                            {filter.start_point ||
+                                                (overrideStartInput && (
                                                     <CloseButton
                                                         onClick={(e: Event) => {
-                                                            setFilter({ start_point: null })
+                                                            setFilter({
+                                                                start_point: undefined,
+                                                                funnel_filter: undefined,
+                                                                funnel_paths: undefined,
+                                                            })
                                                             e.stopPropagation()
                                                         }}
-                                                        className="paths-close-button"
-                                                        style={{
-                                                            cursor: 'pointer',
-                                                            float: 'none',
-                                                            paddingLeft: 8,
-                                                            alignSelf: 'center',
-                                                        }}
+                                                        className="close-button"
                                                     />
-                                                </Col>
-                                            </>
-                                        ) : (
-                                            <span style={{ color: 'var(--muted)' }}>Add start point</span>
-                                        )}
+                                                ))}
+                                        </div>
                                     </Button>
                                 </PathItemSelector>
                             </Col>
@@ -226,38 +307,52 @@ export function NewPathTab(): JSX.Element {
                                         })
                                     }
                                     groupTypes={groupTypes}
+                                    disabled={overrideEndInput || overrideStartInput}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 0}
                                         block={true}
+                                        className="paths-endpoint-field"
                                         style={{
-                                            maxWidth: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            overflow: 'hidden',
+                                            textAlign: 'left',
+                                            backgroundColor:
+                                                overrideStartInput || overrideEndInput
+                                                    ? 'var(--border-light)'
+                                                    : 'white',
                                         }}
+                                        disabled={overrideStartInput && !overrideEndInput}
+                                        onClick={
+                                            filter.funnel_filter && overrideEndInput
+                                                ? () => {
+                                                      router.actions.push(
+                                                          combineUrl(
+                                                              '/insights',
+                                                              encodeParams(
+                                                                  filter.funnel_filter as Record<string, any>,
+                                                                  '?'
+                                                              )
+                                                          ).url
+                                                      )
+                                                  }
+                                                : () => {}
+                                        }
                                     >
-                                        {filter.end_point ? (
-                                            <>
-                                                {filter.end_point}
+                                        <div className="label-container">
+                                            {getEndPointLabel()}
+                                            {filter.end_point || overrideEndInput ? (
                                                 <CloseButton
                                                     onClick={(e: Event) => {
-                                                        setFilter({ end_point: null })
+                                                        setFilter({
+                                                            end_point: undefined,
+                                                            funnel_filter: undefined,
+                                                            funnel_paths: undefined,
+                                                        })
                                                         e.stopPropagation()
                                                     }}
-                                                    className="paths-close-button"
-                                                    style={{
-                                                        cursor: 'pointer',
-                                                        float: 'none',
-                                                        paddingLeft: 8,
-                                                        alignSelf: 'center',
-                                                    }}
+                                                    className="close-button"
                                                 />
-                                            </>
-                                        ) : (
-                                            <span style={{ color: 'var(--muted)' }}>Add end point</span>
-                                        )}
+                                            ) : null}
+                                        </div>
                                     </Button>
                                 </PathItemSelector>
                             </Col>

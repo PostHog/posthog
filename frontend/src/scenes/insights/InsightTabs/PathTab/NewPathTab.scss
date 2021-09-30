@@ -43,15 +43,28 @@
     }
 }
 
-.paths-close-button {
-    cursor: 'pointer';
-    float: 'none';
-    padding-left: 8;
-    align-self: 'center';
+.paths-endpoint-field {
+    .label-container {
+        display: flex;
+        width: 100%;
+        justify-content: space-between;
+    }
 
-    &:hover {
-        border-radius: 4px 4px 0px 0px;
-        color: black;
-        z-index: 999;
+    .label {
+        margin-left: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .close-button {
+        cursor: pointer;
+        padding-left: 8px;
+        align-self: center;
+
+        &:hover {
+            border-radius: 4px 4px 0px 0px;
+            color: black;
+            z-index: 999;
+        }
     }
 }
