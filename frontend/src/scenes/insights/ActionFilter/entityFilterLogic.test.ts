@@ -56,23 +56,25 @@ describe('entityFilterLogic', () => {
     })
 
     describe('renaming filters', () => {
-        const filterWithCustomName = {
-            id: '$pageview',
-            name: '$pageview',
-            custom_name: 'Custom event name',
-            order: 0,
-        }
-
         it('renames successfully', async () => {
+            // Select a filter to rename first
             await expectLogic(logic, () => {
-                logic.actions.renameFilter(filterWithCustomName)
+                logic.actions.selectFilter({
+                    id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                })
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.renameFilter('Custom event name')
             }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
 
             expect(logic.props.setFilters).toBeCalledWith(
                 expect.objectContaining({
                     events: expect.arrayContaining([
                         expect.objectContaining({
-                            custom_name: filterWithCustomName.custom_name,
+                            custom_name: 'Custom event name',
                         }),
                     ]),
                 })
@@ -81,7 +83,7 @@ describe('entityFilterLogic', () => {
 
         it('closes modal after renaming', () => {
             expectLogic(logic, () => {
-                logic.actions.renameFilter(filterWithCustomName)
+                logic.actions.renameFilter('Custom event name')
             })
                 .toDispatchActions(['renameFilter', 'hideModal'])
                 .toMatchValues({ modalVisible: false })

@@ -75,7 +75,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             name: filter.name,
             custom_name: filter.custom_name,
         }),
-        renameFilter: (filter: EntityFilter) => ({ filter }),
+        renameFilter: (custom_name: string) => ({ custom_name }),
         removeLocalFilter: (
             filter: Partial<EntityFilter> & {
                 index: number
@@ -150,10 +150,17 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
     },
 
     listeners: ({ actions, values, props }) => ({
-        renameFilter: async ({ filter }) => {
+        renameFilter: async ({ custom_name }) => {
+            if (!values.selectedFilter) {
+                return
+            }
+
             actions.updateFilter({
-                ...filter,
-                index: filter.order as number,
+                ...values.selectedFilter,
+                index: values.selectedFilter?.order,
+                custom_name,
+            } as EntityFilter & {
+                index: number
             })
             actions.hideModal()
         },

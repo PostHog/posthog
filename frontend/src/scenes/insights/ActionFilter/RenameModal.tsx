@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
 import React, { useEffect, useRef } from 'react'
-import { EntityFilter, InsightType, ViewType } from '~/types'
+import { InsightType, ViewType } from '~/types'
 import { Button, Input, Modal } from 'antd'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { renameModalLogic } from 'scenes/insights/ActionFilter/renameModalLogic'
@@ -23,10 +23,6 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
     const ref = useRef<Input | null>(null)
     useSelectAllText(ref, { cursor: 'all' }, [modalVisible])
 
-    const onRename = (): void => {
-        renameFilter({ ...selectedFilter, custom_name: name } as EntityFilter)
-    }
-
     const title = `Rename ${view === ViewType.FUNNELS ? 'funnel step' : 'graph series'}`
 
     return (
@@ -39,7 +35,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
                     <Button type="link" onClick={hideModal}>
                         Cancel
                     </Button>
-                    <Button type="primary" onClick={onRename}>
+                    <Button type="primary" onClick={() => renameFilter(name)}>
                         {title}
                     </Button>
                 </>
@@ -53,7 +49,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
             <Input
                 ref={ref}
                 value={name}
-                onPressEnter={onRename}
+                onPressEnter={() => renameFilter(name)}
                 onChange={(e) => setName(e.target.value)}
                 suffix={
                     <span className="text-muted-alt">

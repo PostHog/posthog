@@ -1081,5 +1081,5 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
 }
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
-    return (s ?? '').trim() === '' ? null : s ?? null
+    return typeof s === 'string' && s.trim() !== '' ? s : null
 }
