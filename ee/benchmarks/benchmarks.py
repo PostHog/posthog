@@ -19,7 +19,7 @@ SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01"}
 
 
 class QuerySuite:
-    timeout = 300.0  # Timeout for individual benchmarks
+    timeout = 3000.0  # Timeout for the whole suite
 
     team: Team
 
@@ -68,7 +68,6 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_trends_event_property_filter_materialized(self):
-        get_materialized_columns.__cache = {}
         filter = Filter(
             data={
                 "events": [{"id": "$pageview"}],
@@ -88,4 +87,29 @@ class QuerySuite:
                 **DATE_RANGE,
             }
         )
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_person_property_filter(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                **DATE_RANGE,
+            }
+        )
+
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_person_property_filter_materialized(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+                **DATE_RANGE,
+            }
+        )
+
         ClickhouseTrends().run(filter, self.team)
