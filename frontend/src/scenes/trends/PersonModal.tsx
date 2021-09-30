@@ -23,17 +23,10 @@ export interface PersonModalProps {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
-    const {
-        people,
-        loadingMorePeople,
-        firstLoadedPeople,
-        searchTerm,
-        isInitialLoad,
-        clickhouseFeaturesEnabled,
-    } = useValues(personsModalLogic)
-    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
-        personsModalLogic
-    )
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad, clickhouseFeaturesEnabled } =
+        useValues(personsModalLogic)
+    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
+        useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
     const title = useMemo(
         () =>

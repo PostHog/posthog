@@ -9,9 +9,8 @@ import './Personalization.scss'
 
 export function Personalization(): JSX.Element {
     const { personalizationData } = useValues(personalizationLogic)
-    const { appendPersonalizationData, reportPersonalizationSkipped, reportPersonalization } = useActions(
-        personalizationLogic
-    )
+    const { appendPersonalizationData, reportPersonalizationSkipped, reportPersonalization } =
+        useActions(personalizationLogic)
 
     const handleContinue = (): void => {
         reportPersonalization(personalizationData, answeredQuestionCount === TOTAL_QUESTION_COUNT)

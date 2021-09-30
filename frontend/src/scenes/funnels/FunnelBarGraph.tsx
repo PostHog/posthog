@@ -509,10 +509,7 @@ export function FunnelBarGraph({
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
                                 {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && (
-                                    <FunnelStepDropdown
-                                        index={stepIndex}
-                                        filterProps={propertiesForUrl}
-                                     />
+                                    <FunnelStepDropdown index={stepIndex} filterProps={propertiesForUrl} />
                                 )}
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>

@@ -85,11 +85,10 @@ export function DateFilter({
         setDate(dayjs(rangeDateFrom).format('YYYY-MM-DD'), dayjs(rangeDateTo).format('YYYY-MM-DD'))
     }
 
-    const parsedValue = useMemo(() => dateFilterToText(dateFrom, dateTo, defaultValue), [
-        dateFrom,
-        dateTo,
-        defaultValue,
-    ])
+    const parsedValue = useMemo(
+        () => dateFilterToText(dateFrom, dateTo, defaultValue),
+        [dateFrom, dateTo, defaultValue]
+    )
 
     return (
         <Select

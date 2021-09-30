@@ -26,7 +26,7 @@ export function StepField({ field, step, item, label, caption }: StepFieldProps)
 
                 <Form.Item
                     name={[field.name, `${item}_selected`]}
-                    fieldKey={([field.fieldKey, `${item}_selected`] as unknown) as number}
+                    fieldKey={[field.fieldKey, `${item}_selected`] as unknown as number}
                     valuePropName="checked"
                     noStyle
                 >
@@ -37,12 +37,12 @@ export function StepField({ field, step, item, label, caption }: StepFieldProps)
             {item === 'url' ? (
                 <Form.Item
                     name={[field.name, `${item}_matching`]}
-                    fieldKey={([field.fieldKey, `${item}_matching`] as unknown) as number}
+                    fieldKey={[field.fieldKey, `${item}_matching`] as unknown as number}
                 >
                     <UrlMatchingToggle style={fieldStyle} />
                 </Form.Item>
             ) : null}
-            <Form.Item name={[field.name, item]} fieldKey={([field.fieldKey, item] as unknown) as number}>
+            <Form.Item name={[field.name, item]} fieldKey={[field.fieldKey, item] as unknown as number}>
                 {item === 'selector' ? <Input.TextArea autoSize style={fieldStyle} /> : <Input style={fieldStyle} />}
             </Form.Item>
             {item === 'url' && step?.url_matching && step.url_matching in URL_MATCHING_HINTS ? (

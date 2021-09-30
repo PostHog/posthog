@@ -122,13 +122,8 @@ export function OnboardingSetup(): JSX.Element {
         progressPercentage,
         slackCalled,
     } = useValues(onboardingSetupLogic)
-    const {
-        switchToNonDemoProject,
-        setProjectModalShown,
-        setInviteTeamModalShown,
-        completeOnboarding,
-        callSlack,
-    } = useActions(onboardingSetupLogic)
+    const { switchToNonDemoProject, setProjectModalShown, setInviteTeamModalShown, completeOnboarding, callSlack } =
+        useActions(onboardingSetupLogic)
 
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
