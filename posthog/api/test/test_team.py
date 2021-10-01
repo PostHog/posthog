@@ -109,9 +109,8 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(team.timezone, "UTC")
 
     def test_filter_permission(self):
-
         response = self.client.patch(
-            f"/api/projects/{self.team}/", {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
+            f"/api/projects/{self.team.id}/", {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
