@@ -43,16 +43,17 @@ class ClickhouseTrends(ClickhouseTrendsTotalVolume, ClickhouseLifecycle, Clickho
         return sql, params, parse_function
 
     def _run_query(self, filter: Filter, entity: Entity, team_id: int) -> List[Dict[str, Any]]:
-        sql, params, parse_function = self._get_sql_for_entity(filter, entity, team_id)
-        try:
-            result = sync_execute(sql, params)
-        except Exception as e:
-            capture_exception(e)
-            if settings.TEST or settings.DEBUG:
-                raise e
-            result = []
+        # sql, params, parse_function = self._get_sql_for_entity(filter, entity, team_id)
+        # try:
+        #     result = sync_execute(sql, params)
+        # except Exception as e:
+        #     capture_exception(e)
+        #     if settings.TEST or settings.DEBUG:
+        #         raise e
+        #     result = []
 
-        result = parse_function(result)
+        # result = parse_function(result)
+        result = []
         serialized_data = self._format_serialized(entity, result)
 
         if filter.display == TRENDS_CUMULATIVE:
