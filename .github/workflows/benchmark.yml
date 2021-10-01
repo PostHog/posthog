@@ -151,7 +151,7 @@ jobs:
               with:
                   issue-number: ${{ github.event.number }}
                   comment-author: 'github-actions[bot]'
-                  body-includes: Benchmark results from GitHub Actions
+                  body-includes: ClickHouse query benchmark results from GitHub Actions
 
             - name: Create or update comment
               if: ${{ github.event_name == 'pull_request' }}
