@@ -51,7 +51,7 @@ KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = DEAD_LETTER_QUEUE_TABLE_BASE_SQL.format(
 )
 
 DEAD_LETTER_QUEUE_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW {table_name}_mv ON CLUSTER {cluster}
+CREATE MATERIALIZED VIEW {table_name} ON CLUSTER {cluster}
 TO {database}.{table_name}
 AS SELECT
 id,
@@ -73,7 +73,7 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=DEAD_LETTER_QUEUE_TABLE,
+    table_name=DEAD_LETTER_QUEUE_TABLE + "_mv",
     cluster=CLICKHOUSE_CLUSTER,
     database=CLICKHOUSE_DATABASE,
 )
