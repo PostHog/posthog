@@ -34,4 +34,4 @@ class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         user = cast(User, self.request.user)
-        serializer.save(user=user, team=user.team)
+        serializer.save(user=user, team_id=self.team_id)
