@@ -231,11 +231,11 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             })
     }
 
-    const dropOffValue = (pathItemCard) => {
+    const getDropOffValue = (pathItemCard) => {
         return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
-    const completedValue = (sourceLinks) => {
+    const getCompletedValue = (sourceLinks) => {
         return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
@@ -251,6 +251,8 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                 {!paths.error &&
                     pathItemCards &&
                     pathItemCards.map((pathItemCard, idx) => {
+                        const completedValue = getCompletedValue(pathItemCard.sourceLinks)
+                        const dropOffValue = getDropOffValue(pathItemCard)
                         return (
                             <>
                                 <Dropdown
@@ -281,20 +283,15 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     Completed
                                                 </span>{' '}
                                                 <span style={{ color: 'var(--primary)' }}>
-                                                    {completedValue(pathItemCard.sourceLinks)}{' '}
+                                                    {completedValue}{' '}
                                                     {pathItemCard.targetLinks.length > 0 && (
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {(
-                                                                (completedValue(pathItemCard.sourceLinks) /
-                                                                    pathItemCard.value) *
-                                                                100
-                                                            ).toFixed(1)}
-                                                            %
+                                                            {((completedValue / pathItemCard.value) * 100).toFixed(1)}%
                                                         </span>
                                                     )}
                                                 </span>
                                             </Menu.Item>
-                                            {dropOffValue(pathItemCard) > 0 && (
+                                            {dropOffValue > 0 && (
                                                 <Menu.Item
                                                     disabled
                                                     style={{
@@ -315,13 +312,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     </span>{' '}
                                                     <span style={{ color: 'var(--primary)' }} />
                                                     <span style={{ color: 'var(--primary)' }}>
-                                                        {dropOffValue(pathItemCard)}{' '}
+                                                        {dropOffValue}{' '}
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {(
-                                                                (dropOffValue(pathItemCard) / pathItemCard.value) *
-                                                                100
-                                                            ).toFixed(1)}
-                                                            %
+                                                            {((dropOffValue / pathItemCard.value) * 100).toFixed(1)}%
                                                         </span>
                                                     </span>
                                                 </Menu.Item>
@@ -369,14 +362,20 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                             width: 240,
                                             border: '1px solid var(--border)',
                                             padding: 4,
-                                            textAlign: 'start',
+                                            justifyContent: 'space-between',
+                                            display: 'flex',
                                         }}
                                     >
-                                        <span
-                                            className="text-muted"
-                                            style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
-                                        >{`0${pathItemCard.name[0]}`}</span>{' '}
-                                        <span style={{ fontSize: 13, fontWeight: 600 }}>{pageUrl(pathItemCard)}</span>
+                                        <div>
+                                            <span
+                                                className="text-muted"
+                                                style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
+                                            >{`0${pathItemCard.name[0]}`}</span>{' '}
+                                            <span style={{ fontSize: 13, fontWeight: 600 }}>
+                                                {pageUrl(pathItemCard)}
+                                            </span>
+                                        </div>
+                                        <span style={{ marginRight: 8 }}>{completedValue + dropOffValue}</span>
                                     </Button>
                                 </Dropdown>
                             </>

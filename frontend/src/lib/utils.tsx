@@ -418,7 +418,7 @@ export function clearDOMTextSelection(): void {
         }
     } else if ((document as any).selection) {
         // IE?
-        ;(document as any).selection.empty()
+        (document as any).selection.empty()
     }
 }
 
@@ -556,8 +556,7 @@ export function isURL(input: any): boolean {
         return false
     }
     // https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url
-    const regexp =
-        /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
+    const regexp = /^\s*https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi
     return !!input.match?.(regexp)
 }
 
@@ -566,8 +565,7 @@ export function isEmail(string: string): boolean {
         return false
     }
     // https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
-    const regexp =
-        /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+    const regexp = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
 }
 
@@ -1080,4 +1078,8 @@ export function validateJsonFormItem(_: any, value: string): Promise<string | vo
     } catch (error) {
         return Promise.reject('Not valid JSON!')
     }
+}
+
+export function ensureStringIsNotBlank(s?: string | null): string | null {
+    return typeof s === 'string' && s.trim() !== '' ? s : null
 }

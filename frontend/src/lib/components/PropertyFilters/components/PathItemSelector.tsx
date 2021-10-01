@@ -9,9 +9,16 @@ interface PathItemSelectorProps {
     children: JSX.Element
     index: number
     groupTypes?: TaxonomicFilterGroupType[]
+    disabled?: boolean
 }
 
-export function PathItemSelector({ pathItem, onChange, children, groupTypes }: PathItemSelectorProps): JSX.Element {
+export function PathItemSelector({
+    pathItem,
+    onChange,
+    children,
+    groupTypes,
+    disabled,
+}: PathItemSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
     return (
         <Popup
@@ -33,7 +40,7 @@ export function PathItemSelector({ pathItem, onChange, children, groupTypes }: P
         >
             {({ setRef }) => {
                 return (
-                    <div ref={setRef} onClick={() => setVisible(!visible)}>
+                    <div ref={setRef} onClick={disabled ? () => {} : () => setVisible(!visible)}>
                         {children}
                     </div>
                 )

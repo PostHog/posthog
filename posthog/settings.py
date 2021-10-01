@@ -184,8 +184,6 @@ if CLICKHOUSE_SECURE:
 
 CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhouse_http_port}/"
 
-IS_HEROKU = get_from_env("IS_HEROKU", False, type_cast=str_to_bool)
-
 # Kafka configs
 KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka")
 KAFKA_HOSTS_LIST = [urlparse(host).netloc for host in KAFKA_URL.split(",")]

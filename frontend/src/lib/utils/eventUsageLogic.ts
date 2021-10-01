@@ -164,6 +164,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             success,
             error,
         }),
+        reportFunnelStepReordered: true,
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -443,6 +444,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 success: success,
                 error: error,
             })
+        },
+        reportFunnelStepReordered: async () => {
+            posthog.capture('funnel step reordered')
         },
         reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`person property ${action}`, {
