@@ -5,7 +5,7 @@ import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, Menu, Dropdown, Row } from 'antd'
+import { Button, Menu, Dropdown } from 'antd'
 import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -373,54 +373,53 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                             display: 'flex',
                                         }}
                                     >
-                                        <Row justify="space-between" align="center">
-                                            <div>
-                                                <span
-                                                    className="text-muted"
-                                                    style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
-                                                >{`0${pathItemCard.name[0]}`}</span>{' '}
-                                                <span style={{ fontSize: 13, fontWeight: 600 }}>
-                                                    {pageUrl(pathItemCard, true)}
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <Dropdown
-                                                    trigger={['click']}
-                                                    overlay={
-                                                        <Menu className="paths-options-dropdown">
-                                                            <Menu.Item
-                                                                onClick={() =>
-                                                                    setFilter({ start_point: pageUrl(pathItemCard) })
-                                                                }
-                                                            >
-                                                                Set as path start
-                                                            </Menu.Item>
-                                                            <Menu.Item
-                                                                onClick={() =>
-                                                                    setFilter({ end_point: pageUrl(pathItemCard) })
-                                                                }
-                                                            >
-                                                                Set as path end
-                                                            </Menu.Item>
-                                                            <Menu.Item
-                                                                onClick={() =>
-                                                                    updateExclusions([{ value: pageUrl(pathItemCard) }])
-                                                                }
-                                                            >
-                                                                Exclude path item
-                                                            </Menu.Item>
-                                                            <Menu.Item
-                                                                onClick={() => copyToClipboard(pathItemCard.name)}
-                                                            >
-                                                                Copy path item name
-                                                            </Menu.Item>
-                                                        </Menu>
-                                                    }
-                                                >
-                                                    <Button className="paths-dropdown-ellipsis">...</Button>
-                                                </Dropdown>
-                                            </div>
-                                        </Row>
+                                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                                            <span
+                                                className="text-muted"
+                                                style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
+                                            >{`0${pathItemCard.name[0]}`}</span>{' '}
+                                            <span style={{ fontSize: 13, fontWeight: 600 }}>
+                                                {pageUrl(pathItemCard, true)}
+                                            </span>
+                                            <span className="text-muted" style={{ fontSize: 12, paddingLeft: 4 }}>
+                                                ({completedValue + dropOffValue})
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <Dropdown
+                                                trigger={['click']}
+                                                overlay={
+                                                    <Menu className="paths-options-dropdown">
+                                                        <Menu.Item
+                                                            onClick={() =>
+                                                                setFilter({ start_point: pageUrl(pathItemCard) })
+                                                            }
+                                                        >
+                                                            Set as path start
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() =>
+                                                                setFilter({ end_point: pageUrl(pathItemCard) })
+                                                            }
+                                                        >
+                                                            Set as path end
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() =>
+                                                                updateExclusions([{ value: pageUrl(pathItemCard) }])
+                                                            }
+                                                        >
+                                                            Exclude path item
+                                                        </Menu.Item>
+                                                        <Menu.Item onClick={() => copyToClipboard(pathItemCard.name)}>
+                                                            Copy path item name
+                                                        </Menu.Item>
+                                                    </Menu>
+                                                }
+                                            >
+                                                <Button className="paths-dropdown-ellipsis">...</Button>
+                                            </Dropdown>
+                                        </div>
                                     </Button>
                                 </Dropdown>
                             </>

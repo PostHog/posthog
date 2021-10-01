@@ -12,12 +12,12 @@
     }
 
     .paths-dropdown-ellipsis {
+        display: flex;
         font-size: 18px;
         border: none;
         font-weight: 600;
         padding: 0px 4px;
         height: 26px;
-        margin-top: -5px;
         border-radius: 4px;
         line-height: 18px;
         &:hover {
