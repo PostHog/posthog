@@ -166,7 +166,7 @@ jobs:
                       means a speed up and greater than 1 means a slowdown. Green lines
                       beginning with `+` are slowdowns (the PR is slower then master or
                       master is slower than the previous release). Red lines beginning
-                      with `-` are speedups.
+                      with `-` are speedups. Blank means no changes.
 
                       Significantly changed benchmark results (PR vs master)
                       ```diff
