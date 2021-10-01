@@ -44,7 +44,7 @@ describe('entityFilterLogic', () => {
     })
 
     describe('core assumptions', () => {
-        it('mounts all sorts of logics', async () => {
+        it('mounts other logics', async () => {
             await expectLogic(logic).toMount([actionsModel])
         })
 
@@ -55,26 +55,56 @@ describe('entityFilterLogic', () => {
         })
     })
 
-    it('renames an entity with a custom name', async () => {
-        const filterWithCustomName = {
-            id: '$pageview',
-            name: '$pageview',
-            custom_name: 'Custom event name',
-            order: 0,
-        }
-
-        await expectLogic(logic, () => {
-            logic.actions.renameFilter(filterWithCustomName)
-        }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
-
-        expect(logic.props.setFilters).toBeCalledWith(
-            expect.objectContaining({
-                events: expect.arrayContaining([
-                    expect.objectContaining({
-                        custom_name: filterWithCustomName.custom_name,
-                    }),
-                ]),
+    describe('renaming filters', () => {
+        it('renames successfully', async () => {
+            // Select a filter to rename first
+            await expectLogic(logic, () => {
+                logic.actions.selectFilter({
+                    id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                })
             })
-        )
+
+            await expectLogic(logic, () => {
+                logic.actions.renameFilter('Custom event name')
+            }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
+
+            expect(logic.props.setFilters).toBeCalledWith(
+                expect.objectContaining({
+                    events: expect.arrayContaining([
+                        expect.objectContaining({
+                            custom_name: 'Custom event name',
+                        }),
+                    ]),
+                })
+            )
+        })
+
+        it('closes modal after renaming', () => {
+            expectLogic(logic, () => {
+                logic.actions.renameFilter('Custom event name')
+            })
+                .toDispatchActions(['renameFilter', 'hideModal'])
+                .toMatchValues({ modalVisible: false })
+        })
+    })
+
+    describe('modal behavior', () => {
+        it('hides modal', () => {
+            expectLogic(logic, () => {
+                logic.actions.hideModal()
+            })
+                .toDispatchActions(['hideModal'])
+                .toMatchValues({ modalVisible: false })
+        })
+
+        it('shows modal', () => {
+            expectLogic(logic, () => {
+                logic.actions.showModal()
+            })
+                .toDispatchActions(['showModal'])
+                .toMatchValues({ modalVisible: true })
+        })
     })
 })

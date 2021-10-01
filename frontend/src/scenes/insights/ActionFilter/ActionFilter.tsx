@@ -1,15 +1,15 @@
 import './ActionFilter.scss'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useValues, BindLogic } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
-import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, FunnelStepRangeEntityFilter, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FilterRenameModal } from 'scenes/insights/ActionFilter/FilterRenameModal'
+import { RenameModal } from 'scenes/insights/ActionFilter/RenameModal'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -93,11 +93,10 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         ref
     ): JSX.Element => {
         const logic = entityFilterLogic({ setFilters, filters, typeKey, addFilterDefaultOptions })
+        const { reportFunnelStepReordered } = useActions(eventUsageLogic)
 
         const { localFilters } = useValues(logic)
-        const { addFilter, setLocalFilters } = useActions(logic)
-
-        const [modalOpen, setModalOpen] = useState(false)
+        const { addFilter, setLocalFilters, showModal } = useActions(logic)
 
         // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
         // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
@@ -113,7 +112,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             }
             setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
             if (oldIndex !== newIndex) {
-                posthog.capture('funnel step reordered')
+                reportFunnelStepReordered()
             }
         }
 
@@ -133,7 +132,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             disabled,
             renderRow,
             hideRename,
-            onRenameClick: () => setModalOpen(true),
+            onRenameClick: showModal,
         }
 
         return (
@@ -143,7 +142,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         logic={entityFilterLogic}
                         props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}
                     >
-                        <FilterRenameModal visible={modalOpen} setModalOpen={setModalOpen} view={filters.insight} />
+                        <RenameModal view={filters.insight} typeKey={typeKey} />
                     </BindLogic>
                 )}
                 {localFilters ? (
