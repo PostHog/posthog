@@ -110,7 +110,7 @@ export function Signup(): JSX.Element | null {
                                                       message: (
                                                           <>
                                                               <ExclamationCircleFilled style={{ marginLeft: 4 }} />{' '}
-                                                              Please input a valid email
+                                                              Please enter a valid email
                                                           </>
                                                       ),
                                                   },
@@ -131,6 +131,7 @@ export function Signup(): JSX.Element | null {
                                         placeholder="email@yourcompany.com"
                                         type="email"
                                         ref={emailInputRef}
+                                        disabled={signupResponseLoading}
                                     />
                                 </Form.Item>
                                 <PasswordInput
@@ -149,6 +150,7 @@ export function Signup(): JSX.Element | null {
                                     }
                                     validateMinLength
                                     validationDisabled={!formSubmitted}
+                                    disabled={signupResponseLoading}
                                 />
                                 <Form.Item
                                     name="first_name"
