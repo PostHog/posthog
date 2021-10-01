@@ -126,8 +126,6 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             team_report["persons_count_new_in_period"] = persons_considered_total_new_in_period.count()
             instance_usage_summary["persons_count_new_in_period"] += team_report["persons_count_new_in_period"]
 
-            team_report["persons_count_active_in_period"] = fetch_persons_count_active_in_period(params)
-
             # Dashboards
             team_dashboards = Dashboard.objects.filter(team=team).exclude(deleted=True)
             team_report["dashboards_count"] = team_dashboards.count()
@@ -159,17 +157,6 @@ def capture_event(name: str, report: Dict[str, Any], dry_run: bool) -> None:
             posthoganalytics.capture(user.distinct_id, f"user {name}", {**report, "scope": "user"})
     else:
         print(name, json.dumps(report))  # noqa: T001
-
-
-def fetch_persons_count_active_in_period(params: Tuple[Any, ...]) -> int:
-    return fetch_sql(
-        """
-        SELECT COUNT(DISTINCT person_id) as persons_count
-        FROM posthog_event JOIN posthog_persondistinctid ON (posthog_event.distinct_id = posthog_persondistinctid.distinct_id)
-        WHERE posthog_event.team_id = %s AND posthog_event.timestamp >= %s AND posthog_event.timestamp <= %s
-        """,
-        params,
-    )[0].persons_count
 
 
 def fetch_event_counts_by_lib(params: Tuple[Any, ...]) -> dict:

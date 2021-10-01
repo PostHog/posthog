@@ -57,7 +57,6 @@ def factory_status_report(_create_event, _create_person):
                     self.assertEqual(team_report["events_count_by_name"], {"$event1": 1, "$event2": 2})
                     self.assertEqual(team_report["persons_count_total"], 4)
                     self.assertEqual(team_report["persons_count_new_in_period"], 2)
-                    self.assertEqual(team_report["persons_count_active_in_period"], 1)
 
                 _test_team_report()
 
