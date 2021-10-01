@@ -6,7 +6,6 @@ env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
-    KAFKA_HOSTS: 'localhost:9092'
     CLICKHOUSE_HOST: 'localhost'
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
