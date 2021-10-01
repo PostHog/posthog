@@ -176,6 +176,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     if (group?.options) {
                         return group.options
                     }
+                    if (props.listGroupType in props.optionsFromProp) {
+                        return props.optionsFromProp[props.listGroupType]
+                    }
                     return null
                 },
             ],

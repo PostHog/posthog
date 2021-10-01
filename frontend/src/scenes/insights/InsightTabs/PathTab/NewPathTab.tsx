@@ -20,8 +20,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export function NewPathTab(): JSX.Element {
-    const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
+    const { filter, wildcards } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId: null }))
+
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
@@ -33,16 +34,19 @@ export function NewPathTab(): JSX.Element {
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const groupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
-        ? filter.include_event_types.map((item) => {
-              if (item === PathType.Screen) {
-                  return TaxonomicFilterGroupType.Screens
-              } else if (item === PathType.CustomEvent) {
-                  return TaxonomicFilterGroupType.CustomEvents
-              } else {
-                  return TaxonomicFilterGroupType.PageviewUrls
-              }
-          })
-        : []
+        ? [
+              ...filter.include_event_types.map((item) => {
+                  if (item === PathType.Screen) {
+                      return TaxonomicFilterGroupType.Screens
+                  } else if (item === PathType.CustomEvent) {
+                      return TaxonomicFilterGroupType.CustomEvents
+                  } else {
+                      return TaxonomicFilterGroupType.PageviewUrls
+                  }
+              }),
+              TaxonomicFilterGroupType.Wildcards,
+          ]
+        : [TaxonomicFilterGroupType.Wildcards]
 
     const overrideStartInput =
         filter.funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(filter.funnel_paths)
@@ -242,6 +246,7 @@ export function NewPathTab(): JSX.Element {
                                     }
                                     groupTypes={groupTypes}
                                     disabled={overrideStartInput || overrideEndInput}
+                                    wildcardOptions={wildcards}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 1}
@@ -307,6 +312,7 @@ export function NewPathTab(): JSX.Element {
                                     }
                                     groupTypes={groupTypes}
                                     disabled={overrideEndInput || overrideStartInput}
+                                    wildcardOptions={wildcards}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 0}
@@ -475,6 +481,7 @@ export function NewPathTab(): JSX.Element {
                             }))
                         }
                         onChange={updateExclusions}
+                        wildcardOptions={wildcards}
                     />
                 </Col>
             </Row>
