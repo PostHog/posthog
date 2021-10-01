@@ -160,19 +160,24 @@ jobs:
                   comment-id: ${{ steps.fc.outputs.comment-id }}
                   issue-number: ${{ github.event.number }}
                   body: |
-                      Benchmark results from GitHub Actions
+                      ClickHouse query benchmark results from GitHub Actions
+
                       Lower numbers are good, higher numbers are bad. A ratio less than 1
                       means a speed up and greater than 1 means a slowdown. Green lines
                       beginning with `+` are slowdowns (the PR is slower then master or
                       master is slower than the previous release). Red lines beginning
                       with `-` are speedups.
+
                       Significantly changed benchmark results (PR vs master)
                       ```diff
                       ${{ steps.pr_vs_master_changed.outputs.content }}
                       ```
-                      Full benchmark results can be found as artifacts in GitHub Actions
-                      (click on checks at the top of the PR).
-                      ```diff
-                      ${{ steps.pr_vs_master.outputs.content }}
-                      ```
+
+                      <details>
+                        <summary><h3>Click to view full benchmark results</h3></summary>
+
+                        ```diff
+                        ${{ steps.pr_vs_master.outputs.content }}
+                        ```
+                      </details>
                   edit-mode: replace
