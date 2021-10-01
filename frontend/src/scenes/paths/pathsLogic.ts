@@ -30,7 +30,7 @@ export function cleanPathParams(filters: Partial<FilterType>): Partial<FilterTyp
         step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
         // TODO: use FF for path_type undefined
         path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
-        include_event_types: filters.include_event_types || [PathType.PageView],
+        include_event_types: filters.include_event_types || (filters.funnel_filter ? [] : [PathType.PageView]),
         path_groupings: filters.path_groupings || [],
         exclude_events: filters.exclude_events || [],
         ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
@@ -41,6 +41,8 @@ export function cleanPathParams(filters: Partial<FilterType>): Partial<FilterTyp
         path_start_key: filters.path_start_key || undefined,
         path_end_key: filters.path_end_key || undefined,
         path_dropoff_key: filters.path_dropoff_key || undefined,
+        funnel_filter: filters.funnel_filter || {},
+        funnel_paths: filters.funnel_paths,
     }
 }
 

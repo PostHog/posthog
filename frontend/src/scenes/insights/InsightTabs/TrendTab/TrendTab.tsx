@@ -136,6 +136,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                                     ? 'Please add at least one graph series to use formulas'
                                                     : undefined
                                             }
+                                            visible={formulaEnabled ? false : undefined}
                                         >
                                             <Button
                                                 onClick={() => setIsUsingFormulas(true)}

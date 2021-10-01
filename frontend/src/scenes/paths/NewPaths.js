@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { stripHTTP } from 'lib/utils'
+import { copyToClipboard, stripHTTP } from 'lib/utils'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -47,7 +47,7 @@ function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     return retval
 }
 
-function pageUrl(d) {
+function pageUrl(d, display) {
     const incomingUrls = d.targetLinks
         .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
         .filter((a) => {
@@ -70,7 +70,11 @@ function pageUrl(d) {
         // discard if invalid url
     }
 
-    return name.length > 35 ? name.substring(0, 6) + '...' + name.slice(-15) : name
+    if (display) {
+        return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
+    }
+
+    return name
 }
 
 function NoData() {
@@ -88,10 +92,10 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
-    const { openPersonsModal } = useActions(pathsLogic({ dashboardItemId, filters }))
-
+    const { openPersonsModal, setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId, filters }))
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
+        setPathItemCards([])
         renderPaths()
     }, [paths, !pathsLoading, size, color])
 
@@ -231,17 +235,12 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             })
     }
 
-    const dropOffValue = (pathItemCard) => {
-        if (pathItemCard.layer === filter.step_limit - 1) {
-            // Last Layer has no concept of dropoff
-            return 0
-        }
+    const getDropOffValue = (pathItemCard) => {
         return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
-    const completedValuePercentage = (pathItemCard) => {
-        const baseValue = pathItemCard.targetLinks.reduce((prev, curr) => prev + curr.source.value, 0)
-        return (pathItemCard.value / baseValue) * 100
+    const getContinuingValue = (sourceLinks) => {
+        return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
     return (
@@ -256,9 +255,12 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                 {!paths.error &&
                     pathItemCards &&
                     pathItemCards.map((pathItemCard, idx) => {
+                        const continuingValue = getContinuingValue(pathItemCard.sourceLinks)
+                        const dropOffValue = getDropOffValue(pathItemCard)
                         return (
                             <>
                                 <Dropdown
+                                    key={idx}
                                     overlay={
                                         <Menu
                                             style={{
@@ -283,22 +285,22 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     <span style={{ paddingRight: 8 }}>
                                                         <PathsCompletedArrow />
                                                     </span>{' '}
-                                                    Completed
+                                                    Continuing
                                                 </span>{' '}
                                                 <span style={{ color: 'var(--primary)' }}>
                                                     <ValueInspectorButton
-                                                        onClick={() => openPersonsModal(undefined, pathItemCard.name)}
+                                                        onClick={() => openPersonsModal(pathItemCard.name)}
                                                     >
-                                                        {pathItemCard.value}{' '}
+                                                        {continuingValue}{' '}
                                                     </ValueInspectorButton>
                                                     {pathItemCard.targetLinks.length > 0 && (
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {completedValuePercentage(pathItemCard).toFixed(1)}%
+                                                            {((continuingValue / pathItemCard.value) * 100).toFixed(1)}%
                                                         </span>
                                                     )}
                                                 </span>
                                             </Menu.Item>
-                                            {dropOffValue(pathItemCard) > 0 && (
+                                            {dropOffValue > 0 && (
                                                 <Menu.Item
                                                     disabled
                                                     style={{
@@ -315,9 +317,8 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         <span style={{ paddingRight: 8 }}>
                                                             <PathsDropoffArrow />
                                                         </span>{' '}
-                                                        Dropped off
+                                                        Dropping off
                                                     </span>{' '}
-                                                    <span style={{ color: 'var(--primary)' }} />
                                                     <span style={{ color: 'var(--primary)' }}>
                                                         <ValueInspectorButton
                                                             onClick={() =>
@@ -328,14 +329,10 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                                 )
                                                             }
                                                         >
-                                                            {dropOffValue(pathItemCard)}{' '}
+                                                            {dropOffValue}{' '}
                                                         </ValueInspectorButton>
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {(
-                                                                (dropOffValue(pathItemCard) / pathItemCard.value) *
-                                                                100
-                                                            ).toFixed(1)}
-                                                            %
+                                                            {((dropOffValue / pathItemCard.value) * 100).toFixed(1)}%
                                                         </span>
                                                     </span>
                                                 </Menu.Item>
@@ -383,14 +380,72 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                             width: 240,
                                             border: '1px solid var(--border)',
                                             padding: 4,
-                                            textAlign: 'start',
+                                            justifyContent: 'space-between',
+                                            display: 'flex',
                                         }}
                                     >
-                                        <span
-                                            className="text-muted"
-                                            style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
-                                        >{`0${pathItemCard.name[0]}`}</span>{' '}
-                                        <span style={{ fontSize: 13, fontWeight: 600 }}>{pageUrl(pathItemCard)}</span>
+                                        <div
+                                            style={{ display: 'flex', alignItems: 'center' }}
+                                            onClick={() => openPersonsModal(undefined, pathItemCard.name)}
+                                        >
+                                            <span
+                                                className="text-muted"
+                                                style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
+                                            >{`0${pathItemCard.name[0]}`}</span>{' '}
+                                            <span style={{ fontSize: 13, fontWeight: 600 }}>
+                                                {pageUrl(pathItemCard, true)}
+                                            </span>
+                                            <span className="text-muted" style={{ fontSize: 12, paddingLeft: 4 }}>
+                                                ({continuingValue + dropOffValue})
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <Dropdown
+                                                trigger={['click']}
+                                                overlay={
+                                                    <Menu className="paths-options-dropdown">
+                                                        <Menu.Item
+                                                            onClick={() =>
+                                                                setFilter({ start_point: pageUrl(pathItemCard) })
+                                                            }
+                                                        >
+                                                            Set as path start
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() =>
+                                                                setFilter({ end_point: pageUrl(pathItemCard) })
+                                                            }
+                                                        >
+                                                            Set as path end
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() => {
+                                                                if (filter.exclude_events.length > 0) {
+                                                                    const exclusionEvents = filter.exclude_events.map(
+                                                                        (event) => ({ value: event })
+                                                                    )
+                                                                    updateExclusions([
+                                                                        ...exclusionEvents,
+                                                                        { value: pageUrl(pathItemCard) },
+                                                                    ])
+                                                                } else {
+                                                                    updateExclusions([{ value: pageUrl(pathItemCard) }])
+                                                                }
+                                                            }}
+                                                        >
+                                                            Exclude path item
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() => copyToClipboard(pageUrl(pathItemCard))}
+                                                        >
+                                                            Copy path item name
+                                                        </Menu.Item>
+                                                    </Menu>
+                                                }
+                                            >
+                                                <div className="paths-dropdown-ellipsis">...</div>
+                                            </Dropdown>
+                                        </div>
                                     </Button>
                                 </Dropdown>
                             </>
