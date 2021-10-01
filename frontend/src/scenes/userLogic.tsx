@@ -1,5 +1,5 @@
 import React from 'react'
-import { kea, LogicWrapperAdditions } from 'kea'
+import { kea } from 'kea'
 import api from 'lib/api'
 import { userLogicType } from './userLogicType'
 import { UserType } from '~/types'
@@ -8,7 +8,7 @@ import { toast } from 'react-toastify'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from './teamLogic'
 
-export const userLogic: userLogicType & LogicWrapperAdditions<userLogicType> = kea<userLogicType>({
+export const userLogic = kea<userLogicType>({
     connect: {
         values: [teamLogic, ['currentTeam']],
     },
