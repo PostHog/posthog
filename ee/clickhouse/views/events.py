@@ -31,7 +31,6 @@ from posthog.utils import convert_property_value, flatten
 
 
 class ClickhouseEventsViewSet(EventViewSet):
-
     serializer_class = ClickhouseEventSerializer  # type: ignore
 
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
@@ -194,3 +193,7 @@ class ClickhouseEventsViewSet(EventViewSet):
             )
 
         return Response({"result": session_recording})
+
+
+class LegacyClickhouseEventsViewSet(ClickhouseEventsViewSet):
+    legacy_team_compatibility = True
