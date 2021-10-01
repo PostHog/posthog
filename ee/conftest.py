@@ -1,3 +1,5 @@
+import pathlib
+
 import pytest
 from infi.clickhouse_orm import Database
 
@@ -12,7 +14,27 @@ from posthog.settings import (
 from posthog.test.base import TestMixin
 from posthog.utils import is_clickhouse_enabled
 
-pytestmark = pytest.mark.ee
+
+def pytest_collection_modifyitems(config, items):
+    # Mark everything in `./ee/` as pytest.mark.ee
+    rootdir = pathlib.Path(config.rootdir)
+    for item in items:
+        relative_path = pathlib.Path(item.fspath).relative_to(rootdir)
+        if str(relative_path).startswith("ee"):
+            item.add_marker(pytest.mark.ee)
+
+
+def pytest_runtest_setup(item: pytest.Item):
+    #  Skip ee tests if we do not have clickhouse configured
+    if not is_clickhouse_enabled() and item.get_closest_marker("ee"):
+        pytest.skip("ClickHouse is not configured, skipping test")
+
+    # Skip saml tests if we don't have saml2 lib installed
+    if item.get_closest_marker("saml_only"):
+        try:
+            import onelogin.saml2
+        except ImportError:
+            pytest.skip("OneLogin SDK is not installed, skipping test")
 
 
 def reset_clickhouse_tables():
