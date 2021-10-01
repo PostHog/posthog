@@ -6,8 +6,13 @@ import { UserType } from '~/types'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { teamLogic } from './teamLogic'
+import { organizationLogic } from './organizationLogic'
 
 export const userLogic = kea<userLogicType>({
+    connect: {
+        values: [teamLogic, ['currentTeam']],
+    },
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
@@ -15,11 +20,11 @@ export const userLogic = kea<userLogicType>({
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
     }),
-    selectors: ({ selectors }) => ({
+    selectors: () => ({
         demoOnlyProject: [
-            () => [selectors.user],
-            (user): boolean =>
-                (user?.team?.is_demo && user?.organization?.teams && user.organization.teams.length == 1) || false,
+            () => [teamLogic.selectors.currentTeam, organizationLogic.selectors.currentOrganization],
+            (currentTeam, currentOrganization): boolean =>
+                (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
         ],
     }),
     loaders: ({ values, actions }) => ({
@@ -81,7 +86,7 @@ export const userLogic = kea<userLogicType>({
                     })
 
                     posthog.register({
-                        is_demo_project: user.team?.is_demo,
+                        is_demo_project: teamLogic.values.currentTeam?.is_demo,
                     })
                 }
             }
