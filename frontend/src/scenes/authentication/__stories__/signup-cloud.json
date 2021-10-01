@@ -2,7 +2,7 @@
     "kea": {
         "router": {
             "location": {
-                "pathname": "/preflight",
+                "pathname": "/signup",
                 "search": "",
                 "hash": ""
             },
@@ -21,15 +21,15 @@
                     "django": true,
                     "redis": true,
                     "plugins": true,
-                    "celery": false,
+                    "celery": true,
                     "db": true,
                     "initiated": false,
-                    "cloud": false,
-                    "realm": "hosted",
+                    "cloud": true,
+                    "realm": "cloud",
                     "available_social_auth_providers": {
-                        "github": false,
-                        "gitlab": false,
-                        "google-oauth2": false,
+                        "github": true,
+                        "gitlab": true,
+                        "google-oauth2": true,
                         "saml": false
                     },
                     "can_create_org": true
@@ -43,15 +43,23 @@
             "featureFlagsTimedOut": true
         },
         "sceneLogic": {
-            "scene": "preflightCheck",
+            "scene": "signup",
             "params": {},
             "loadedScenes": {
                 "404": {},
                 "4xx": {},
-                "preflightCheck": {}
+                "signup": {}
             },
             "loadingScene": null,
             "upgradeModalFeatureNameAndCaption": null
+        },
+        "authentication": {
+            "signupLogic": {
+                "signupResponse": null,
+                "signupResponseLoading": false,
+                "formStep": 1,
+                "initialEmail": ""
+            }
         }
     },
     "lib": {
