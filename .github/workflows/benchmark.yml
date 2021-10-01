@@ -174,7 +174,7 @@ jobs:
                       ```
 
                       <details>
-                        <summary><h3>Click to view full benchmark results</h3></summary>
+                        <summary>Click to view full benchmark results</summary>
 
                         ```diff
                         ${{ steps.pr_vs_master.outputs.content }}
