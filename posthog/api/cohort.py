@@ -88,7 +88,7 @@ class CohortSerializer(serializers.ModelSerializer):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
         else:
             try:
-                filter = Filter(request=request)
+                filter = Filter(request=request, team=self.team)
                 team = cast(User, request.user).team
                 target_entity = get_target_entity(request)
                 if filter.shown_as == TRENDS_STICKINESS:

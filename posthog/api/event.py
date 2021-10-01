@@ -323,7 +323,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 status=400,
             )
         session_recording = SessionRecording().run(
-            team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
+            team=self.team,
+            filter=Filter(request=request, team=self.team),
+            session_recording_id=request.GET["session_recording_id"],
         )
 
         if request.GET.get("save_view"):

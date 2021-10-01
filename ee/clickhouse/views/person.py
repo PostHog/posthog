@@ -55,7 +55,7 @@ class ClickhousePersonViewSet(PersonViewSet):
             return {"result": ([], None, None)}
 
         team = self.team
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         funnel_class: Callable = ClickhouseFunnelPersons
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
@@ -100,8 +100,13 @@ class ClickhousePersonViewSet(PersonViewSet):
         if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None)}
 
+<<<<<<< HEAD
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
+=======
+        team = request.user.team
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=team)
+>>>>>>> d6577bfc0... Simplify filters ASAP if filter is created
 
         funnel_filter = None
         funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
