@@ -21,6 +21,7 @@ CREATE TABLE {table_name} ON CLUSTER {cluster}
     ip VARCHAR,
     site_url VARCHAR,
     now DateTime64(6, 'UTC'),
+    raw_payload VARCHAR,
     failure_timestamp DateTime64(6, 'UTC'),
     error_location VARCHAR,
     error VARCHAR
@@ -64,6 +65,7 @@ created_at,
 ip,
 site_url,
 now,
+raw_payload,
 failure_timestamp,
 error_location,
 error,
@@ -71,12 +73,32 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=DEAD_LETTER_QUEUE_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+    table_name=DEAD_LETTER_QUEUE_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    database=CLICKHOUSE_DATABASE,
 )
 
 
 INSERT_DEAD_LETTER_QUEUE_EVENT_SQL = """
-INSERT INTO events_dead_letter_queue SELECT %(id)s, %(event_uuid)s, %(event)s, %(properties)s, %(distinct_id)s, %(team_id)s, %(elements_chain)s, %(created_at)s, %(ip)s, %(site_url)s, %(now)s, %(failure_timestamp)s, %(error_location)s, %(error)s, 0, now()
+INSERT INTO events_dead_letter_queue 
+SELECT 
+%(id)s, 
+%(event_uuid)s, 
+%(event)s, 
+%(properties)s, 
+%(distinct_id)s, 
+%(team_id)s, 
+%(elements_chain)s, 
+%(created_at)s, 
+%(ip)s, 
+%(site_url)s, 
+%(now)s, 
+%(raw_payload)s, 
+%(failure_timestamp)s, 
+%(error_location)s, 
+%(error)s, 
+0, 
+now()
 """
 
 DROP_DEAD_LETTER_QUEUE_TABLE_SQL = f"DROP TABLE IF EXISTS {DEAD_LETTER_QUEUE_TABLE} ON CLUSTER {CLICKHOUSE_CLUSTER}"

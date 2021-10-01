@@ -8,6 +8,15 @@ from ee.clickhouse.sql.dead_letter_queue import INSERT_DEAD_LETTER_QUEUE_EVENT_S
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.test.base import BaseTest
 
+TEST_EVENT_RAW_PAYLOAD = json.dumps(
+    {
+        "event": "some event",
+        "properties": {
+            "distinct_id": 2,
+            "token": "invalid token",
+        },
+    }
+)
 
 # we do assertions here but mostly this just tests that the table is created successfully and works
 # "e2e" tests are more useful
@@ -31,6 +40,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
                 "ip": "127.0.0.1",
                 "site_url": "https://myawesomewebsite.com",
                 "now": now,
+                "raw_payload": TEST_EVENT_RAW_PAYLOAD,
                 "failure_timestamp": failure_timestamp,
                 "error_location": "plugin-server",
                 "error": "createPerson failed",
@@ -52,6 +62,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         self.assertEqual(dlq_event[8], "127.0.0.1")  # ip
         self.assertEqual(dlq_event[9], "https://myawesomewebsite.com")  # site_url
         self.assertEqual(dlq_event[10].strftime("%Y-%m-%d %H:%M:%S.%f"), now)  # now
-        self.assertEqual(dlq_event[11].strftime("%Y-%m-%d %H:%M:%S.%f"), failure_timestamp)  # created_at
-        self.assertEqual(dlq_event[12], "plugin-server")  # error_location
-        self.assertEqual(dlq_event[13], "createPerson failed")  # error
+        self.assertEqual(dlq_event[11], TEST_EVENT_RAW_PAYLOAD)  # raw_payload
+        self.assertEqual(dlq_event[12].strftime("%Y-%m-%d %H:%M:%S.%f"), failure_timestamp)  # created_at
+        self.assertEqual(dlq_event[13], "plugin-server")  # error_location
+        self.assertEqual(dlq_event[14], "createPerson failed")  # error
