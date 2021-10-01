@@ -273,20 +273,19 @@ export function NewPathTab(): JSX.Element {
                                     >
                                         <div className="label-container">
                                             {getStartPointLabel()}
-                                            {filter.start_point ||
-                                                (overrideStartInput && (
-                                                    <CloseButton
-                                                        onClick={(e: Event) => {
-                                                            setFilter({
-                                                                start_point: undefined,
-                                                                funnel_filter: undefined,
-                                                                funnel_paths: undefined,
-                                                            })
-                                                            e.stopPropagation()
-                                                        }}
-                                                        className="close-button"
-                                                    />
-                                                ))}
+                                            {filter.start_point || overrideStartInput ? (
+                                                <CloseButton
+                                                    onClick={(e: Event) => {
+                                                        setFilter({
+                                                            start_point: undefined,
+                                                            funnel_filter: undefined,
+                                                            funnel_paths: undefined,
+                                                        })
+                                                        e.stopPropagation()
+                                                    }}
+                                                    className="close-button"
+                                                />
+                                            ) : null}
                                         </div>
                                     </Button>
                                 </PathItemSelector>
