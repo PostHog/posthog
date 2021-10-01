@@ -10,6 +10,7 @@ import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
+import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -91,7 +92,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
-    const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId, filters }))
+    const { openPersonsModal, setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId, filters }))
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
         setPathItemCards([])
@@ -120,15 +121,12 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
 
         let sankey = new Sankey.sankey()
             .nodeId((d) => d.name)
-            .nodeAlign(Sankey.sankeyJustify)
+            .nodeAlign(Sankey.sankeyLeft)
             .nodeSort(null)
             .nodeWidth(15)
             .size([width, height])
 
-        const { nodes, links } = sankey({
-            nodes: paths.nodes.map((d) => ({ ...d })),
-            links: paths.links.map((d) => ({ ...d })),
-        })
+        const { nodes, links } = sankey(paths)
         setPathItemCards(nodes)
 
         svg.append('g')
@@ -241,7 +239,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
         return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
-    const getCompletedValue = (sourceLinks) => {
+    const getContinuingValue = (sourceLinks) => {
         return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
@@ -257,7 +255,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                 {!paths.error &&
                     pathItemCards &&
                     pathItemCards.map((pathItemCard, idx) => {
-                        const completedValue = getCompletedValue(pathItemCard.sourceLinks)
+                        const continuingValue = getContinuingValue(pathItemCard.sourceLinks)
                         const dropOffValue = getDropOffValue(pathItemCard)
                         return (
                             <>
@@ -287,13 +285,17 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     <span style={{ paddingRight: 8 }}>
                                                         <PathsCompletedArrow />
                                                     </span>{' '}
-                                                    Completed
+                                                    Continuing
                                                 </span>{' '}
                                                 <span style={{ color: 'var(--primary)' }}>
-                                                    {completedValue}{' '}
+                                                    <ValueInspectorButton
+                                                        onClick={() => openPersonsModal(pathItemCard.name)}
+                                                    >
+                                                        {continuingValue}{' '}
+                                                    </ValueInspectorButton>
                                                     {pathItemCard.targetLinks.length > 0 && (
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {((completedValue / pathItemCard.value) * 100).toFixed(1)}%
+                                                            {((continuingValue / pathItemCard.value) * 100).toFixed(1)}%
                                                         </span>
                                                     )}
                                                 </span>
@@ -315,11 +317,20 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         <span style={{ paddingRight: 8 }}>
                                                             <PathsDropoffArrow />
                                                         </span>{' '}
-                                                        Dropped off
+                                                        Dropping off
                                                     </span>{' '}
-                                                    <span style={{ color: 'var(--primary)' }} />
                                                     <span style={{ color: 'var(--primary)' }}>
-                                                        {dropOffValue}{' '}
+                                                        <ValueInspectorButton
+                                                            onClick={() =>
+                                                                openPersonsModal(
+                                                                    undefined,
+                                                                    undefined,
+                                                                    pathItemCard.name
+                                                                )
+                                                            }
+                                                        >
+                                                            {dropOffValue}{' '}
+                                                        </ValueInspectorButton>
                                                         <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
                                                             {((dropOffValue / pathItemCard.value) * 100).toFixed(1)}%
                                                         </span>
@@ -373,7 +384,10 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                             display: 'flex',
                                         }}
                                     >
-                                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                                        <div
+                                            style={{ display: 'flex', alignItems: 'center' }}
+                                            onClick={() => openPersonsModal(undefined, pathItemCard.name)}
+                                        >
                                             <span
                                                 className="text-muted"
                                                 style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
@@ -382,7 +396,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                 {pageUrl(pathItemCard, true)}
                                             </span>
                                             <span className="text-muted" style={{ fontSize: 12, paddingLeft: 4 }}>
-                                                ({completedValue + dropOffValue})
+                                                ({continuingValue + dropOffValue})
                                             </span>
                                         </div>
                                         <div>

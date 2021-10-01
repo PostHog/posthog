@@ -761,6 +761,9 @@ export interface FilterType {
     hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
     exclude_events?: string[] // Paths Exclusion type
     step_limit?: number // Paths Step Limit
+    path_start_key?: string // Paths People Start Key
+    path_end_key?: string // Paths People End Key
+    path_dropoff_key?: string // Paths People Dropoff Key
     funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     funnel_paths?: FunnelPathType
     edge_limit?: number | undefined // Paths edge limit
