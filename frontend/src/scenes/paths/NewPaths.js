@@ -70,7 +70,7 @@ function pageUrl(d, display) {
     }
 
     if (display) {
-        return name.length > 5 ? name.substring(0, 6) + '...' + name.slice(-8) : name
+        return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
     }
 
     return name
@@ -422,7 +422,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                             Exclude path item
                                                         </Menu.Item>
                                                         <Menu.Item
-                                                            onClick={() => copyToClipboard(pageUrl(pathItemCard, true))}
+                                                            onClick={() => copyToClipboard(pageUrl(pathItemCard))}
                                                         >
                                                             Copy path item name
                                                         </Menu.Item>
