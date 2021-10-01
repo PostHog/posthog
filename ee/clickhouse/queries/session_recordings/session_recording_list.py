@@ -1,9 +1,18 @@
+from collections import namedtuple
 from typing import Any, Dict, List, Tuple
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.action import format_entity_filter
 from ee.clickhouse.models.entity import get_entity_filtering_params
+from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from posthog.models.entity import Entity
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+
+ActionFiltersSQL = namedtuple(
+    "ActionFiltersSQL", ["select_clause", "matches_action_clauses", "filters_having", "matches_any_clause", "params"]
+)
 
 
 class ClickhouseSessionRecordingList(SessionRecordingList):
@@ -45,24 +54,27 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         MIN(session_recordings.distinct_id) as distinct_id,
         MIN(session_recordings.start_time) as start_time,
         MIN(session_recordings.end_time) as end_time,
-        MIN(session_recordings.duration) as duration,
-        count(*) as event_count
+        MIN(session_recordings.duration) as duration
+        {filters_select_clause}
     FROM (
         {core_session_recording_query}
     ) as session_recordings
     JOIN (
-        SELECT * FROM events
+        SELECT
+        timestamp,
+        distinct_id
+        {matches_action_clauses}
+        FROM events
         WHERE
             team_id = %(team_id)s
             {distinct_id_clause}
             {timestamp_clause}
-            {entity_clause}
     ) as filtered_events on (filtered_events.distinct_id = session_recordings.distinct_id)
     WHERE
         filtered_events.timestamp >= session_recordings.start_time 
         AND filtered_events.timestamp <= session_recordings.end_time
     GROUP BY session_recordings.session_id
-    HAVING event_count > 0
+    {filters_having}
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
     """
@@ -104,16 +116,18 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             distinct_id_clause=distinct_id_clause, timestamp_clause=timestamp_clause, duration_clause=duration_clause
         )
         if self._has_entity_filters():
-            entity_params, entity_clause = self._get_entity_clause()
+            action_filters = format_action_filters(self._filter)
 
             return (
                 self._session_recordings_query_with_entity_filter.format(
                     core_session_recording_query=core_session_recording_query,
                     distinct_id_clause=distinct_id_clause,
-                    entity_clause=entity_clause,
                     timestamp_clause=timestamp_clause,
+                    filters_select_clause=action_filters.select_clause,
+                    matches_action_clauses=action_filters.matches_action_clauses,
+                    filters_having=action_filters.filters_having,
                 ),
-                {**params, **distinct_id_params, **entity_params, **timestamp_params, **duration_params},
+                {**params, **distinct_id_params, **timestamp_params, **duration_params, **action_filters.params,},
             )
         return (
             self._basic_session_recordings_query.format(
@@ -131,3 +145,44 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         query, query_params = self._build_query()
         results = sync_execute(query, query_params)
         return self.data_to_return(results)
+
+
+def format_action_filters(filter: SessionRecordingsFilter) -> ActionFiltersSQL:
+    if len(filter.event_and_action_filters) == 0:
+        return ActionFiltersSQL("", "", "", "", {})
+
+    matches_action_clauses = select_clause = ""
+    having_clause = []
+    matches_any_clause = []
+
+    params: Dict = {}
+
+    for index, entity in enumerate(filter.event_and_action_filters):
+        condition_sql, filter_params = format_action_filter_aggregate(entity, prepend=f"event_matcher_{index}")
+
+        matches_action_clauses += f", ({condition_sql}) ? uuid : NULL as event_match_{index}"
+        select_clause += f", groupArray(event_match_{index}) as event_match_{index}"
+        having_clause.append(f"notEmpty(event_match_{index})")
+        matches_any_clause.append(condition_sql)
+
+        params = {**params, **filter_params}
+
+    return ActionFiltersSQL(
+        select_clause,
+        matches_action_clauses,
+        f"HAVING {' AND '.join(having_clause)}",
+        f"AND ({' OR '.join(matches_any_clause)})",
+        params,
+    )
+
+
+def format_action_filter_aggregate(entity: Entity, prepend: str):
+    filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False)
+    if entity.properties:
+        filters, filter_params = parse_prop_clauses(
+            entity.properties, prepend=prepend, team_id=None, allow_denormalized_props=False
+        )
+        filter_sql += f" {filters}"
+        params = {**params, **filter_params}
+
+    return filter_sql, params

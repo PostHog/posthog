@@ -82,7 +82,6 @@ export function SessionRecordingsTable({ distinctId, isPersonPage = false }: Ses
                             setFilters(payload)
                         }}
                         typeKey={'session-recordings'}
-                        singleFilter
                         hideMathSelector={true}
                         buttonCopy="Add action or event"
                         horizontalUI

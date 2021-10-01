@@ -178,21 +178,20 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         ))
                     )
                 ) : null}
-                {(!singleFilter || localFilters.length === 0 || customActions) && (
+                {(!singleFilter || customActions) && (
                     <div className="mt" style={{ display: 'flex', alignItems: 'center' }}>
-                        {!singleFilter ||
-                            (localFilters.length === 0 && (
-                                <Button
-                                    type="dashed"
-                                    onClick={() => addFilter()}
-                                    data-attr="add-action-event-button"
-                                    icon={<PlusCircleOutlined />}
-                                    disabled={disabled}
-                                    className="add-action-event-button"
-                                >
-                                    {buttonCopy || 'Action or event'}
-                                </Button>
-                            ))}
+                        {!singleFilter && (
+                            <Button
+                                type="dashed"
+                                onClick={() => addFilter()}
+                                data-attr="add-action-event-button"
+                                icon={<PlusCircleOutlined />}
+                                disabled={disabled}
+                                className="add-action-event-button"
+                            >
+                                {buttonCopy || 'Action or event'}
+                            </Button>
+                        )}
                         {customActions}
                     </div>
                 )}
