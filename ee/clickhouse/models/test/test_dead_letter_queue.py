@@ -1,11 +1,15 @@
 import json
 from datetime import date, datetime
+from logging import ERROR
+from time import sleep
 from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.dead_letter_queue import INSERT_DEAD_LETTER_QUEUE_EVENT_SQL
 from ee.clickhouse.util import ClickhouseTestMixin
+from ee.kafka_client.client import KafkaProducer
+from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.test.base import BaseTest
 
 TEST_EVENT_RAW_PAYLOAD = json.dumps(
@@ -18,36 +22,43 @@ TEST_EVENT_RAW_PAYLOAD = json.dumps(
     }
 )
 
-# we do assertions here but mostly this just tests that the table is created successfully and works
-# "e2e" tests are more useful
-class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
-    def test_insert_and_retrieve_failed_event(self):
-        created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-        error_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+CREATED_AT = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+ERROR_TIMESTAMP = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+NOW = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+TEST_DATA = {
+    "id": str(uuid4()),
+    "event_uuid": str(uuid4()),
+    "event": "some event",
+    "properties": "{ a: 1 }",
+    "distinct_id": "some distinct id",
+    "team_id": 1,
+    "elements_chain": "",
+    "created_at": CREATED_AT,
+    "ip": "127.0.0.1",
+    "site_url": "https://myawesomewebsite.com",
+    "now": NOW,
+    "raw_payload": TEST_EVENT_RAW_PAYLOAD,
+    "error_timestamp": ERROR_TIMESTAMP,
+    "error_location": "plugin-server",
+    "error": "createPerson failed",
+}
+
+
+def truncate_table():
+    sync_execute("TRUNCATE TABLE events_dead_letter_queue")
+
+
+class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):  # type: ignore
+    def test_direct_table_insert(self):
 
         sync_execute(
             INSERT_DEAD_LETTER_QUEUE_EVENT_SQL,
-            {
-                "id": str(uuid4()),
-                "event_uuid": str(uuid4()),
-                "event": "some event",
-                "properties": "{ a: 1 }",
-                "distinct_id": "some distinct id",
-                "team_id": 1,
-                "elements_chain": "",
-                "created_at": created_at,
-                "ip": "127.0.0.1",
-                "site_url": "https://myawesomewebsite.com",
-                "now": now,
-                "raw_payload": TEST_EVENT_RAW_PAYLOAD,
-                "error_timestamp": error_timestamp,
-                "error_location": "plugin-server",
-                "error": "createPerson failed",
-            },
+            TEST_DATA,
         )
 
-        dead_letter_queue_events = sync_execute("SELECT * FROM events_dead_letter_queue")
+        dead_letter_queue_events = sync_execute("SELECT * FROM events_dead_letter_queue LIMIT 1")
 
         dlq_event = dead_letter_queue_events[0]
 
@@ -58,11 +69,48 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         self.assertEqual(dlq_event[4], "some distinct id")  # distinct_id
         self.assertEqual(dlq_event[5], 1)  # team_id
         self.assertEqual(dlq_event[6], "")  # elements_chain
-        self.assertEqual(dlq_event[7].strftime("%Y-%m-%d %H:%M:%S.%f"), created_at)  # created_at
+        self.assertEqual(dlq_event[7].strftime("%Y-%m-%d %H:%M:%S.%f"), CREATED_AT)  # created_at
         self.assertEqual(dlq_event[8], "127.0.0.1")  # ip
         self.assertEqual(dlq_event[9], "https://myawesomewebsite.com")  # site_url
-        self.assertEqual(dlq_event[10].strftime("%Y-%m-%d %H:%M:%S.%f"), now)  # now
+        self.assertEqual(dlq_event[10].strftime("%Y-%m-%d %H:%M:%S.%f"), NOW)  # now
         self.assertEqual(dlq_event[11], TEST_EVENT_RAW_PAYLOAD)  # raw_payload
-        self.assertEqual(dlq_event[12].strftime("%Y-%m-%d %H:%M:%S.%f"), error_timestamp)  # created_at
+        self.assertEqual(dlq_event[12].strftime("%Y-%m-%d %H:%M:%S.%f"), ERROR_TIMESTAMP)  # created_at
         self.assertEqual(dlq_event[13], "plugin-server")  # error_location
         self.assertEqual(dlq_event[14], "createPerson failed")  # error
+
+        truncate_table()
+
+    def test_kafka_insert(self):
+        kafka_data = TEST_DATA
+
+        new_id = str(uuid4())
+        kafka_data["id"] = new_id
+
+        new_error = "cannot reach db to fetch team"
+        kafka_data["error"] = new_error
+
+        KafkaProducer().produce(topic=KAFKA_DEAD_LETTER_QUEUE, data=kafka_data)
+
+        sleep(2)
+
+        dead_letter_queue_events = sync_execute("SELECT * FROM events_dead_letter_queue LIMIT 1")
+
+        dlq_event = dead_letter_queue_events[0]
+
+        self.assertEqual(dlq_event[0], new_id)  # id
+        self.assertEqual(type(dlq_event[1]), UUID)  # event_uuid
+        self.assertEqual(dlq_event[2], "some event")  # event
+        self.assertEqual(dlq_event[3], "{ a: 1 }")  # properties
+        self.assertEqual(dlq_event[4], "some distinct id")  # distinct_id
+        self.assertEqual(dlq_event[5], 1)  # team_id
+        self.assertEqual(dlq_event[6], "")  # elements_chain
+        self.assertEqual(dlq_event[7].strftime("%Y-%m-%d %H:%M:%S.%f"), CREATED_AT)  # created_at
+        self.assertEqual(dlq_event[8], "127.0.0.1")  # ip
+        self.assertEqual(dlq_event[9], "https://myawesomewebsite.com")  # site_url
+        self.assertEqual(dlq_event[10].strftime("%Y-%m-%d %H:%M:%S.%f"), NOW)  # now
+        self.assertEqual(dlq_event[11], TEST_EVENT_RAW_PAYLOAD)  # raw_payload
+        self.assertEqual(dlq_event[12].strftime("%Y-%m-%d %H:%M:%S.%f"), ERROR_TIMESTAMP)  # created_at
+        self.assertEqual(dlq_event[13], "plugin-server")  # error_location
+        self.assertEqual(dlq_event[14], new_error)  # error
+
+        truncate_table()
