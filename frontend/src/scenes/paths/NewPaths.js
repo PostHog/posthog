@@ -63,18 +63,17 @@ function pageUrl(d, display) {
 
     let name = d.name.replace(/(^[0-9]+_)/, '')
 
+    if (!display) {
+        return name
+    }
+
     try {
         const url = new URL(name)
         name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
     } catch {
         // discard if invalid url
     }
-
-    if (display) {
-        return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
-    }
-
-    return name
+    return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
 }
 
 function NoData() {
