@@ -93,16 +93,26 @@ jobs:
                   python manage.py setup_dev --no-data
 
             - name: Configure benchmarks
-              run: asv machine --yes --machine ci-benchmarks --config ee/benchmarks/asv.conf.json
+              run: asv machine --config ee/benchmarks/asv.conf.json --yes --machine ci-benchmarks
 
             - name: Run benchmarks
               run: asv run --config ee/benchmarks/asv.conf.json --show-stderr --strict
 
+            - name: Compare results
+              run: |
+                  asv compare $(cat ee/benchmarks/results/last-master-commit) HEAD --config ee/benchmarks/asv.conf.json --factor 1.5 | tee pr_vs_master.txt
+                  asv compare $(cat ee/benchmarks/results/last-master-commit) HEAD --config ee/benchmarks/asv.conf.json --factor 1.5 --only-changed | tee pr_vs_master_changed.txt
+
+            - name: Save last benchmarked commit
+              if: ${{ github.ref == 'refs/heads/master' }}
+              run: echo "${{ github.sha }}" | tee ee/benchmarks/results/last-master-commit
+
             - name: Generate HTML report of results
+              if: ${{ github.ref == 'refs/heads/master' }}
               run: asv publish --config ee/benchmarks/asv.conf.json
 
             - name: Commit update for benchmark results
-              if: github.repository == 'PostHog/posthog'
+              if: ${{ github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master' }}
               uses: stefanzweifel/git-auto-commit-action@v4
               with:
                   repository: ee/benchmarks/results
@@ -111,3 +121,58 @@ jobs:
                   commit_user_name: PostHog Bot
                   commit_user_email: hey@posthog.com
                   commit_author: PostHog Bot <hey@posthog.com>
+
+            - name: Upload results as artifacts
+              uses: actions/upload-artifact@v2
+              with:
+                  name: benchmarks
+                  path: |
+                      pr_vs_master.txt
+                      pr_vs_master_changed.txt
+
+            - name: Read benchmark output
+              if: ${{ github.event_name == 'pull_request' }}
+              id: pr_vs_master_changed
+              uses: juliangruber/read-file-action@v1.0.0
+              with:
+                  path: pr_vs_master_changed.txt
+
+            - name: Read benchmark output (full)
+              if: ${{ github.event_name == 'pull_request' }}
+              id: pr_vs_master
+              uses: juliangruber/read-file-action@v1.0.0
+              with:
+                  path: pr_vs_master.txt
+
+            - name: Find Comment
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: peter-evans/find-comment@v1
+              id: fc
+              with:
+                  issue-number: ${{ github.event.number }}
+                  comment-author: 'github-actions[bot]'
+                  body-includes: Benchmark results from GitHub Actions
+
+            - name: Create or update comment
+              if: ${{ github.event_name == 'pull_request' }}
+              uses: peter-evans/create-or-update-comment@v1
+              with:
+                  comment-id: ${{ steps.fc.outputs.comment-id }}
+                  issue-number: ${{ github.event.number }}
+                  body: |
+                      Benchmark results from GitHub Actions
+                      Lower numbers are good, higher numbers are bad. A ratio less than 1
+                      means a speed up and greater than 1 means a slowdown. Green lines
+                      beginning with `+` are slowdowns (the PR is slower then master or
+                      master is slower than the previous release). Red lines beginning
+                      with `-` are speedups.
+                      Significantly changed benchmark results (PR vs master)
+                      ```diff
+                      ${{ steps.pr_vs_master_changed.outputs.content }}
+                      ```
+                      Full benchmark results can be found as artifacts in GitHub Actions
+                      (click on checks at the top of the PR).
+                      ```diff
+                      ${{ steps.pr_vs_master.outputs.content }}
+                      ```
+                  edit-mode: replace
