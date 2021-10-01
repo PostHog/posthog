@@ -98,7 +98,7 @@ def get_kafka_brokers():
     ]
 
 
-def get_kafka_producer(acks="all", value_serializer=lambda v: json.dumps(v).encode("utf-8")):
+def get_kafka_producer(acks="all", value_serializer=lambda v: json.dumps(v).encode("utf-8"), **kwargs):
     """
     Return a KafkaProducer that uses the SSLContext created with create_ssl_context.
     """
@@ -109,12 +109,13 @@ def get_kafka_producer(acks="all", value_serializer=lambda v: json.dumps(v).enco
         ssl_context=get_kafka_ssl_context(),
         value_serializer=value_serializer,
         acks=acks,
+        **kwargs
     )
 
     return producer
 
 
-def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.decode("utf-8"))):
+def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.decode("utf-8")), **kwargs):
     """
     Return a KafkaConsumer that uses the SSLContext created with create_ssl_context.
     """
@@ -127,6 +128,7 @@ def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.dec
         security_protocol="SSL",
         ssl_context=get_kafka_ssl_context(),
         value_deserializer=value_deserializer,
+        **kwargs
     )
 
     return consumer
