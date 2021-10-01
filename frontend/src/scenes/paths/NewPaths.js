@@ -90,7 +90,7 @@ const DEFAULT_PATHS_ID = 'default_paths'
 export function NewPaths({ dashboardItemId = null, filters = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
-    const { paths, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
+    const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
     const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId, filters }))
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
@@ -405,19 +405,31 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                             Set as path end
                                                         </Menu.Item>
                                                         <Menu.Item
-                                                            onClick={() =>
-                                                                updateExclusions([{ value: pageUrl(pathItemCard) }])
-                                                            }
+                                                            onClick={() => {
+                                                                if (filter.exclude_events.length > 0) {
+                                                                    const exclusionEvents = filter.exclude_events.map(
+                                                                        (event) => ({ value: event })
+                                                                    )
+                                                                    updateExclusions([
+                                                                        ...exclusionEvents,
+                                                                        { value: pageUrl(pathItemCard) },
+                                                                    ])
+                                                                } else {
+                                                                    updateExclusions([{ value: pageUrl(pathItemCard) }])
+                                                                }
+                                                            }}
                                                         >
                                                             Exclude path item
                                                         </Menu.Item>
-                                                        <Menu.Item onClick={() => copyToClipboard(pathItemCard.name)}>
+                                                        <Menu.Item
+                                                            onClick={() => copyToClipboard(pageUrl(pathItemCard, true))}
+                                                        >
                                                             Copy path item name
                                                         </Menu.Item>
                                                     </Menu>
                                                 }
                                             >
-                                                <Button className="paths-dropdown-ellipsis">...</Button>
+                                                <div className="paths-dropdown-ellipsis">...</div>
                                             </Dropdown>
                                         </div>
                                     </Button>
