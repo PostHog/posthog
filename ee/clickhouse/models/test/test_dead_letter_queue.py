@@ -1,8 +1,6 @@
 import json
-from datetime import date, datetime
-from logging import ERROR
+from datetime import datetime
 from time import sleep
-from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
 from ee.clickhouse.client import sync_execute
