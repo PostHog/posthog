@@ -29,7 +29,7 @@ def _create_person(distinct_id: str, team: Team) -> Person:
     return Person(id=person.uuid)
 
 
-class TestStatusReport(factory_status_report(_create_event, _create_person)):
+class TestStatusReport(factory_status_report(_create_event, _create_person)):  # type: ignore
     # CH only
     def test_status_report_duplicate_distinct_ids(self) -> None:
         create_person_distinct_id(self.team.id, "duplicate_id1", str(UUIDT()))

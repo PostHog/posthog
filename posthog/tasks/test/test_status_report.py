@@ -1,3 +1,4 @@
+from typing import Callable
 from unittest.mock import patch
 
 from dateutil.relativedelta import relativedelta
@@ -13,7 +14,7 @@ from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
 
-def factory_status_report(_create_event, _create_person):
+def factory_status_report(_create_event: Callable, _create_person: Callable) -> "TestStatusReport":
     class TestStatusReport(APIBaseTest):
         def create_new_org_and_team(self, for_internal_metrics: bool = False) -> Team:
             org = Organization.objects.create(name="New Org", for_internal_metrics=for_internal_metrics)
