@@ -23,7 +23,7 @@ TEST_EVENT_RAW_PAYLOAD = json.dumps(
 class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
     def test_insert_and_retrieve_failed_event(self):
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-        failure_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+        error_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
 
         sync_execute(
@@ -41,7 +41,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
                 "site_url": "https://myawesomewebsite.com",
                 "now": now,
                 "raw_payload": TEST_EVENT_RAW_PAYLOAD,
-                "failure_timestamp": failure_timestamp,
+                "error_timestamp": error_timestamp,
                 "error_location": "plugin-server",
                 "error": "createPerson failed",
             },
@@ -63,6 +63,6 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         self.assertEqual(dlq_event[9], "https://myawesomewebsite.com")  # site_url
         self.assertEqual(dlq_event[10].strftime("%Y-%m-%d %H:%M:%S.%f"), now)  # now
         self.assertEqual(dlq_event[11], TEST_EVENT_RAW_PAYLOAD)  # raw_payload
-        self.assertEqual(dlq_event[12].strftime("%Y-%m-%d %H:%M:%S.%f"), failure_timestamp)  # created_at
+        self.assertEqual(dlq_event[12].strftime("%Y-%m-%d %H:%M:%S.%f"), error_timestamp)  # created_at
         self.assertEqual(dlq_event[13], "plugin-server")  # error_location
         self.assertEqual(dlq_event[14], "createPerson failed")  # error
