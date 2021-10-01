@@ -51,7 +51,7 @@ def get_clickhouse_query_stats(uuid):
 
     return {
         "query_count": len(rows),
-        "ch_query_time": sum(get_column(rows, 0)),
+        "ch_query_time": int(sum(get_column(rows, 0))),
         "read_rows": sum(get_column(rows, 1)),
         "read_bytes": sum(get_column(rows, 2)),
         "memory_usage": sum(get_column(rows, 3)),
