@@ -7,7 +7,6 @@ import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from './teamLogic'
-import { organizationLogic } from './organizationLogic'
 
 export const userLogic: userLogicType & LogicWrapperAdditions<userLogicType> = kea<userLogicType>({
     connect: {
@@ -19,13 +18,6 @@ export const userLogic: userLogicType & LogicWrapperAdditions<userLogicType> = k
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
-    }),
-    selectors: () => ({
-        demoOnlyProject: [
-            () => [teamLogic.selectors.currentTeam, organizationLogic.selectors.currentOrganization],
-            (currentTeam, currentOrganization): boolean =>
-                (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
-        ],
     }),
     loaders: ({ values, actions }) => ({
         user: [
