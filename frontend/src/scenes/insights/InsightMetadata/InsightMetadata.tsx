@@ -13,17 +13,17 @@ function createInsightInputClassName(type: string, isEditable: boolean): string 
     return clsx('insight-metadata-input', `insight-metadata-${type}`, { edit: isEditable })
 }
 
-interface Props {
+interface MetadataProps {
     insight: Partial<DashboardItemType>
     isEditable?: boolean
 }
 
-function Title({ insight, isEditable = false }: Props): JSX.Element {
+function Title({ insight, isEditable = false }: MetadataProps): JSX.Element {
     const property = 'name'
     const logic = insightMetadataLogic({ insight: { [property]: insight[property] || '' } })
     const { insightMetadata, editableProps } = useValues(logic)
-    const { setInsightMetadata, updateInsightMetadata, showEditMode, showViewMode } = useActions(logic)
-    const placeholder = insight[property] || `Insight #${insight.id ?? '...'}`
+    const { setInsightMetadata, saveInsightMetadata, showEditMode, showViewMode } = useActions(logic)
+    const placeholder = insightMetadata[property] ?? insight[property] ?? `Insight #${insight.id ?? '...'}`
 
     return (
         <div className={createInsightInputClassName('title', isEditable)} data-attr="insight-title">
@@ -31,14 +31,14 @@ function Title({ insight, isEditable = false }: Props): JSX.Element {
                 editableProps.has(property) ? (
                     <Input
                         placeholder={placeholder}
-                        value={insightMetadata[property]}
+                        defaultValue={insightMetadata[property]}
                         size="large"
                         onChange={(e) => {
                             setInsightMetadata({ [property]: e.target.value })
                         }}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
-                                updateInsightMetadata(insight)
+                                saveInsightMetadata(property)
                             }
                         }}
                         tabIndex={0}
@@ -47,7 +47,12 @@ function Title({ insight, isEditable = false }: Props): JSX.Element {
                                 <Button className="btn-cancel" size="small" onClick={() => showViewMode(property)}>
                                     Cancel
                                 </Button>
-                                <Button className="ml-025" type="primary" size="small">
+                                <Button
+                                    className="ml-025"
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => saveInsightMetadata(property)}
+                                >
                                     Done
                                 </Button>
                             </>
@@ -76,41 +81,73 @@ function Title({ insight, isEditable = false }: Props): JSX.Element {
     )
 }
 
-function Description({ insight, isEditable = false }: Props): JSX.Element | null {
-    const logic = insightMetadataLogic({ insight: { description: insight.description } })
-    const { insightMetadata } = useValues(logic)
-    const { setInsightMetadata, updateInsightMetadata } = useActions(logic)
+function Description({ insight, isEditable = false }: MetadataProps): JSX.Element | null {
+    const property = 'description'
+    const logic = insightMetadataLogic({ insight: { [property]: insight[property] } })
+    const { insightMetadata, editableProps } = useValues(logic)
+    const { setInsightMetadata, saveInsightMetadata, showEditMode, showViewMode } = useActions(logic)
 
-    if (!insight.description && !isEditable) {
+    if (!insight[property] && !isEditable) {
         return null
     }
 
     return (
         <div className={createInsightInputClassName('description', isEditable)} data-attr="insight-description">
             {isEditable ? (
-                <Input.TextArea
-                    className="insight-description-textarea ant-input-lg" // hack needed because antd's textarea doesn't support size api
-                    style={{ padding: '6.5px 11px' }}
-                    value={insightMetadata.description}
-                    onChange={(e) => {
-                        setInsightMetadata({ description: e.target.value })
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                            updateInsightMetadata(insight)
-                        }
-                    }}
-                    tabIndex={5}
-                    autoSize={{ minRows: 1, maxRows: 5 }}
-                />
+                editableProps.has(property) ? (
+                    <div className="ant-input-affix-wrapper ant-input-affix-wrapper-lg insight-description-textarea-wrapper">
+                        <Input.TextArea
+                            className="insight-description-textarea" // hack needed because antd's textarea doesn't support size api
+                            value={insightMetadata[property]}
+                            onChange={(e) => {
+                                setInsightMetadata({ [property]: e.target.value })
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                    saveInsightMetadata(property)
+                                }
+                            }}
+                            tabIndex={5}
+                            autoSize={{ minRows: 1, maxRows: 5 }}
+                        />
+                        <Button className="btn-cancel" size="small" onClick={() => showViewMode(property)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            className="ml-025"
+                            type="primary"
+                            size="small"
+                            onClick={() => saveInsightMetadata(property)}
+                        >
+                            Done
+                        </Button>
+                    </div>
+                ) : (
+                    <>
+                        <span className="description">
+                            {insightMetadata[property] ?? insight[property] ?? 'Description (optional)'}
+                        </span>
+                        <Button
+                            type="link"
+                            onClick={() => {
+                                showEditMode(property)
+                            }}
+                            className="btn-edit"
+                            data-attr={`edit-prop-${property}`}
+                            title={`Edit ${property}`}
+                        >
+                            <EditOutlined />
+                        </Button>
+                    </>
+                )
             ) : (
-                <span className="description">{insightMetadata.description ?? insight.description}</span>
+                <span className="description">{insightMetadata[property] ?? insight[property]}</span>
             )}
         </div>
     )
 }
 
-function Tags({ insight, isEditable = false }: Props): JSX.Element | null {
+function Tags({ insight, isEditable = false }: MetadataProps): JSX.Element | null {
     const { saveNewTag, deleteTag } = useActions(insightLogic)
     const { tagLoading } = useValues(insightLogic)
 

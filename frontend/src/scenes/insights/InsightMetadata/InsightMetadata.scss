@@ -27,6 +27,23 @@
     }
 
     .insight-metadata-description {
+        padding: 0;
+
+        .insight-description-textarea-wrapper {
+            transition: height 0s;
+
+            .insight-description-textarea {
+                padding: 0 !important;
+                border: none;
+                outline: none;
+                &:focus {
+                    border: none;
+                    outline: none;
+                    box-shadow: none;
+                }
+            }
+        }
+
         .description {
             color: $text_muted_alt;
             font-style: italic;

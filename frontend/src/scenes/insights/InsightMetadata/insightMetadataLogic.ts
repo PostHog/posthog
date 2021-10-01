@@ -11,7 +11,7 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
     props: {} as InsightMetadataLogic,
     actions: {
         setInsightMetadata: (insight: Partial<DashboardItemType>) => ({ insight }),
-        updateInsightMetadata: (insight: Partial<DashboardItemType>) => ({ insight }),
+        saveInsightMetadata: (property: keyof DashboardItemType) => ({ property }),
         showEditMode: (property: keyof DashboardItemType) => ({ property }),
         showViewMode: (property: keyof DashboardItemType) => ({ property }),
     },
@@ -34,12 +34,11 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
         ],
     }),
     listeners: ({ values, actions }) => ({
-        setInsightMetadata: async (_, breakpoint) => {
+        saveInsightMetadata: async ({ property }, breakpoint) => {
             await breakpoint(200)
-            actions.setInsight(values.insightMetadata, true)
-        },
-        updateInsightMetadata: ({ insight }) => {
-            actions.updateInsight(insight)
+            console.log('SAVE', values.insightMetadata)
+            await actions.setInsight(values.insightMetadata, true)
+            actions.showViewMode(property)
         },
     }),
 })
