@@ -11,37 +11,74 @@ interface PasswordInputProps extends FormItemProps {
     label?: string
     style?: React.CSSProperties
     validateMinLength?: boolean
+    validationDisabled?: boolean
+    disabled?: boolean
 }
 
 export const PasswordInput = React.forwardRef(function PasswordInputInternal(
-    { label = 'Password', showStrengthIndicator, validateMinLength, style, ...props }: PasswordInputProps,
+    {
+        label = 'Password',
+        showStrengthIndicator,
+        validateMinLength,
+        style,
+        validationDisabled,
+        disabled,
+        ...props
+    }: PasswordInputProps,
     ref: React.LegacyRef<Input>
 ): JSX.Element {
     return (
-        <div style={style}>
+        <div style={{ marginBottom: 24, ...style }}>
+            <div style={{ display: 'flex', alignItems: 'center' }} className="ant-form-item-label">
+                <label htmlFor="password">{label}</label>
+                {showStrengthIndicator && (
+                    <Form.Item
+                        shouldUpdate={(prevValues, currentValues) => prevValues.password !== currentValues.password}
+                        style={{ margin: 0, flexGrow: 1, paddingBottom: 8 }}
+                    >
+                        {({ getFieldValue }) => (
+                            <Suspense fallback={<></>}>
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        overflow: 'hidden',
+                                        whiteSpace: 'nowrap',
+                                        paddingLeft: '60%',
+                                    }}
+                                >
+                                    <PasswordStrength password={getFieldValue('password')} />
+                                </div>
+                            </Suspense>
+                        )}
+                    </Form.Item>
+                )}
+            </div>
             <Form.Item
                 name="password"
-                label={label}
-                rules={[
-                    {
-                        required: true,
-                        message: (
-                            <>
-                                <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Please enter your password to
-                                continue
-                            </>
-                        ),
-                    },
-                    {
-                        min: validateMinLength ? 8 : undefined,
-                        message: (
-                            <>
-                                <ExclamationCircleFilled style={{ marginLeft: 4 }} /> Your password must be at least 8
-                                characters long
-                            </>
-                        ),
-                    },
-                ]}
+                rules={
+                    !validationDisabled
+                        ? [
+                              {
+                                  required: true,
+                                  message: (
+                                      <>
+                                          <ExclamationCircleFilled style={{ marginRight: 4 }} /> Please enter your
+                                          password to continue
+                                      </>
+                                  ),
+                              },
+                              {
+                                  min: validateMinLength ? 8 : undefined,
+                                  message: (
+                                      <>
+                                          <ExclamationCircleFilled style={{ marginRight: 4 }} /> Password must be at
+                                          least 8 characters
+                                      </>
+                                  ),
+                              },
+                          ]
+                        : undefined
+                }
                 style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
                 {...props}
             >
@@ -51,17 +88,9 @@ export const PasswordInput = React.forwardRef(function PasswordInputInternal(
                     type="password"
                     data-attr="password"
                     placeholder="••••••••••"
+                    disabled={disabled}
                 />
             </Form.Item>
-            {showStrengthIndicator && (
-                <Form.Item shouldUpdate={(prevValues, currentValues) => prevValues.password !== currentValues.password}>
-                    {({ getFieldValue }) => (
-                        <Suspense fallback={<></>}>
-                            <PasswordStrength password={getFieldValue('password')} />
-                        </Suspense>
-                    )}
-                </Form.Item>
-            )}
         </div>
     )
 })

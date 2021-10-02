@@ -30,7 +30,6 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()
@@ -120,3 +119,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         return response.Response([{"name": value.value} for value in values])
+
+
+class LegacyElementViewSet(ElementViewSet):
+    legacy_team_compatibility = True

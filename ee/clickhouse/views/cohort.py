@@ -37,3 +37,7 @@ def insert_cohort_people_into_pg(cohort: Cohort):
 
 class ClickhouseCohortViewSet(CohortViewSet):
     serializer_class = ClickhouseCohortSerializer
+
+
+class LegacyClickhouseCohortViewSet(ClickhouseCohortViewSet):
+    legacy_team_compatibility = True

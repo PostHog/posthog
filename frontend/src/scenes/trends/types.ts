@@ -20,4 +20,5 @@ export interface TrendPeople {
     next?: string
     loadingMore?: boolean
     funnelStep?: number
+    pathsDropoff?: boolean
 }

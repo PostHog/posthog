@@ -32,8 +32,10 @@ class SessionsFilterSerializer(serializers.ModelSerializer):
 
 
 class SessionsFilterViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True
-
     queryset = SessionsFilter.objects.all().order_by("name")
     serializer_class = SessionsFilterSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+
+
+class LegacySessionsFilterViewSet(SessionsFilterViewSet):
+    legacy_team_compatibility = True
