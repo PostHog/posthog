@@ -2,7 +2,8 @@ import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { BuiltLogic } from 'kea'
 import { mockAPI } from 'lib/api.mock'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/kea-test-utils'
 import { router } from 'kea-router'
 
 jest.mock('lib/api')

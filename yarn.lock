@@ -10523,6 +10523,13 @@ kea-router@^1.0.2:
   dependencies:
     url-pattern "^1.0.3"
 
+kea-test-utils@^0.1.0:
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/kea-test-utils/-/kea-test-utils-0.1.0.tgz#7c1dc5286cd585c21163a9b2e77e502963afd31a"
+  integrity sha512-sCLpL+wv9daNK4Dh8FI26hZSP+aJjdXLmQc4lryoUb+8oly1sTBhexvL1XlgmqRdn9mSh1yPHkZvgKRQ75zQmg==
+  dependencies:
+    kea-waitfor "^0.2.1"
+
 kea-typegen@^1.1.5:
   version "1.1.5"
   resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.1.5.tgz#65c87de76d86815b14ea7619a7fe4ce806e620b6"
@@ -10533,15 +10540,15 @@ kea-typegen@^1.1.5:
     prettier "^2.3.1"
     yargs "^16.2.0"
 
-kea-waitfor@^0.2.0:
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/kea-waitfor/-/kea-waitfor-0.2.0.tgz#8de370a8160f9cfddf9897598deb1aaf3aa20f9e"
-  integrity sha512-lR+q/sw+OtURQuXsiHDHJXLMUv+hJLjTNoZeAZucO+JC1ul2VbbhqFQSD8VXea3bpAaK5BL4t/QucoY00IpXMQ==
+kea-waitfor@^0.2.1:
+  version "0.2.1"
+  resolved "https://registry.yarnpkg.com/kea-waitfor/-/kea-waitfor-0.2.1.tgz#d786ff69bcd05939dfef0211faecdbce132e5a04"
+  integrity sha512-oXZ42wZl46+KShuPORgAHKFQr1ewrNJ1ZVBUFLDyn4J3XTndQqCvN0GaFrSCIR0qeBzGHtNu/WwPgVGsmDH8DA==
 
-kea-window-values@^0.0.1:
-  version "0.0.1"
-  resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
-  integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
+kea-window-values@^0.1.0:
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.1.0.tgz#d6e2045c14521082d9fd88f4e4a5e2c596ac4d0e"
+  integrity sha512-4OsoHaVU4+KFyfL4ZWKB5lVQbx6A7Azc2SVraGrzIglS/3DN/97WZ6RrDMHuitu02o9cm/CRmMsNB8FXSD5xdQ==
 
 kea@^2.4.10:
   version "2.4.10"
