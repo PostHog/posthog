@@ -1,20 +1,19 @@
 import json
 from datetime import datetime
+from time import sleep
 from uuid import UUID, uuid4
+
+from kafka import KafkaProducer
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.sql.dead_letter_queue import INSERT_DEAD_LETTER_QUEUE_EVENT_SQL
 from ee.clickhouse.util import ClickhouseTestMixin
+from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest
 
 TEST_EVENT_RAW_PAYLOAD = json.dumps(
-    {
-        "event": "some event",
-        "properties": {
-            "distinct_id": 2,
-            "token": "invalid token",
-        },
-    }
+    {"event": "some event", "properties": {"distinct_id": 2, "token": "invalid token",},}
 )
 
 CREATED_AT = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -41,16 +40,18 @@ TEST_DATA = {
 }
 
 
-def truncate_table():
+def reset_tables():
     sync_execute("TRUNCATE TABLE events_dead_letter_queue")
+
+    # can't truncate table with kafka engine, reading from it will delete the rows
+    sync_execute("SELECT * FROM kafka_events_dead_letter_queue")
 
 
 class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):  # type: ignore
     def test_direct_table_insert(self):
 
         sync_execute(
-            INSERT_DEAD_LETTER_QUEUE_EVENT_SQL,
-            TEST_DATA,
+            INSERT_DEAD_LETTER_QUEUE_EVENT_SQL, TEST_DATA,
         )
 
         dead_letter_queue_events = sync_execute("SELECT * FROM events_dead_letter_queue LIMIT 1")
@@ -73,4 +74,46 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):  # type: ignore
         self.assertEqual(dlq_event[13], "plugin-server")  # error_location
         self.assertEqual(dlq_event[14], "createPerson failed")  # error
 
-        truncate_table()
+        reset_tables()
+
+    def test_kafka_insert(self):
+        reset_tables()
+
+        kafka_data = TEST_DATA
+
+        new_id = str(uuid4())
+        kafka_data["id"] = new_id
+
+        new_event_uuid = str(uuid4())
+        kafka_data["event_uuid"] = new_event_uuid
+
+        new_error = "cannot reach db to fetch team"
+        kafka_data["error"] = new_error
+
+        KafkaProducer(bootstrap_servers=KAFKA_HOSTS).send(
+            topic=KAFKA_DEAD_LETTER_QUEUE, value=json.dumps(kafka_data).encode("utf-8")
+        )
+
+        # this seems to not even be necessary, but good to prevent potential flakiness
+        # we're waiting for CH to consume from Kafka
+        sleep(1)
+
+        dead_letter_queue_events = sync_execute("SELECT * FROM kafka_events_dead_letter_queue LIMIT 1")
+
+        dlq_event = dead_letter_queue_events[0]
+
+        self.assertEqual(str(dlq_event[0]), new_id)  # id
+        self.assertEqual(str(dlq_event[1]), new_event_uuid)  # event_uuid
+        self.assertEqual(dlq_event[2], "some event")  # event
+        self.assertEqual(dlq_event[3], "{ a: 1 }")  # properties
+        self.assertEqual(dlq_event[4], "some distinct id")  # distinct_id
+        self.assertEqual(dlq_event[5], 1)  # team_id
+        self.assertEqual(dlq_event[6], "")  # elements_chain
+        self.assertEqual(dlq_event[7].strftime("%Y-%m-%d %H:%M:%S.%f"), CREATED_AT)  # created_at
+        self.assertEqual(dlq_event[8], "127.0.0.1")  # ip
+        self.assertEqual(dlq_event[9], "https://myawesomewebsite.com")  # site_url
+        self.assertEqual(dlq_event[10].strftime("%Y-%m-%d %H:%M:%S.%f"), NOW)  # now
+        self.assertEqual(dlq_event[11], TEST_EVENT_RAW_PAYLOAD)  # raw_payload
+        self.assertEqual(dlq_event[12].strftime("%Y-%m-%d %H:%M:%S.%f"), ERROR_TIMESTAMP)  # created_at
+        self.assertEqual(dlq_event[13], "plugin-server")  # error_location
+        self.assertEqual(dlq_event[14], new_error)  # error

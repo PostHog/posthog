@@ -2,6 +2,10 @@ import pytest
 from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.sql.dead_letter_queue import (
+    DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
+    KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
+)
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -43,6 +47,7 @@ def reset_clickhouse_tables():
         (DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL, PLUGIN_LOG_ENTRIES_TABLE_SQL),
         (DROP_COHORTPEOPLE_TABLE_SQL, CREATE_COHORTPEOPLE_TABLE_SQL),
         (DROP_DEAD_LETTER_QUEUE_TABLE_SQL, DEAD_LETTER_QUEUE_TABLE_SQL),
+        (DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL, KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL),
     ]
     for item in TABLES_TO_CREATE_DROP:
         sync_execute(item[0])
