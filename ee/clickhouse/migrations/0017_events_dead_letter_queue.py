@@ -1,4 +1,4 @@
-from infi.clickhouse_orm import migrations
+from infi.clickhouse_orm import migrations  # type: ignore
 
 from ee.clickhouse.sql.dead_letter_queue import (
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
