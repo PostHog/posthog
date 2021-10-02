@@ -4,7 +4,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { mockAPI } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/kea-test-utils'
+import { initKeaTestLogic } from '~/test/initKeaTestLogic'
 import { mockEventDefinitions } from '~/test/mocks'
 
 jest.mock('lib/api')

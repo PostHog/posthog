@@ -1,7 +1,7 @@
 import { BuiltLogic } from 'kea'
 import { mockAPI } from 'lib/api.mock'
 import { expectLogic, truth } from 'kea-test-utils'
-import { initKeaTestLogic } from '~/test/kea-test-utils'
+import { initKeaTestLogic } from '~/test/initKeaTestLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import dashboardJson from './__mocks__/dashboard.json'
 import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
