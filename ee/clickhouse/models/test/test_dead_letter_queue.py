@@ -6,8 +6,8 @@ from uuid import UUID, uuid4
 from kafka import KafkaProducer
 
 from ee.clickhouse.client import sync_execute
-from ee.clickhouse.sql.dead_letter_queue import INSERT_DEAD_LETTER_QUEUE_EVENT_SQL
-from ee.clickhouse.util import ClickhouseTestMixin
+from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE, INSERT_DEAD_LETTER_QUEUE_EVENT_SQL
+from ee.clickhouse.util import ClickhouseTestMixin, delay_until_clickhouse_consumes_from_kafka
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest
@@ -94,11 +94,9 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
 
         kafka_producer.send(topic=KAFKA_DEAD_LETTER_QUEUE, value=json.dumps(kafka_data).encode("utf-8"))
 
-        # this seems to not even be necessary, but good to prevent potential flakiness
-        # we're waiting for CH to consume from Kafka
-        sleep(5)
+        delay_until_clickhouse_consumes_from_kafka(DEAD_LETTER_QUEUE_TABLE, 1)
 
-        dead_letter_queue_events = sync_execute("SELECT * FROM kafka_events_dead_letter_queue LIMIT 1")
+        dead_letter_queue_events = sync_execute(f"SELECT * FROM {DEAD_LETTER_QUEUE_TABLE} LIMIT 1")
 
         dlq_event = dead_letter_queue_events[0]
 

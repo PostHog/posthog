@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from time import sleep
 from typing import List
 from unittest.mock import patch
 
@@ -58,3 +59,14 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         sync_execute(EVENTS_TABLE_SQL)
         sync_execute(DROP_PERSON_TABLE_SQL)
         sync_execute(PERSONS_TABLE_SQL)
+
+
+# this normally is unnecessary as CH is fast to consume from Kafka when testing
+# but it helps prevent potential flakiness
+def delay_until_clickhouse_consumes_from_kafka(table_name: str, target_row_count: int) -> None:
+    # max = 10 seconds
+    for i in range(20):
+        result = sync_execute(f"SELECT COUNT(1) FROM {table_name}")
+        if result[0][0] == target_row_count:
+            return
+        sleep(0.5)
