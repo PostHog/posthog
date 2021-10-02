@@ -96,7 +96,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
 
         # this seems to not even be necessary, but good to prevent potential flakiness
         # we're waiting for CH to consume from Kafka
-        sleep(1)
+        sleep(5)
 
         dead_letter_queue_events = sync_execute("SELECT * FROM kafka_events_dead_letter_queue LIMIT 1")
 
