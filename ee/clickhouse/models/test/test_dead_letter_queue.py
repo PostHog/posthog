@@ -47,7 +47,7 @@ def reset_tables():
     sync_execute("SELECT * FROM kafka_events_dead_letter_queue")
 
 
-class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):  # type: ignore
+class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
     def test_direct_table_insert(self):
 
         sync_execute(
@@ -90,9 +90,9 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):  # type: ignore
         new_error = "cannot reach db to fetch team"
         kafka_data["error"] = new_error
 
-        KafkaProducer(bootstrap_servers=KAFKA_HOSTS).send(
-            topic=KAFKA_DEAD_LETTER_QUEUE, value=json.dumps(kafka_data).encode("utf-8")
-        )
+        kafka_producer = KafkaProducer(bootstrap_servers=KAFKA_HOSTS)
+
+        kafka_producer.send(topic=KAFKA_DEAD_LETTER_QUEUE, value=json.dumps(kafka_data).encode("utf-8"))
 
         # this seems to not even be necessary, but good to prevent potential flakiness
         # we're waiting for CH to consume from Kafka
