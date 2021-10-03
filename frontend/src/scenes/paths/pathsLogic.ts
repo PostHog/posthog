@@ -192,7 +192,22 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 const name = currentItemCard.name.includes('http')
                     ? '$pageview'
                     : currentItemCard.name.replace(/(^[0-9]+_)/, '')
-                events.push({ id: name, name: name, type: 'events', order: currentItemCard.depth - 1 })
+                events.push({
+                    id: name,
+                    name: name,
+                    type: 'events',
+                    order: currentItemCard.depth - 1,
+                    ...(currentItemCard.name.includes('http') && {
+                        properties: [
+                            {
+                                key: '$current_url',
+                                operator: 'exact',
+                                type: 'event',
+                                value: currentItemCard.name.replace(/(^[0-9]+_)/, ''),
+                            },
+                        ],
+                    }),
+                })
                 currentItemCard = currentItemCard.targetLinks[0].source
             }
             router.actions.push(
