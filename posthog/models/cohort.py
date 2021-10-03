@@ -124,7 +124,7 @@ class Cohort(models.Model):
                     {UPDATE_QUERY};
                 """.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
                 )
 
             cursor = connection.cursor()
@@ -181,7 +181,7 @@ class Cohort(models.Model):
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
                 )
                 cursor.execute(query, params)
             self.is_calculating = False
@@ -208,7 +208,7 @@ class Cohort(models.Model):
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
-                    values_query=sql.replace('FROM "posthog_person"', ', {} FROM "posthog_person"'.format(self.pk), 1,),
+                    values_query=sql.replace('FROM "posthog_person"', f', {self.pk} FROM "posthog_person"', 1,),
                 )
                 cursor.execute(query, params)
 
