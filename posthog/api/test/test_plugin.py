@@ -183,19 +183,13 @@ class TestPluginAPI(APIBaseTest):
 
     def test_plugin_private_token_url_unique(self, mock_get, mock_reload):
         repo_url = "https://gitlab.com/mariusandra/helloworldplugin"
-        response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=123"}
-        )
+        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=123"})
         self.assertEqual(response.status_code, 201)
-        response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=123"}
-        )
+        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=123"})
         self.assertEqual(response.status_code, 400)
         response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
         self.assertEqual(response.status_code, 400)
-        response = self.client.post(
-            "/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=567"}
-        )
+        response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}?private_token=567"})
         self.assertEqual(response.status_code, 400)
 
         response = self.client.post("/api/organizations/@current/plugins/", {"url": f"{repo_url}-other"})
@@ -533,22 +527,19 @@ class TestPluginAPI(APIBaseTest):
 
         # try to save it for another org
         response = self.client.post(
-            f"/api/organizations/{other_org.id}/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Plugin.objects.count(), 1)
 
         self.user.join(organization=other_org, level=OrganizationMembership.Level.OWNER)
         response = self.client.post(
-            f"/api/organizations/{other_org.id}/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Plugin.objects.count(), 2)
         response = self.client.post(
-            f"/api/organizations/{other_org.id}/plugins/",
-            {"url": "https://github.com/PostHog/helloworldplugin"},
+            f"/api/organizations/{other_org.id}/plugins/", {"url": "https://github.com/PostHog/helloworldplugin"},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Plugin.objects.count(), 2)
