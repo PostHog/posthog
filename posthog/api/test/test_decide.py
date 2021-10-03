@@ -281,7 +281,7 @@ class TestDecide(BaseTest):
             rollout_percentage=100,
             key="bool-key-overridden-to-false",
             created_by=self.user,
-        )  # Overriden to False
+        )  # Overridden to False
 
         ff_2 = FeatureFlag.objects.create(
             team=self.team,
@@ -289,7 +289,7 @@ class TestDecide(BaseTest):
             rollout_percentage=0,
             key="bool-key-overridden-to-true",
             created_by=self.user,
-        )  # Overriden to True
+        )  # Overridden to True
 
         ff_3 = FeatureFlag.objects.create(
             team=self.team,
@@ -303,10 +303,10 @@ class TestDecide(BaseTest):
                     ],
                 },
             },
-            name="This is a multi var feature flag that gets overriden.",
+            name="This is a multi var feature flag that gets overridden.",
             key="multivariate-flag-overridden",
             created_by=self.user,
-        )  # Multi-var overriden to diff variant
+        )  # Multi-var overridden to diff variant
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -320,10 +320,10 @@ class TestDecide(BaseTest):
                     ],
                 },
             },
-            name="This is a multi var feature flag that doens't get overriden.",
+            name="This is a multi var feature flag that doens't get overridden.",
             key="multivariate-flag-not-overridden",
             created_by=self.user,
-        )  # Multi-var not overriden
+        )  # Multi-var not overridden
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -331,7 +331,7 @@ class TestDecide(BaseTest):
             key="flag-rollout-100",
             rollout_percentage=100,
             created_by=self.user,
-        )  # True feature flag, not overriden
+        )  # True feature flag, not overridden
 
         FeatureFlag.objects.create(
             team=self.team,
@@ -339,7 +339,7 @@ class TestDecide(BaseTest):
             key="flag-rollout-0",
             rollout_percentage=0,
             created_by=self.user,
-        )  # False feature flag, not overriden
+        )  # False feature flag, not overridden
 
         FeatureFlagOverride.objects.create(
             team=self.team, user=self.user, feature_flag=ff_1, override_value=False,
@@ -386,7 +386,7 @@ class TestDecide(BaseTest):
             )
 
         with self.assertNumQueries(3):
-            response = self._post_decide(api_version=2, distinct_id="user-with-no-overriden-flags")
+            response = self._post_decide(api_version=2, distinct_id="user-with-no-overridden-flags")
             self.assertEqual(
                 response.json()["featureFlags"],
                 {
