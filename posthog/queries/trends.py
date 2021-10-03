@@ -160,7 +160,7 @@ def add_cohort_annotations(team_id: int, breakdown: List[Union[int, str]]) -> Di
     cohorts = Cohort.objects.filter(team_id=team_id, pk__in=[b for b in breakdown if b != "all"])
     annotations: Dict[str, Union[Value, Exists]] = {}
     for cohort in cohorts:
-        annotations["cohort_{}".format(cohort.pk)] = Exists(
+        annotations[f"cohort_{cohort.pk}"] = Exists(
             CohortPeople.objects.filter(cohort=cohort.pk, person_id=OuterRef("person_id")).only("id")
         )
     if "all" in breakdown:
@@ -170,10 +170,10 @@ def add_cohort_annotations(team_id: int, breakdown: List[Union[int, str]]) -> Di
 
 def add_person_properties_annotations(team_id: int, breakdown: str) -> Dict[str, Subquery]:
     person_properties = Subquery(
-        Person.objects.filter(team_id=team_id, id=OuterRef("person_id")).values("properties__{}".format(breakdown))
+        Person.objects.filter(team_id=team_id, id=OuterRef("person_id")).values(f"properties__{breakdown}")
     )
     annotations = {}
-    annotations["properties__{}".format(breakdown)] = person_properties
+    annotations[f"properties__{breakdown}"] = person_properties
     return annotations
 
 
@@ -225,7 +225,7 @@ def get_aggregate_total(query: QuerySet, entity: Entity) -> int:
     if entity.math == "dau":
         _query, _params = query.query.sql_with_params()
         with connection.cursor() as cursor:
-            cursor.execute("SELECT count(DISTINCT person_id) FROM ({}) as aggregates".format(_query), _params)
+            cursor.execute(f"SELECT count(DISTINCT person_id) FROM ({_query}) as aggregates", _params)
             entity_total = cursor.fetchall()[0][0]
     elif entity.math in MATH_TO_AGGREGATE_FUNCTION:
         query = query.annotate(
@@ -239,7 +239,7 @@ def get_aggregate_total(query: QuerySet, entity: Entity) -> int:
         _query, _params = query.query.sql_with_params()
         with connection.cursor() as cursor:
             agg_func = MATH_TO_AGGREGATE_STRING[entity.math].format(math_prop="math_prop")
-            cursor.execute("SELECT {} FROM ({}) as aggregates".format(agg_func, _query), (_params))
+            cursor.execute(f"SELECT {agg_func} FROM ({_query}) as aggregates", (_params))
             entity_total = cursor.fetchall()[0][0]
     else:
         entity_total = len(query)
@@ -254,9 +254,9 @@ def get_aggregate_breakdown_total(
 
     breakdown_filter: Dict[str, Union[bool, str, int]] = {}
     if filter.breakdown_type == "cohort":
-        breakdown_filter = {"cohort_{}".format(breakdown_value): True}
+        breakdown_filter = {f"cohort_{breakdown_value}": True}
     else:
-        breakdown_filter = {"properties__{}".format(filter.breakdown): breakdown_value}
+        breakdown_filter = {f"properties__{filter.breakdown}": breakdown_value}
     filtered_events = filtered_events.filter(**breakdown_filter)
 
     return get_aggregate_total(filtered_events, entity)
@@ -286,15 +286,15 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optiona
     ret_dict: Dict[str, Optional[Union[str, int]]] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
         label = value if (value or type(value) == bool) and value != "None" and value != "nan" else "Other"
-        ret_dict["label"] = "{} - {}".format(entity.name, label,)
+        ret_dict["label"] = f"{entity.name} - {label}"
         ret_dict["breakdown_value"] = label
     else:
         if value == "cohort_all":
-            ret_dict["label"] = "{} - all users".format(entity.name)
+            ret_dict["label"] = f"{entity.name} - all users"
             ret_dict["breakdown_value"] = "all"
         else:
             cohort = Cohort.objects.get(pk=value.replace("cohort_", ""))
-            ret_dict["label"] = "{} - {}".format(entity.name, cohort.name)
+            ret_dict["label"] = f"{entity.name} - {cohort.name}"
             ret_dict["breakdown_value"] = cohort.pk
     return ret_dict
 
@@ -349,7 +349,7 @@ class Trends(LifecycleTrend, BaseQuery):
             team_id=team_id,
             entity=entity,
             filter=filter,
-            breakdown="properties__{}".format(filter.breakdown) if filter.breakdown else None,
+            breakdown=f"properties__{filter.breakdown}" if filter.breakdown else None,
         )
         formatted_entities: List[Dict[str, Any]] = []
         for value, item in items.items():
