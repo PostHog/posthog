@@ -138,7 +138,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         people = (
             people.values(key)
             .annotate(count=Count("id"))
-            .filter(**{"{}__isnull".format(key): False})
+            .filter(**{f"{key}__isnull": False})
             .order_by("-count")
         )
 

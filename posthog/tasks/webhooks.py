@@ -20,17 +20,17 @@ def get_user_details(event: Event, site_url: str) -> Tuple[str, str]:
         user_name = event.distinct_id
 
     if determine_webhook_type(event.team) == "slack":
-        user_markdown = "<{}/person/{}|{}>".format(site_url, event.distinct_id, user_name,)
+        user_markdown = f"<{site_url}/person/{event.distinct_id}|{user_name}>"
     else:
-        user_markdown = "[{}]({}/person/{})".format(user_name, site_url, event.distinct_id,)
+        user_markdown = f"[{user_name}]({site_url}/person/{event.distinct_id})"
     return user_name, user_markdown
 
 
 def get_action_details(action: Action, event: Event, site_url: str) -> Tuple[str, str]:
     if determine_webhook_type(event.team) == "slack":
-        action_markdown = '"<{}/action/{}|{}>"'.format(site_url, action.id, action.name)
+        action_markdown = f'"<{site_url}/action/{action.id}|{action.name}>"'
     else:
-        action_markdown = '"[{}]({}/action/{})"'.format(action.name, site_url, action.id,)
+        action_markdown = f'"[{action.name}]({site_url}/action/{action.id})"'
     return action.name, action_markdown
 
 
