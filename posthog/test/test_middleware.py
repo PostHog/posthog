@@ -9,7 +9,7 @@ class TestAccessMiddleware(APIBaseTest):
 
     def test_ip_range(self):
         """
-        Also test that capture endpoint is not restrictied by ALLOWED_IP_BLOCKS
+        Also test that capture endpoint is not restrictive by ALLOWED_IP_BLOCKS
         """
 
         with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):

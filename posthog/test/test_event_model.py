@@ -20,7 +20,7 @@ def _create_action(team, steps):
 
 def filter_by_actions_factory(_create_event, _create_person, _get_events_for_action):
     class TestFilterByActions(BaseTest):
-        def test_filter_with_selector_direct_decendant_ordering(self):
+        def test_filter_with_selector_direct_descendant_ordering(self):
             all_events = self._setup_action_selector_events()
             action = _create_action(
                 self.team,
