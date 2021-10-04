@@ -13,7 +13,6 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.api.utils import get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
@@ -27,7 +26,7 @@ from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled, 
 
 if is_clickhouse_enabled():
     from ee.kafka_client.client import KafkaProducer
-    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
+    from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_EVENTS_PLUGIN_INGESTION
 
     def parse_kafka_event_data(
         distinct_id: str,
