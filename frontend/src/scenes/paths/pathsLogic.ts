@@ -253,6 +253,10 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 }
                 const cleanedPathParams = cleanPathParams(searchParams)
 
+                if (cleanedPathParams.funnel_filter && values.filter.date_from) {
+                    cleanedPathParams.funnel_filter.date_from = values.filter.date_from
+                }
+
                 if (!objectsEqual(cleanedPathParams, values.filter)) {
                     actions.setFilter(cleanedPathParams)
                 }
