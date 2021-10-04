@@ -445,7 +445,6 @@ export function FunnelBarGraph({
         stepReference,
         barGraphLayout: layout,
         clickhouseFeaturesEnabled,
-        propertiesForUrl,
     } = useValues(logic)
     const { openPersonsModal } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -509,7 +508,7 @@ export function FunnelBarGraph({
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
                                 {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && (
-                                    <FunnelStepDropdown index={stepIndex} filterProps={propertiesForUrl} />
+                                    <FunnelStepDropdown index={stepIndex} dashboardItemId={dashboardItemId} />
                                 )}
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
