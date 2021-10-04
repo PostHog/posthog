@@ -25,6 +25,7 @@ from ee.clickhouse.sql.person import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models import Action, Cohort, Filter, Team
+from posthog.models.property import HasDoneProperty, OrProperty, Property
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
@@ -262,3 +263,26 @@ def recalculate_cohortpeople(cohort: Cohort):
 
     remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
     sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
+
+
+def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Property]:
+    from ee.clickhouse.models.cohort import is_precalculated_query
+
+    # static cohort
+    # precalculated cohort
+    if is_precalculated_query(cohort):
+        return [Property(type="precalculated-cohort", key="id", value=cohort.pk)]
+    # calculated cohort
+    group_filters = []
+    for group in cohort.groups:
+        if group.get("action_id") or group.get("event_id"):
+            group_filters.append(HasDoneProperty(type="has_done", **group))
+        elif group.get("properties"):
+            # :TRICKY: This will recursively simplify all the properties
+            filter = Filter(data=group, team=team)
+            group_filters.append(filter.properties)
+
+    if len(group_filters) > 1:
+        return [OrProperty(type="or", groups=group_filters)]
+    else:
+        return group_filters
