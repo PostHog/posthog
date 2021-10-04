@@ -1,3 +1,4 @@
+import './Insights.scss'
 import React from 'react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import dayjs from 'dayjs'
@@ -12,7 +13,7 @@ import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
-import { /*AvailableFeature*/ HotKeys, ItemMode, ViewType, InsightType } from '~/types'
+import { AvailableFeature, HotKeys, ItemMode, ViewType, InsightType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -20,11 +21,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
-// import { userLogic } from 'scenes/userLogic'
+import { userLogic } from 'scenes/userLogic'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-
-import './Insights.scss'
 import { InsightMetadata } from 'scenes/insights/InsightMetadata'
 
 dayjs.extend(relativeTime)
@@ -42,7 +41,7 @@ export function Insights(): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    // const { user } = useValues(userLogic)
+    const { user } = useValues(userLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
@@ -202,19 +201,19 @@ export function Insights(): JSX.Element {
                             </>
                         )}
 
-                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
-                            //&& user?.organization?.available_features?.includes(
-                            // AvailableFeature.DASHBOARD_COLLABORATION
-                            // )
-                            <>
-                                <Row>
-                                    <InsightMetadata.Description insight={insight} isEditable={true} />
-                                </Row>
-                                <Row>
-                                    <InsightMetadata.Tags insight={insight} isEditable={true} />
-                                </Row>
-                            </>
-                        )}
+                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
+                            user?.organization?.available_features?.includes(
+                                AvailableFeature.DASHBOARD_COLLABORATION
+                            ) && (
+                                <>
+                                    <Row>
+                                        <InsightMetadata.Description insight={insight} isEditable={true} />
+                                    </Row>
+                                    <Row>
+                                        <InsightMetadata.Tags insight={insight} isEditable={true} />
+                                    </Row>
+                                </>
+                            )}
                     </div>
 
                     <Row style={{ marginTop: 16 }}>
