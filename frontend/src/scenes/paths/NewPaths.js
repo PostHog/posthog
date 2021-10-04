@@ -122,7 +122,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
 
         let sankey = new Sankey.sankey()
             .nodeId((d) => d.name)
-            .nodeAlign(Sankey.sankeyLeft)
+            .nodeAlign(Sankey.sankeyJustify)
             .nodeSort(null)
             .nodeWidth(15)
             .size([width, height])
