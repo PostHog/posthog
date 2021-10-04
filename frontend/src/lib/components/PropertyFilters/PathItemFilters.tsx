@@ -1,4 +1,4 @@
-import React, { CSSProperties } from 'react'
+import React, { CSSProperties, useEffect } from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import 'scenes/actions/Actions.scss'
@@ -9,6 +9,7 @@ import { PlusCircleOutlined } from '@ant-design/icons'
 import { FilterButton } from './components/PropertyFilterButton'
 import { CloseButton } from '../CloseButton'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { objectsEqual } from 'lib/utils'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -28,7 +29,13 @@ export function PathItemFilters({
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, urlOverride: 'exclude_events' }
     const { filters } = useValues(propertyFilterLogic(logicProps))
-    const { setFilter, remove } = useActions(propertyFilterLogic(logicProps))
+    const { setFilter, remove, setFilters } = useActions(propertyFilterLogic(logicProps))
+
+    useEffect(() => {
+        if (propertyFilters && !objectsEqual(propertyFilters, filters)) {
+            setFilters([...propertyFilters, {}])
+        }
+    }, [propertyFilters])
 
     return (
         <div className="mb" style={style}>
