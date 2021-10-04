@@ -141,7 +141,7 @@ export function ActionFilterRow({
     const onMathSelect = (_: unknown, selectedMath: string): void => {
         updateFilterMath({
             math: selectedMath,
-            math_property: MATHS[selectedMath]?.onProperty ? mathProperty : undefined,
+            math_property: MATHS[selectedMath]?.onProperty ? mathProperty ?? '$time' : undefined,
             type: filter.type,
             index,
         })
