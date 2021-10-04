@@ -4,13 +4,12 @@ import * as Sentry from '@sentry/browser'
 const configWithSentry = (config: posthog.Config): posthog.Config => {
     if ((window as any).SENTRY_DSN) {
         config.on_xhr_error = (failedRequest: XMLHttpRequest) => {
-            Sentry.captureException({
-                name: 'ErrorSendingToPostHog',
-                message: `Failed with status ${failedRequest.status} while sending to PostHog`,
-                status: failedRequest.status,
-                text: failedRequest.statusText,
-                context: failedRequest,
-            })
+            const status = failedRequest.status
+            const statusText = failedRequest.statusText || 'no status text in error'
+            Sentry.captureException(
+                new Error(`Failed with status ${status} while sending to PostHog. Message: ${statusText}`),
+                { tags: { status, statusText } }
+            )
         }
     }
     return config
