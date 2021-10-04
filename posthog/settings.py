@@ -640,3 +640,6 @@ LOGGING = {
         "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
     },
 }
+
+# keep in sync with plugin-server
+EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
