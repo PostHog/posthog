@@ -284,20 +284,23 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     <span style={{ paddingRight: 8 }}>
                                                         <PathsCompletedArrow />
                                                     </span>{' '}
-                                                    Continuing
+                                                    {pathItemCard.depth === 0 ? 'Started path' : 'Continuing'}
                                                 </span>{' '}
-                                                <span style={{ color: 'var(--primary)' }}>
+                                                <span style={{ display: 'flex', color: 'var(--primary)' }}>
                                                     <ValueInspectorButton
                                                         onClick={() => openPersonsModal(pathItemCard.name)}
                                                     >
                                                         {continuingValue}{' '}
                                                     </ValueInspectorButton>
-                                                    {pathItemCard.targetLinks.length > 0 && (
-                                                        <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {((continuingValue / pathItemCard.value) * 100).toFixed(1)}%
-                                                        </span>
-                                                    )}
                                                 </span>
+                                                {pathItemCard.targetLinks.length > 0 && (
+                                                    <span
+                                                        className="text-muted-alt"
+                                                        style={{ paddingLeft: 8, textAlign: 'end' }}
+                                                    >
+                                                        {((continuingValue / pathItemCard.value) * 100).toFixed(1)}%
+                                                    </span>
+                                                )}
                                             </Menu.Item>
                                             {dropOffValue > 0 && (
                                                 <Menu.Item
@@ -318,7 +321,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         </span>{' '}
                                                         Dropping off
                                                     </span>{' '}
-                                                    <span style={{ color: 'var(--primary)' }}>
+                                                    <span style={{ display: 'flex', color: 'var(--primary)' }}>
                                                         <ValueInspectorButton
                                                             onClick={() =>
                                                                 openPersonsModal(
@@ -330,9 +333,12 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         >
                                                             {dropOffValue}{' '}
                                                         </ValueInspectorButton>
-                                                        <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
-                                                            {((dropOffValue / pathItemCard.value) * 100).toFixed(1)}%
-                                                        </span>
+                                                    </span>
+                                                    <span
+                                                        className="text-muted-alt"
+                                                        style={{ paddingLeft: 8, textAlign: 'end' }}
+                                                    >
+                                                        {((dropOffValue / pathItemCard.value) * 100).toFixed(1)}%
                                                     </span>
                                                 </Menu.Item>
                                             )}
@@ -342,17 +348,26 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     style={{
                                                         display: 'flex',
                                                         justifyContent: 'space-between',
+                                                        alignItems: 'center',
                                                         borderTop: '1px solid var(--border)',
                                                         padding: '3px 12px',
                                                         color: 'black',
                                                         cursor: 'default',
                                                     }}
                                                 >
-                                                    <span>
+                                                    <span style={{ width: 150, display: 'flex', alignItems: 'center' }}>
                                                         <ClockCircleOutlined
                                                             style={{ color: 'var(--muted)', fontSize: 16 }}
                                                         />{' '}
-                                                        Average time{' '}
+                                                        <span
+                                                            style={{
+                                                                marginLeft: 8,
+                                                                wordWrap: 'break-word',
+                                                                whiteSpace: 'normal',
+                                                            }}
+                                                        >
+                                                            Avg time from previous step{' '}
+                                                        </span>
                                                     </span>
                                                     {humanFriendlyDuration(
                                                         pathItemCard.targetLinks[0].average_conversion_time / 1000
@@ -381,12 +396,10 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                             padding: 4,
                                             justifyContent: 'space-between',
                                             display: 'flex',
+                                            cursor: 'default',
                                         }}
                                     >
-                                        <div
-                                            style={{ display: 'flex', alignItems: 'center' }}
-                                            onClick={() => openPersonsModal(undefined, pathItemCard.name)}
-                                        >
+                                        <div style={{ display: 'flex', alignItems: 'center' }}>
                                             <span
                                                 className="text-muted"
                                                 style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
@@ -394,13 +407,21 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                             <span style={{ fontSize: 13, fontWeight: 600 }}>
                                                 {pageUrl(pathItemCard, true)}
                                             </span>
-                                            <span className="text-muted" style={{ fontSize: 12, paddingLeft: 4 }}>
+                                            <span
+                                                style={{
+                                                    cursor: 'pointer',
+                                                    color: 'var(--primary)',
+                                                    fontSize: 12,
+                                                    paddingLeft: 4,
+                                                }}
+                                                onClick={() => openPersonsModal(undefined, pathItemCard.name)}
+                                            >
                                                 ({continuingValue + dropOffValue})
                                             </span>
                                         </div>
                                         <div>
                                             <Dropdown
-                                                trigger={['click']}
+                                                trigger={['hover']}
                                                 overlay={
                                                     <Menu className="paths-options-dropdown">
                                                         <Menu.Item
