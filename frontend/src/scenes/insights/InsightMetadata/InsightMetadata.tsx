@@ -1,5 +1,5 @@
 import './InsightMetadata.scss'
-import React from 'react'
+import React, { useEffect } from 'react'
 import { DashboardItemType } from '~/types'
 import { Button, Input } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -13,6 +13,17 @@ function createInsightInputClassName(type: string, isEditable: boolean): string 
     return clsx('insight-metadata-input', `insight-metadata-${type}`, { edit: isEditable })
 }
 
+function useUpdateMetadata(
+    value: any,
+    property: keyof DashboardItemType,
+    setProperty: (insight: Partial<DashboardItemType>) => void
+): void {
+    // Unfortunately there's no way around this. See ActionFilter for similar behavior.
+    useEffect(() => {
+        setProperty({ [property]: value })
+    }, [value])
+}
+
 interface MetadataProps {
     insight: Partial<DashboardItemType>
     isEditable?: boolean
@@ -20,18 +31,20 @@ interface MetadataProps {
 
 function Title({ insight, isEditable = false }: MetadataProps): JSX.Element {
     const property = 'name'
-    const logic = insightMetadataLogic({ insight: { [property]: insight[property] || '' } })
-    const { insightMetadata, editableProps } = useValues(logic)
-    const { setInsightMetadata, saveInsightMetadata, showEditMode, showViewMode } = useActions(logic)
-    const placeholder = insightMetadata[property] ?? insight[property] ?? `Insight #${insight.id ?? '...'}`
+    const logic = insightMetadataLogic({ insight: { [property]: insight?.[property] } })
+    const { editableProps } = useValues(logic)
+    const { setInsightMetadata, saveInsightMetadata, showEditMode, cancelInsightMetadata } = useActions(logic)
+    const placeholder = insight[property] ?? `Insight #${insight.id ?? '...'}`
+
+    useUpdateMetadata(insight?.[property], property, setInsightMetadata)
 
     return (
         <div className={createInsightInputClassName('title', isEditable)} data-attr="insight-title">
             {isEditable ? (
                 editableProps.has(property) ? (
                     <Input
-                        placeholder={placeholder}
-                        defaultValue={insightMetadata[property]}
+                        placeholder={insight[property] ?? `Insight #${insight.id ?? '...'}`}
+                        defaultValue={insight[property] ?? ''}
                         size="large"
                         onChange={(e) => {
                             setInsightMetadata({ [property]: e.target.value })
@@ -44,7 +57,11 @@ function Title({ insight, isEditable = false }: MetadataProps): JSX.Element {
                         tabIndex={0}
                         suffix={
                             <>
-                                <Button className="btn-cancel" size="small" onClick={() => showViewMode(property)}>
+                                <Button
+                                    className="btn-cancel"
+                                    size="small"
+                                    onClick={() => cancelInsightMetadata(property)}
+                                >
                                     Cancel
                                 </Button>
                                 <Button
@@ -83,9 +100,11 @@ function Title({ insight, isEditable = false }: MetadataProps): JSX.Element {
 
 function Description({ insight, isEditable = false }: MetadataProps): JSX.Element | null {
     const property = 'description'
-    const logic = insightMetadataLogic({ insight: { [property]: insight[property] } })
-    const { insightMetadata, editableProps } = useValues(logic)
-    const { setInsightMetadata, saveInsightMetadata, showEditMode, showViewMode } = useActions(logic)
+    const logic = insightMetadataLogic({ insight: { [property]: insight?.[property] } })
+    const { editableProps } = useValues(logic)
+    const { setInsightMetadata, saveInsightMetadata, showEditMode, cancelInsightMetadata } = useActions(logic)
+
+    useUpdateMetadata(insight?.[property], property, setInsightMetadata)
 
     if (!insight[property] && !isEditable) {
         return null
@@ -98,7 +117,8 @@ function Description({ insight, isEditable = false }: MetadataProps): JSX.Elemen
                     <div className="ant-input-affix-wrapper ant-input-affix-wrapper-lg insight-description-textarea-wrapper">
                         <Input.TextArea
                             className="insight-description-textarea" // hack needed because antd's textarea doesn't support size api
-                            value={insightMetadata[property]}
+                            placeholder={insight[property] ?? `Description`}
+                            defaultValue={insight[property] ?? ''}
                             onChange={(e) => {
                                 setInsightMetadata({ [property]: e.target.value })
                             }}
@@ -110,7 +130,7 @@ function Description({ insight, isEditable = false }: MetadataProps): JSX.Elemen
                             tabIndex={5}
                             autoSize={{ minRows: 1, maxRows: 5 }}
                         />
-                        <Button className="btn-cancel" size="small" onClick={() => showViewMode(property)}>
+                        <Button className="btn-cancel" size="small" onClick={() => cancelInsightMetadata(property)}>
                             Cancel
                         </Button>
                         <Button
@@ -124,9 +144,7 @@ function Description({ insight, isEditable = false }: MetadataProps): JSX.Elemen
                     </div>
                 ) : (
                     <>
-                        <span className="description">
-                            {insightMetadata[property] ?? insight[property] ?? 'Description (optional)'}
-                        </span>
+                        <span className="description">{insight[property] ?? 'Description (optional)'}</span>
                         <Button
                             type="link"
                             onClick={() => {
@@ -141,7 +159,7 @@ function Description({ insight, isEditable = false }: MetadataProps): JSX.Elemen
                     </>
                 )
             ) : (
-                <span className="description">{insightMetadata[property] ?? insight[property]}</span>
+                <span className="description">{insight[property]}</span>
             )}
         </div>
     )

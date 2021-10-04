@@ -85,16 +85,18 @@ export const insightLogic = kea<insightLogicType>({
                 if (!Object.entries(payload).length) {
                     return
                 }
+                console.log('UPDATE INSIGHT', payload, values.insight)
                 await breakpoint(300)
                 return await api.update(`api/insight/${values.insight.id}`, payload)
             },
-            setInsight: ({ insight, shouldMergeWithExisting }) =>
-                shouldMergeWithExisting
+            setInsight: ({ insight, shouldMergeWithExisting }) => {
+                return shouldMergeWithExisting
                     ? {
                           ...values.insight,
-                          insight,
+                          ...insight,
                       }
-                    : insight,
+                    : insight
+            },
             updateInsightFilters: ({ filters }) => ({ ...values.insight, filters }),
         },
     }),
@@ -293,6 +295,7 @@ export const insightLogic = kea<insightLogicType>({
             actions.setInsight({ ...values.insight, tags: values.insight.tags?.filter((_tag) => _tag !== tag) })
         },
         saveInsight: async () => {
+            console.log('SAVE INSIGHT', values.insight)
             const savedInsight = await api.update(`api/insight/${values.insight.id}`, {
                 ...values.insight,
                 saved: true,

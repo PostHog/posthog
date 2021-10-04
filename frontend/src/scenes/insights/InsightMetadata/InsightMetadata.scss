@@ -30,12 +30,12 @@
         padding: 0;
 
         .insight-description-textarea-wrapper {
-            transition: height 0s;
-
             .insight-description-textarea {
                 padding: 0 !important;
                 border: none;
                 outline: none;
+                transition: none;
+
                 &:focus {
                     border: none;
                     outline: none;
