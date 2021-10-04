@@ -38,7 +38,7 @@ if is_clickhouse_enabled():
         now: datetime,
         sent_at: Optional[datetime],
         event_uuid: UUIDT,
-    ) -> Dict[str, Union[Optional[str], int]]:
+    ) -> Dict:
         return {
             "uuid": str(event_uuid),
             "distinct_id": distinct_id,
@@ -50,7 +50,7 @@ if is_clickhouse_enabled():
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
 
-    def log_event(data: Dict[str, Union[str, int]], topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
+    def log_event(data: Dict, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
         if settings.DEBUG:
             print(f'Logging event {data["event"]} to Kafka topic {topic}')
         KafkaProducer().produce(topic=topic, key=data["ip"], data=data)
@@ -58,7 +58,7 @@ if is_clickhouse_enabled():
     def log_event_to_dead_letter_queue(
         raw_payload: Dict,
         event_name: str,
-        event: Dict[str, Union[str, int]],
+        event: Dict,
         error_message: str,
         error_location: str,
         topic: str = KAFKA_DEAD_LETTER_QUEUE,
