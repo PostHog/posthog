@@ -48,10 +48,9 @@ describe('sessionRecordingsTableLogic', () => {
             })
             it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
                 expectLogic(logic, () =>
-                    logic.actions.openSessionPlayer('abc', RecordingWatchedSource.Direct)
+                    logic.actions.openSessionPlayer('abc', RecordingWatchedSource.RecordingsList)
                 ).toMatchValues({
                     sessionRecordingId: 'abc',
-                    source: RecordingWatchedSource.Direct,
                 })
                 expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')
 
