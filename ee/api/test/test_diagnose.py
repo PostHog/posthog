@@ -38,7 +38,7 @@ class DiagnoseTest(BaseTest):
             {
                 "is_cached": False,
                 "last_refresh": "2020-01-01T00:00:00Z",
-                "result": {"events": [{"event": "watch video", "ratio_odds": 1}]},
+                "result": {"events": [{"event": "watch video", "value": 1}]},
             },
         )
 

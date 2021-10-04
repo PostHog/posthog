@@ -125,11 +125,13 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         return {"result": result}
 
     @cached_function
-    def calculate_diagnose(self, request: Request) -> List[Dict[str, Any]]:
+    def calculate_diagnose(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = DiagnoseFilter(request=request, data={"insight": INSIGHT_DIAGNOSE})
 
-        return ClickhouseDiagnose(filter=filter, team=team).run()
+        result = ClickhouseDiagnose(filter=filter, team=team).run()
+
+        return {"result": result}
 
 
 class LegacyClickhouseInsightsViewSet(ClickhouseInsightsViewSet):

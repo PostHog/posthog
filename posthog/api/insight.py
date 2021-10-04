@@ -359,7 +359,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             data.update({"date_from": "-11d"})
         filter = DiagnoseFilter(data=data, request=request)
         result = diagnose.Diagnose().run(filter, team)
-        return result
+        return {"result": result}
 
 
 class LegacyInsightViewSet(InsightViewSet):
