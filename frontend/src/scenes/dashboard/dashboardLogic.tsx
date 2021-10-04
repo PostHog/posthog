@@ -182,7 +182,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return {
                         ...state,
                         items:
-                            item.dashboard === parseInt(props.id.toString())
+                            props.id && item.dashboard === parseInt(props.id.toString())
                                 ? [...(state?.items || []), item]
                                 : state?.items,
                     } as DashboardType
@@ -268,11 +268,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
         ],
         dashboard: [
             () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.dashboards],
-            (sharedDashboards, dashboards) => {
-                if (sharedDashboards && !!sharedDashboards[props.id]) {
+            (sharedDashboards, dashboards): DashboardType | null => {
+                if (sharedDashboards && props.id && !!sharedDashboards[props.id]) {
                     return sharedDashboards[props.id]
                 }
-                return dashboards.find((d) => d.id === props.id)
+                return dashboards.find((d) => d.id === props.id) ?? null
             },
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 } as Record<DashboardLayoutSize, number>)],
