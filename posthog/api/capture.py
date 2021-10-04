@@ -301,6 +301,19 @@ def get_event(request):
             )
             continue
 
+        # this should not happen, but is needed to satisfy typing as team "could be" None
+        if not team:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "No team found for API Key",
+                    type="authentication_error",
+                    code="invalid_personal_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+
         ip = None if team.anonymize_ips else get_ip_address(request)
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
