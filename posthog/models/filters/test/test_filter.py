@@ -426,9 +426,7 @@ def _filter_events(filter: Filter, team: Team, person_query: Optional[bool] = Fa
     if person_query:
         events = events.add_person_id(team.pk)
 
-    events = events.filter(
-        properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
-    )
+    events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
     events = events.filter(team_id=team.pk)
     if order_by:
         events = events.order_by(order_by)
