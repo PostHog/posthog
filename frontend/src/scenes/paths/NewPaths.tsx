@@ -1,0 +1,505 @@
+import React, { useRef, useEffect, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { copyToClipboard, stripHTTP } from 'lib/utils'
+import * as d3 from 'd3'
+import * as Sankey from 'd3-sankey'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { Button, Menu, Dropdown } from 'antd'
+import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
+import { ClockCircleOutlined } from '@ant-design/icons'
+import { humanFriendlyDuration } from 'lib/utils'
+import './Paths.scss'
+import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { RGBColor } from 'd3'
+import { FilterType } from '~/types'
+
+function roundedRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number,
+    tl: boolean,
+    tr: boolean,
+    bl: boolean,
+    br: boolean
+): string {
+    let retval
+    retval = 'M' + (x + r) + ',' + y
+    retval += 'h' + (w - 2 * r)
+    if (tr) {
+        retval += 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r
+    } else {
+        retval += 'h' + r
+        retval += 'v' + r
+    }
+    retval += 'v' + (h - 2 * r)
+    if (br) {
+        retval += 'a' + r + ',' + r + ' 0 0 1 ' + -r + ',' + r
+    } else {
+        retval += 'v' + r
+        retval += 'h' + -r
+    }
+    retval += 'h' + (2 * r - w)
+    if (bl) {
+        retval += 'a' + r + ',' + r + ' 0 0 1 ' + -r + ',' + -r
+    } else {
+        retval += 'h' + -r
+        retval += 'v' + -r
+    }
+    retval += 'v' + (2 * r - h)
+    if (tl) {
+        retval += 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + -r
+    } else {
+        retval += 'v' + -r
+        retval += 'h' + r
+    }
+    retval += 'z'
+    return retval
+}
+
+interface PathTargetLink {
+    average_conversion_time: number
+    index: number
+    source: PathNodeData
+    target: PathNodeData
+    value: number
+    width: number
+    y0: number
+    color: RGBColor
+}
+
+interface PathNodeData {
+    name: string
+    targetLinks: PathTargetLink[]
+    sourceLinks: PathTargetLink[]
+    depth: number
+    width: number
+    height: number
+    index: number
+    value: number
+    x0: number
+    x1: number
+    y0: number
+    y1: number
+    layer: number
+    source: PathNodeData
+}
+
+function pageUrl(d: PathNodeData, display?: boolean): string {
+    const incomingUrls = d.targetLinks
+        .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
+        .filter((a) => {
+            try {
+                new URL(a)
+            } catch {
+                return false
+            }
+            return a
+        })
+        .map((a) => new URL(a))
+    // @ts-expect-error - spreading a set into an array requires downlevelIteration flag to be set
+    const incomingDomains = [...new Set(incomingUrls.map((url) => url.origin))]
+
+    let name = d.name.replace(/(^[0-9]+_)/, '')
+
+    if (!display) {
+        return name
+    }
+
+    try {
+        const url = new URL(name)
+        name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
+    } catch {
+        // discard if invalid url
+    }
+    return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
+}
+
+function NoData(): JSX.Element {
+    return (
+        <div style={{ padding: '1rem' }}>
+            We don't have enough data to show anything here. You might need to send us some frontend (JS) events, as we
+            use the <pre style={{ display: 'inline' }}>$current_url</pre> property to calculate paths.
+        </div>
+    )
+}
+
+const DEFAULT_PATHS_ID = 'default_paths'
+
+interface PathsProps {
+    dashboardItemId: number | null
+    filters: FilterType | null
+    color: string
+}
+
+export function NewPaths({ dashboardItemId = null, filters = null, color = 'white' }: PathsProps): JSX.Element {
+    const canvas = useRef<any>(null)
+    const size = useWindowSize()
+    const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
+    const { openPersonsModal, setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId, filters }))
+    const [pathItemCards, setPathItemCards] = useState([])
+    useEffect(() => {
+        setPathItemCards([])
+        renderPaths()
+    }, [paths, !pathsLoading, size, color])
+
+    function renderPaths(): void {
+        const elements = document?.getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)?.querySelectorAll(`.paths svg`)
+        elements && elements.forEach((node) => node?.parentNode?.removeChild(node))
+
+        if (!paths || paths.nodes.length === 0) {
+            setPathItemCards([])
+            return
+        }
+        const width = canvas?.current?.offsetWidth
+        const height = canvas?.current?.offsetHeight
+
+        const svg = d3
+            .select(canvas.current)
+            .append('svg')
+            .style('background', 'var(--item-background)')
+            .style('width', width)
+            .style('height', height)
+        // @ts-expect-error
+        const sankey = new Sankey.sankey() 
+            .nodeId((d: PathNodeData) => d.name)
+            .nodeAlign(Sankey.sankeyLeft)
+            .nodeSort(null)
+            .nodeWidth(15)
+            .size([width, height])
+
+        const { nodes, links } = sankey(paths)
+        setPathItemCards(nodes)
+
+        svg.append('g')
+            .selectAll('rect')
+            .data(nodes as PathNodeData[])
+            .join('rect')
+            .attr('x', (d) => d.x0 + 1)
+            .attr('y', (d) => d.y0)
+            .attr('height', (d) => d.y1 - d.y0)
+            .attr('width', (d) => d.x1 - d.x0 - 2)
+            // @ts-expect-error
+            .attr('fill', (d) => {
+                let c
+                for (const link of d.sourceLinks) {
+                    if (c === undefined) {
+                        c = link.color
+                    } else if (c !== link.color) {
+                        c = null
+                    }
+                }
+                if (c === undefined) {
+                    for (const link of d.targetLinks) {
+                        if (c === undefined) {
+                            c = link.color
+                        } else if (c !== link.color) {
+                            c = null
+                        }
+                    }
+                }
+
+                const startNodeColor = c && d3.color(c)
+                    ? d3.color(c)
+                    : color === 'white'
+                    ? d3.color('#5375ff')
+                    : d3.color('#191919')
+                return startNodeColor
+            })
+            .append('title')
+            .text((d: PathNodeData) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
+
+        const dropOffGradient = svg
+            .append('defs')
+            .append('linearGradient')
+            .attr('id', 'dropoff-gradient')
+            .attr('gradientTransform', 'rotate(90)')
+
+        dropOffGradient
+            .append('stop')
+            .attr('offset', '0%')
+            .attr('stop-color', color === 'white' ? 'rgba(220,53,69,0.7)' : 'rgb(220,53,69)')
+
+        dropOffGradient
+            .append('stop')
+            .attr('offset', '100%')
+            .attr('stop-color', color === 'white' ? '#fff' : 'var(--item-background)')
+
+        const link = svg
+            .append('g')
+            .attr('fill', 'none')
+            .selectAll('g')
+            .data(links as PathNodeData[])
+            .join('g')
+            .attr('stroke', () => (color === 'white' ? 'var(--primary)' : 'var(--item-lighter'))
+            .attr('opacity', 0.2)
+        
+        
+        link.append('path')
+        // @ts-expect-error - sankey typing things
+        .attr('d', Sankey.sankeyLinkHorizontal()) 
+        .attr('id', (d) => `path${d.index}`)
+        .attr('stroke-width', (d) => {
+            return Math.max(1, d.width)
+        })
+        .on('mouseover', (data) => {
+            svg.select(`#path${data.index}`).attr('stroke', 'blue')
+            if (data?.source?.targetLinks.length === 0) {
+                return
+            }
+            let node = data.source
+            while (node.targetLinks.length > 0) {
+                svg.select(`#path${node.targetLinks[0].index}`).attr('stroke', 'blue')
+                node = node.targetLinks[0].source
+            }
+        })
+        .on('mouseleave', () => svg.selectAll('path').attr('stroke', 'var(--primary)'))
+
+        link.append('g')
+            .append('path')
+            // @ts-expect-error
+            .attr('d', (data) => {
+                if (data.source.layer === 0) {
+                    return
+                }
+                const _height =
+                    data.source.y1 -
+                    data.source.y0 -
+                    data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)
+                return roundedRect(0, 0, 30, _height, Math.min(25, _height), false, true, false, false)
+            })
+            .attr('fill', 'url(#dropoff-gradient)')
+            .attr('stroke-width', 0)
+            .attr('transform', (data) => {
+                return (
+                    'translate(' +
+                    Math.round(data.source.x1) +
+                    ',' +
+                    Math.round(data.source.y0 + data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)) +
+                    ')'
+                )
+            })
+    }
+
+    const getDropOffValue = (pathItemCard: PathNodeData): number => {
+        return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
+    }
+
+    const getContinuingValue = (sourceLinks: PathTargetLink[]): number => {
+        return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
+    }
+
+    return (
+        <div
+            style={{
+                position: 'relative',
+            }}
+            id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
+        >
+            <div ref={canvas} className="paths" data-attr="paths-viz">
+                {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
+                {!paths.error &&
+                    pathItemCards &&
+                    pathItemCards.map((pathItemCard: PathNodeData, idx: number) => {
+                        const continuingValue = getContinuingValue(pathItemCard.sourceLinks)
+                        const dropOffValue = getDropOffValue(pathItemCard)
+                        return (
+                            <>
+                                <Dropdown
+                                    key={idx}
+                                    overlay={
+                                        <Menu
+                                            style={{
+                                                marginTop: -5,
+                                                border: '1px solid var(--border)',
+                                                borderRadius: '0px 0px 4px 4px',
+                                            }}
+                                        >
+                                            <Menu.Item
+                                                disabled
+                                                style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                    borderRadius: 0,
+                                                    padding: '3px 12px',
+                                                    color: 'black',
+                                                    cursor: 'default',
+                                                }}
+                                            >
+                                                <span>
+                                                    <span style={{ paddingRight: 8 }}>
+                                                        <PathsCompletedArrow />
+                                                    </span>{' '}
+                                                    Continuing
+                                                </span>{' '}
+                                                <span style={{ color: 'var(--primary)' }}>
+                                                    <ValueInspectorButton
+                                                        onClick={() => openPersonsModal(pathItemCard.name)}
+                                                    >
+                                                        {continuingValue}{' '}
+                                                    </ValueInspectorButton>
+                                                    {pathItemCard.targetLinks.length > 0 && (
+                                                        <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
+                                                            {((continuingValue / pathItemCard.value) * 100).toFixed(1)}%
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            </Menu.Item>
+                                            {dropOffValue > 0 && (
+                                                <Menu.Item
+                                                    disabled
+                                                    style={{
+                                                        borderTop: '1px solid var(--border)',
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        padding: '3px 12px',
+                                                        color: 'black',
+                                                        cursor: 'default',
+                                                    }}
+                                                >
+                                                    <span style={{ display: 'flex' }}>
+                                                        <span style={{ paddingRight: 8 }}>
+                                                            <PathsDropoffArrow />
+                                                        </span>{' '}
+                                                        Dropping off
+                                                    </span>{' '}
+                                                    <span style={{ color: 'var(--primary)' }}>
+                                                        <ValueInspectorButton
+                                                            onClick={() =>
+                                                                openPersonsModal(
+                                                                    undefined,
+                                                                    undefined,
+                                                                    pathItemCard.name
+                                                                )
+                                                            }
+                                                        >
+                                                            {dropOffValue}{' '}
+                                                        </ValueInspectorButton>
+                                                        <span className="text-muted-alt" style={{ paddingLeft: 8 }}>
+                                                            {((dropOffValue / pathItemCard.value) * 100).toFixed(1)}%
+                                                        </span>
+                                                    </span>
+                                                </Menu.Item>
+                                            )}
+                                            {pathItemCard.targetLinks.length > 0 && (
+                                                <Menu.Item
+                                                    disabled
+                                                    style={{
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        borderTop: '1px solid var(--border)',
+                                                        padding: '3px 12px',
+                                                        color: 'black',
+                                                        cursor: 'default',
+                                                    }}
+                                                >
+                                                    <span>
+                                                        <ClockCircleOutlined
+                                                            style={{ color: 'var(--muted)', fontSize: 16 }}
+                                                        />{' '}
+                                                        Average time{' '}
+                                                    </span>
+                                                    {humanFriendlyDuration(
+                                                        pathItemCard.targetLinks[0].average_conversion_time / 1000
+                                                    )}
+                                                </Menu.Item>
+                                            )}
+                                        </Menu>
+                                    }
+                                    placement="bottomCenter"
+                                >
+                                    <Button
+                                        key={idx}
+                                        style={{
+                                            position: 'absolute',
+                                            left:
+                                                pathItemCard.sourceLinks.length === 0
+                                                    ? pathItemCard.x0 - (240 - 7)
+                                                    : pathItemCard.x0 + 7,
+                                            top:
+                                                pathItemCard.sourceLinks.length === 0
+                                                    ? pathItemCard.y0
+                                                    : pathItemCard.y0 + (pathItemCard.y1 - pathItemCard.y0) / 2,
+                                            background: 'white',
+                                            width: 240,
+                                            border: '1px solid var(--border)',
+                                            padding: 4,
+                                            justifyContent: 'space-between',
+                                            display: 'flex',
+                                        }}
+                                    >
+                                        <div
+                                            style={{ display: 'flex', alignItems: 'center' }}
+                                            onClick={() => openPersonsModal(undefined, pathItemCard.name)}
+                                        >
+                                            <span
+                                                className="text-muted"
+                                                style={{ fontSize: 10, marginRight: 4, marginLeft: 8 }}
+                                            >{`0${pathItemCard.name[0]}`}</span>{' '}
+                                            <span style={{ fontSize: 13, fontWeight: 600 }}>
+                                                {pageUrl(pathItemCard, true)}
+                                            </span>
+                                            <span className="text-muted" style={{ fontSize: 12, paddingLeft: 4 }}>
+                                                ({continuingValue + dropOffValue})
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <Dropdown
+                                                trigger={['click']}
+                                                overlay={
+                                                    <Menu className="paths-options-dropdown">
+                                                        <Menu.Item
+                                                            onClick={() =>
+                                                                setFilter({ start_point: pageUrl(pathItemCard) })
+                                                            }
+                                                        >
+                                                            Set as path start
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() =>
+                                                                setFilter({ end_point: pageUrl(pathItemCard) })
+                                                            }
+                                                        >
+                                                            Set as path end
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() => {
+                                                                if (filter && filter.exclude_events && filter.exclude_events.length > 0) {
+                                                                    const exclusionEvents = filter.exclude_events.map(
+                                                                        (event) => ({ value: event })
+                                                                    )
+                                                                    updateExclusions([
+                                                                        ...exclusionEvents,
+                                                                        { value: pageUrl(pathItemCard) },
+                                                                    ])
+                                                                } else {
+                                                                    updateExclusions([{ value: pageUrl(pathItemCard) }])
+                                                                }
+                                                            }}
+                                                        >
+                                                            Exclude path item
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() => copyToClipboard(pageUrl(pathItemCard))}
+                                                        >
+                                                            Copy path item name
+                                                        </Menu.Item>
+                                                    </Menu>
+                                                }
+                                            >
+                                                <div className="paths-dropdown-ellipsis">...</div>
+                                            </Dropdown>
+                                        </div>
+                                    </Button>
+                                </Dropdown>
+                            </>
+                        )
+                    })}
+            </div>
+        </div>
+    )
+}
