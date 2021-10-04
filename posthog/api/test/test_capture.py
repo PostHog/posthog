@@ -820,3 +820,5 @@ class TestCapture(BaseTest):
                 "Unable to fetch team from Postgres. Error: Exception('test exception')",
             )  # error_message
             self.assertEqual(log_event_to_dead_letter_queue_args[4], "django_server_capture_endpoint")  # error_location
+
+            log_event_patcher.stop()
