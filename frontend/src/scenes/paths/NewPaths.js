@@ -91,7 +91,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
-    const { openPersonsModal, setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId, filters }))
+    const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(
+        pathsLogic({ dashboardItemId, filters })
+    )
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
         setPathItemCards([])
@@ -120,7 +122,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
 
         let sankey = new Sankey.sankey()
             .nodeId((d) => d.name)
-            .nodeAlign(Sankey.sankeyLeft)
+            .nodeAlign(Sankey.sankeyJustify)
             .nodeSort(null)
             .nodeWidth(15)
             .size([width, height])
@@ -433,6 +435,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                             }}
                                                         >
                                                             Exclude path item
+                                                        </Menu.Item>
+                                                        <Menu.Item onClick={() => viewPathToFunnel(pathItemCard)}>
+                                                            View funnel
                                                         </Menu.Item>
                                                         <Menu.Item
                                                             onClick={() => copyToClipboard(pageUrl(pathItemCard))}
