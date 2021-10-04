@@ -4,15 +4,38 @@ import { insightMetadataLogic, InsightMetadataLogicProps } from 'scenes/insights
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { truth } from '~/test/kea-test-utils/jest'
+import { mockAPI } from 'lib/api.mock'
+import { userLogic } from 'scenes/userLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { AvailableFeature } from '~/types'
+
+jest.mock('lib/api')
 
 describe('insightMetadataLogic', () => {
     let logic: BuiltLogic<insightMetadataLogicType<InsightMetadataLogicProps>>
 
     const insight = {
+        id: 0,
         name: 'Creative Insight Name',
         description: 'More Creative Description',
         tags: ['Most Creative Tag'],
     }
+
+    mockAPI(async ({ pathname, searchParams }) => {
+        if (pathname.startsWith('api/insight')) {
+            return { results: [], next: null }
+        } else if (pathname === 'api/users/@me/') {
+            return {
+                results: {
+                    organization: {
+                        available_features: [AvailableFeature.DASHBOARD_COLLABORATION],
+                    },
+                },
+            }
+        } else {
+            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
+        }
+    })
 
     initKeaTestLogic({
         logic: insightMetadataLogic,
@@ -22,7 +45,7 @@ describe('insightMetadataLogic', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([insightLogic])
+            await expectLogic(logic).toMount([insightLogic, userLogic, featureFlagLogic])
         })
 
         // Below is more fully tested by testing of cleanMetadataValues() in utils.test
@@ -96,6 +119,7 @@ describe('insightMetadataLogic', () => {
 
         describe('saveInsightMetadata', () => {
             it('set metadata property in insightLogic', async () => {
+                await expectLogic(userLogic).toDispatchActions(['loadUserSuccess'])
                 logic.actions.setInsightMetadata(insight)
 
                 await expectLogic(() => {
@@ -104,6 +128,26 @@ describe('insightMetadataLogic', () => {
                     .toDispatchActions(logic, ['saveInsightMetadata'])
                     .toDispatchActions(insightLogic, [
                         insightLogic.actionCreators.setInsight({ name: insight.name }, true),
+                    ])
+                    .toDispatchActions(logic, [
+                        logic.actionCreators.setInsightMetadata({ name: insight.name }),
+                        'showViewMode',
+                    ])
+                    .toMatchValues(logic, {
+                        editableProps: truth((set) => !set.has('name')),
+                    })
+            })
+
+            it('persisting insight metadata calls update api', async () => {
+                await expectLogic(userLogic).toDispatchActions(['loadUserSuccess'])
+                logic.actions.setInsightMetadata(insight)
+
+                await expectLogic(() => {
+                    logic.actions.saveInsightMetadata('name', true)
+                })
+                    .toDispatchActions(logic, ['saveInsightMetadata'])
+                    .toDispatchActions(insightLogic, [
+                        insightLogic.actionCreators.updateInsight({ name: insight.name }),
                     ])
                     .toDispatchActions(logic, [
                         logic.actionCreators.setInsightMetadata({ name: insight.name }),
