@@ -8,7 +8,7 @@ import dayjs from 'dayjs'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -34,6 +34,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         goToNext: true,
         goToPrevious: true,
         openNextRecordingOnLoad: true,
+        setSource: (source: RecordingWatchedSource) => ({ source }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
     },
     reducers: {
@@ -67,6 +68,12 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 openNextRecordingOnLoad: () => true,
                 loadRecording: () => false,
                 closeSessionPlayer: () => false,
+            },
+        ],
+        source: [
+            RecordingWatchedSource.Unknown as RecordingWatchedSource,
+            {
+                setSource: (_, { source }) => source,
             },
         ],
     },
@@ -108,6 +115,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 user_is_identified: recordingData.person?.is_identified,
+                source: values.source,
             }
             eventUsageLogic.actions.reportRecordingWatched({ delay: 0, ...payload })
             // tests will wait for all breakpoints to finish
@@ -214,9 +222,13 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
             _: any,
             params: {
                 sessionRecordingId?: SessionRecordingId
+                source?: string
             }
         ): void => {
-            const sessionRecordingId = params.sessionRecordingId
+            const { sessionRecordingId, source } = params
+            if (source && (Object.values(RecordingWatchedSource) as string[]).includes(source)) {
+                actions.setSource(source as RecordingWatchedSource)
+            }
             if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
                 actions.loadRecording(sessionRecordingId)
             }

@@ -48,6 +48,14 @@ export enum InsightEventSource {
     AddDescription = 'add_insight_description',
 }
 
+export enum RecordingWatchedSource {
+    Direct = 'direct', // Visiting the URL directly
+    Unknown = 'unknown',
+    RecordingsList = 'recordings_list', // New recordings list page
+    SessionsList = 'sessions_list', // DEPRECATED sessions list page
+    SessionsListPlayAll = 'sessions_list_play_all', // DEPRECATED play all button on sessions list
+}
+
 interface RecordingWatchedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
     load_time: number // How much time it took to load the session (backend) (milliseconds)
@@ -56,6 +64,7 @@ interface RecordingWatchedProps {
     events_length: number
     recording_width?: number
     user_is_identified?: boolean
+    source: RecordingWatchedSource
 }
 
 function flattenProperties(properties: PropertyFilter[]): string[] {
