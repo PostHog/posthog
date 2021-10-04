@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/browser'
 
 const configWithSentry = (config: posthog.Config): posthog.Config => {
     if ((window as any).SENTRY_DSN) {
-        config.onXHRError = (failedRequest: XMLHttpRequest) => {
+        config.on_xhr_error = (failedRequest: XMLHttpRequest) => {
             Sentry.captureException({
                 name: 'ErrorSendingToPostHog',
                 message: `Failed with status ${failedRequest.status} while sending to PostHog`,
