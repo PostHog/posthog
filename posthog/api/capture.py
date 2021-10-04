@@ -34,11 +34,11 @@ if is_clickhouse_enabled():
         ip: Optional[str],
         site_url: str,
         data: Dict,
-        team_id: int,
+        team_id: Optional[int],
         now: datetime,
         sent_at: Optional[datetime],
         event_uuid: UUIDT,
-    ) -> Dict[str, Union[str, int]]:
+    ) -> Dict[str, Union[Optional[str], int]]:
         return {
             "uuid": str(event_uuid),
             "distinct_id": distinct_id,
@@ -56,7 +56,7 @@ if is_clickhouse_enabled():
         KafkaProducer().produce(topic=topic, key=data["ip"], data=data)
 
     def log_event_to_dead_letter_queue(
-        raw_payload: Any,
+        raw_payload: Dict,
         event_name: str,
         event: Dict[str, Union[str, int]],
         error_message: str,
@@ -71,7 +71,7 @@ if is_clickhouse_enabled():
         data["id"] = str(uuid4())
         data["event_uuid"] = event["uuid"]
         data["event"] = event_name
-        data["raw_payload"] = raw_payload
+        data["raw_payload"] = json.dumps(raw_payload)
 
         del data["uuid"]
 
@@ -308,7 +308,7 @@ def get_event(request):
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
         statsd.incr("posthog_cloud_plugin_server_ingestion")
-        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk)
+        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)
 
     timer.stop()
     statsd.incr(
@@ -317,7 +317,7 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid):
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()):
     if is_clickhouse_enabled():
         log_event(
             parse_kafka_event_data(
