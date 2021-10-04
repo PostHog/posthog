@@ -105,7 +105,10 @@ describe('insightMetadataLogic', () => {
                     .toDispatchActions(insightLogic, [
                         insightLogic.actionCreators.setInsight({ name: insight.name }, true),
                     ])
-                    .toDispatchActions(logic, ['showViewMode'])
+                    .toDispatchActions(logic, [
+                        logic.actionCreators.setInsightMetadata({ name: insight.name }),
+                        'showViewMode',
+                    ])
                     .toMatchValues(logic, {
                         editableProps: truth((set) => !set.has('name')),
                     })

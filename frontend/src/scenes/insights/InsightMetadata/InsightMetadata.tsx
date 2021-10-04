@@ -1,5 +1,5 @@
 import './InsightMetadata.scss'
-import React, { useEffect } from 'react'
+import React from 'react'
 import { DashboardItemType } from '~/types'
 import { Button, Input } from 'antd'
 import { useActions, useValues } from 'kea'
@@ -11,17 +11,6 @@ import { EditOutlined } from '@ant-design/icons'
 
 function createInsightInputClassName(type: string, isEditable: boolean): string {
     return clsx('insight-metadata-input', `insight-metadata-${type}`, { edit: isEditable })
-}
-
-function useUpdateMetadata(
-    value: any,
-    property: keyof DashboardItemType,
-    setProperty: (insight: Partial<DashboardItemType>) => void
-): void {
-    // Unfortunately there's no way around this. See ActionFilter for similar behavior.
-    useEffect(() => {
-        setProperty({ [property]: value })
-    }, [value])
 }
 
 interface MetadataProps {
@@ -36,14 +25,12 @@ function Title({ insight, isEditable = false }: MetadataProps): JSX.Element {
     const { setInsightMetadata, saveInsightMetadata, cancelInsightMetadata, showEditMode } = useActions(logic)
     const placeholder = insight[property] ?? `Insight #${insight.id ?? '...'}`
 
-    useUpdateMetadata(insight?.[property], property, setInsightMetadata)
-
     return (
         <div className={createInsightInputClassName('title', isEditable)} data-attr="insight-title">
             {isEditable ? (
                 editableProps.has(property) ? (
                     <Input
-                        placeholder={insight[property] ?? `Insight #${insight.id ?? '...'}`}
+                        placeholder={`Insight #${insight.id ?? '...'}`}
                         defaultValue={insight[property] ?? ''}
                         size="large"
                         onChange={(e) => {
@@ -104,8 +91,6 @@ function Description({ insight, isEditable = false }: MetadataProps): JSX.Elemen
     const { editableProps } = useValues(logic)
     const { setInsightMetadata, saveInsightMetadata, showEditMode, cancelInsightMetadata } = useActions(logic)
 
-    useUpdateMetadata(insight?.[property], property, setInsightMetadata)
-
     if (!insight[property] && !isEditable) {
         return null
     }
@@ -117,7 +102,7 @@ function Description({ insight, isEditable = false }: MetadataProps): JSX.Elemen
                     <div className="ant-input-affix-wrapper ant-input-affix-wrapper-lg insight-description-textarea-wrapper">
                         <Input.TextArea
                             className="insight-description-textarea" // hack needed because antd's textarea doesn't support size api
-                            placeholder={insight[property] ?? `Description`}
+                            placeholder={`Description`}
                             defaultValue={insight[property] ?? ''}
                             onChange={(e) => {
                                 setInsightMetadata({ [property]: e.target.value })

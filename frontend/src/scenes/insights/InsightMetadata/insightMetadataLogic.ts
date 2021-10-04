@@ -40,12 +40,8 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
     listeners: ({ values, actions }) => ({
         saveInsightMetadata: async ({ property }, breakpoint) => {
             await breakpoint(200)
-
-            if (!values.insightMetadata[property]) {
-                return
-            }
-
             await actions.setInsight({ [property]: values.insightMetadata[property] }, true)
+            actions.setInsightMetadata({ [property]: values.insightMetadata[property] }) // sync
             actions.showViewMode(property)
         },
         cancelInsightMetadata: async ({ property }) => {
