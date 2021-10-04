@@ -13,7 +13,7 @@ import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
-import { AvailableFeature, HotKeys, ItemMode, ViewType, InsightType } from '~/types'
+import { HotKeys, ItemMode, ViewType, InsightType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -21,7 +21,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
-import { userLogic } from 'scenes/userLogic'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightMetadata } from 'scenes/insights/InsightMetadata'
@@ -41,7 +40,6 @@ export function Insights(): JSX.Element {
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { user } = useValues(userLogic)
     const { reportInsightsTabReset } = useActions(eventUsageLogic)
 
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
@@ -95,7 +93,7 @@ export function Insights(): JSX.Element {
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
                 <div className="insight-metadata">
                     <Row justify="space-between" align="middle" style={{ marginTop: 24 }}>
-                        <InsightMetadata.Title insight={insight} />
+                        <InsightMetadata.Title insight={insight} insightMode={insightMode} />
                         <div>
                             <SaveToDashboard
                                 displayComponent={
@@ -123,8 +121,8 @@ export function Insights(): JSX.Element {
                             </Button>
                         </div>
                     </Row>
-                    <InsightMetadata.Description insight={insight} />
-                    <InsightMetadata.Tags insight={insight} />
+                    <InsightMetadata.Description insight={insight} insightMode={insightMode} />
+                    <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
                     <Col span={24} style={{ marginTop: 16 }}>
                         <InsightContainer loadResults={loadResults} resultsLoading={resultsLoading} />
                     </Col>
@@ -146,10 +144,7 @@ export function Insights(): JSX.Element {
                             <>
                                 <Row align="middle" style={{ marginTop: 24, justifyContent: 'space-between' }}>
                                     <Col style={{ flex: 1 }}>
-                                        <InsightMetadata.Title
-                                            insight={insight}
-                                            isEditable={!!featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]}
-                                        />
+                                        <InsightMetadata.Title insight={insight} insightMode={insightMode} />
                                     </Col>
                                     <Col className="insights-tab-actions">
                                         <>
@@ -198,22 +193,14 @@ export function Insights(): JSX.Element {
                                         </>
                                     </Col>
                                 </Row>
+                                <Row>
+                                    <InsightMetadata.Description insight={insight} insightMode={insightMode} />
+                                </Row>
+                                <Row>
+                                    <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
+                                </Row>
                             </>
                         )}
-
-                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
-                            user?.organization?.available_features?.includes(
-                                AvailableFeature.DASHBOARD_COLLABORATION
-                            ) && (
-                                <>
-                                    <Row>
-                                        <InsightMetadata.Description insight={insight} isEditable={true} />
-                                    </Row>
-                                    <Row>
-                                        <InsightMetadata.Tags insight={insight} isEditable={true} />
-                                    </Row>
-                                </>
-                            )}
                     </div>
 
                     <Row style={{ marginTop: 16 }}>

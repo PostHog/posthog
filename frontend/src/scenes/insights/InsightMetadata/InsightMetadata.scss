@@ -7,11 +7,7 @@
         align-items: center;
         max-width: 400px;
         width: 100%;
-        min-height: 30px;
-
-        &.edit {
-            min-height: 40px;
-        }
+        min-height: 40px;
 
         .btn-cancel {
             color: $primary;
