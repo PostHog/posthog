@@ -558,7 +558,7 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
-    tags: string[]
+    tags: string[] // TODO: To be implemented
 }
 
 export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
