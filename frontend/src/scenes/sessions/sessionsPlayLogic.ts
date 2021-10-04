@@ -8,6 +8,9 @@ import dayjs from 'dayjs'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { toast } from 'react-toastify'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 type SessionRecordingId = string
 
@@ -31,6 +34,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         goToNext: true,
         goToPrevious: true,
         openNextRecordingOnLoad: true,
+        reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
     },
     reducers: {
         sessionRecordingId: [
@@ -94,6 +98,22 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 actions.goToNext()
             }
         },
+        reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
+            await breakpoint()
+            const eventIndex = new EventIndex(recordingData?.snapshots || [])
+            const payload = {
+                load_time: loadTime,
+                duration: eventIndex.getDuration(),
+                start_time: recordingData?.start_time,
+                events_length: eventIndex.pageChangeEvents().length,
+                recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
+                user_is_identified: recordingData.person?.is_identified,
+            }
+            eventUsageLogic.actions.reportRecordingWatched({ delay: 0, ...payload })
+            // tests will wait for all breakpoints to finish
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
+            eventUsageLogic.actions.reportRecordingWatched({ delay: 10, ...payload })
+        },
     }),
     loaders: ({ values, actions }) => ({
         tags: [
@@ -111,8 +131,10 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         ],
         sessionPlayerData: {
             loadRecording: async (sessionRecordingId: string): Promise<SessionPlayerData> => {
+                const startTime = performance.now()
                 const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
                 const response = await api.get(`api/event/session_recording?${params}`)
+                actions.reportUsage(response.result, performance.now() - startTime)
                 return response.result
             },
         },
