@@ -138,7 +138,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     const canvas = useRef<any>(null)
     const size = useWindowSize()
     const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
-    const { openPersonsModal, setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId, filters }))
+    const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(
+        pathsLogic({ dashboardItemId, filters })
+    )
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
         setPathItemCards([])
@@ -146,7 +148,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     }, [paths, !pathsLoading, size, color])
 
     function renderPaths(): void {
-        const elements = document?.getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)?.querySelectorAll(`.paths svg`)
+        const elements = document
+            ?.getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)
+            ?.querySelectorAll(`.paths svg`)
         elements && elements.forEach((node) => node?.parentNode?.removeChild(node))
 
         if (!paths || paths.nodes.length === 0) {
@@ -163,7 +167,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             .style('width', width)
             .style('height', height)
         // @ts-expect-error
-        const sankey = new Sankey.sankey() 
+        const sankey = new Sankey.sankey()
             .nodeId((d: PathNodeData) => d.name)
             .nodeAlign(Sankey.sankeyLeft)
             .nodeSort(null)
@@ -201,11 +205,8 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                     }
                 }
 
-                const startNodeColor = c && d3.color(c)
-                    ? d3.color(c)
-                    : color === 'white'
-                    ? d3.color('#5375ff')
-                    : d3.color('#191919')
+                const startNodeColor =
+                    c && d3.color(c) ? d3.color(c) : color === 'white' ? d3.color('#5375ff') : d3.color('#191919')
                 return startNodeColor
             })
             .append('title')
@@ -235,27 +236,26 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             .join('g')
             .attr('stroke', () => (color === 'white' ? 'var(--primary)' : 'var(--item-lighter'))
             .attr('opacity', 0.2)
-        
-        
+
         link.append('path')
-        // @ts-expect-error - sankey typing things
-        .attr('d', Sankey.sankeyLinkHorizontal()) 
-        .attr('id', (d) => `path${d.index}`)
-        .attr('stroke-width', (d) => {
-            return Math.max(1, d.width)
-        })
-        .on('mouseover', (data) => {
-            svg.select(`#path${data.index}`).attr('stroke', 'blue')
-            if (data?.source?.targetLinks.length === 0) {
-                return
-            }
-            let node = data.source
-            while (node.targetLinks.length > 0) {
-                svg.select(`#path${node.targetLinks[0].index}`).attr('stroke', 'blue')
-                node = node.targetLinks[0].source
-            }
-        })
-        .on('mouseleave', () => svg.selectAll('path').attr('stroke', 'var(--primary)'))
+            // @ts-expect-error - sankey typing things
+            .attr('d', Sankey.sankeyLinkHorizontal())
+            .attr('id', (d) => `path${d.index}`)
+            .attr('stroke-width', (d) => {
+                return Math.max(1, d.width)
+            })
+            .on('mouseover', (data) => {
+                svg.select(`#path${data.index}`).attr('stroke', 'blue')
+                if (data?.source?.targetLinks.length === 0) {
+                    return
+                }
+                let node = data.source
+                while (node.targetLinks.length > 0) {
+                    svg.select(`#path${node.targetLinks[0].index}`).attr('stroke', 'blue')
+                    node = node.targetLinks[0].source
+                }
+            })
+            .on('mouseleave', () => svg.selectAll('path').attr('stroke', 'var(--primary)'))
 
         link.append('g')
             .append('path')
@@ -468,7 +468,11 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         </Menu.Item>
                                                         <Menu.Item
                                                             onClick={() => {
-                                                                if (filter && filter.exclude_events && filter.exclude_events.length > 0) {
+                                                                if (
+                                                                    filter &&
+                                                                    filter.exclude_events &&
+                                                                    filter.exclude_events.length > 0
+                                                                ) {
                                                                     const exclusionEvents = filter.exclude_events.map(
                                                                         (event) => ({ value: event })
                                                                     )
@@ -482,6 +486,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                             }}
                                                         >
                                                             Exclude path item
+                                                        </Menu.Item>
+                                                        <Menu.Item onClick={() => viewPathToFunnel(pathItemCard)}>
+                                                            View funnel
                                                         </Menu.Item>
                                                         <Menu.Item
                                                             onClick={() => copyToClipboard(pageUrl(pathItemCard))}
