@@ -1,7 +1,8 @@
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
+from uuid import uuid4
 
 from dateutil import parser
 from django.conf import settings
@@ -12,6 +13,7 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.api.utils import get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
@@ -20,27 +22,24 @@ from posthog.helpers.session_recording import preprocess_session_recording_event
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
+from posthog.settings import EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC
 from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled, load_data_from_request
 
 if is_clickhouse_enabled():
     from ee.kafka_client.client import KafkaProducer
     from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 
-    def log_event(
+    def parse_kafka_event_data(
         distinct_id: str,
         ip: Optional[str],
         site_url: str,
-        data: dict,
+        data: Dict,
         team_id: int,
         now: datetime,
         sent_at: Optional[datetime],
         event_uuid: UUIDT,
-        *,
-        topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,
-    ) -> None:
-        if settings.DEBUG:
-            print(f'Logging event {data["event"]} to Kafka topic {topic}')
-        data = {
+    ) -> Dict[str, Union[str, int]]:
+        return {
             "uuid": str(event_uuid),
             "distinct_id": distinct_id,
             "ip": ip,
@@ -50,7 +49,35 @@ if is_clickhouse_enabled():
             "now": now.isoformat(),
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
-        KafkaProducer().produce(topic=topic, key=ip, data=data)
+
+    def log_event(data: Dict[str, Union[str, int]], topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
+        if settings.DEBUG:
+            print(f'Logging event {data["event"]} to Kafka topic {topic}')
+        KafkaProducer().produce(topic=topic, key=data["ip"], data=data)
+
+    def log_event_to_dead_letter_queue(
+        raw_payload: Any,
+        event_name: str,
+        event: Dict[str, Union[str, int]],
+        error_message: str,
+        error_location: str,
+        topic: str = KAFKA_DEAD_LETTER_QUEUE,
+    ):
+        data = event.copy()
+        data["failure_timestamp"] = datetime.now().isoformat()
+        data["error_location"] = error_location
+        data["error"] = error_message
+        data["elements_chain"] = ""
+        data["id"] = str(uuid4())
+        data["event_uuid"] = event["uuid"]
+        data["event"] = event_name
+        data["raw_payload"] = raw_payload
+
+        del data["uuid"]
+
+        KafkaProducer().produce(topic=topic, data=data)
+
+        statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -115,6 +142,8 @@ def _ensure_web_feature_flags_in_properties(event: Dict[str, Any], team: Team, d
 
 @csrf_exempt
 def get_event(request):
+    event_uuid = UUIDT()
+
     timer = statsd.timer("posthog_cloud_event_endpoint").start()
     now = timezone.now()
     try:
@@ -149,43 +178,6 @@ def get_event(request):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
-
-    team = Team.objects.get_team_from_token(token)
-
-    if team is None:
-        try:
-            project_id = _get_project_id(data, request)
-        except ValueError:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
-                ),
-            )
-        if not project_id:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Project API key invalid. You can find your project API key in PostHog project settings.",
-                    type="authentication_error",
-                    code="invalid_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-        user = User.objects.get_from_personal_api_key(token)
-        if user is None:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Invalid Personal API key.",
-                    type="authentication_error",
-                    code="invalid_personal_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-        team = user.teams.get(id=project_id)
 
     if isinstance(data, dict):
         if data.get("batch"):  # posthog-python and posthog-ruby
@@ -238,14 +230,80 @@ def get_event(request):
             )
 
         site_url = request.build_absolute_uri("/")[:-1]
+
+    if not event.get("properties"):
+        event["properties"] = {}
+
+    # Support test_[apiKey] for users with multiple environments
+    if event["properties"].get("$environment") is None and is_test_environment:
+        event["properties"]["$environment"] = ENVIRONMENT_TEST
+
+    team = None
+
+    try:
+        team = Team.objects.get_team_from_token(token)
+    except Exception as e:
+        capture_exception(e)
+        statsd.incr("capture_endpoint_fetch_team_fail")
+
+        # Dead Letter Queue is a EE-only feature, as it uses Kafka + CH
+        if is_clickhouse_enabled():
+            kafka_event = parse_kafka_event_data(
+                distinct_id=distinct_id,
+                ip=None,
+                site_url=site_url,
+                team_id=None,
+                now=now,
+                event_uuid=event_uuid,
+                data=event,
+                sent_at=sent_at,
+            )
+
+            error_message = getattr(e, "message", repr(e))
+            log_event_to_dead_letter_queue(
+                data,
+                event["event"],
+                kafka_event,
+                f"Unable to fetch team from Postgres. Error: {error_message}",
+                "django_server_capture_endpoint",
+            )
+
+    if team is None:
+        try:
+            project_id = _get_project_id(data, request)
+        except ValueError:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
+                ),
+            )
+        if not project_id:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Project API key invalid. You can find your project API key in PostHog project settings.",
+                    type="authentication_error",
+                    code="invalid_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+        user = User.objects.get_from_personal_api_key(token)
+        if user is None:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Invalid Personal API key.",
+                    type="authentication_error",
+                    code="invalid_personal_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+
+        team = user.teams.get(id=project_id)
         ip = None if team.anonymize_ips else get_ip_address(request)
-
-        if not event.get("properties"):
-            event["properties"] = {}
-
-        # Support test_[apiKey] for users with multiple environments
-        if event["properties"].get("$environment") is None and is_test_environment:
-            event["properties"]["$environment"] = ENVIRONMENT_TEST
 
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
@@ -259,19 +317,19 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id):
-    event_uuid = UUIDT()
-
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid):
     if is_clickhouse_enabled():
         log_event(
-            distinct_id=distinct_id,
-            ip=ip,
-            site_url=site_url,
-            data=event,
-            team_id=team_id,
-            now=now,
-            sent_at=sent_at,
-            event_uuid=event_uuid,
+            parse_kafka_event_data(
+                distinct_id=distinct_id,
+                ip=ip,
+                site_url=site_url,
+                data=event,
+                team_id=team_id,
+                now=now,
+                sent_at=sent_at,
+                event_uuid=event_uuid,
+            )
         )
     else:
         task_name = "posthog.tasks.process_event.process_event_with_plugins"

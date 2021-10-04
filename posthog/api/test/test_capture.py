@@ -3,19 +3,26 @@ import gzip
 import json
 from datetime import timedelta
 from typing import Any, Dict, List, Union
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from urllib.parse import quote
 
 import lzstring
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
+from kafka import producer
 from rest_framework import status
 
 from posthog.constants import ENVIRONMENT_TEST
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
+from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest
+from posthog.utils import is_clickhouse_enabled
+
+
+def mocked_get_team_from_token(_: Any) -> None:
+    raise Exception("test exception")
 
 
 class TestCapture(BaseTest):
@@ -775,3 +782,41 @@ class TestCapture(BaseTest):
                 "attr": None,
             },
         )
+
+    @patch("sentry_sdk.capture_exception")
+    @patch("posthog.models.Team.objects.get_team_from_token", side_effect=mocked_get_team_from_token)
+    def test_unable_to_fetch_team(self, get_team_from_token, capture_exception):
+        # We use Kafka + CH for a dead letter queue
+        if is_clickhouse_enabled():
+            log_event_patcher = patch("posthog.api.capture.log_event_to_dead_letter_queue")
+            log_event_to_dead_letter_queue = log_event_patcher.start()
+
+        self.client.post(
+            "/e/",
+            data={
+                "data": json.dumps(
+                    {"event": "dlq event", "properties": {"distinct_id": "eeee", "token": self.team.api_token,},},
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        self.assertEqual(get_team_from_token.call_args.args[0], "token123")
+
+        # A Sentry exception is captured on both Postgres and CH deployments
+        self.assertEqual(capture_exception.call_count, 1)
+        mocked_capture_exception_first_argument = capture_exception.call_args.args[0]
+        self.assertEqual(mocked_capture_exception_first_argument.args[0], "test exception")
+
+        if is_clickhouse_enabled():
+            self.assertEqual(log_event_to_dead_letter_queue.call_count, 1)
+
+            log_event_to_dead_letter_queue_args = log_event_to_dead_letter_queue.call_args.args
+            self.assertEqual(type(log_event_to_dead_letter_queue_args[0]), dict)  # raw_payload
+            self.assertEqual(log_event_to_dead_letter_queue_args[1], "dlq event")  # event_name
+            self.assertEqual(type(log_event_to_dead_letter_queue_args[2]), dict)  # event
+            self.assertEqual(
+                log_event_to_dead_letter_queue_args[3],
+                "Unable to fetch team from Postgres. Error: Exception('test exception')",
+            )  # error_message
+            self.assertEqual(log_event_to_dead_letter_queue_args[4], "django_server_capture_endpoint")  # error_location
