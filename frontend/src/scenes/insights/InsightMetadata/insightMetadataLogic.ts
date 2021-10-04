@@ -25,7 +25,6 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
             cleanMetadataValues(props.insight ?? {}),
             {
                 setInsightMetadata: (state, { insight }) => {
-                    console.log('SETING META', state, insight)
                     return { ...state, ...cleanMetadataValues(insight) }
                 },
             },
@@ -41,12 +40,10 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
     listeners: ({ values, actions }) => ({
         saveInsightMetadata: async ({ property }, breakpoint) => {
             await breakpoint(200)
-            console.log('SAVE', values.insightMetadata)
             await actions.setInsight(values.insightMetadata, true)
             actions.showViewMode(property)
         },
         cancelInsightMetadata: async ({ property }) => {
-            console.log('CANCEL', property)
             await actions.setInsightMetadata({ [property]: undefined })
             actions.showViewMode(property)
         },
