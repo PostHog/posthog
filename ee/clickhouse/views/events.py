@@ -153,7 +153,7 @@ class ClickhouseEventsViewSet(EventViewSet):
 
     @action(methods=["GET"], detail=False)
     def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
-        filter = SessionsFilter(request=request)
+        filter = SessionsFilter(request=request, team=self.team)
 
         sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
         return Response({"result": sessions, "pagination": pagination})
@@ -162,7 +162,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     def session_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
         from ee.clickhouse.queries.sessions.events import SessionsListEvents
 
-        filter = SessionEventsFilter(request=request)
+        filter = SessionEventsFilter(request=request, team=self.team)
         return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************

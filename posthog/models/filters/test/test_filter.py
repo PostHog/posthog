@@ -413,7 +413,7 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             self.team.save()
             event_factory(team=self.team, distinct_id="team_member", event="$pageview")
             event_factory(team=self.team, distinct_id="random_user", event="$pageview")
-            filter = Filter(data={FILTER_TEST_ACCOUNTS: True, "events": [{"id": "$pageview"}]})
+            filter = Filter(data={FILTER_TEST_ACCOUNTS: True, "events": [{"id": "$pageview"}]}, team=self.team)
             events = filter_events(filter=filter, team=self.team, person_query=True)
             self.assertEqual(len(events), 1)
 

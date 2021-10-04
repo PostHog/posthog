@@ -61,7 +61,8 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def calculate_session(self, request: Request) -> Dict[str, Any]:
         return {
             "result": ClickhouseSessions().run(
-                team=self.team, filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS})
+                team=self.team,
+                filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS}, team=self.team),
             )
         }
 

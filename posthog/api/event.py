@@ -293,7 +293,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def sessions(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         from posthog.queries.sessions.sessions_list import SessionsList
 
-        filter = SessionsFilter(request=request)
+        filter = SessionsFilter(request=request, team=self.team)
 
         sessions, pagination = SessionsList.run(filter=filter, team=self.team)
         return Response({"result": sessions, "pagination": pagination})
@@ -302,7 +302,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     def session_events(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         from posthog.queries.sessions.sessions_list_events import SessionsListEvents
 
-        filter = SessionEventsFilter(request=request)
+        filter = SessionEventsFilter(request=request, team=self.team)
         return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************

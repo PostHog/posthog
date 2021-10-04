@@ -235,7 +235,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @cached_function
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        result = Sessions().run(filter=SessionsFilter(request=request), team=self.team)
+        result = Sessions().run(filter=SessionsFilter(request=request, team=self.team), team=self.team)
         return {"result": result}
 
     # ******************************************
