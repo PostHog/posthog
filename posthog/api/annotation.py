@@ -51,8 +51,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
 
 class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
@@ -106,3 +104,7 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
         posthoganalytics.capture(
             instance.created_by.distinct_id, event_name, instance.get_analytics_metadata(),
         )
+
+
+class LegacyAnnotationsViewSet(AnnotationsViewSet):
+    legacy_team_compatibility = True

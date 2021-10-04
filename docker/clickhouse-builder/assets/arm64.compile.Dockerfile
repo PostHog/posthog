@@ -25,14 +25,14 @@ ENV LC_ALL en_US.UTF-8
 ENV TZ UTC
 
 RUN apt-get -y install git cmake python ninja-build
-RUN git clone --branch $GIT_TAG --recursive https://github.com/ClickHouse/ClickHouse.git
+RUN git clone --depth 1 --shallow-submodules --branch $GIT_TAG --recursive https://github.com/ClickHouse/ClickHouse.git
 
 RUN apt-get -y install clang-12 build-essential
 ENV CC clang-12
 ENV CXX clang++-12
 
 RUN cd ClickHouse && mkdir build && cd build && cmake ..
-RUN cd ClickHouse/build && ninja -j 2
+RUN cd ClickHouse/build && ninja -j $(nproc)
 RUN mv ClickHouse/build/programs/clickhouse* /usr/bin/
 
 RUN mkdir /docker-entrypoint-initdb.d
