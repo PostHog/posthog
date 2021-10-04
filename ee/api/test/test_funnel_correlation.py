@@ -24,28 +24,17 @@ class FunnelCorrelationTest(BaseTest):
 
             odds = get_funnel_correlation_ok(client=self.client, team_id=self.team.pk,)
 
-        self.assertEqual(
-            odds,
-            {
-                "is_cached": False,
-                "last_refresh": "2020-01-01T00:00:00Z",
-                "result": {
-                    "events": [
-                        # Top 10
-                        {"event": "Event A", "success_count": 1, "failure_count": 4, "odds_ratio": 10},
-                        {"event": "Event B", "success_count": 1, "failure_count": 4, "odds_ratio": 9.4},
-                        {"event": "Event C", "success_count": 1, "failure_count": 4, "odds_ratio": 5.4},
-                        {"event": "Event D", "success_count": 1, "failure_count": 4, "odds_ratio": 3.4},
-                        {"event": "Event E", "success_count": 1, "failure_count": 4, "odds_ratio": 2.6},
-                        {"event": "Event F", "success_count": 1, "failure_count": 4, "odds_ratio": 2.5},
-                        {"event": "Event G", "success_count": 1, "failure_count": 4, "odds_ratio": 2.1},
-                        {"event": "Event H", "success_count": 1, "failure_count": 4, "odds_ratio": 2.0},
-                        {"event": "Event I", "success_count": 1, "failure_count": 4, "odds_ratio": 1.5},
-                        {"event": "Event J", "success_count": 1, "failure_count": 4, "odds_ratio": 1.2},
-                    ]
-                },
+        assert odds == {
+            "is_cached": False,
+            "last_refresh": "2020-01-01T00:00:00Z",
+            "result": {
+                "events": [
+                    # Top 10
+                    {"event": "signup", "success_count": 1, "failure_count": 2, "odds_ratio": 0.7777777777777778},
+                    {"event": "watch video", "success_count": 1, "failure_count": 2, "odds_ratio": 0.7777777777777778},
+                ]
             },
-        )
+        }
 
 
 def get_funnel_correlation(client: Client, team_id: int):
