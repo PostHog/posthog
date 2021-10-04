@@ -660,7 +660,15 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         )
         result = ClickhouseTrends().run(filter, self.team,)
         self.assertEqual(result[0]["count"], 1)
-        result = ClickhouseTrends().run(filter.with_data({"filter_test_accounts": "false"}), self.team,)
+        filter2 = Filter(
+            {
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0}],
+            },
+            team=self.team,
+        )
+        result = ClickhouseTrends().run(filter2, self.team,)
         self.assertEqual(result[0]["count"], 2)
         result = ClickhouseTrends().run(filter.with_data({"breakdown": "key"}), self.team,)
         self.assertEqual(result[0]["count"], 1)
