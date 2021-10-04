@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Type
+from typing import Any, Dict, List, Literal, Type
 
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -39,6 +39,7 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.queries.diagnose import DiagnoseResponse
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
@@ -124,13 +125,11 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         return {"result": result}
 
     @cached_function
-    def calculate_diagnose(self, request: Request) -> Dict[str, Any]:
+    def calculate_diagnose(self, request: Request) -> List[Dict[str, Any]]:
         team = self.team
         filter = DiagnoseFilter(request=request, data={"insight": INSIGHT_DIAGNOSE})
 
-        resp = ClickhouseDiagnose(filter=filter, team=team).run()
-
-        return {"result": resp}
+        return ClickhouseDiagnose(filter=filter, team=team).run()
 
 
 class LegacyClickhouseInsightsViewSet(ClickhouseInsightsViewSet):

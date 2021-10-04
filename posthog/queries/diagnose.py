@@ -1,9 +1,7 @@
-from typing import Any, Dict, List, TypedDict
+from typing import List, TypedDict
 
 from posthog.models import Team
 from posthog.models.filters.diagnose_filter import DiagnoseFilter
-
-from .base import BaseQuery
 
 
 class EventOddsRatio(TypedDict):
@@ -22,7 +20,7 @@ class DiagnoseResponse(TypedDict):
     events: List[EventOddsRatio]
 
 
-class Diagnose(BaseQuery):
+class Diagnose:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__()
 

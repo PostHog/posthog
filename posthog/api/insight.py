@@ -1,4 +1,4 @@
-from typing import Any, Dict, Type
+from typing import Any, Dict, List, Type
 
 from django.core.cache import cache
 from django.db.models import QuerySet
@@ -352,7 +352,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(result)
 
     @cached_function
-    def calculate_diagnose(self, request: request.Request) -> DiagnoseResponse:
+    def calculate_diagnose(self, request: request.Request) -> Any:
         team = self.team
         data = {}
         if not request.GET.get("date_from"):
