@@ -3,7 +3,7 @@ import gzip
 import json
 from datetime import timedelta
 from typing import Any, Dict, List, Union
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from urllib.parse import quote
 
 import lzstring
