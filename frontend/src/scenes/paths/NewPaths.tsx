@@ -166,7 +166,6 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             .style('background', 'var(--item-background)')
             .style('width', width)
             .style('height', height)
-        // @ts-expect-error
         const sankey = new Sankey.sankey()
             .nodeId((d: PathNodeData) => d.name)
             .nodeAlign(Sankey.sankeyLeft)
@@ -238,7 +237,6 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             .attr('opacity', 0.2)
 
         link.append('path')
-            // @ts-expect-error - sankey typing things
             .attr('d', Sankey.sankeyLinkHorizontal())
             .attr('id', (d) => `path${d.index}`)
             .attr('stroke-width', (d) => {
