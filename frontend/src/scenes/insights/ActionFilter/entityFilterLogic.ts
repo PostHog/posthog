@@ -75,7 +75,7 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
             name: filter.name,
             custom_name: filter.custom_name,
         }),
-        renameFilter: (filter: EntityFilter) => ({ filter }),
+        renameFilter: (custom_name: string) => ({ custom_name }),
         removeLocalFilter: (
             filter: Partial<EntityFilter> & {
                 index: number
@@ -98,17 +98,19 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
         setLocalFilters: (filters: FilterType) => ({ filters }),
         setEntityFilterVisibility: (index: number, value: boolean) => ({ index, value }),
         renameLocalFilter: (index: number, custom_name: string) => ({ index, custom_name }),
+        showModal: true,
+        hideModal: true,
     }),
 
     reducers: ({ props }) => ({
         selectedFilter: [
             null as EntityFilter | ActionFilter | null,
             {
-                selectFilter: (_state, { filter }) => filter,
+                selectFilter: (_, { filter }) => filter,
             },
         ],
         localFilters: [
-            toLocalFilters(props.filters) as LocalFilter[],
+            toLocalFilters(props.filters ?? {}) as LocalFilter[],
             {
                 setLocalFilters: (_, { filters }) => toLocalFilters(filters),
             },
@@ -120,6 +122,13 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
                     ...state,
                     [index]: value,
                 }),
+            },
+        ],
+        modalVisible: [
+            false,
+            {
+                showModal: () => true,
+                hideModal: () => false,
             },
         ],
     }),
@@ -141,11 +150,22 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
     },
 
     listeners: ({ actions, values, props }) => ({
-        renameFilter: async ({ filter }) => {
+        renameFilter: async ({ custom_name }) => {
+            if (!values.selectedFilter) {
+                return
+            }
+
             actions.updateFilter({
-                ...filter,
-                index: filter.order as number,
+                ...values.selectedFilter,
+                index: values.selectedFilter?.order,
+                custom_name,
+            } as EntityFilter & {
+                index: number
             })
+            actions.hideModal()
+        },
+        hideModal: () => {
+            actions.selectFilter(null)
         },
         updateFilter: async ({ type, index, name, id, custom_name }) => {
             actions.setFilters(

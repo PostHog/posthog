@@ -132,31 +132,38 @@ class Team(UUIDClassicModel):
     objects: TeamManager = TeamManager()
 
     def get_effective_membership_level(self, user: "User") -> Optional["OrganizationMembership.Level"]:
+        """Return an effective membership level.
+        None returned if the user has no explicit membership and organization access is too low for implicit membership.
+        """
         from posthog.models.organization import OrganizationMembership
 
-        parent_membership: "OrganizationMembership" = user.organization_memberships.only("id", "level").get(
-            organization_id=self.organization_id
-        )
+        try:
+            requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
+                "organization"
+            ).get(organization_id=self.organization_id, user=user)
+        except OrganizationMembership.DoesNotExist:
+            return None
         if (
-            settings.EE_AVAILABLE
-            and self.access_control
-            and self.organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
+            not settings.EE_AVAILABLE
+            or not requesting_parent_membership.organization.is_feature_available(
+                AvailableFeature.PROJECT_BASED_PERMISSIONING
+            )
+            or not self.access_control
         ):
-            # Checking for project-specific level
-            try:
-                return (
-                    parent_membership.explicit_team_memberships.only("parent_membership", "level")
-                    .get(team=self)
-                    .effective_level
-                )
-            except ObjectDoesNotExist:
-                if parent_membership.level < OrganizationMembership.Level.ADMIN:
-                    # Only organization admins and above get implicit project membership
-                    return None
-                return parent_membership.level
-        else:
-            # Project-based permissioning unavailable or disabled, simply returning organization-wide level
-            return parent_membership.level
+            return requesting_parent_membership.level
+        from ee.models import ExplicitTeamMembership
+
+        try:
+            return (
+                requesting_parent_membership.explicit_team_memberships.only("parent_membership", "level")
+                .get(team=self)
+                .effective_level
+            )
+        except ExplicitTeamMembership.DoesNotExist:
+            # Only organizations admins and above get implicit project membership
+            if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
+                return None
+            return requesting_parent_membership.level
 
     def __str__(self):
         if self.name:

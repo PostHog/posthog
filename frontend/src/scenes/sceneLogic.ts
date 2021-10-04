@@ -11,10 +11,15 @@ import { preflightLogic } from './PreflightCheck/logic'
 import { AvailableFeature, ViewType } from '~/types'
 import { userLogic } from './userLogic'
 import { afterLoginRedirect } from './authentication/loginLogic'
+import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../layout/ErrorProjectUnavailable'
+import { teamLogic } from './teamLogic'
+import { featureFlagLogic } from '../lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from '../lib/constants'
 
 export enum Scene {
     Error404 = '404',
     ErrorNetwork = '4xx',
+    ErrorProjectUnavailable = 'projectUnavailable',
     Dashboards = 'dashboards',
     Dashboard = 'dashboard',
     Insights = 'insights',
@@ -22,6 +27,7 @@ export enum Scene {
     Cohorts = 'cohorts',
     Events = 'events',
     Sessions = 'sessions',
+    SessionRecordings = 'sessionRecordings',
     Person = 'person',
     Persons = 'persons',
     Action = 'action',
@@ -56,11 +62,15 @@ const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.ErrorNetwork]: {
         component: ErrorNetworkComponent,
     },
+    [Scene.ErrorProjectUnavailable]: {
+        component: ErrorProjectUnavailableComponent,
+    },
 }
 
 export const scenes: Record<Scene, () => any> = {
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
+    [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
     [Scene.Dashboards]: () => import(/* webpackChunkName: 'dashboards' */ './dashboard/Dashboards'),
     [Scene.Dashboard]: () => import(/* webpackChunkName: 'dashboard' */ './dashboard/Dashboard'),
     [Scene.Insights]: () => import(/* webpackChunkName: 'insights' */ './insights/Insights'),
@@ -68,6 +78,8 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Cohorts]: () => import(/* webpackChunkName: 'cohorts' */ './cohorts/Cohorts'),
     [Scene.Events]: () => import(/* webpackChunkName: 'events' */ './events/Events'),
     [Scene.Sessions]: () => import(/* webpackChunkName: 'sessions' */ './sessions/Sessions'),
+    [Scene.SessionRecordings]: () =>
+        import(/* webpackChunkName: 'sessionRecordings' */ './sessionRecordings/SessionRecordings'),
     [Scene.Person]: () => import(/* webpackChunkName: 'person' */ './persons/Person'),
     [Scene.Persons]: () => import(/* webpackChunkName: 'persons' */ './persons/Persons'),
     [Scene.Action]: () => import(/* webpackChunkName: 'action' */ './actions/Action'),
@@ -106,18 +118,92 @@ interface Params {
 }
 
 interface SceneConfig {
-    onlyUnauthenticated?: boolean // Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too)
-    allowUnauthenticated?: boolean // Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too)
-    dark?: boolean // Background is $bg_mid
-    plain?: boolean // Only keeps the main content and the top navigation bar
-    hideTopNav?: boolean // Hides the top navigation bar (regardless of whether `plain` is `true` or not)
-    hideDemoWarnings?: boolean // Hides demo project warnings (DemoWarning.tsx)
+    /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
+    onlyUnauthenticated?: boolean
+    /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
+    allowUnauthenticated?: boolean
+    /** Background is $bg_mid */
+    dark?: boolean
+    /** Only keeps the main content and the top navigation bar */
+    plain?: boolean
+    /** Hides the top navigation bar (regardless of whether `plain` is `true` or not) */
+    hideTopNav?: boolean
+    /** Hides demo project warnings (DemoWarning.tsx) */
+    hideDemoWarnings?: boolean
+    /** Route requires project access */
+    projectBased?: boolean
 }
 
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+    // Project-based routes
+    [Scene.Dashboards]: {
+        projectBased: true,
+    },
+    [Scene.Dashboard]: {
+        projectBased: true,
+    },
     [Scene.Insights]: {
+        projectBased: true,
         dark: true,
     },
+    [Scene.Cohorts]: {
+        projectBased: true,
+    },
+    [Scene.Events]: {
+        projectBased: true,
+    },
+    [Scene.Sessions]: {
+        projectBased: true,
+    },
+    [Scene.Person]: {
+        projectBased: true,
+    },
+    [Scene.Persons]: {
+        projectBased: true,
+    },
+    [Scene.Action]: {
+        projectBased: true,
+    },
+    [Scene.FeatureFlags]: {
+        projectBased: true,
+    },
+    [Scene.FeatureFlag]: {
+        projectBased: true,
+    },
+    [Scene.Annotations]: {
+        projectBased: true,
+    },
+    [Scene.Plugins]: {
+        projectBased: true,
+    },
+    [Scene.Home]: {
+        projectBased: true,
+    },
+    [Scene.SavedInsights]: {
+        projectBased: true,
+    },
+    [Scene.ProjectSettings]: {
+        projectBased: true,
+        hideDemoWarnings: true,
+    },
+    [Scene.InsightRouter]: {
+        projectBased: true,
+        dark: true,
+    },
+    [Scene.Personalization]: {
+        projectBased: true,
+        plain: true,
+        hideTopNav: true,
+    },
+    [Scene.Ingestion]: {
+        projectBased: true,
+        plain: true,
+    },
+    [Scene.OnboardingSetup]: {
+        projectBased: true,
+        hideDemoWarnings: true,
+    },
+    // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
         plain: true,
     },
@@ -127,7 +213,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Billing]: {
         hideDemoWarnings: true,
     },
-    // Onboarding / setup routes
+    // Onboarding/setup routes
     [Scene.Login]: {
         onlyUnauthenticated: true,
     },
@@ -140,22 +226,6 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
         plain: true,
-    },
-    [Scene.Personalization]: {
-        plain: true,
-        hideTopNav: true,
-    },
-    [Scene.Ingestion]: {
-        plain: true,
-    },
-    [Scene.OnboardingSetup]: {
-        hideDemoWarnings: true,
-    },
-    [Scene.ProjectSettings]: {
-        hideDemoWarnings: true,
-    },
-    [Scene.InsightRouter]: {
-        dark: true,
     },
 }
 
@@ -181,6 +251,7 @@ export const urls = {
     savedInsights: () => '/saved_insights',
     events: () => '/events',
     sessions: () => '/sessions',
+    sessionRecordings: () => '/session_recordings',
     person: (id: string) => `/person/${id}`,
     persons: () => '/persons',
     cohort: (id: string | number) => `/cohorts/${id}`,
@@ -219,6 +290,7 @@ export const routes: Record<string, Scene> = {
     [urls.events()]: Scene.Events,
     [urls.events() + '/*']: Scene.Events,
     [urls.sessions()]: Scene.Sessions,
+    [urls.sessionRecordings()]: Scene.SessionRecordings,
     [urls.person('*')]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.cohort(':id')]: Scene.Cohorts,
@@ -319,7 +391,23 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 return sceneConfigurations[scene] ?? {}
             },
         ],
-        activeScene: [(s) => [s.loadingScene, s.scene], (loadingScene, scene) => loadingScene || scene],
+        activeScene: [
+            (selectors) => [
+                selectors.loadingScene,
+                selectors.scene,
+                teamLogic.selectors.isCurrentTeamUnavailable,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (loadingScene, scene, isCurrentTeamUnavailable, featureFlags) => {
+                const baseActiveScene = loadingScene || scene
+                return isCurrentTeamUnavailable &&
+                    featureFlags[FEATURE_FLAGS.PROJECT_BASED_PERMISSIONING] &&
+                    baseActiveScene &&
+                    sceneConfigurations[baseActiveScene]?.projectBased
+                    ? Scene.ErrorProjectUnavailable
+                    : baseActiveScene
+            },
+        ],
     },
     urlToAction: ({ actions }) => {
         const mapping: Record<string, (params: Params) => any> = {}

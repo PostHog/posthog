@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Dashboard, DashboardItem, Filter, User
+from posthog.models.organization import OrganizationMembership
 from posthog.test.base import APIBaseTest
 from posthog.utils import generate_cache_key
 
@@ -98,7 +99,7 @@ class TestDashboard(APIBaseTest):
             team=self.team, share_token="testtoken", name="public dashboard", is_shared=True,
         )
         response = self.client.get("/shared_dashboard/testtoken")
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_share_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -106,15 +107,6 @@ class TestDashboard(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dashboard = Dashboard.objects.get(pk=dashboard.pk)
         self.assertIsNotNone(dashboard.share_token)
-
-    def test_no_team_dashboards_list(self):
-        self.team.delete()
-
-        response = self.client.get("/api/dashboard/")
-        self.assertDictEqual(
-            response.json(), {"attr": None, "code": "not_found", "detail": "Not found.", "type": "invalid_request",},
-        )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_return_cached_results(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -141,7 +133,10 @@ class TestDashboard(APIBaseTest):
         self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(item.filters_hash, generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)))
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
+            # Django session, PostHog user, PostHog team, PostHog org membership, PostHog dashboard,
+            # PostHog dashboard item, PostHog team, PostHog dashboard item UPDATE, PostHog team,
+            # PostHog dashboard item UPDATE, PostHog dashboard UPDATE, PostHog dashboard item
             response = self.client.get("/api/dashboard/%s/" % dashboard.pk).json()
 
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))

@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Type
 
 from rest_framework.decorators import action
@@ -68,14 +69,20 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
 
+        funnel_filter = None
+        funnel_filter_data = request.GET.get("funnel_filter")
+        if funnel_filter_data:
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **json.loads(funnel_filter_data)})
+
         #  backwards compatibility
         if filter.path_type:
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
-        resp = ClickhousePaths(filter=filter, team=team).run()
+        resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
+
         return {"result": resp}
 
     @action(methods=["GET", "POST"], detail=False)
-    def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
         response = self.calculate_funnel(request)
         return Response(response)
 
@@ -112,3 +119,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         filter = RetentionFilter(data=data, request=request)
         result = ClickhouseRetention().run(filter, team)
         return {"result": result}
+
+
+class LegacyClickhouseInsightsViewSet(ClickhouseInsightsViewSet):
+    legacy_team_compatibility = True

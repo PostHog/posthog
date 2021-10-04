@@ -283,16 +283,20 @@ code.code {
     background-color: $primary;
 }
 
+.text-primary {
+    color: var(--primary) !important;
+}
+
 .text-success {
-    color: $success !important;
+    color: var(--success) !important;
 }
 
 .text-danger {
-    color: $danger !important;
+    color: var(--danger) !important;
 }
 
 .text-warning {
-    color: $warning !important;
+    color: var(--warning) !important;
 }
 
 // Random general styles

@@ -23,17 +23,10 @@ export interface PersonModalProps {
 }
 
 export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModalProps): JSX.Element {
-    const {
-        people,
-        loadingMorePeople,
-        firstLoadedPeople,
-        searchTerm,
-        isInitialLoad,
-        clickhouseFeaturesEnabled,
-    } = useValues(personsModalLogic)
-    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } = useActions(
-        personsModalLogic
-    )
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad, clickhouseFeaturesEnabled } =
+        useValues(personsModalLogic)
+    const { hidePeople, loadMorePeople, setFirstLoadedPeople, setPersonsModalFilters, setSearchTerm } =
+        useActions(personsModalLogic)
     const { preflight } = useValues(preflightLogic)
     const title = useMemo(
         () =>
@@ -51,6 +44,11 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                     {Math.abs(people?.funnelStep ?? 0)} - <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
                     {people?.breakdown_value !== undefined &&
                         `- ${people.breakdown_value ? people.breakdown_value : 'None'}`}
+                </>
+            ) : filters.insight === ViewType.PATHS ? (
+                <>
+                    {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
+                    <PropertyKeyInfo value={people?.label || ''} disablePopover />
                 </>
             ) : (
                 <>

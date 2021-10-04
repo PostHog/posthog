@@ -4,9 +4,8 @@ import { useActions, useValues } from 'kea'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 
 export function AnalyzeQueryModal(): JSX.Element | null {
-    const { analyzeModalOpen, analyzeQuery, analyzeQueryResult, analyzeQueryResultLoading } = useValues(
-        systemStatusLogic
-    )
+    const { analyzeModalOpen, analyzeQuery, analyzeQueryResult, analyzeQueryResultLoading } =
+        useValues(systemStatusLogic)
     const { setAnalyzeModalOpen, setAnalyzeQuery, runAnalyzeQuery } = useActions(systemStatusLogic)
 
     return (

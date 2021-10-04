@@ -146,7 +146,7 @@ describe('trendsLogic', () => {
                         events: [{ id: 3 }],
                         properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
                     },
-                    [('result' as any) as TrendResult]
+                    ['result' as any as TrendResult]
                 )
 
                 await expectLogic(logic)

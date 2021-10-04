@@ -374,6 +374,8 @@ export interface FunnelStepRangeEntityFilter extends EntityFilter {
     funnel_to_step: number
 }
 
+export type EntityFilterTypes = EntityFilter | ActionFilter | FunnelStepRangeEntityFilter | null
+
 export interface PersonType {
     id?: number
     uuid?: string
@@ -439,6 +441,7 @@ export enum StepOrderValue {
 export enum PersonsTabType {
     EVENTS = 'events',
     SESSIONS = 'sessions',
+    SESSION_RECORDINGS = 'sessionRecordings',
 }
 
 export enum LayoutView {
@@ -490,6 +493,8 @@ export interface SessionRecordingType {
     start_time: string
     /** When the recording ends in ISO format. */
     end_time: string
+    distinct_id?: string
+    email?: string
 }
 
 export interface BillingType {
@@ -689,6 +694,12 @@ export enum PathType {
     CustomEvent = 'custom_event',
 }
 
+export enum FunnelPathType {
+    before = 'funnel_path_before_step',
+    between = 'funnel_path_between_steps',
+    after = 'funnel_path_after_step',
+}
+
 export enum FunnelVizType {
     Steps = 'steps',
     TimeToConvert = 'time_to_convert',
@@ -719,7 +730,10 @@ export interface FilterType {
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
     path_type?: PathType
-    start_point?: string | number
+    include_event_types?: PathType[]
+    start_point?: string
+    end_point?: string
+    path_groupings?: string[]
     stickiness_days?: number
     type?: EntityType
     entity_id?: string | number
@@ -745,6 +759,16 @@ export interface FilterType {
     funnel_order_type?: StepOrderValue
     exclusions?: FunnelStepRangeEntityFilter[] // used in funnel exclusion filters
     hiddenLegendKeys?: Record<string, boolean | undefined> // used to toggle visibility of breakdowns with legend
+    exclude_events?: string[] // Paths Exclusion type
+    step_limit?: number // Paths Step Limit
+    path_start_key?: string // Paths People Start Key
+    path_end_key?: string // Paths People End Key
+    path_dropoff_key?: string // Paths People Dropoff Key
+    funnel_filter?: Record<string, any> // Funnel Filter used in Paths
+    funnel_paths?: FunnelPathType
+    edge_limit?: number | undefined // Paths edge limit
+    min_edge_weight?: number | undefined // Paths
+    max_edge_weight?: number | undefined // Paths
 }
 
 export interface SystemStatusSubrows {
@@ -1172,3 +1196,9 @@ export interface AppContext {
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
+
+export interface PathEdgeParameters {
+    edge_limit?: number | undefined
+    min_edge_weight?: number | undefined
+    max_edge_weight?: number | undefined
+}

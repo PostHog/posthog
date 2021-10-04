@@ -60,8 +60,7 @@ class TestTeamAPI(APIBaseTest):
             self.assertEqual(Team.objects.count(), 1)
 
     def test_retention_invalid_properties(self):
-        org = Organization.objects.create(name="New Org")
-        team = Team.objects.create(organization=org, name="Default Project")
+        _, _, team = Organization.objects.bootstrap(self.user, name="New Org")
 
         properties = "invalid_json"
         response = self.client.get(f"/api/projects/{team.pk}/actions/retention", data={"properties": properties})

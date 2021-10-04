@@ -5,8 +5,11 @@ import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
+import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+
+export const DEFAULT_STEP_LIMIT = 5
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
@@ -20,19 +23,30 @@ export const pathOptionsToProperty = {
     [PathType.CustomEvent]: 'custom_event',
 }
 
-function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
+export function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
     return {
-        start_point: filters.start_point,
-        path_type: filters.path_type || PathType.PageView,
+        start_point: filters.start_point || undefined,
+        end_point: filters.end_point || undefined,
+        step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
+        // TODO: use FF for path_type undefined
+        path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
+        include_event_types: filters.include_event_types || (filters.funnel_filter ? [] : [PathType.PageView]),
+        path_groupings: filters.path_groupings || [],
+        exclude_events: filters.exclude_events || [],
+        ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
         date_from: filters.date_from,
         date_to: filters.date_to,
         insight: ViewType.PATHS,
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        path_start_key: filters.path_start_key || undefined,
+        path_end_key: filters.path_end_key || undefined,
+        path_dropoff_key: filters.path_dropoff_key || undefined,
+        funnel_filter: filters.funnel_filter || {},
+        funnel_paths: filters.funnel_paths,
     }
 }
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
-
 interface PathResult {
     paths: PathNode[]
     filter: Partial<FilterType>
@@ -53,11 +67,18 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     connect: {
         actions: [insightHistoryLogic, ['createInsight']],
     },
-    actions: () => ({
+    actions: {
         setProperties: (properties) => ({ properties }),
         setFilter: (filter) => filter,
         setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
-    }),
+        showPathEvents: (event) => ({ event }),
+        updateExclusions: (filters: AnyPropertyFilter[]) => ({ exclusions: filters.map(({ value }) => value) }),
+        openPersonsModal: (path_start_key?: string, path_end_key?: string, path_dropoff_key?: string) => ({
+            path_start_key,
+            path_end_key,
+            path_dropoff_key,
+        }),
+    },
     loaders: ({ values, props }) => ({
         results: {
             __default: { paths: [], filter: {} } as PathResult,
@@ -107,11 +128,19 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         filter: [
             (props.filters
                 ? cleanPathParams(props.filters)
-                : (state: Record<string, any>) => cleanPathParams(router.selectors.searchParams(state))) as Partial<
-                FilterType
-            >,
+                : (state: Record<string, any>) =>
+                      cleanPathParams(router.selectors.searchParams(state))) as Partial<FilterType>,
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
+                showPathEvents: (state, { event }) => {
+                    if (state.include_event_types) {
+                        const include_event_types = state.include_event_types.includes(event)
+                            ? state.include_event_types.filter((e) => e !== event)
+                            : [...state.include_event_types, event]
+                        return { ...state, include_event_types }
+                    }
+                    return { ...state, include_event_types: [event] }
+                },
             },
         ],
         properties: [
@@ -128,6 +157,9 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         setProperties: () => {
             actions.loadResults(true)
         },
+        updateExclusions: ({ exclusions }) => {
+            actions.setFilter({ exclude_events: exclusions })
+        },
         setFilter: () => {
             actions.loadResults(true)
         },
@@ -140,6 +172,16 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     insightLogic.actions.updateInsightFilters(values.filter)
                 }
             }
+        },
+        openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
+            personsModalLogic.actions.loadPeople({
+                action: 'session', // relic from reusing Trend PersonModal
+                label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
+                date_from: '',
+                date_to: '',
+                pathsDropoff: Boolean(path_dropoff_key),
+                filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
+            })
         },
     }),
     selectors: {

@@ -17,9 +17,8 @@ import { UsageDisabledWarning } from '../UsageDisabledWarning'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export function DefinitionDrawer(): JSX.Element {
-    const { drawerState, definition, tagLoading, type, eventDefinitionTags, propertyDefinitionTags } = useValues(
-        definitionDrawerLogic
-    )
+    const { drawerState, definition, tagLoading, type, eventDefinitionTags, propertyDefinitionTags } =
+        useValues(definitionDrawerLogic)
     const { closeDrawer, setNewTag, deleteTag, saveAll } = useActions(definitionDrawerLogic)
     const { preflight } = useValues(preflightLogic)
     const { Panel } = Collapse

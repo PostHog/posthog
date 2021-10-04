@@ -1,13 +1,13 @@
 from typing import Optional
 
 from django.utils import timezone
-from rest_framework import exceptions, generics, mixins, request, serializers, status, viewsets
+from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.plugin import PluginOwnershipPermission, PluginsAccessLevelPermission
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.plugin import PluginLogEntry, fetch_plugin_log_entries
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
 class PluginLogEntrySerializer(serializers.ModelSerializer):
@@ -24,6 +24,7 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
         ProjectMembershipNecessaryPermissions,
         PluginsAccessLevelPermission,
         PluginOwnershipPermission,
+        TeamMemberAccessPermission,
     ]
 
     def get_queryset(self):

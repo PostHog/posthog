@@ -27,40 +27,38 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
      * When there's only one recording, hovering over the button shows the dropdown, and clicking opens the recording.
      * When there are more recordings, hovering over the button does nothing, and clicking shows the dropdown.
      */
-    const ButtonWrapper: (props: {
-        setRef: (ref: HTMLElement | null) => void
-        children: ReactNode
-    }) => JSX.Element = useCallback(
-        ({ setRef, children }) => {
-            return isSingleRecording ? (
-                <div className="session-recordings-button__wrapper" ref={setRef}>
-                    <Link
-                        to={sessionPlayerUrl(sessionRecordings[0].id)}
+    const ButtonWrapper: (props: { setRef: (ref: HTMLElement | null) => void; children: ReactNode }) => JSX.Element =
+        useCallback(
+            ({ setRef, children }) => {
+                return isSingleRecording ? (
+                    <div className="session-recordings-button__wrapper" ref={setRef}>
+                        <Link
+                            to={sessionPlayerUrl(sessionRecordings[0].id)}
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                setAreRecordingsShown(false)
+                            }}
+                            onMouseEnter={() => setAreRecordingsShown(true)}
+                            onMouseLeave={() => setAreRecordingsShown(false)}
+                        >
+                            {children}
+                        </Link>
+                    </div>
+                ) : (
+                    <div
+                        ref={setRef}
+                        className="session-recordings-button__wrapper"
                         onClick={(event) => {
                             event.stopPropagation()
-                            setAreRecordingsShown(false)
+                            setAreRecordingsShown((previousValue) => !previousValue)
                         }}
-                        onMouseEnter={() => setAreRecordingsShown(true)}
-                        onMouseLeave={() => setAreRecordingsShown(false)}
                     >
                         {children}
-                    </Link>
-                </div>
-            ) : (
-                <div
-                    ref={setRef}
-                    className="session-recordings-button__wrapper"
-                    onClick={(event) => {
-                        event.stopPropagation()
-                        setAreRecordingsShown((previousValue) => !previousValue)
-                    }}
-                >
-                    {children}
-                </div>
-            )
-        },
-        [sessionRecordings, setAreRecordingsShown]
-    )
+                    </div>
+                )
+            },
+            [sessionRecordings, setAreRecordingsShown]
+        )
 
     return (
         <Popup

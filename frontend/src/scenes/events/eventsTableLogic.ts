@@ -65,7 +65,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             props.apiUrl || 'events',
             props.live ? 'live' : '',
             props.key,
-        ].join('-'),
+        ]
+            .filter((keyPart) => !!keyPart)
+            .join('-'),
 
     actions: {
         setProperties: (properties: AnyPropertyFilter[] | AnyPropertyFilter): { properties: AnyPropertyFilter[] } => {
@@ -151,7 +153,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         ],
         orderBy: ['-timestamp', { flipSort: (state) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
         selectedEvent: [
-            (null as unknown) as EventType,
+            null as unknown as EventType,
             {
                 setSelectedEvent: (_, { selectedEvent }) => selectedEvent,
             },
