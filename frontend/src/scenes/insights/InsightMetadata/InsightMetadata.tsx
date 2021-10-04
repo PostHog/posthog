@@ -33,7 +33,7 @@ function Title({ insight, isEditable = false }: MetadataProps): JSX.Element {
     const property = 'name'
     const logic = insightMetadataLogic({ insight: { [property]: insight?.[property] } })
     const { editableProps } = useValues(logic)
-    const { setInsightMetadata, saveInsightMetadata, showEditMode, cancelInsightMetadata } = useActions(logic)
+    const { setInsightMetadata, saveInsightMetadata, cancelInsightMetadata, showEditMode } = useActions(logic)
     const placeholder = insight[property] ?? `Insight #${insight.id ?? '...'}`
 
     useUpdateMetadata(insight?.[property], property, setInsightMetadata)

@@ -4,7 +4,7 @@ import { DashboardItemType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { cleanMetadataValues } from 'scenes/insights/InsightMetadata/utils'
 
-interface InsightMetadataLogicProps {
+export interface InsightMetadataLogicProps {
     insight?: Partial<DashboardItemType>
 }
 
@@ -40,7 +40,12 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
     listeners: ({ values, actions }) => ({
         saveInsightMetadata: async ({ property }, breakpoint) => {
             await breakpoint(200)
-            await actions.setInsight(values.insightMetadata, true)
+
+            if (!values.insightMetadata[property]) {
+                return
+            }
+
+            await actions.setInsight({ [property]: values.insightMetadata[property] }, true)
             actions.showViewMode(property)
         },
         cancelInsightMetadata: async ({ property }) => {

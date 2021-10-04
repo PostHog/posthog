@@ -5,7 +5,7 @@ describe('cleanMetadataValues()', () => {
         expect(cleanMetadataValues({})).toEqual({})
         expect(cleanMetadataValues({ filters: {} })).toEqual({ filters: {} })
         expect(cleanMetadataValues({ refreshing: true })).toEqual({ refreshing: true })
-        expect(cleanMetadataValues({ description: undefined })).toEqual({ description: undefined })
+        expect(cleanMetadataValues({ description: undefined })).toEqual({ description: null })
         expect(cleanMetadataValues({ color: null })).toEqual({ color: null })
     })
     it('handles blank strings as expected', () => {

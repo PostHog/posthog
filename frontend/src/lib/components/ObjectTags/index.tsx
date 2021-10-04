@@ -48,8 +48,6 @@ export function ObjectTags({
         }
     }, [saving])
 
-    console.log('TAGS', tags)
-
     return (
         <div style={style}>
             {tags
