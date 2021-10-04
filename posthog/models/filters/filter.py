@@ -109,6 +109,6 @@ class Filter(
         self._data = data
         self.kwargs = kwargs
 
-        if "team" in kwargs:
+        if "team" in kwargs and not self.is_simplified:
             simplified_filter = self.simplify(kwargs["team"])
             self._data = simplified_filter._data

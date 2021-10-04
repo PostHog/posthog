@@ -2147,9 +2147,9 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 "events": [{"id": "$pageview", "type": "events", "order": 0}],
                 "filter_test_accounts": "true",
             }
-            filter = Filter(data=data)
-            filter_2 = Filter(data={**data, "filter_test_accounts": "false",})
-            filter_3 = Filter(data={**data, "breakdown": "key"})
+            filter = Filter(data=data, team=self.team)
+            filter_2 = Filter(data={**data, "filter_test_accounts": "false",}, team=self.team)
+            filter_3 = Filter(data={**data, "breakdown": "key"}, team=self.team)
             result = trends().run(filter, self.team,)
             self.assertEqual(result[0]["count"], 1)
             result = trends().run(filter_2, self.team,)
@@ -2175,7 +2175,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
             self.team.save()
 
             response = trends().run(
-                Filter(data={"events": [{"id": "event_name"}], "filter_test_accounts": True}), self.team,
+                Filter(data={"events": [{"id": "event_name"}], "filter_test_accounts": True}, team=self.team),
+                self.team,
             )
 
             self.assertEqual(response[0]["count"], 2)
