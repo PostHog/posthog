@@ -19,7 +19,7 @@ class SimplifyFilterMixin:
         if getattr(self, "filter_test_accounts", False):
             result = result.with_data(
                 {"properties": result.properties + team.test_account_filters, "filter_test_accounts": False}
-            )  # type: ignore
+            )
 
         return result
 

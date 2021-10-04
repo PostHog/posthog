@@ -38,6 +38,34 @@ class TestFilter(BaseTest):
             list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from", "interval"],
         )
 
+    def test_simplify(self):
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+
+        data = {"properties": [{"key": "attr", "value": "some_val"}]}
+
+        filter = Filter(data=data, team=self.team)
+        self.assertEqual(
+            filter.properties_to_dict(),
+            {"properties": [{"key": "attr", "value": "some_val", "operator": None, "type": "event"},],},
+        )
+        self.assertTrue(filter.is_simplified)
+
+        filter = Filter(data={**data, FILTER_TEST_ACCOUNTS: True}, team=self.team)
+
+        self.assertEqual(
+            filter.properties_to_dict(),
+            {
+                "properties": [
+                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
+                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                ]
+            },
+        )
+        self.assertTrue(filter.is_simplified)
+
 
 def property_to_Q_test_factory(filter_events: Callable, event_factory, person_factory):
     class TestPropertiesToQ(BaseTest):
