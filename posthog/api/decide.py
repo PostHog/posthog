@@ -93,7 +93,7 @@ def get_decide(request: HttpRequest):
                 generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
             )
 
-        token, _ = get_token(data, request)
+        token = get_token(data, request)
         team = Team.objects.get_team_from_token(token)
         if team is None and token:
             project_id = _get_project_id(data, request)

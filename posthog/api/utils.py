@@ -52,7 +52,7 @@ def format_offset_absolute_url(request: request.Request, offset: int):
     return url_to_format
 
 
-def get_token(data, request) -> Tuple[Optional[str], bool]:
+def get_token(data, request) -> Optional[str]:
     token = None
     if request.method == "GET":
         if request.GET.get("token"):
@@ -80,7 +80,7 @@ def get_token(data, request) -> Tuple[Optional[str], bool]:
 
     if token:
         return clean_token(token)
-    return None, False
+    return None
 
 
 # Support test_[apiKey] for users with multiple environments
