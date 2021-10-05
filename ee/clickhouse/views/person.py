@@ -1,3 +1,4 @@
+import json
 from typing import Callable, Dict, Optional, Tuple
 
 from rest_framework.decorators import action
@@ -102,7 +103,12 @@ class ClickhousePersonViewSet(PersonViewSet):
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
 
-        people, should_paginate = ClickhousePathsPersons(filter, team).run()
+        funnel_filter = None
+        funnel_filter_data = request.GET.get("funnel_filter")
+        if funnel_filter_data:
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **json.loads(funnel_filter_data)})
+
+        people, should_paginate = ClickhousePathsPersons(filter, team, funnel_filter=funnel_filter).run()
         limit = filter.limit or 100
         next_url = format_offset_absolute_url(request, filter.offset + limit) if should_paginate else None
         initial_url = format_offset_absolute_url(request, 0)

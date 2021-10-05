@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -6,7 +7,7 @@ from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
-from posthog.constants import INSIGHT_PATHS
+from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_PATHS
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -149,3 +150,40 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
         next = j["next"]
         self.assertEqual(0, len(people))
         self.assertIsNone(next)
+
+    def test_basic_format_with_funnel_path(self):
+        self._create_sample_data(7)
+        request_data = {
+            "insight": INSIGHT_PATHS,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
+            "filter_test_accounts": "false",
+            "date_from": "2021-05-01",
+            "date_to": "2021-05-07",
+            "path_start_key": "1_step two",
+            "path_end_key": "2_step three",
+            "funnel_filter": json.dumps(
+                {
+                    "insight": INSIGHT_FUNNELS,
+                    "interval": "day",
+                    "date_from": "2021-05-01 00:00:00",
+                    "date_to": "2021-05-07 00:00:00",
+                    "funnel_window_interval": 7,
+                    "funnel_window_interval_unit": "day",
+                    "funnel_step": 2,
+                    "events": [
+                        {"id": "step one", "order": 0},
+                        {"id": "step two", "order": 1},
+                        {"id": "step three", "order": 2},
+                    ],
+                }
+            ),
+        }
+
+        get_response = self.client.get("/api/person/path/", data=request_data)
+        post_response = self.client.post("/api/person/path/", data=request_data)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(post_response.status_code, status.HTTP_200_OK)
+        get_j = get_response.json()
+        post_j = post_response.json()
+        self.assertEqual(4, len(get_j["results"][0]["people"]))
+        self.assertEqual(4, len(post_j["results"][0]["people"]))
