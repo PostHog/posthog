@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Literal, Type
+from typing import Any, Dict, Type
 
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -8,7 +8,6 @@ from rest_framework.response import Response
 from ee.clickhouse.queries import ClickhousePaths
 from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
 from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.diagnose.diagnose import ClickhouseDiagnose
 from ee.clickhouse.queries.funnels import (
     ClickhouseFunnel,
     ClickhouseFunnelBase,
@@ -17,12 +16,12 @@ from ee.clickhouse.queries.funnels import (
     ClickhouseFunnelTrends,
     ClickhouseFunnelUnordered,
 )
+from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
 from posthog.api.insight import InsightViewSet
 from posthog.constants import (
-    INSIGHT_DIAGNOSE,
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
     INSIGHT_SESSIONS,
@@ -34,12 +33,10 @@ from posthog.constants import (
 )
 from posthog.decorators import cached_function
 from posthog.models.filters import Filter
-from posthog.models.filters.diagnose_filter import DiagnoseFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.queries.diagnose import DiagnoseResponse
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
@@ -114,6 +111,29 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         else:
             return {"result": funnel_order_class(team=team, filter=filter).run()}
 
+    # ******************************************
+    # /insight/funnel_correlation
+    #
+    # params:
+    # - params are the same as for funnel
+    #
+    # Returns significant events, i.e. those that are correlated with a person
+    # making it through a funnel
+    # ******************************************
+    @action(methods=["GET"], url_path="funnel/correlation", detail=False)
+    def funnel_correlation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_funnel_correlation(request)
+        return Response(result)
+
+    @cached_function
+    def calculate_funnel_correlation(self, request: Request) -> Dict[str, Any]:
+        team = self.team
+        filter = Filter(request=request)
+
+        result = FunnelCorrelation(filter=filter, team=team).run()
+
+        return {"result": result}
+
     @cached_function
     def calculate_retention(self, request: Request) -> Dict[str, Any]:
         team = self.team
@@ -122,15 +142,6 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request)
         result = ClickhouseRetention().run(filter, team)
-        return {"result": result}
-
-    @cached_function
-    def calculate_diagnose(self, request: Request) -> Dict[str, Any]:
-        team = self.team
-        filter = DiagnoseFilter(request=request, data={"insight": INSIGHT_DIAGNOSE})
-
-        result = ClickhouseDiagnose(filter=filter, team=team).run()
-
         return {"result": result}
 
 

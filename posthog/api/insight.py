@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Type
+from typing import Any, Dict, Type
 
 from django.core.cache import cache
 from django.db.models import QuerySet
@@ -25,13 +25,11 @@ from posthog.constants import (
 from posthog.decorators import CacheType, cached_function
 from posthog.models import DashboardItem, Event, Filter, Team
 from posthog.models.filters import RetentionFilter
-from posthog.models.filters.diagnose_filter import DiagnoseFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries import diagnose, paths, retention, stickiness, trends
-from posthog.queries.diagnose import DiagnoseResponse
+from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
 from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
@@ -330,36 +328,6 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
-
-    # ******************************************
-    # /insight/diagnose
-    #
-    # params:
-    # - target_entity: (dict) specifies id and type of the entity for which to calculate odds ratios for
-    # - source_entity: (dict) specifies and optional id and type of the entity
-    #   for which a person must have visited to be included in the diagnosis
-    #
-    # Used to identify significant factors that lead to a `Person` reaching a
-    # `target_entity`. For example, what is common amongst Persons that reach
-    # the signup page, but not common amoungst Persons that do not.
-    #
-    # Initially these are just events related to event names, but in the future
-    # this could include user properties as well.
-    # ******************************************
-    @action(methods=["GET"], url_path="diagnose", detail=False)
-    def diagnose(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        result = self.calculate_diagnose(request)
-        return Response(result)
-
-    @cached_function
-    def calculate_diagnose(self, request: request.Request) -> Any:
-        team = self.team
-        data = {}
-        if not request.GET.get("date_from"):
-            data.update({"date_from": "-11d"})
-        filter = DiagnoseFilter(data=data, request=request)
-        result = diagnose.Diagnose().run(filter, team)
-        return {"result": result}
 
 
 class LegacyInsightViewSet(InsightViewSet):
