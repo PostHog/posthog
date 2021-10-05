@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { toParams, fromParams, errorToast } from 'lib/utils'
+import { errorToast } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -42,7 +42,6 @@ export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
-        setCachedUrl: (type: ViewType, url: string) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
         endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
@@ -117,12 +116,6 @@ export const insightLogic = kea<insightLogicType>({
                 endQuery: (_, { exception }) => exception?.status >= 400,
                 startQuery: () => false,
                 setActiveView: () => false,
-            },
-        ],
-        cachedUrls: [
-            {} as Record<string, string>,
-            {
-                setCachedUrl: (state, { type, url }) => ({ ...state, [type]: url }),
             },
         ],
         activeView: [
@@ -313,16 +306,7 @@ export const insightLogic = kea<insightLogicType>({
     }),
     actionToUrl: ({ actions, values }) => ({
         setActiveView: ({ type }) => {
-            const params = fromParams()
-            const { properties, ...restParams } = params
-
-            actions.setCachedUrl(values.activeView, window.location.pathname + '?' + toParams(restParams))
-            const cachedUrl = values.cachedUrls[type]
             actions.updateActiveView(type)
-
-            if (cachedUrl) {
-                return cachedUrl + '&' + toParams({ properties })
-            }
 
             const urlParams: UrlParams = {
                 insight: type,
