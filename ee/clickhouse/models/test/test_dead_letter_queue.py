@@ -1,19 +1,25 @@
 import json
 from datetime import datetime
-from time import sleep
 from uuid import UUID, uuid4
 
 from kafka import KafkaProducer
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
 from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE, INSERT_DEAD_LETTER_QUEUE_EVENT_SQL
-from ee.clickhouse.util import ClickhouseTestMixin, delay_until_clickhouse_consumes_from_kafka
+from ee.clickhouse.util import ClickhouseTestMixin
 from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest
 
 TEST_EVENT_RAW_PAYLOAD = json.dumps(
-    {"event": "some event", "properties": {"distinct_id": 2, "token": "invalid token",},}
+    {
+        "event": "some event",
+        "properties": {
+            "distinct_id": 2,
+            "token": "invalid token",
+        },
+    }
 )
 
 CREATED_AT = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -48,10 +54,15 @@ def reset_tables():
 
 
 class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        reset_tables()
+
     def test_direct_table_insert(self):
 
         sync_execute(
-            INSERT_DEAD_LETTER_QUEUE_EVENT_SQL, TEST_DATA,
+            INSERT_DEAD_LETTER_QUEUE_EVENT_SQL,
+            TEST_DATA,
         )
 
         dead_letter_queue_events = sync_execute("SELECT * FROM events_dead_letter_queue LIMIT 1")
@@ -74,10 +85,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
         self.assertEqual(dlq_event[13], "plugin-server")  # error_location
         self.assertEqual(dlq_event[14], "createPerson failed")  # error
 
-        reset_tables()
-
     def test_kafka_insert(self):
-        reset_tables()
 
         kafka_data = TEST_DATA
 
