@@ -28,6 +28,8 @@ import {
     SharedInsightLogicProps,
     FlattenedFunnelStepByBreakdown,
     FunnelAPIResponse,
+    FunnelCorrelation,
+    FunnelCorrelationType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -137,6 +139,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
         toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+        setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
     }),
 
     connect: {
@@ -244,6 +247,89 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 },
             },
         ],
+        correlations: [
+            { events: [] } as Record<'events', FunnelCorrelation[]>,
+            {
+                loadCorrelations: async (correlationTypes: FunnelCorrelationType[]) => {
+                    console.log('correlationtype: ', correlationTypes)
+                    return {
+                        events: [
+                            {
+                                event: 'Event A',
+                                correlation_type: 'success',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 10,
+                            },
+                            {
+                                event: 'Event B',
+                                correlation_type: 'failure',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 9.4,
+                            },
+                            {
+                                event: 'Event C',
+                                correlation_type: 'failure',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 5.4,
+                            },
+                            {
+                                event: 'Event D',
+                                correlation_type: 'success',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 3.4,
+                            },
+                            {
+                                event: 'Event E',
+                                correlation_type: 'failure',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 2.6,
+                            },
+                            {
+                                event: 'Event F',
+                                correlation_type: 'success',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 2.5,
+                            },
+                            {
+                                event: 'Event G',
+                                correlation_type: 'failure',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 2.1,
+                            },
+                            {
+                                event: 'Event H',
+                                correlation_type: 'success',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 2.0,
+                            },
+                            {
+                                event: 'Event I',
+                                correlation_type: 'success',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 1.5,
+                            },
+                            {
+                                event: 'Event J',
+                                correlation_type: 'success',
+                                success_count: 1,
+                                failure_count: 4,
+                                odds_ratio: 1.2,
+                            },
+                        ],
+                    }
+                    // return (await api.create('api/insight/funnel/', {...values.apiParams, correlationTypes})).results
+                },
+            },
+        ],
     }),
 
     reducers: ({ props }) => ({
@@ -316,6 +402,12 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 [insightLogic.actionTypes.startQuery]: () => null,
                 [insightLogic.actionTypes.endQuery]: (_, { exception }) => exception ?? null,
                 [insightLogic.actionTypes.abortQuery]: (_, { exception }) => exception ?? null,
+            },
+        ],
+        correlationTypes: [
+            [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
+            {
+                setCorrelationTypes: (_, { types }) => types,
             },
         ],
     }),
@@ -698,6 +790,14 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 return !(e?.status === 400 && e?.type === 'validation_error')
             },
         ],
+        correlationValues: [
+            () => [selectors.correlations, selectors.correlationTypes],
+            (correlations, correlationTypes): FunnelCorrelation[] => {
+                return correlations.events?.filter((correlation) =>
+                    correlationTypes.includes(correlation.correlation_type)
+                )
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -718,6 +818,10 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     actions.loadPeople(values.stepsWithCount)
                 }
             }
+
+            // load correlation table after funnel. Maybe parallel?
+            actions.loadCorrelations(values.correlationTypes)
+
             if (!props.dashboardItemId) {
                 if (!insightLogic.values.insight.id) {
                     actions.createInsight(values.filters)
