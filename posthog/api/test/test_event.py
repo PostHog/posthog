@@ -416,26 +416,6 @@ def factory_test_event_api(event_factory, person_factory, _):
 
             self.assertEqual(len(response_person_1["result"]), 1)
 
-        def test_distinct_id_is_email(self):
-            # Regression test, emails didn't work as distinct id filter
-            another_team = Team.objects.create(organization=self.organization)
-
-            Person.objects.create(team=self.team, distinct_ids=["test+test@gmail.com"])
-            Person.objects.create(team=another_team, distinct_ids=["test+test@gmail.com"])
-
-            with freeze_time("2012-01-14T03:21:34.000Z"):
-                event_factory(team=self.team, event="1st action", distinct_id="test+test@gmail.com")
-
-            with freeze_time("2012-01-14T03:25:34.000Z"):
-                event_factory(team=self.team, event="2nd action", distinct_id="test+test@gmail.com")
-                event_factory(team=another_team, event="2nd action", distinct_id="test+test@gmail.com")
-                event_factory(team=self.team, event="2nd action", distinct_id="test+test@gmail.com")
-
-            response = self.client.get(
-                f"/api/event/sessions/?distinct_id=test+test@gmail.com&date_from=2012-01-14T03:00:34&date_to=2012-01-15T04:00:00"
-            ).json()
-            self.assertEqual(len(response["result"]), 1)
-
         def test_events_in_future(self):
             with freeze_time("2012-01-15T04:01:34.000Z"):
                 event_factory(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
