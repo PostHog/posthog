@@ -140,7 +140,7 @@ class QuerySuite:
                 "properties": [{"key": "id", "value": self.cohort.pk, "type": "cohort"}],
                 **DATE_RANGE,
             },
-            team_id=self.team.pk,
+            team=self.team,
         )
         ClickhouseTrends().run(filter, self.team)
 
@@ -155,7 +155,7 @@ class QuerySuite:
                 "properties": [{"key": "id", "value": self.cohort.pk, "type": "cohort"}],
                 **DATE_RANGE,
             },
-            team_id=self.team.pk,
+            team=self.team,
         )
 
         with no_materialized_columns():
@@ -172,7 +172,7 @@ class QuerySuite:
                 "properties": [{"key": "id", "value": self.cohort.pk, "type": "cohort"}],
                 **DATE_RANGE,
             },
-            team_id=self.team.pk,
+            team=self.team,
         )
 
         ClickhouseTrends().run(filter, self.team)
