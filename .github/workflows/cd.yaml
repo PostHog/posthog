@@ -22,47 +22,6 @@ jobs:
               id: check-package-version
               uses: PostHog/check-package-version@v1
 
-    containerize:
-        name: Build and push container image
-        runs-on: ubuntu-20.04
-        needs: check-package-version
-        env:
-            REPO_VERSION: ${{ needs.check-package-version.outputs.repo-version }}
-            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
-            IS_UNPUBLISHED_VERSION: ${{ needs.check-package-version.outputs.is-unpublished-version }}
-        steps:
-            - name: Checkout the repository
-              uses: actions/checkout@v2
-              with:
-                  fetch-depth: 0
-
-            - name: Determine relevant Docker tags
-              id: docker-tags
-              run: |
-                  DOCKER_TAGS="posthog/plugin-server:latest"
-                  if [[ $IS_UNPUBLISHED_VERSION == "true" ]]; then
-                    DOCKER_TAGS="$DOCKER_TAGS,posthog/plugin-server:$REPO_VERSION,posthog/plugin-server:latest-release"
-                  fi
-                  echo "::set-output name=docker-tags::$DOCKER_TAGS"
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v1
-
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v1
-
-            - name: Log in to DockerHub
-              uses: docker/login-action@v1
-              with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            - name: Build and push latest
-              uses: docker/build-push-action@v2
-              with:
-                  push: true
-                  tags: ${{ steps.docker-tags.outputs.docker-tags }}
-
     release:
         name: Publish release if new version
         runs-on: ubuntu-20.04
@@ -122,12 +81,6 @@ jobs:
               with:
                   path: plugin-server
                   fetch-depth: 0
-
-            - name: Update Docker image tags
-              run: |
-                  # docker-compose
-                  cd posthog/
-                  sed -i -e 's;posthog/plugin-server:[0-9]*\.[0-9]*\.[0-9]*;posthog/plugin-server:${{ env.REPO_VERSION }};gi' **.yml
 
             - name: Install new plugin server version in main repo
               id: yarn-upgrade
