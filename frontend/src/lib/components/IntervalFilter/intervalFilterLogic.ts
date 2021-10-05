@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { intervalFilterLogicType } from './intervalFilterLogicType'
 import { IntervalKeyType } from 'lib/components/IntervalFilter/intervals'
+import { FilterType } from '~/types'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
     actions: () => ({
@@ -46,7 +47,8 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (_, { interval, date_from }) => {
+        '/insights': (_, searchParams, hashParams) => {
+            const { interval, date_from }: Partial<FilterType> = { ...searchParams, ...hashParams.q }
             if (interval) {
                 actions.setIntervalFilter(interval)
             }

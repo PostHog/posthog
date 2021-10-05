@@ -15,6 +15,7 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { getInsightUrl } from 'scenes/insights/url'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -165,23 +166,24 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
+            return getInsightUrl(values.filters, router.values.hashParams, router.values.hashParams.fromItem)
         },
         setProperties: () => {
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
+            return getInsightUrl(values.filters, router.values.hashParams, router.values.hashParams.fromItem)
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
-        '/insights': ({}, searchParams: Record<string, any>) => {
-            if (searchParams.insight === ViewType.RETENTION) {
+        '/insights': (_, searchParams, hashParams) => {
+            const queryParams = { ...searchParams, ...hashParams.q }
+            if (queryParams.insight === ViewType.RETENTION) {
                 if (key != DEFAULT_RETENTION_LOGIC_KEY) {
                     return
                 }
 
-                const cleanSearchParams = searchParams
+                const cleanSearchParams = queryParams
                 const cleanedFilters = values.filters
 
                 if (cleanSearchParams.display !== cleanedFilters.display) {

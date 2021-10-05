@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { InsightType, ViewType } from '~/types'
+import { FilterType, ViewType } from '~/types'
 import { compareFilterLogicType } from './compareFilterLogicType'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({
@@ -40,18 +40,8 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/insights': (
-            _: any,
-            {
-                compare,
-                insight,
-                date_from,
-            }: {
-                compare?: boolean
-                insight?: InsightType
-                date_from?: string
-            }
-        ) => {
+        '/insights': (_, searchParams, hashParams) => {
+            const { compare, insight, date_from }: Partial<FilterType> = { ...searchParams, ...hashParams.q }
             if (compare !== undefined) {
                 actions.setCompare(compare)
             }

@@ -5,15 +5,15 @@ import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
-import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
+import { insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import {
     ActionFilter,
     ChartDisplayType,
-    SharedInsightLogicProps,
     EntityTypes,
     FilterType,
     PropertyFilter,
+    SharedInsightLogicProps,
     TrendResult,
     ViewType,
 } from '~/types'
@@ -23,6 +23,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { IndexedTrendResult, TrendResponse } from 'scenes/trends/types'
+import { defaultFilterTestAccounts, getInsightUrl } from 'scenes/insights/url'
 
 interface PeopleParamType {
     action: ActionFilter | 'session'
@@ -378,43 +379,44 @@ export const trendsLogic = kea<trendsLogicType>({
             if (props.dashboardItemId) {
                 return // don't use the URL if on the dashboard
             }
-            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
+            return getInsightUrl(values.filters, router.values.hashParams, router.values.hashParams.fromItem)
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        '/insights': ({}, searchParams: Partial<FilterType>) => {
+        '/insights': (_, searchParams, hashParams) => {
             if (props.dashboardItemId) {
                 return
             }
+            const queryParams = { ...searchParams, ...hashParams.q }
             if (
-                !searchParams.insight ||
-                searchParams.insight === ViewType.TRENDS ||
-                searchParams.insight === ViewType.SESSIONS ||
-                searchParams.insight === ViewType.STICKINESS ||
-                searchParams.insight === ViewType.LIFECYCLE
+                !queryParams.insight ||
+                queryParams.insight === ViewType.TRENDS ||
+                queryParams.insight === ViewType.SESSIONS ||
+                queryParams.insight === ViewType.STICKINESS ||
+                queryParams.insight === ViewType.LIFECYCLE
             ) {
-                const cleanSearchParams = cleanFilters(searchParams)
+                const cleanSearchParams = cleanFilters(queryParams)
 
-                const keys = Object.keys(searchParams)
+                const keys = Object.keys(queryParams)
 
-                if (keys.length === 0 || (!searchParams.actions && !searchParams.events)) {
+                if (keys.length === 0 || (!queryParams.actions && !queryParams.events)) {
                     cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
                 }
 
                 // TODO: Deprecated; should be removed once backend is updated
-                if (searchParams.insight === ViewType.STICKINESS) {
+                if (queryParams.insight === ViewType.STICKINESS) {
                     cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
                 }
-                if (searchParams.insight === ViewType.LIFECYCLE) {
+                if (queryParams.insight === ViewType.LIFECYCLE) {
                     cleanSearchParams['shown_as'] = ShownAsValue.LIFECYCLE
                 }
 
-                if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
+                if (queryParams.insight === ViewType.SESSIONS && !queryParams.session) {
                     cleanSearchParams['session'] = 'avg'
                 }
 
-                if (searchParams.date_from === 'all' || searchParams.insight === ViewType.LIFECYCLE) {
+                if (queryParams.date_from === 'all' || queryParams.insight === ViewType.LIFECYCLE) {
                     cleanSearchParams['compare'] = false
                 }
 

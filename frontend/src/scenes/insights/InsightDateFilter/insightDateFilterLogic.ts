@@ -64,7 +64,8 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_: any, { date_from, date_to }: UrlParams) => {
+        '/insights': (_, searchParams, hashParams) => {
+            const { date_from, date_to }: UrlParams = { ...searchParams, ...hashParams.q }
             if (!values.initialLoad && !objectsEqual(date_from, values.dates.dateFrom)) {
                 actions.dateAutomaticallyChanged()
             }

@@ -3,7 +3,7 @@ import { errorToast } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
-import { DashboardItemType, Entity, FilterType, FunnelVizType, ItemMode, PropertyFilter, ViewType } from '~/types'
+import { DashboardItemType, FilterType, InsightType, ItemMode, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
@@ -13,6 +13,7 @@ import React from 'react'
 import { Link } from 'lib/components/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { getInsightUrl } from 'scenes/insights/url'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -24,19 +25,6 @@ This includes handling the urls and view state
 */
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
-export const defaultFilterTestAccounts = (): boolean => {
-    return localStorage.getItem('default_filter_test_accounts') === 'true' || false
-}
-
-interface UrlParams {
-    insight: string
-    properties: PropertyFilter[] | undefined
-    filter_test_accounts: boolean
-    funnel_viz_type?: string
-    display?: string
-    events?: Entity[]
-    actions?: Entity[]
-}
 
 export const insightLogic = kea<insightLogicType>({
     actions: () => ({
@@ -260,12 +248,13 @@ export const insightLogic = kea<insightLogicType>({
                 }
             }
         },
-        setActiveView: () => {
+        setActiveView: ({ type }) => {
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
+            actions.updateActiveView(type)
         },
         toggleControlsCollapsed: async () => {
             eventUsageLogic.actions.reportInsightsControlsCollapseToggle(values.controlsCollapsed)
@@ -304,32 +293,24 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
     }),
-    actionToUrl: ({ actions, values }) => ({
-        setActiveView: ({ type }) => {
-            actions.updateActiveView(type)
-
-            const urlParams: UrlParams = {
-                insight: type,
-                properties: values.allFilters.properties,
-                filter_test_accounts: defaultFilterTestAccounts(),
-                events: (values.allFilters.events || []) as Entity[],
-                actions: (values.allFilters.actions || []) as Entity[],
-            }
-
-            if (type === ViewType.FUNNELS) {
-                urlParams.funnel_viz_type = FunnelVizType.Steps
-                urlParams.display = 'FunnelViz'
-            }
-            return ['/insights', urlParams]
+    actionToUrl: ({ values }) => ({
+        setActiveView: () => {
+            return getInsightUrl(
+                { ...values.allFilters, insight: values.activeView as InsightType },
+                router.values.hashParams,
+                values.insight?.id || router.values.hashParams.fromItem
+            )
         },
     }),
     urlToAction: ({ actions, values }) => ({
-        '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
-            if (searchParams.insight && searchParams.insight !== values.activeView) {
-                actions.updateActiveView(searchParams.insight)
+        '/insights': (_, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
+            const queryParams = { ...searchParams, ...hashParams.q }
+            actions.setAllFilters(queryParams)
+            if (queryParams.insight && queryParams.insight !== values.activeView) {
+                actions.updateActiveView(queryParams.insight)
             }
             if (hashParams.fromItem) {
-                actions.loadInsight(hashParams.fromItem)
+                actions.loadInsight(parseInt(hashParams.fromItem))
             } else {
                 actions.setInsightMode(ItemMode.Edit, null)
             }

@@ -51,6 +51,7 @@ import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getInsightUrl } from 'scenes/insights/url'
 
 export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
     const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
@@ -829,22 +830,31 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl, router.values.hashParams, { replace: true }]
+                return getInsightUrl(
+                    values.propertiesForUrl,
+                    router.values.hashParams,
+                    router.values.hashParams.fromItem
+                )
             }
         },
         clearFunnel: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', { insight: ViewType.FUNNELS }, router.values.hashParams, { replace: true }]
+                return getInsightUrl(
+                    { insight: ViewType.FUNNELS },
+                    router.values.hashParams,
+                    router.values.hashParams.fromItem
+                )
             }
         },
     }),
     urlToAction: ({ actions, props }) => ({
-        '/insights': (_, searchParams: Partial<FilterType>) => {
+        '/insights': (_, searchParams, hashParams) => {
             if (props.dashboardItemId) {
                 return
             }
-            if (searchParams.insight === ViewType.FUNNELS) {
-                const cleanedParams = cleanFunnelParams(searchParams)
+            const queryParams = { ...searchParams, ...hashParams.q }
+            if (queryParams.insight === ViewType.FUNNELS) {
+                const cleanedParams = cleanFunnelParams(queryParams)
                 if (isStepsEmpty(cleanedParams)) {
                     const event = getDefaultEventName()
                     cleanedParams.events = [

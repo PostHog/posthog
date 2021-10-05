@@ -1,13 +1,14 @@
 import { kea } from 'kea'
-import { toParams, objectsEqual, uuid } from 'lib/utils'
+import { objectsEqual, toParams, uuid } from 'lib/utils'
 import api from 'lib/api'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, FilterType, PathType, PropertyFilter, SharedInsightLogicProps, ViewType } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { getInsightUrl } from 'scenes/insights/url'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -273,29 +274,38 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     actionToUrl: ({ values, props }) => ({
         setProperties: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
+                return getInsightUrl(
+                    values.propertiesForUrl || {},
+                    router.values.hashParams,
+                    router.values.hashParams.fromItem
+                )
             }
         },
         setFilter: () => {
             if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
+                return getInsightUrl(
+                    values.propertiesForUrl || {},
+                    router.values.hashParams,
+                    router.values.hashParams.fromItem
+                )
             }
         },
     }),
     urlToAction: ({ actions, values, key }) => ({
-        '/insights': ({}, searchParams: Partial<FilterType>) => {
-            if (searchParams.insight === ViewType.PATHS) {
+        '/insights': (_, searchParams, hashParams) => {
+            const queryParams: Partial<FilterType> = { ...searchParams, ...hashParams.q }
+            if (queryParams.insight === ViewType.PATHS) {
                 if (key != DEFAULT_PATH_LOGIC_KEY) {
                     return
                 }
-                const cleanedPathParams = cleanPathParams(searchParams)
+                const cleanedPathParams = cleanPathParams(queryParams)
 
                 if (!objectsEqual(cleanedPathParams, values.filter)) {
                     actions.setFilter(cleanedPathParams)
                 }
 
-                if (!objectsEqual(searchParams.properties || [], values.properties)) {
-                    actions.setProperties(searchParams.properties || [])
+                if (!objectsEqual(queryParams.properties || [], values.properties)) {
+                    actions.setProperties(queryParams.properties || [])
                 }
             }
         },
