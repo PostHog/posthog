@@ -6,7 +6,11 @@ from rest_framework import exceptions
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.columns import TableWithProperties, get_materialized_columns
-from ee.clickhouse.models.cohort import format_filter_query, format_precalculated_cohort_query, format_static_cohort_query
+from ee.clickhouse.models.cohort import (
+    format_filter_query,
+    format_precalculated_cohort_query,
+    format_static_cohort_query,
+)
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
@@ -87,11 +91,17 @@ def parse_prop_clauses(
             final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
             params.update(filter_params)
         elif prop.type == "static-cohort":
-            filter_query, filter_params = format_static_cohort_query(prop.value, idx, prepend=prepend, custom_match_field="person_id")
+            cohort_id = cast(int, prop.value)
+            filter_query, filter_params = format_static_cohort_query(
+                cohort_id, idx, prepend=prepend, custom_match_field="person_id"
+            )
             final.append(f" AND {filter_query}")
             params.update(filter_params)
         elif prop.type == "precalculated-cohort":
-            filter_query, filter_params = format_precalculated_cohort_query(prop.value, idx, prepend=prepend, custom_match_field="person_id")
+            cohort_id = cast(int, prop.value)
+            filter_query, filter_params = format_precalculated_cohort_query(
+                cohort_id, idx, prepend=prepend, custom_match_field="person_id"
+            )
             final.append(f" AND {filter_query}")
             params.update(filter_params)
 
