@@ -70,7 +70,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
 
         funnel_filter = None
-        funnel_filter_data = request.GET.get("funnel_filter")
+        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
         if funnel_filter_data:
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **json.loads(funnel_filter_data)})
 

@@ -179,7 +179,11 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
             ),
         }
 
-        response = self.client.get("/api/person/path/", data=request_data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        j = response.json()
-        self.assertEqual(4, len(j["results"][0]["people"]))
+        get_response = self.client.get("/api/person/path/", data=request_data)
+        post_response = self.client.post("/api/person/path/", data=request_data)
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(post_response.status_code, status.HTTP_200_OK)
+        get_j = get_response.json()
+        post_j = post_response.json()
+        self.assertEqual(4, len(get_j["results"][0]["people"]))
+        self.assertEqual(4, len(post_j["results"][0]["people"]))

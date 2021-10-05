@@ -393,8 +393,14 @@ def insight_test_factory(event_factory, person_factory):
                 team=self.team,
             )
 
-            response = self.client.post("/api/insight/path", {"properties": [{"key": "test", "value": "val"}],}).json()
-            self.assertEqual(len(response["result"]), 1)
+            get_response = self.client.get(
+                "/api/insight/path", data={"properties": json.dumps([{"key": "test", "value": "val"}]),}
+            ).json()
+            post_response = self.client.post(
+                "/api/insight/path", {"properties": [{"key": "test", "value": "val"}],}
+            ).json()
+            self.assertEqual(len(get_response["result"]), 1)
+            self.assertEqual(len(post_response["result"]), 1)
 
         def test_insight_funnels_basic_post(self):
             person_factory(team=self.team, distinct_ids=["1"])
