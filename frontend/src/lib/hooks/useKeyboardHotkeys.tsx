@@ -36,6 +36,10 @@ type AllHotkeysInterface = Partial<Record<AllHotKeys, HotkeyInterface>>
  */
 const isToolbarInput = (event: Event, ignorableElements: string[]): boolean => {
     const path = (event as any).path || event.composedPath()
+    if (!path) {
+        return false
+    }
+
     const sourceElement = path[0] as HTMLElement
     const tagName = sourceElement.tagName
     return ignorableElements.includes(tagName.toLowerCase())
