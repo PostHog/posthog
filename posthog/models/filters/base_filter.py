@@ -2,14 +2,16 @@ import inspect
 import json
 from typing import Any, Dict, Optional
 
-from django.http import HttpRequest
+from rest_framework import request
 
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.utils import sane_repr
 
 
 class BaseFilter(BaseParamMixin):
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(
+        self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
+    ) -> None:
         if request:
             data = {
                 **request.GET.dict(),
