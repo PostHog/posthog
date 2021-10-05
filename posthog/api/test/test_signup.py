@@ -81,6 +81,7 @@ class TestSignupAPI(APIBaseTest):
         mock_capture.assert_called_once()
         self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
         self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], True)
         self.assertEqual(event_props["is_organization_first_user"], True)
@@ -170,9 +171,9 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_identify.assert_called_once()
         mock_capture.assert_called_once()
-
         self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
         self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], True)
         self.assertEqual(event_props["is_organization_first_user"], True)
@@ -600,6 +601,7 @@ class TestInviteSignup(APIBaseTest):
         mock_capture.assert_called_once()
         self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
         self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], False)
         self.assertEqual(event_props["is_organization_first_user"], False)
