@@ -17,72 +17,23 @@ EventFiltersSQL = namedtuple(
 
 
 class ClickhouseSessionRecordingList(SessionRecordingList):
-    _core_session_recording_query: str = """
-        SELECT
-            all_recordings.session_id,
-            all_recordings.start_time,
-            all_recordings.end_time,
-            all_recordings.duration,
-            all_recordings.distinct_id
-        FROM(
-            SELECT
-                session_id,
-                distinct_id as distinct_id,
-                MIN(timestamp) AS start_time,
-                MAX(timestamp) AS end_time,
-                dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
-                COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
-            FROM session_recording_events
-            WHERE
-                team_id = %(team_id)s
-                {events_timestamp_clause}
-                {distinct_id_clause}
-            GROUP BY session_id, distinct_id
-        ) as all_recordings
-        WHERE full_snapshots > 0
-        {recording_start_time_clause}
-        {duration_clause} 
-    """
+    _duration_filter_clause = "AND duration {operator} %(recording_duration)s"
+    _recording_duration_select_statement = (
+        "dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,"
+    )
+    _recording_full_snapshot_select_statement = "COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots"
+    _session_recording_event_table = "session_recording_events"
 
-    _limited_session_recordings_query: str = """
-    {core_session_recording_query}
-    ORDER BY start_time DESC
-    LIMIT %(limit)s OFFSET %(offset)s
-    """
-
-    _session_recordings_query_with_entity_filter: str = """
-    SELECT * FROM
-    (
+    _event_query = """
         SELECT
-            session_recordings.session_id,
-            any(session_recordings.start_time) as start_time,
-            any(session_recordings.end_time) as end_time,
-            any(session_recordings.duration) as duration,
-            any(session_recordings.distinct_id) as distinct_id
-            {event_filter_aggregate_select_clause}
-        FROM (
-            SELECT
             timestamp,
             distinct_id
             {event_filter_event_select_clause}
-            FROM events
-            WHERE
-                team_id = %(team_id)s
-                {events_timestamp_clause}
-                {event_filter_event_where_clause}
-        ) AS filtered_events
-        JOIN (
-            {core_session_recording_query}
-        ) AS session_recordings
-        ON session_recordings.distinct_id = filtered_events.distinct_id
+        FROM events
         WHERE
-            filtered_events.timestamp >= session_recordings.start_time 
-            AND filtered_events.timestamp <= session_recordings.end_time
-        GROUP BY session_recordings.session_id
-    ) as session_recordings
-    {event_filter_aggregate_where_clause}
-    ORDER BY start_time DESC
-    LIMIT %(limit)s OFFSET %(offset)s
+            team_id = %(team_id)s
+            {events_timestamp_clause}
+            {event_filter_event_where_clause}
     """
 
     def _get_entity_clause(self):
@@ -99,20 +50,6 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             entity_clause = entity_content_sql_params.get("entity_query", "")
         return entity_params, entity_clause
 
-    def _get_duration_clause(self):
-        duration_clause = ""
-        duration_params = {}
-        if self._filter.recording_duration_filter:
-            if self._filter.recording_duration_filter.operator == "gt":
-                operator = ">"
-            else:
-                operator = "<"
-            duration_clause = f"AND duration {operator} %(recording_duration)s"
-            duration_params = {
-                "recording_duration": self._filter.recording_duration_filter.value,
-            }
-        return duration_params, duration_clause
-
     def _get_distinct_id_clause(self):
         distinct_id_clause = ""
         distinct_id_params = {}
@@ -123,56 +60,29 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             distinct_id_params = {"person_uuid": self._filter.person_uuid}
         return distinct_id_params, distinct_id_clause
 
-    def _build_query(self) -> Tuple[str, Dict]:
-        params = {"team_id": self._team.pk, "limit": self.SESSION_RECORDINGS_DEFAULT_LIMIT, "offset": 0}
+    def _get_events_query_with_aggregate_clauses(self):
+        event_filters = format_event_filters(self._filter)
         events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
-        recording_start_time_params, recording_start_time_clause = self._get_recording_start_time_clause()
-        distinct_id_params, distinct_id_clause = self._get_distinct_id_clause()
-        duration_params, duration_clause = self._get_duration_clause()
-        core_session_recording_query = self._core_session_recording_query.format(
-            distinct_id_clause=distinct_id_clause,
+        event_query = self._event_query.format(
             events_timestamp_clause=events_timestamp_clause,
-            recording_start_time_clause=recording_start_time_clause,
-            duration_clause=duration_clause,
+            event_filter_event_select_clause=event_filters.event_select_clause,
+            event_filter_event_where_clause=event_filters.event_where_clause,
         )
-        if self._has_entity_filters():
-            event_filters = format_event_filters(self._filter)
 
-            return (
-                self._session_recordings_query_with_entity_filter.format(
-                    core_session_recording_query=core_session_recording_query,
-                    distinct_id_clause=distinct_id_clause,
-                    events_timestamp_clause=events_timestamp_clause,
-                    recording_start_time_clause=recording_start_time_clause,
-                    event_filter_event_select_clause=event_filters.event_select_clause,
-                    event_filter_event_where_clause=event_filters.event_where_clause,
-                    event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
-                    event_filter_aggregate_where_clause=event_filters.aggregate_where_clause,
-                ),
-                {
-                    **params,
-                    **distinct_id_params,
-                    **events_timestamp_params,
-                    **duration_params,
-                    **event_filters.params,
-                    **recording_start_time_params,
-                },
-            )
+        params = {"team_id": self._team.pk, **events_timestamp_params, **event_filters.params}
+
         return (
-            self._limited_session_recordings_query.format(
-                core_session_recording_query=core_session_recording_query,
-                distinct_id_clause=distinct_id_clause,
-                events_timestamp_clause=events_timestamp_clause,
-                recording_start_time_clause=recording_start_time_clause,
-            ),
-            {
-                **params,
-                **distinct_id_params,
-                **events_timestamp_params,
-                **duration_params,
-                **recording_start_time_params,
-            },
+            event_query,
+            params,
+            event_filters.aggregate_select_clause,
+            event_filters.aggregate_where_clause,
         )
+
+    def _build_query(self) -> Tuple[str, Dict]:
+        query, params = super()._build_query()
+        # Clickhouse is case sensitive on 'any()'
+        query = query.replace("ANY(", "any(")
+        return query, params
 
     def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
         return [dict(zip(["session_id", "start_time", "end_time", "duration", "distinct_id"], row)) for row in results]

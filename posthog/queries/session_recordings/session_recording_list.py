@@ -22,6 +22,11 @@ class SessionRecordingList(BaseQuery):
         self._filter = filter
         self._team = team
 
+    _duration_filter_clause = "AND duration {operator} INTERVAL '%(recording_duration)s seconds'"
+    _recording_duration_select_statement = "MAX(timestamp) - MIN(timestamp) as duration,"
+    _recording_full_snapshot_select_statement = "COUNT(*) FILTER(where snapshot_data->>'type' = '2' OR (snapshot_data->>'has_full_snapshot')::boolean) as full_snapshots"
+    _session_recording_event_table = "posthog_sessionrecordingevent"
+
     _core_session_recording_query: str = """
         SELECT 
             all_recordings.session_id,
@@ -32,17 +37,17 @@ class SessionRecordingList(BaseQuery):
         FROM (
             SELECT
                 session_id,
-                MIN(distinct_id) as distinct_id,
+                distinct_id,
                 MIN(timestamp) AS start_time,
                 MAX(timestamp) AS end_time,
-                MAX(timestamp) - MIN(timestamp) as duration,
-                COUNT(*) FILTER(where snapshot_data->>'type' = '2' OR (snapshot_data->>'has_full_snapshot')::boolean) as full_snapshots
-            FROM posthog_sessionrecordingevent
+                {recording_duration_select_statement}
+                {recording_full_snapshot_select_statement}
+            FROM {session_recording_event_table}
             WHERE
                 team_id = %(team_id)s
                 {events_timestamp_clause}
                 {distinct_id_clause}
-            GROUP BY session_id
+            GROUP BY session_id, distinct_id
         ) as all_recordings
         WHERE full_snapshots > 0
         {recording_start_time_clause}
@@ -60,10 +65,10 @@ class SessionRecordingList(BaseQuery):
     (
         SELECT
             session_recordings.session_id,
-            MIN(session_recordings.start_time) as start_time,
-            MIN(session_recordings.end_time) as end_time,
-            MIN(session_recordings.duration) as duration,
-            MIN(filtered_events.distinct_id) as distinct_id
+            ANY(session_recordings.start_time) as start_time,
+            ANY(session_recordings.end_time) as end_time,
+            ANY(session_recordings.duration) as duration,
+            ANY(filtered_events.distinct_id) as distinct_id
             {event_filter_aggregate_select_clause}
         FROM (
             {events_query}
@@ -128,8 +133,7 @@ class SessionRecordingList(BaseQuery):
                 operator = ">"
             else:
                 operator = "<"
-
-            duration_clause = f"AND duration {operator} INTERVAL '%(recording_duration)s seconds'"
+            duration_clause = self._duration_filter_clause.format(operator=operator)
             duration_params = {
                 "recording_duration": self._filter.recording_duration_filter.value,
             }
@@ -175,7 +179,7 @@ class SessionRecordingList(BaseQuery):
 
         aggregate_where_clause = f"WHERE {' AND '.join(aggregate_having_conditions)}"
 
-        return (event_query, aggregate_select_clause, aggregate_where_clause)
+        return (event_query, {}, aggregate_select_clause, aggregate_where_clause)
 
     def _build_query(self) -> Tuple[str, Dict]:
         base_params = {"team_id": self._team.pk, "limit": self.SESSION_RECORDINGS_DEFAULT_LIMIT, "offset": 0}
@@ -183,7 +187,11 @@ class SessionRecordingList(BaseQuery):
         recording_start_time_params, recording_start_time_clause = self._get_recording_start_time_clause()
         distinct_id_params, distinct_id_clause = self._get_distinct_id_clause()
         duration_params, duration_clause = self._get_duration_clause()
+
         core_session_recording_query = self._core_session_recording_query.format(
+            recording_duration_select_statement=self._recording_duration_select_statement,
+            recording_full_snapshot_select_statement=self._recording_full_snapshot_select_statement,
+            session_recording_event_table=self._session_recording_event_table,
             distinct_id_clause=distinct_id_clause,
             events_timestamp_clause=events_timestamp_clause,
             recording_start_time_clause=recording_start_time_clause,
@@ -196,9 +204,11 @@ class SessionRecordingList(BaseQuery):
             **duration_params,
             **recording_start_time_params,
         }
+
         if self._has_entity_filters():
             (
                 events_query,
+                event_query_params,
                 aggregate_select_clause,
                 aggregate_where_clause,
             ) = self._get_events_query_with_aggregate_clauses()
@@ -209,7 +219,7 @@ class SessionRecordingList(BaseQuery):
                     event_filter_aggregate_select_clause=aggregate_select_clause,
                     event_filter_aggregate_where_clause=aggregate_where_clause,
                 ),
-                params,
+                {**params, **event_query_params},
             )
         return (
             self._limited_session_recordings_query.format(core_session_recording_query=core_session_recording_query),
