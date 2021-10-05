@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { toParams, objectsEqual, uuid } from 'lib/utils'
 import api from 'lib/api'
-import { router } from 'kea-router'
+import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
@@ -78,6 +78,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             path_end_key,
             path_dropoff_key,
         }),
+        viewPathToFunnel: (pathItemCard: any) => ({ pathItemCard }),
     },
     loaders: ({ values, props }) => ({
         results: {
@@ -182,6 +183,42 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 pathsDropoff: Boolean(path_dropoff_key),
                 filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
             })
+        },
+        viewPathToFunnel: ({ pathItemCard }) => {
+            const events = []
+            let currentItemCard = pathItemCard
+            while (currentItemCard.targetLinks.length > 0) {
+                const name = currentItemCard.name.includes('http')
+                    ? '$pageview'
+                    : currentItemCard.name.replace(/(^[0-9]+_)/, '')
+                events.push({
+                    id: name,
+                    name: name,
+                    type: 'events',
+                    order: currentItemCard.depth - 1,
+                    ...(currentItemCard.name.includes('http') && {
+                        properties: [
+                            {
+                                key: '$current_url',
+                                operator: 'exact',
+                                type: 'event',
+                                value: currentItemCard.name.replace(/(^[0-9]+_)/, ''),
+                            },
+                        ],
+                    }),
+                })
+                currentItemCard = currentItemCard.targetLinks[0].source
+            }
+            router.actions.push(
+                combineUrl(
+                    '/insights',
+                    encodeParams({
+                        insight: ViewType.FUNNELS,
+                        events,
+                        date_from: values.filter.date_from,
+                    })
+                ).url
+            )
         },
     }),
     selectors: {

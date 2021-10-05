@@ -27,3 +27,4 @@ isort
 pytest
 pytest-django
 pytest-mock
+pytest-cov

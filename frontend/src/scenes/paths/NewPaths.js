@@ -63,18 +63,17 @@ function pageUrl(d, display) {
 
     let name = d.name.replace(/(^[0-9]+_)/, '')
 
+    if (!display) {
+        return name
+    }
+
     try {
         const url = new URL(name)
         name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
     } catch {
         // discard if invalid url
     }
-
-    if (display) {
-        return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
-    }
-
-    return name
+    return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
 }
 
 function NoData() {
@@ -92,7 +91,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
     const canvas = useRef(null)
     const size = useWindowSize()
     const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
-    const { openPersonsModal, setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId, filters }))
+    const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(
+        pathsLogic({ dashboardItemId, filters })
+    )
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
         setPathItemCards([])
@@ -121,7 +122,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
 
         let sankey = new Sankey.sankey()
             .nodeId((d) => d.name)
-            .nodeAlign(Sankey.sankeyLeft)
+            .nodeAlign(Sankey.sankeyJustify)
             .nodeSort(null)
             .nodeWidth(15)
             .size([width, height])
@@ -434,6 +435,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                             }}
                                                         >
                                                             Exclude path item
+                                                        </Menu.Item>
+                                                        <Menu.Item onClick={() => viewPathToFunnel(pathItemCard)}>
+                                                            View funnel
                                                         </Menu.Item>
                                                         <Menu.Item
                                                             onClick={() => copyToClipboard(pageUrl(pathItemCard))}
