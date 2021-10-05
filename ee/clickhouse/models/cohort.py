@@ -12,7 +12,7 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
-    GET_PERSON_ID_BY_COHORT_ID,
+    GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
@@ -38,10 +38,7 @@ def format_person_query(
     params: Dict[str, Any] = {}
 
     if cohort.is_static:
-        return (
-            f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %(cohort_id_{index})s AND team_id = %(team_id)s)",
-            {f"cohort_id_{index}": cohort.pk, "team_id": cohort.team_id},
-        )
+        return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
 
     or_queries = []
     groups = cohort.groups
@@ -67,6 +64,21 @@ def format_person_query(
 
     joined_filter = " OR ".join(filters)
     return joined_filter, params
+
+def format_static_cohort_query(cohort_id: int, index: int, prepend: str, custom_match_field: str) -> Tuple[str, Dict[str, Any]]:
+    return (
+        f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s)",
+        {f"{prepend}_cohort_id_{index}": cohort_id},
+    )
+
+def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str = "", custom_match_field = "person_id") -> Tuple[str, Dict[str, Any]]:
+    filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
+    return (
+        f"""
+        {custom_match_field} IN ({filter_query})
+        """,
+        {f"{prepend}_cohort_id_{index}": cohort_id},
+    )
 
 
 def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int) -> Tuple[str, Dict[str, Any]]:
@@ -208,7 +220,7 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     person_query, params = (
-        get_precalculated_query(cohort, index) if is_precalculated else format_person_query(cohort, index)
+        format_precalculated_cohort_query(cohort.pk, index) if is_precalculated else format_person_query(cohort, index)
     )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
@@ -216,16 +228,6 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
     )
     return person_id_query, params
 
-
-def get_precalculated_query(cohort: Cohort, index: int, **kwargs) -> Tuple[str, Dict[str, Any]]:
-    custom_match_field = kwargs.get("custom_match_field", "person_id")
-    filter_query = GET_PERSON_ID_BY_COHORT_ID.format(index=index)
-    return (
-        f"""
-        {custom_match_field} IN ({filter_query})
-        """,
-        {"team_id": cohort.team_id, f"cohort_id_{index}": cohort.pk},
-    )
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int):

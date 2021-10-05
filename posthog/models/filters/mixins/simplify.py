@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, List, TypeVar
 from posthog.utils import is_clickhouse_enabled
 
 if TYPE_CHECKING:  # Avoid circular import
-    from posthog.models import Cohort, Property, Team
+    from posthog.models import Property, Team
 
 T = TypeVar("T")
 
