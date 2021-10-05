@@ -104,9 +104,11 @@ class ClickhousePersonViewSet(PersonViewSet):
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
 
         funnel_filter = None
-        funnel_filter_data = request.GET.get("funnel_filter")
+        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
         if funnel_filter_data:
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **json.loads(funnel_filter_data)})
+            if isinstance(funnel_filter_data, str):
+                funnel_filter_data = json.loads(funnel_filter_data)
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data})
 
         people, should_paginate = ClickhousePathsPersons(filter, team, funnel_filter=funnel_filter).run()
         limit = filter.limit or 100

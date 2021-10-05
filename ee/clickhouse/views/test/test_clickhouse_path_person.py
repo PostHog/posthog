@@ -161,26 +161,27 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2021-05-07",
             "path_start_key": "1_step two",
             "path_end_key": "2_step three",
-            "funnel_filter": json.dumps(
-                {
-                    "insight": INSIGHT_FUNNELS,
-                    "interval": "day",
-                    "date_from": "2021-05-01 00:00:00",
-                    "date_to": "2021-05-07 00:00:00",
-                    "funnel_window_interval": 7,
-                    "funnel_window_interval_unit": "day",
-                    "funnel_step": 2,
-                    "events": [
-                        {"id": "step one", "order": 0},
-                        {"id": "step two", "order": 1},
-                        {"id": "step three", "order": 2},
-                    ],
-                }
-            ),
         }
 
-        get_response = self.client.get("/api/person/path/", data=request_data)
-        post_response = self.client.post("/api/person/path/", data=request_data)
+        funnel_filter = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        get_response = self.client.get(
+            "/api/person/path/", data={**request_data, "funnel_filter": json.dumps(funnel_filter)}
+        )
+        post_response = self.client.post("/api/person/path/", data={**request_data, "funnel_filter": funnel_filter})
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
         self.assertEqual(post_response.status_code, status.HTTP_200_OK)
         get_j = get_response.json()
