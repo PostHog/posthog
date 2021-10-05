@@ -95,7 +95,7 @@ class Property:
             return lookup_q(key, value)
         else:
             assert not isinstance(value, list)
-            return Q(**{"{key}__{self.operator}": value})
+            return Q(**{"{}__{}".format(key, self.operator): value})
 
 
 def lookup_q(key: str, value: Any) -> Q:
