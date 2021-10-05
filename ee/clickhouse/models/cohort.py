@@ -12,8 +12,8 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
-    GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
+    GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
@@ -65,13 +65,19 @@ def format_person_query(
     joined_filter = " OR ".join(filters)
     return joined_filter, params
 
-def format_static_cohort_query(cohort_id: int, index: int, prepend: str, custom_match_field: str) -> Tuple[str, Dict[str, Any]]:
+
+def format_static_cohort_query(
+    cohort_id: int, index: int, prepend: str, custom_match_field: str
+) -> Tuple[str, Dict[str, Any]]:
     return (
         f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s)",
         {f"{prepend}_cohort_id_{index}": cohort_id},
     )
 
-def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str = "", custom_match_field = "person_id") -> Tuple[str, Dict[str, Any]]:
+
+def format_precalculated_cohort_query(
+    cohort_id: int, index: int, prepend: str = "", custom_match_field="person_id"
+) -> Tuple[str, Dict[str, Any]]:
     filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
     return (
         f"""
@@ -229,7 +235,6 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
     return person_id_query, params
 
 
-
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
     from ee.clickhouse.models.property import parse_prop_clauses
 
@@ -286,10 +291,10 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
     # 2. "user has properties XYZ", including belonging to another cohort
     #
     # Users who match _any_ of the groups are considered to match the cohort.
-    group_filters = []
+    group_filters: List[List[Property]] = []
     for group in cohort.groups:
         if group.get("action_id") or group.get("event_id"):
-            group_filters.append(HasDoneProperty(type="has_done", **group))
+            group_filters.append([HasDoneProperty(type="has_done", **group)])
         elif group.get("properties"):
             # :TRICKY: This will recursively simplify all the properties
             filter = Filter(data=group, team=team)
@@ -297,5 +302,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
 
     if len(group_filters) > 1:
         return [OrProperty(type="or", groups=group_filters)]
+    elif len(group_filters) == 1:
+        return group_filters[0]
     else:
-        return group_filters
+        return []

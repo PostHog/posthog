@@ -28,16 +28,18 @@ class SimplifyFilterMixin:
                 }
             )
 
-        simplified_properties = [self.simplified_property(prop) for prop in result.properties]
+        simplified_properties = []
+        for prop in result.properties:
+            simplified_properties.extend(self.simplify_property(team, prop))
 
         return result.with_data({"properties": simplified_properties, "is_simplified": True,})
 
     def simplify_property(
         self, team: "Team", property: "Property", is_clickhouse_enabled=is_clickhouse_enabled()
-    ) -> List[Property]:
+    ) -> List["Property"]:
         if property.type == "cohort" and is_clickhouse_enabled:
             from ee.clickhouse.models.cohort import simplified_cohort_filter_properties
-            from posthog.models.filters import Filter
+            from posthog.models import Cohort
 
             # :TODO: Handle cohort not existing
             cohort = Cohort.objects.get(pk=property.value, team_id=team.pk)

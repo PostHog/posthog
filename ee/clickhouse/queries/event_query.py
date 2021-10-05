@@ -2,8 +2,8 @@ from abc import ABCMeta, abstractmethod
 from typing import Any, Dict, List, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.cohort import format_person_query, get_precalculated_query, is_precalculated_query
-from ee.clickhouse.models.property import filter_element, prop_filter_json_extract
+from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
+from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
@@ -102,7 +102,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return
 
     def _should_property_join_persons(self, prop: Property) -> bool:
-        if prop.type == "person":
+        if prop.type in ("person", "static-cohort", "precalculated-cohort"):
             return True
 
         return prop.type == "cohort" and self._does_cohort_need_persons(prop)
@@ -144,8 +144,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         return query, date_params
 
     def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
-        prepend = "global"
-
         final = []
         params: Dict[str, Any] = {}
 
@@ -154,29 +152,14 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 person_id_query, cohort_filter_params = self._get_cohort_subquery(prop)
                 params = {**params, **cohort_filter_params}
                 final.append(f"AND {person_id_query}")
-
-            elif prop.type == "person":
-                filter_query, filter_params = prop_filter_json_extract(
-                    prop,
-                    idx,
-                    "{}person".format(prepend),
-                    allow_denormalized_props=True,
-                    prop_var=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
-                )
-                final.append(filter_query)
-                params.update(filter_params)
-            elif prop.type == "element":
-                query, filter_params = filter_element(
-                    {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(idx)
-                )
-                if query:
-                    final.append(f" AND {query}")
-                    params.update(filter_params)
             else:
-                filter_query, filter_params = prop_filter_json_extract(
-                    prop, idx, prepend, prop_var="properties", allow_denormalized_props=True
+                filter_query, filter_params = parse_prop_clauses(
+                    [prop],
+                    self._team_id,
+                    prepend=f"global_{idx}",
+                    allow_denormalized_props=True,
+                    person_properties_column=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
                 )
-
                 final.append(filter_query)
                 params.update(filter_params)
         return " ".join(final), params
@@ -190,7 +173,9 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         is_precalculated = is_precalculated_query(cohort)
 
         person_id_query, cohort_filter_params = (
-            get_precalculated_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
+            format_precalculated_cohort_query(
+                cohort.pk, 0, team_id=cohort.team_id, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
+            )
             if is_precalculated
             else format_person_query(cohort, 0, custom_match_field=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id")
         )
