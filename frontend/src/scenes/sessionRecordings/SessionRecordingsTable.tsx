@@ -8,6 +8,7 @@ import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { useIsTableScrolling } from 'lib/components/Table/utils'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 interface SessionRecordingsTableProps {
     distinctId?: string
@@ -80,7 +81,7 @@ export function SessionRecordingsTable({ distinctId, isPersonPage = false }: Ses
                     pagination={{ pageSize: 99999, hideOnSinglePage: true }}
                     onRow={(sessionRecording) => ({
                         onClick: () => {
-                            openSessionPlayer(sessionRecording.id)
+                            openSessionPlayer(sessionRecording.id, RecordingWatchedSource.RecordingsList)
                         },
                     })}
                     size="small"
