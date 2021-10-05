@@ -40,7 +40,7 @@ SETTINGS index_granularity=512
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=KAFKA_COLUMNS,
     engine=table_engine(DEAD_LETTER_QUEUE_TABLE, "_timestamp", REPLACING_MERGE_TREE),
-    ttl_period=ttl_period("_timestamp", 12),  # 12 weeks = 3 months
+    ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
 )
 
 KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL = DEAD_LETTER_QUEUE_TABLE_BASE_SQL.format(

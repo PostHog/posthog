@@ -13,13 +13,7 @@ from posthog.settings import KAFKA_HOSTS
 from posthog.test.base import BaseTest
 
 TEST_EVENT_RAW_PAYLOAD = json.dumps(
-    {
-        "event": "some event",
-        "properties": {
-            "distinct_id": 2,
-            "token": "invalid token",
-        },
-    }
+    {"event": "some event", "properties": {"distinct_id": 2, "token": "invalid token",},}
 )
 
 CREATED_AT = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -61,8 +55,7 @@ class TestDeadLetterQueue(ClickhouseTestMixin, BaseTest):
     def test_direct_table_insert(self):
 
         sync_execute(
-            INSERT_DEAD_LETTER_QUEUE_EVENT_SQL,
-            TEST_DATA,
+            INSERT_DEAD_LETTER_QUEUE_EVENT_SQL, TEST_DATA,
         )
 
         dead_letter_queue_events = sync_execute("SELECT * FROM events_dead_letter_queue LIMIT 1")
