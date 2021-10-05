@@ -2,17 +2,16 @@ import React from 'react'
 import { Alert, Space, Button } from 'antd'
 
 export function CloudAnnouncement({ message }: { message: string }): JSX.Element | null {
-    const parsed_message = message.split('_').join(' ');
-    const github_issue_regex = /ph-([0-9]{1,8})/ig;
-    const github_issue_ids = github_issue_regex.exec(message);
+    const parsedMessage = message.split('_').join(' ')
+    const githubIssueIds = message.match(/ph-([0-9]{1,8})/i)
     return (
         <div style={{ marginTop: 15 }}>
             <Alert 
-                message={parsed_message.replace(github_issue_regex, '')} 
+                message={parsedMessage.replace(/ph-[0-9]{1,8}/ig, '')} 
                     action={
-                        github_issue_ids ? (
+                        githubIssueIds ? (
                         <Space>
-                            <Button size="small" type="ghost" href={'https://github.com/PostHog/posthog/issues/' + github_issue_ids[1]} target='_blank'>
+                            <Button size="small" type="ghost" href={'https://github.com/PostHog/posthog/issues/' + githubIssueIds[1]} target='_blank'>
                                 More details
                             </Button>
                         </Space>
