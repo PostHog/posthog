@@ -60,7 +60,7 @@ class FeatureFlag(models.Model):
 
     @property
     def groups(self):
-        return self.get_filters().get("groups", [])
+        return self.get_filters().get("groups", []) or []
 
     @property
     def variants(self):
@@ -70,6 +70,7 @@ class FeatureFlag(models.Model):
             variants = multivariate.get("variants", None)
             if isinstance(variants, list):
                 return variants
+        return []
 
     def get_filters(self):
         if "groups" in self.filters:
