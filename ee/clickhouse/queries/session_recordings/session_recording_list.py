@@ -12,78 +12,79 @@ from posthog.queries.session_recordings.session_recording_list import SessionRec
 
 EventFiltersSQL = namedtuple(
     "EventFiltersSQL",
-    ["event_select_clause", "event_where_clause", "aggregate_select_clause", "aggregate_having_clause", "params"],
+    ["event_select_clause", "event_where_clause", "aggregate_select_clause", "aggregate_where_clause", "params"],
 )
 
 
 class ClickhouseSessionRecordingList(SessionRecordingList):
     _core_session_recording_query: str = """
         SELECT
-        session_id,
-        any(distinct_id) as distinct_id,
-        MIN(timestamp) AS start_time,
-        MAX(timestamp) AS end_time,
-        dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
-        COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
-        FROM session_recording_events
-        WHERE
-            team_id = %(team_id)s
-            {events_timestamp_clause}
-        GROUP BY session_id
-        HAVING full_snapshots > 0
+            all_recordings.session_id,
+            all_recordings.start_time,
+            all_recordings.end_time,
+            all_recordings.duration,
+            person_distinct_id.person_id
+        FROM(
+            SELECT
+                session_id,
+                any(distinct_id) as distinct_id,
+                MIN(timestamp) AS start_time,
+                MAX(timestamp) AS end_time,
+                dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
+                COUNT((JSONExtractInt(snapshot_data, 'type') = 2 OR JSONExtractBool(snapshot_data, 'has_full_snapshot')) ? 1 : NULL) as full_snapshots
+            FROM session_recording_events
+            WHERE
+                team_id = %(team_id)s
+                {events_timestamp_clause}
+            GROUP BY session_id
+        ) as all_recordings
+        JOIN person_distinct_id 
+            ON person_distinct_id.distinct_id = all_recordings.distinct_id
+        WHERE full_snapshots > 0
+        AND person_distinct_id.team_id = %(team_id)s
         {recording_start_time_clause}
         {duration_clause}
+        {person_id_clause} 
     """
 
-    _basic_session_recordings_query: str = """
-    SELECT
-        session_recordings.session_id,
-        session_recordings.start_time,
-        session_recordings.end_time,
-        session_recordings.duration,
-        person_distinct_id.person_id
-    FROM
-    (
-        {core_session_recording_query}
-    ) as session_recordings
-    JOIN person_distinct_id ON person_distinct_id.distinct_id = session_recordings.distinct_id
-    WHERE 1 = 1 {person_id_clause}
+    _limited_session_recordings_query: str = """
+    {core_session_recording_query}
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
     """
 
     _session_recordings_query_with_entity_filter: str = """
-    SELECT
-        session_recordings.session_id,
-        any(session_recordings.start_time) as start_time,
-        any(session_recordings.end_time) as end_time,
-        any(session_recordings.duration) as duration,
-        any(person_distinct_id.person_id) as person_id
-        {event_filter_aggregate_select_clause}
-    FROM (
+    SELECT * FROM
+    (
         SELECT
-        timestamp,
-        distinct_id
-        {event_filter_event_select_clause}
-        FROM events
+            session_recordings.session_id,
+            any(session_recordings.start_time) as start_time,
+            any(session_recordings.end_time) as end_time,
+            any(session_recordings.duration) as duration,
+            any(person_distinct_id.person_id) as person_id
+            {event_filter_aggregate_select_clause}
+        FROM (
+            SELECT
+            timestamp,
+            distinct_id
+            {event_filter_event_select_clause}
+            FROM events
+            WHERE
+                team_id = %(team_id)s
+                {events_timestamp_clause}
+                {event_filter_event_where_clause}
+        ) AS filtered_events
+        JOIN person_distinct_id ON person_distinct_id.distinct_id = filtered_events.distinct_id
+        JOIN (
+            {core_session_recording_query}
+        ) AS session_recordings
+        ON session_recordings.person_id = person_distinct_id.person_id
         WHERE
-            team_id = %(team_id)s
-            {events_timestamp_clause}
-            {event_filter_event_where_clause}
-    ) AS filtered_events
-    JOIN person_distinct_id ON person_distinct_id.distinct_id = filtered_events.distinct_id
-    JOIN person_distinct_id as pdi2 ON pdi2.person_id = person_distinct_id.person_id
-    JOIN (
-        {core_session_recording_query}
-    ) AS session_recordings
-    ON session_recordings.distinct_id = pdi2.distinct_id
-    WHERE
-        filtered_events.timestamp >= session_recordings.start_time 
-        AND filtered_events.timestamp <= session_recordings.end_time
-        {person_id_clause}
-    GROUP BY session_recordings.session_id
-    {event_filter_aggregate_having_clause}
-    {recording_start_time_clause}
+            filtered_events.timestamp >= session_recordings.start_time 
+            AND filtered_events.timestamp <= session_recordings.end_time
+        GROUP BY session_recordings.session_id
+    ) as session_recordings
+    {event_filter_aggregate_where_clause}
     ORDER BY start_time DESC
     LIMIT %(limit)s OFFSET %(offset)s
     """
@@ -116,6 +117,14 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             }
         return duration_params, duration_clause
 
+    def _get_person_id_clause(self):
+        person_id_clause = ""
+        person_id_params = {}
+        if self._filter.person_uuid:
+            person_id_clause = f"AND person_distinct_id.person_id = %(person_uuid)s"
+            person_id_params = {"person_uuid": self._filter.person_uuid}
+        return person_id_params, person_id_clause
+
     def _build_query(self) -> Tuple[str, Dict]:
         params = {"team_id": self._team.pk, "limit": self.SESSION_RECORDINGS_DEFAULT_LIMIT, "offset": 0}
         events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
@@ -140,7 +149,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
                     event_filter_event_select_clause=event_filters.event_select_clause,
                     event_filter_event_where_clause=event_filters.event_where_clause,
                     event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
-                    event_filter_aggregate_having_clause=event_filters.aggregate_having_clause,
+                    event_filter_aggregate_where_clause=event_filters.aggregate_where_clause,
                 ),
                 {
                     **params,
@@ -152,7 +161,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
                 },
             )
         return (
-            self._basic_session_recordings_query.format(
+            self._limited_session_recordings_query.format(
                 core_session_recording_query=core_session_recording_query,
                 person_id_clause=person_id_clause,
                 events_timestamp_clause=events_timestamp_clause,
@@ -182,29 +191,29 @@ def format_event_filters(filter: SessionRecordingsFilter) -> EventFiltersSQL:
 
     event_select_clause = ""
     aggregate_select_clause = ""
-    aggregate_having_conditions = []
+    aggregate_where_conditions = []
     event_where_conditions = []
 
     params: Dict = {}
 
     for index, entity in enumerate(filter.event_and_action_filters):
-        condition_sql, filter_params = format_event_filter_aggregate(entity, prepend=f"event_matcher_{index}")
+        condition_sql, filter_params = format_event_filter(entity, prepend=f"event_matcher_{index}")
 
         event_select_clause += f", if({condition_sql}, 1, 0) as event_match_{index}"
         aggregate_select_clause += f", sum(event_match_{index}) as count_event_match_{index}"
-        aggregate_having_conditions.append(f"count_event_match_{index} > 0")
+        aggregate_where_conditions.append(f"count_event_match_{index} > 0")
         event_where_conditions.append(condition_sql)
         params = {**params, **filter_params}
 
-    aggregate_having_clause = f"HAVING {' AND '.join(aggregate_having_conditions)}"
+    aggregate_where_clause = f"WHERE {' AND '.join(aggregate_where_conditions)}"
     event_where_clause = f"AND ({' OR '.join(event_where_conditions)})"
 
     return EventFiltersSQL(
-        event_select_clause, event_where_clause, aggregate_select_clause, aggregate_having_clause, params,
+        event_select_clause, event_where_clause, aggregate_select_clause, aggregate_where_clause, params,
     )
 
 
-def format_event_filter_aggregate(entity: Entity, prepend: str):
+def format_event_filter(entity: Entity, prepend: str):
     filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False)
     if entity.properties:
         filters, filter_params = parse_prop_clauses(

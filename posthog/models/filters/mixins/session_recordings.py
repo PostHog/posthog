@@ -23,8 +23,10 @@ class SessionRecordingsMixin(BaseParamMixin):
     @cached_property
     def recording_duration_filter(self) -> Optional[Property]:
         duration_filter_data_str = self._data.get(SESSION_RECORDINGS_FILTER_TYPE_DURATION, None)
-        filter_data = json.loads(duration_filter_data_str)
-        return Property(**filter_data)
+        if duration_filter_data_str:
+            filter_data = json.loads(duration_filter_data_str)
+            return Property(**filter_data)
+        return None
 
     @cached_property
     def event_and_action_filters(self) -> List[Entity]:

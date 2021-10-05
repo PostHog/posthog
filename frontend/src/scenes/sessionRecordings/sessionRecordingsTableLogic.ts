@@ -31,12 +31,12 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
                         person_uuid: props.personUUID ?? '',
                         actions: values.filters.actions,
                         events: values.filters.events,
-                        session_recording_duration: {
-                            key: 'duration',
-                            value: 600,
-                            operator: 'gt',
-                            type: 'session_recording_duration',
-                        },
+                        // session_recording_duration: {
+                        //     key: 'duration',
+                        //     value: 600,
+                        //     operator: 'lt',
+                        //     type: 'session_recording_duration',
+                        // },
                     })
                     const response = await api.get(`api/projects/@current/session_recordings?${params}`)
                     return response.results
