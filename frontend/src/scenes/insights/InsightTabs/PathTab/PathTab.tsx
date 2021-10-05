@@ -71,7 +71,11 @@ export function OldPathTab(): JSX.Element {
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                 <GlobalFiltersTitle unit="actions/events" />
-                <PropertyFilters pageKey="insight-path" />
+                <PropertyFilters
+                    pageKey="insight-path"
+                    propertyFilters={filter.properties}
+                    onChange={(properties) => setFilter({ properties })}
+                />
                 <TestAccountFilter filters={filter} onChange={setFilter} />
             </Col>
         </Row>

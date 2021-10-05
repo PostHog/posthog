@@ -89,7 +89,11 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                     {filters.insight !== ViewType.LIFECYCLE && (
                         <>
                             <GlobalFiltersTitle />
-                            <PropertyFilters pageKey="trends-filters" />
+                            <PropertyFilters
+                                pageKey="trends-filters"
+                                propertyFilters={filters.properties}
+                                onChange={(properties) => setFilters({ properties })}
+                            />
                             <TestAccountFilter filters={filters} onChange={setFilters} />
                             {formulaAvailable && (
                                 <>

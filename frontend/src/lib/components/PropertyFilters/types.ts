@@ -5,9 +5,8 @@ export interface PropertyFilterBaseProps {
 }
 
 export interface PropertyFilterLogicProps extends PropertyFilterBaseProps {
-    propertyFilters?: AnyPropertyFilter[] | null
-    onChange?: null | ((filters: AnyPropertyFilter[]) => void)
-    urlOverride?: string
+    propertyFilters: AnyPropertyFilter[] | null
+    onChange: null | ((filters: AnyPropertyFilter[]) => void)
 }
 
 export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBaseProps {

@@ -52,7 +52,11 @@ export function SessionTab(): JSX.Element {
             </Col>
             <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                 <GlobalFiltersTitle unit="actions/events" />
-                <PropertyFilters pageKey="insight-retention" />
+                <PropertyFilters
+                    pageKey="insight-retention"
+                    propertyFilters={filters.properties}
+                    onChange={(properties) => setFilters({ properties })}
+                />
                 <TestAccountFilter filters={filters} onChange={setFilters} />
             </Col>
         </Row>

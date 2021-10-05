@@ -58,7 +58,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         highlightEvents,
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } =
+    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad, setProperties } =
         useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -299,7 +299,14 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     />
                 </Col>
                 <Col span={24}>
-                    {filtersEnabled ? <PropertyFilters pageKey={'EventsTable'} style={{ marginBottom: 0 }} /> : null}
+                    {filtersEnabled ? (
+                        <PropertyFilters
+                            pageKey={'EventsTable'}
+                            style={{ marginBottom: 0 }}
+                            propertyFilters={properties}
+                            onChange={setProperties}
+                        />
+                    ) : null}
                 </Col>
             </Row>
 

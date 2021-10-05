@@ -458,7 +458,11 @@ export function NewPathTab(): JSX.Element {
                 </Col>
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
                     <GlobalFiltersTitle title={'Filters'} unit="actions/events" />
-                    <PropertyFilters pageKey="insight-path" />
+                    <PropertyFilters
+                        pageKey="insight-path"
+                        propertyFilters={filter.properties}
+                        onChange={(properties) => setFilter({ properties })}
+                    />
                     <TestAccountFilter filters={filter} onChange={setFilter} />
                     <hr />
                     <h4 className="secondary">

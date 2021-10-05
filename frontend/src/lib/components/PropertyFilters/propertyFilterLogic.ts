@@ -1,6 +1,4 @@
 import { kea } from 'kea'
-import { objectsEqual } from 'lib/utils'
-import { router } from 'kea-router'
 
 import { propertyFilterLogicType } from './propertyFilterLogicType'
 import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilter } from '~/types'
@@ -69,37 +67,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
             if (props.onChange) {
                 props.onChange(cleanedFilters)
             } else {
-                const { [`${props.urlOverride || 'properties'}`]: properties, ...searchParams } =
-                    router.values.searchParams // eslint-disable-line
-                const { pathname } = router.values.location
-
-                searchParams[props.urlOverride || 'properties'] = cleanedFilters
-
-                if (!objectsEqual(properties, cleanedFilters)) {
-                    router.actions.replace(pathname, searchParams)
-                }
-            }
-        },
-    }),
-
-    urlToAction: ({ actions, values, props }) => ({
-        '*': (_, { [`${props.urlOverride || 'properties'}`]: properties }) => {
-            if (props.onChange) {
-                return
-            }
-            let filters
-            try {
-                filters = values.filters
-            } catch (error) {
-                // since this is a catch-all route, this code might run during or after the logic was unmounted
-                // if we have an error accessing the filter value, the logic is gone and we should return
-                return
-            }
-            properties = parseProperties(properties)
-
-            if (!objectsEqual(properties || {}, filters)) {
-                // {} adds an empty row, which shows 'New Filter'
-                actions.setFilters(properties ? [...properties, {}] : [{}])
+                throw new Error('Still running propertFilterLogic without onChange from somewhere!')
             }
         },
     }),

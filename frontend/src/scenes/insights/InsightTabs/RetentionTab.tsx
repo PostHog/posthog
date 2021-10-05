@@ -6,7 +6,7 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 import { retentionTableLogic, dateOptions, retentionOptionDescriptions } from 'scenes/retention/retentionTableLogic'
 import { Select, Row, Col } from 'antd'
 
-import { FilterType, RetentionType } from '~/types'
+import { FilterType, PropertyFilter, RetentionType } from '~/types'
 import { TestAccountFilter } from '../TestAccountFilter'
 import './RetentionTab.scss'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
@@ -138,7 +138,11 @@ export function RetentionTab(): JSX.Element {
                 </Col>
                 <Col md={8} xs={24} style={{ marginTop: isSmallScreen ? '2rem' : 0 }}>
                     <GlobalFiltersTitle unit="actions/events" />
-                    <PropertyFilters pageKey="insight-retention" />
+                    <PropertyFilters
+                        pageKey="insight-retention"
+                        propertyFilters={filters.properties}
+                        onChange={(properties) => setFilters({ properties: properties as PropertyFilter[] })}
+                    />
                     <TestAccountFilter filters={filters} onChange={setFilters} />
                 </Col>
             </Row>
