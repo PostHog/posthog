@@ -5,7 +5,7 @@ import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { Button, Menu, Dropdown, Tooltip } from 'antd'
+import { Button, Menu, Dropdown, Tooltip, Row } from 'antd'
 import { PathsCompletedArrow, PathsDropoffArrow } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -269,6 +269,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     marginTop: -5,
                                                     border: '1px solid var(--border)',
                                                     borderRadius: '0px 0px 4px 4px',
+                                                    width: 240,
                                                 }}
                                             >
                                                 {pathItemCard.sourceLinks.length > 0 && (
@@ -297,7 +298,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                                 {continuingValue}
                                                                 <span
                                                                     className="text-muted-alt"
-                                                                    style={{ paddingLeft: 8 }}
+                                                                    style={{ paddingLeft: 4 }}
                                                                 >
                                                                     (
                                                                     {(
@@ -338,7 +339,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                                 {dropOffValue}{' '}
                                                                 <span
                                                                     className="text-muted-alt"
-                                                                    style={{ paddingLeft: 8 }}
+                                                                    style={{ paddingLeft: 4 }}
                                                                 >
                                                                     (
                                                                     {(
@@ -356,14 +357,20 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         disabled
                                                         className="pathcard-dropdown-info-option"
                                                         style={{
-                                                            padding: '5px 12px',
+                                                            padding: '5px 8px',
                                                         }}
                                                     >
-                                                        <span>
-                                                            <ClockCircleOutlined
-                                                                style={{ color: 'var(--muted)', fontSize: 16 }}
-                                                            />{' '}
-                                                            Average time{' '}
+                                                        <ClockCircleOutlined
+                                                            style={{ color: 'var(--muted)', fontSize: 16 }}
+                                                        />
+                                                        <span
+                                                            style={{
+                                                                wordWrap: 'break-word',
+                                                                whiteSpace: 'normal',
+                                                                paddingLeft: 8,
+                                                            }}
+                                                        >
+                                                            Average time from previous step{' '}
                                                         </span>
                                                         {humanFriendlyDuration(
                                                             pathItemCard.targetLinks[0].average_conversion_time / 1000
@@ -383,8 +390,8 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         ? pathItemCard.x0 - (240 - 7)
                                                         : pathItemCard.x0 + 7,
                                                 top:
-                                                    pathItemCard.sourceLinks.length === 0
-                                                        ? pathItemCard.y0
+                                                    pathItemCard.sourceLinks.length > 0
+                                                        ? pathItemCard.y0 + 5
                                                         : pathItemCard.y0 + (pathItemCard.y1 - pathItemCard.y0) / 2,
                                                 background: 'white',
                                                 width: 240,
@@ -394,27 +401,27 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                 display: 'flex',
                                             }}
                                         >
-                                            <div
-                                                style={{ display: 'flex', alignItems: 'center' }}
-                                                onClick={() => openPersonsModal(undefined, pathItemCard.name)}
-                                            >
+                                            <div style={{ display: 'flex', alignItems: 'center' }}>
                                                 <span
                                                     className="text-muted"
                                                     style={{
                                                         fontSize: 10,
                                                         marginRight: 4,
-                                                        marginLeft: 8,
                                                         lineHeight: '10px',
                                                     }}
                                                 >{`0${pathItemCard.name[0]}`}</span>{' '}
                                                 <span style={{ fontSize: 13, fontWeight: 600 }}>
                                                     {pageUrl(pathItemCard, true)}
                                                 </span>
-                                                <span className="text-muted" style={{ fontSize: 12, paddingLeft: 4 }}>
-                                                    ({continuingValue + dropOffValue})
-                                                </span>
                                             </div>
-                                            <div>
+                                            <Row style={{ alignSelf: 'center' }}>
+                                                <span
+                                                    onClick={() => openPersonsModal(undefined, pathItemCard.name)}
+                                                    className="primary"
+                                                    style={{ alignSelf: 'center', paddingRight: 4 }}
+                                                >
+                                                    {continuingValue + dropOffValue}
+                                                </span>
                                                 <Dropdown
                                                     trigger={['click']}
                                                     overlay={
@@ -470,7 +477,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                 >
                                                     <div className="paths-dropdown-ellipsis">...</div>
                                                 </Dropdown>
-                                            </div>
+                                            </Row>
                                         </Button>
                                     </Dropdown>
                                 </Tooltip>
