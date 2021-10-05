@@ -25,20 +25,8 @@ class TestCaptureAPI(APIBaseTest):
             {
                 "data": json.dumps(
                     [
-                        {
-                            "event": "event1",
-                            "properties": {
-                                "distinct_id": "id1",
-                                "token": self.team.api_token,
-                            },
-                        },
-                        {
-                            "event": "event2",
-                            "properties": {
-                                "distinct_id": "id2",
-                                "token": self.team.api_token,
-                            },
-                        },
+                        {"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token,},},
+                        {"event": "event2", "properties": {"distinct_id": "id2", "token": self.team.api_token,},},
                     ]
                 ),
                 "api_key": self.team.api_token,
@@ -97,20 +85,8 @@ class TestCaptureAPI(APIBaseTest):
             {
                 "data": json.dumps(
                     [
-                        {
-                            "event": "event1",
-                            "properties": {
-                                "distinct_id": "eeee",
-                                "token": self.team.api_token,
-                            },
-                        },
-                        {
-                            "event": "event2",
-                            "properties": {
-                                "distinct_id": "aaaa",
-                                "token": self.team.api_token,
-                            },
-                        },
+                        {"event": "event1", "properties": {"distinct_id": "eeee", "token": self.team.api_token,},},
+                        {"event": "event2", "properties": {"distinct_id": "aaaa", "token": self.team.api_token,},},
                     ]
                 ),
                 "api_key": self.team.api_token,
