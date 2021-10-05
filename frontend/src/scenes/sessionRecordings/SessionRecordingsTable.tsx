@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { Card, Row, Table, Typography } from 'antd'
+import { Card, Table, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { useIsTableScrolling } from 'lib/components/Table/utils'
@@ -11,12 +11,12 @@ import { SessionPlayerDrawer } from './SessionPlayerDrawer'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 
 interface SessionRecordingsTableProps {
-    distinctId?: string
+    personUUID?: string
     isPersonPage?: boolean
 }
 
-export function SessionRecordingsTable({ distinctId, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ distinctId })
+export function SessionRecordingsTable({ personUUID, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
+    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
     const { sessionRecordings, sessionRecordingsLoading, sessionRecordingId, filters } = useValues(
         sessionRecordingsTableLogicInstance
     )
@@ -73,8 +73,8 @@ export function SessionRecordingsTable({ distinctId, isPersonPage = false }: Ses
     return (
         <div className="events" data-attr="events-table">
             <Card>
-                <Row style={{ marginBottom: 16, alignItems: 'center' }}>
-                    <Typography.Text strong>Filter to recordings with a specific event or action:</Typography.Text>
+                <div style={{ marginBottom: 16, alignItems: 'center' }}>
+                    <Typography.Text strong>Filter by events or actions:</Typography.Text>
                     <ActionFilter
                         filters={filters}
                         setFilters={(payload) => {
@@ -83,12 +83,13 @@ export function SessionRecordingsTable({ distinctId, isPersonPage = false }: Ses
                         }}
                         typeKey={'session-recordings'}
                         hideMathSelector={true}
-                        buttonCopy="Add action or event"
+                        buttonCopy="Add event or action filter"
                         horizontalUI
                         customRowPrefix=""
                         hideRename
+                        showOr
                     />
-                </Row>
+                </div>
                 <Table
                     rowKey="id"
                     dataSource={sessionRecordings}

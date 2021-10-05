@@ -2,7 +2,7 @@ import json
 from typing import List, Optional
 
 from posthog.constants import (
-    DISTINCT_ID_FILTER,
+    PERSON_UUID_FILTER,
     SESSION_RECORDINGS_FILTER_TYPE_DURATION,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
@@ -13,10 +13,10 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
 
 
-class DistinctIdMixin(BaseParamMixin):
+class PersonUUIDMixin(BaseParamMixin):
     @cached_property
-    def distinct_id(self) -> Optional[str]:
-        return self._data.get(DISTINCT_ID_FILTER, None)
+    def person_uuid(self) -> Optional[str]:
+        return self._data.get(PERSON_UUID_FILTER, None)
 
 
 class SessionRecordingsMixin(BaseParamMixin):

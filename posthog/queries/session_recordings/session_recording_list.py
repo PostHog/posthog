@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any, Dict, List, Tuple
 
 from django.db import connection
@@ -52,27 +53,37 @@ class SessionRecordingList(BaseQuery):
     def _has_entity_filters(self):
         return self._filter.entities and len(self._filter.entities) > 0
 
-    def _get_timestamp_clause(self):
+    # We want to select events beyond the range of the recording to handle the case where
+    # a recording spans the time boundaries
+    def _get_events_timestamp_clause(self):
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
-            timestamp_clause += "\nAND timestamp >= %(start_time)s"
-            timestamp_params["start_time"] = self._filter.date_from
+            timestamp_clause += "\nAND timestamp >= %(event_start_time)s"
+            timestamp_params["event_start_time"] = self._filter.date_from - timedelta(hours=12)
         if self._filter.date_to:
-            timestamp_clause += "\nAND timestamp <= %(end_time)s"
-            timestamp_params["end_time"] = self._filter.date_to
+            timestamp_clause += "\nAND timestamp <= %(event_end_time)s"
+            timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
         return timestamp_params, timestamp_clause
 
-    def _get_distinct_id_clause(self):
-        distinct_id_clause = ""
-        distinct_id_params = {}
-        if self._filter.distinct_id:
-            distinct_ids = Person.objects.get(
-                team=self._team, persondistinctid__distinct_id=self._filter.distinct_id
-            ).distinct_ids
-            distinct_id_clause = f"AND distinct_id IN %(distinct_ids)s"
-            distinct_id_params = {"distinct_ids": distinct_ids}
-        return distinct_id_params, distinct_id_clause
+    def _get_recording_start_time_clause(self):
+        start_time_clause = ""
+        start_time_params = {}
+        if self._filter.date_from:
+            start_time_clause += "\nAND start_time >= %(start_time)s"
+            start_time_params["start_time"] = self._filter.date_from
+        if self._filter.date_to:
+            start_time_clause += "\nAND start_time <= %(end_time)s"
+            start_time_params["end_time"] = self._filter.date_to
+        return start_time_params, start_time_clause
+
+    def _get_person_id_clause(self):
+        person_id_clause = ""
+        person_id_params = {}
+        if self._filter.person_uuid:
+            person_id_clause = f"AND person_distinct_id.person_id = %(person_uuid)s"
+            person_id_params = {"person_uuid": self._filter.person_uuid}
+        return person_id_params, person_id_clause
 
     def _get_duration_clause(self):
         duration_clause = ""
