@@ -49,9 +49,7 @@ class SignupSerializer(serializers.Serializer):
         organization_name = validated_data.pop("organization_name", validated_data["first_name"])
 
         self._organization, self._team, self._user = User.objects.bootstrap(
-            organization_name=organization_name,
-            create_team=self.create_team,
-            **validated_data,
+            organization_name=organization_name, create_team=self.create_team, **validated_data,
         )
         user = self._user
 
@@ -61,9 +59,7 @@ class SignupSerializer(serializers.Serializer):
             self._organization.save()
 
         login(
-            self.context["request"],
-            user,
-            backend="django.contrib.auth.backends.ModelBackend",
+            self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
         )
 
         report_user_signed_up(
@@ -164,9 +160,7 @@ class InviteSignupSerializer(serializers.Serializer):
 
         if is_new_user:
             login(
-                self.context["request"],
-                user,
-                backend="django.contrib.auth.backends.ModelBackend",
+                self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
             )
 
             report_user_signed_up(
