@@ -19,6 +19,7 @@ import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -32,8 +33,11 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 }
 
 export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
-    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic)
-    const { toggleVisibility } = useActions(trendsLogic)
+    const { insight } = useValues(insightLogic)
+    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(
+        trendsLogic({ dashboardItemId: insight?.id })
+    )
+    const { toggleVisibility } = useActions(trendsLogic({ dashboardItemId: insight?.id }))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
     const hasMathUniqueFilter = !!(

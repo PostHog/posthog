@@ -163,7 +163,9 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>({
             const insight = await api.create('api/insight', {
                 filters,
             })
-            insightLogic.actions.setInsight(insight)
+            // TODO: if (insightLogic({ id: insight.id }).isMounted()) {
+            insightLogic({ id: insight.id }).actions.setInsight(insight)
+            // TODO: }
         },
         updateInsight: async ({ insight }) => {
             await api.update(`api/insight/${insight.id}`, insight)

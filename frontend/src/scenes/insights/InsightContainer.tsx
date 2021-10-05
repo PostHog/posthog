@@ -53,7 +53,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
     } = useValues(router)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const { lastRefresh, isLoading, activeView, allFilters, insightMode, showTimeoutMessage, showErrorMessage } =
+    const { lastRefresh, isLoading, activeView, filters, insightMode, showTimeoutMessage, showErrorMessage } =
         useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
 
@@ -98,7 +98,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             !showTimeoutMessage &&
             areFiltersValid &&
             activeView === ViewType.FUNNELS &&
-            allFilters.display === FUNNEL_VIZ
+            filters.display === FUNNEL_VIZ
         ) {
             return <People />
         }
@@ -109,26 +109,25 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
-            allFilters.funnel_viz_type === FunnelVizType.Steps &&
-            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || allFilters.layout === FunnelLayout.horizontal)
+            filters.funnel_viz_type === FunnelVizType.Steps &&
+            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters.layout === FunnelLayout.horizontal)
         ) {
-            return <FunnelStepTable filters={allFilters} />
+            return <FunnelStepTable filters={filters} />
         }
         if (
-            (!allFilters.display ||
-                (allFilters.display !== ACTIONS_TABLE && allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
+            (!filters.display || (filters.display !== ACTIONS_TABLE && filters.display !== ACTIONS_BAR_CHART_VALUE)) &&
             (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS)
         ) {
-            /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
-    Exclusions:
-        1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-        2. Bar value chart. Because this view displays data in completely different dimensions.
-    */
+            /*  InsightsTable is loaded for all trend views (except below), plus the sessions view.
+                Exclusions:
+                1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+                2. Bar value chart. Because this view displays data in completely different dimensions.
+            */
             return (
                 <Card style={{ marginTop: 8 }}>
                     <BindLogic
                         logic={trendsLogic}
-                        props={{ dashboardItemId: null, view: activeView, filters: allFilters }}
+                        props={{ dashboardItemId: fromItem, view: activeView, filters: filters }}
                     >
                         <h3 className="l3">Details table</h3>
                         <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
@@ -148,7 +147,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                     <InsightDisplayConfig
                         activeView={activeView}
                         insightMode={insightMode}
-                        allFilters={allFilters}
+                        filters={filters}
                         annotationsToCreate={annotationsToCreate}
                         clearAnnotationsToCreate={clearAnnotationsToCreate}
                     />

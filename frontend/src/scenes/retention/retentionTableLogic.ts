@@ -54,10 +54,17 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
-    connect: {
-        actions: [insightHistoryLogic, ['createInsight']],
-        values: [actionsModel, ['actions']],
-    },
+
+    connect: (props: SharedInsightLogicProps) => ({
+        actions: [
+            insightHistoryLogic,
+            ['createInsight'],
+            insightLogic({ id: props.dashboardItemId || 'new', for: props.dashboardItemId ? 'dashboard' : 'scene' }),
+            ['updateInsightFilters', 'startQuery', 'endQuery', 'abortQuery', 'setAllFilters'],
+        ],
+        values: [insightLogic({ id: props.dashboardItemId || 'new' }), ['insight'], actionsModel, ['actions']],
+    }),
+
     actions: () => ({
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         loadMorePeople: true,
@@ -67,7 +74,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         clearRetention: true,
         setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
-    loaders: ({ values, props }) => ({
+    loaders: ({ actions, values, props }) => ({
         results: {
             __default: [] as RetentionTablePayload[] | RetentionTrendPayload[],
             setCachedResults: ({ results }) => {
@@ -78,8 +85,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                     return props.cachedResults
                 }
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
-                insightLogic.actions.startQuery(queryId)
+                const dashboardItemId = props.dashboardItemId
+                actions.startQuery(queryId)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                 }
@@ -90,14 +97,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {
                     breakpoint()
-                    insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
+                    actions.endQuery(queryId, ViewType.RETENTION, null, e)
                     if (dashboardItemId) {
                         dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     }
                     return []
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
+                actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, res.last_refresh)
                 }
@@ -196,7 +203,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             }
         },
     }),
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ actions, values }) => ({
         setProperties: () => {
             actions.loadResults()
         },
@@ -205,14 +212,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         },
         loadResults: () => {
             actions.clearPeople()
-            insightLogic.actions.setAllFilters(values.filters)
-            if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    actions.createInsight(values.filters)
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filters)
-                }
-            }
+            actions.setAllFilters(values.filters)
+            actions.updateInsightFilters(values.filters)
         },
         loadMorePeople: async () => {
             if (values.people.next) {

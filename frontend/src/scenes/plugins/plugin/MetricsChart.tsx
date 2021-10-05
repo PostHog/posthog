@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ActionsLineGraph } from 'scenes/trends/viz'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import './styles/metrics-drawer.scss'
 import { PluginTypeWithConfig } from '../types'
 import { FilterType, ViewType } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 const baseFilters = {
     insight: 'TRENDS',
@@ -40,7 +41,8 @@ export function MetricsChart({ plugin }: { plugin: PluginTypeWithConfig }): JSX.
         properties: [pluginNameFilter, pluginTagFilter],
     } as Partial<FilterType>
 
-    const { loadResults } = useActions(trendsLogic({ filters, dashboardItemId: null, view: ViewType.TRENDS }))
+    const { insight } = useValues(insightLogic)
+    const { loadResults } = useActions(trendsLogic({ filters, dashboardItemId: insight?.id, view: ViewType.TRENDS }))
 
     useEffect(() => {
         loadResults()

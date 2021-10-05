@@ -1,59 +1,57 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { chartFilterLogicType } from './chartFilterLogicType'
-import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
+import { ChartDisplayType, FunnelVizType, ViewType } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 function isFunnelVizType(filter: FunnelVizType | ChartDisplayType): filter is FunnelVizType {
     return Object.values(FunnelVizType).includes(filter as FunnelVizType)
 }
 
-export const chartFilterLogic = kea<chartFilterLogicType>({
+interface ChartFilterLogicProps {
+    id: number | 'new'
+}
+
+export const chartFilterLogic = kea<chartFilterLogicType<ChartFilterLogicProps>>({
+    props: {} as ChartFilterLogicProps,
+    key: (props) => props.id || 'new',
+    connect: (props: ChartFilterLogicProps) => ({
+        values: [insightLogic(props), ['filters']],
+        actions: [insightLogic(props), ['updateInsightFilters']],
+    }),
     actions: () => ({
         setChartFilter: (filter: ChartDisplayType | FunnelVizType) => ({ filter }),
     }),
-    reducers: {
+    selectors: {
         chartFilter: [
-            null as null | ChartDisplayType | FunnelVizType,
-            {
-                setChartFilter: (_, { filter }) => filter,
+            (s) => [s.filters],
+            (filters): ChartDisplayType | FunnelVizType | null => {
+                const { display, insight, funnel_viz_type } = filters || {}
+                if (display === ChartDisplayType.FunnelViz && !funnel_viz_type) {
+                    return FunnelVizType.Steps
+                } else if (display && !funnel_viz_type) {
+                    return display
+                } else if (insight === ViewType.RETENTION) {
+                    return ChartDisplayType.ActionsTable
+                } else if (insight === ViewType.FUNNELS) {
+                    return (funnel_viz_type as FunnelVizType) || FunnelVizType.Steps
+                }
+                return null
             },
         ],
     },
-    listeners: ({ values }) => ({
+    listeners: ({ actions, values }) => ({
         setChartFilter: ({ filter }) => {
-            const { display, funnel_viz_type, ..._params }: Partial<FilterType> = {
-                ...router.values.searchParams,
-                ...router.values.hashParams,
-            } // eslint-disable-line
-            const { pathname } = router.values.location
-
-            const hashParams = _params as Partial<FilterType>
-            if (isFunnelVizType(filter)) {
-                hashParams.funnel_viz_type = filter
-                hashParams.display = ChartDisplayType.FunnelViz
-            } else {
-                hashParams.display = values.chartFilter as ChartDisplayType
-            }
-            if (
-                (!isFunnelVizType(filter) && !objectsEqual(display, values.chartFilter)) ||
-                (isFunnelVizType(filter) && !objectsEqual(funnel_viz_type, values.chartFilter))
-            ) {
-                router.actions.replace(pathname, {}, hashParams)
-            }
-        },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (_, searchParams, hashParams) => {
-            const { display, insight, funnel_viz_type }: Partial<FilterType> = { ...searchParams, ...hashParams.q }
-            if (display === ChartDisplayType.FunnelViz && !funnel_viz_type) {
-                actions.setChartFilter(FunnelVizType.Steps)
-            } else if (display && !funnel_viz_type) {
-                actions.setChartFilter(display)
-            } else if (insight === ViewType.RETENTION) {
-                actions.setChartFilter(ChartDisplayType.ActionsTable)
-            } else if (insight === ViewType.FUNNELS) {
-                actions.setChartFilter((funnel_viz_type as FunnelVizType) || FunnelVizType.Steps)
+            if (!objectsEqual(filter, values.chartFilter)) {
+                if (isFunnelVizType(filter)) {
+                    actions.updateInsightFilters({
+                        ...values.filters,
+                        funnel_viz_type: filter,
+                        display: ChartDisplayType.FunnelViz,
+                    })
+                } else {
+                    actions.updateInsightFilters({ ...values.filters, display: values.chartFilter as ChartDisplayType })
+                }
             }
         },
     }),

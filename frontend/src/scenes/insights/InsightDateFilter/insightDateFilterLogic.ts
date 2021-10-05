@@ -1,15 +1,20 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import { Dayjs } from 'dayjs'
 import { objectsEqual } from 'lib/utils'
 import { insightDateFilterLogicType } from './insightDateFilterLogicType'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-interface UrlParams {
-    date_from?: string
-    date_to?: string
+interface InsightDateFilterLogicProps {
+    id: number | 'new'
 }
 
-export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
+export const insightDateFilterLogic = kea<insightDateFilterLogicType<InsightDateFilterLogicProps>>({
+    props: {} as InsightDateFilterLogicProps,
+    key: (props) => props.id || 'new',
+    connect: (props: InsightDateFilterLogicProps) => ({
+        values: [insightLogic(props), ['filters']],
+        actions: [insightLogic(props), ['updateInsightFilters']],
+    }),
     actions: () => ({
         setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
             dateFrom,
@@ -19,16 +24,16 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
         endHighlightChange: true,
         setInitialLoad: true,
     }),
-    reducers: () => ({
+    selectors: {
         dates: [
-            {
-                dateFrom: undefined as string | Dayjs | undefined,
-                dateTo: undefined as string | Dayjs | undefined,
-            },
-            {
-                setDates: (_, dates) => dates,
-            },
+            (s) => [s.filters],
+            (filters) => ({
+                dateFrom: filters.date_from,
+                dateTo: filters.date_to,
+            }),
         ],
+    },
+    reducers: () => ({
         highlightDateChange: [
             false,
             {
@@ -44,33 +49,18 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
         ],
     }),
     listeners: ({ values, actions }) => ({
-        setDates: () => {
-            const { date_from, date_to, ...searchParams } = router.values.searchParams // eslint-disable-line
-            const { pathname } = router.values.location
-
-            searchParams.date_from = values.dates.dateFrom
-            searchParams.date_to = values.dates.dateTo
-
-            if (
-                (pathname === '/insights' && !objectsEqual(date_from, values.dates.dateFrom)) ||
-                !objectsEqual(date_to, values.dates.dateTo)
-            ) {
-                router.actions.replace(pathname, searchParams)
+        setDates: ({ dateFrom, dateTo }) => {
+            if (!objectsEqual(dateFrom, values.filters.date_from) || !objectsEqual(dateTo, values.filters.date_to)) {
+                actions.updateInsightFilters({
+                    ...values.filters,
+                    date_from: dateFrom?.toString(),
+                    date_to: dateTo?.toString(),
+                })
             }
         },
         dateAutomaticallyChanged: async (_, breakpoint) => {
             await breakpoint(2000)
             actions.endHighlightChange()
-        },
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/insights': (_, searchParams, hashParams) => {
-            const { date_from, date_to }: UrlParams = { ...searchParams, ...hashParams.q }
-            if (!values.initialLoad && !objectsEqual(date_from, values.dates.dateFrom)) {
-                actions.dateAutomaticallyChanged()
-            }
-            actions.setDates(date_from, date_to)
-            actions.setInitialLoad()
         },
     }),
 })

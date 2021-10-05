@@ -11,10 +11,12 @@ import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import { GlobalFiltersTitle } from '../common'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function SessionTab(): JSX.Element {
-    const { filters } = useValues(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
-    const { setFilters } = useActions(trendsLogic({ dashboardItemId: null, view: ViewType.SESSIONS }))
+    const { insight } = useValues(insightLogic)
+    const { filters } = useValues(trendsLogic({ dashboardItemId: insight?.id, view: ViewType.SESSIONS }))
+    const { setFilters } = useActions(trendsLogic({ dashboardItemId: insight?.id, view: ViewType.SESSIONS }))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)

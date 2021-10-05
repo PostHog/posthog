@@ -18,20 +18,22 @@ import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface Props {
     view: ViewType
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
+    const { insight } = useValues(insightLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const {
         filters: _filters,
         loadMoreBreakdownUrl,
         breakdownValuesLoading,
-    } = useValues(trendsLogic({ dashboardItemId: null, filters: null }))
-    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, filters: null }))
+    } = useValues(trendsLogic({ dashboardItemId: insight?.id }))
+    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: insight?.id }))
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
@@ -49,7 +51,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 return <ActionsTable filters={_filters} view={view} />
             }
             return (
-                <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
+                <BindLogic logic={trendsLogic} props={{ dashboardItemId: insight?.id, view, filters: null }}>
                     <InsightsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
                 </BindLogic>
             )

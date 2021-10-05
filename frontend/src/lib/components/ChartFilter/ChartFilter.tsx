@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -20,8 +21,9 @@ interface ChartFilterProps {
 }
 
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
-    const { chartFilter } = useValues(chartFilterLogic)
-    const { setChartFilter } = useActions(chartFilterLogic)
+    const { insight } = useValues(insightLogic)
+    const { chartFilter } = useValues(chartFilterLogic({ id: insight?.id || 'new' }))
+    const { setChartFilter } = useActions(chartFilterLogic({ id: insight?.id || 'new' }))
     const { preflight } = useValues(preflightLogic)
 
     const linearDisabled = !!filters.session && filters.session === 'dist'

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { LineGraph } from '../../insights/LineGraph'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -6,11 +6,10 @@ import { LineGraphEmptyState } from '../../insights/EmptyStates'
 import { ACTIONS_BAR_CHART } from 'lib/constants'
 import { ChartParams } from '~/types'
 import { ViewType } from '~/types'
-import { router } from 'kea-router'
 import { personsModalLogic } from '../personsModalLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function ActionsLineGraph({
-    dashboardItemId,
     color = 'white',
     filters: filtersParam,
     cachedResults,
@@ -18,15 +17,15 @@ export function ActionsLineGraph({
     showPersonsModal = true,
     view,
 }: ChartParams): JSX.Element | null {
+    const { insight } = useValues(insightLogic)
     const logic = trendsLogic({
-        dashboardItemId,
+        dashboardItemId: insight?.id,
         view: view || filtersParam?.insight,
         filters: filtersParam,
         cachedResults,
     })
     const { filters, indexedResults, visibilityMap } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
-    const [{ fromItem }] = useState(router.values.hashParams)
 
     return indexedResults &&
         indexedResults[0]?.data &&
@@ -39,13 +38,13 @@ export function ActionsLineGraph({
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId || fromItem /* used only for annotations, not to init any other logic */}
+            dashboardItemId={insight?.id /* used only for annotations, not to init any other logic */}
             inSharedMode={inSharedMode}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}
             tooltipPreferAltTitle={filters.insight === ViewType.STICKINESS}
             onClick={
-                dashboardItemId
+                insight?.id
                     ? null
                     : (point) => {
                           const { dataset, day } = point
@@ -63,6 +62,6 @@ export function ActionsLineGraph({
             }
         />
     ) : (
-        <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <LineGraphEmptyState color={color} isDashboard={!!insight?.id} />
     )
 }

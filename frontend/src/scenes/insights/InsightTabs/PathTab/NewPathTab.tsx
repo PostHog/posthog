@@ -20,10 +20,12 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function NewPathTab(): JSX.Element {
-    const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
-    const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId: null }))
+    const { insight } = useValues(insightLogic)
+    const { filter } = useValues(pathsLogic({ dashboardItemId: insight?.id }))
+    const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId: insight?.id }))
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)

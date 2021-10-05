@@ -1,15 +1,13 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
+import { objectsEqual, toParams as toAPIParams } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
-import { router } from 'kea-router'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
-import { insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { insightLogic } from '../insights/insightLogic'
 import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import {
     ActionFilter,
-    ChartDisplayType,
     EntityTypes,
     FilterType,
     PropertyFilter,
@@ -19,11 +17,9 @@ import {
 } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { IndexedTrendResult, TrendResponse } from 'scenes/trends/types'
-import { defaultFilterTestAccounts, getInsightUrl } from 'scenes/insights/url'
+import { IndexedTrendResult } from 'scenes/trends/types'
+import { filterTrendsClientSideParams } from 'scenes/cleanFilters'
 
 interface PeopleParamType {
     action: ActionFilter | 'session'
@@ -35,36 +31,9 @@ interface PeopleParamType {
     lifecycle_type?: string | number
 }
 
-function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {
-    return {
-        insight: ViewType.TRENDS,
-        ...filters,
-        interval: autocorrectInterval(filters),
-        display:
-            filters.session && filters.session === 'dist'
-                ? ChartDisplayType.ActionsTable
-                : filters.display || ChartDisplayType.ActionsLineGraphLinear,
-        actions: Array.isArray(filters.actions) ? filters.actions : undefined,
-        events: Array.isArray(filters.events) ? filters.events : undefined,
-        properties: filters.properties || [],
-        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-    }
-}
-
-function filterClientSideParams(filters: Partial<FilterType>): Partial<FilterType> {
-    const {
-        people_day: _skip_this_one, // eslint-disable-line
-        people_action: _skip_this_too, // eslint-disable-line
-        stickiness_days: __and_this, // eslint-disable-line
-        ...newFilters
-    } = filters
-
-    return newFilters
-}
-
 export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
     const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
-    const params = filterClientSideParams({
+    const params = filterTrendsClientSideParams({
         ...filters,
         entity_id: (action !== 'session' && action.id) || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
         entity_type: (action !== 'session' && action.type) || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
@@ -100,7 +69,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     return toAPIParams({ ...params, ...restParams })
 }
 
-function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterType> {
+export function getDefaultTrendsFilters(currentFilters: Partial<FilterType>): Partial<FilterType> {
     if (!currentFilters.actions?.length && !currentFilters.events?.length) {
         const event = getDefaultEventName()
 
@@ -126,9 +95,30 @@ export const trendsLogic = kea<trendsLogicType>({
         return props.dashboardItemId || 'all_trends'
     },
 
-    connect: {
-        values: [actionsModel, ['actions']],
-    },
+    connect: (props: SharedInsightLogicProps) => ({
+        actions: [
+            insightHistoryLogic,
+            ['createInsight'],
+            insightLogic({ id: props.dashboardItemId || 'new' }),
+            [
+                'updateInsightFilters',
+                'setFilters',
+                'startQuery',
+                'endQuery',
+                'abortQuery',
+                'setFilters',
+                'loadResults',
+                'loadResultsSuccess',
+                'setCachedResultsSuccess',
+            ],
+        ],
+        values: [
+            insightLogic({ id: props.dashboardItemId || 'new' }),
+            ['filters', 'insight', 'results as insightResults', 'resultsLoading'],
+            actionsModel,
+            ['actions'],
+        ],
+    }),
 
     actions: () => ({
         setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
@@ -141,108 +131,7 @@ export const trendsLogic = kea<trendsLogicType>({
         setCachedResults: (filters: Partial<FilterType>, results: TrendResult[]) => ({ filters, results }),
     }),
 
-    loaders: ({ cache, values, props }) => ({
-        _results: {
-            __default: {} as TrendResponse,
-            setCachedResults: ({ results, filters }) => {
-                return { result: results, filters }
-            },
-            loadResults: async (refresh = false, breakpoint) => {
-                if (props.cachedResults && !refresh && objectsEqual(values.filters, props.filters)) {
-                    return { result: props.cachedResults, filters: props.filters } as TrendResponse
-                }
-
-                // fetch this now, as it might be different when we report below
-                const { scene } = sceneLogic.values
-
-                // If a query is in progress, debounce before making the second query
-                if (cache.abortController) {
-                    await breakpoint(300)
-                    cache.abortController.abort()
-                }
-                cache.abortController = new AbortController()
-
-                const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
-                insightLogic.actions.startQuery(queryId)
-                if (dashboardItemId) {
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
-                }
-
-                const { filters } = values
-
-                let response
-                try {
-                    if (values.filters?.insight === ViewType.SESSIONS || values.filters?.session) {
-                        response = await api.get(
-                            'api/insight/session/?' +
-                                (refresh ? 'refresh=true&' : '') +
-                                toAPIParams(filterClientSideParams(values.filters)),
-                            cache.abortController.signal
-                        )
-                    } else {
-                        response = await api.get(
-                            'api/insight/trend/?' +
-                                (refresh ? 'refresh=true&' : '') +
-                                toAPIParams(filterClientSideParams(values.filters)),
-                            cache.abortController.signal
-                        )
-                    }
-                } catch (e) {
-                    if (e.name === 'AbortError') {
-                        insightLogic.actions.abortQuery(
-                            queryId,
-                            (values.filters.insight as ViewType) || ViewType.TRENDS,
-                            scene,
-                            e
-                        )
-                    }
-                    breakpoint()
-                    cache.abortController = null
-                    insightLogic.actions.endQuery(
-                        queryId,
-                        (values.filters.insight as ViewType) || ViewType.TRENDS,
-                        null,
-                        e
-                    )
-                    if (dashboardItemId) {
-                        dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
-                    }
-                    return []
-                }
-                breakpoint()
-                cache.abortController = null
-                insightLogic.actions.endQuery(
-                    queryId,
-                    (values.filters.insight as ViewType) || ViewType.TRENDS,
-                    response.last_refresh
-                )
-                if (dashboardItemId) {
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, response.last_refresh)
-                }
-
-                return { ...response, filters }
-            },
-        },
-    }),
-
-    reducers: ({ props }) => ({
-        filters: [
-            (props.filters
-                ? props.filters
-                : (state: Record<string, any>) =>
-                      cleanFilters(router.selectors.searchParams(state))) as Partial<FilterType>,
-            {
-                setFilters: (state, { filters, mergeFilters }) => {
-                    const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
-                    return cleanFilters({
-                        ...(mergeFilters ? newState : {}),
-                        ...filters,
-                    })
-                },
-                setCachedResults: (_, { filters }) => filters,
-            },
-        ],
+    reducers: {
         toggledLifecycles: [
             ['new', 'resurrecting', 'returning', 'dormant'],
             {
@@ -279,9 +168,10 @@ export const trendsLogic = kea<trendsLogicType>({
                     ...state,
                     [`${index}`]: !state[index],
                 }),
-                loadResultsSuccess: (_, { _results }) => Object.fromEntries(_results.result.map((__, i) => [i, true])),
-                setCachedResultsSuccess: (_, { _results }) =>
-                    Object.fromEntries(_results.result.map((__, i) => [i, true])),
+                loadResultsSuccess: (_, { insight }) =>
+                    Object.fromEntries((insight.result as TrendResult[]).map((__, i) => [i, true])),
+                setCachedResultsSuccess: (_, { insight }) =>
+                    Object.fromEntries(insight.result.map((__, i) => [i, true])),
             },
         ],
         breakdownValuesLoading: [
@@ -290,13 +180,11 @@ export const trendsLogic = kea<trendsLogicType>({
                 setBreakdownValuesLoading: (_, { loading }) => loading,
             },
         ],
-    }),
+    },
 
     selectors: () => ({
-        loadedFilters: [(selectors) => [selectors._results], (response) => response.filters],
-        results: [(selectors) => [selectors._results], (response) => response.result],
-        resultsLoading: [(selectors) => [selectors._resultsLoading], (_resultsLoading) => _resultsLoading],
-        loadMoreBreakdownUrl: [(selectors) => [selectors._results], (response) => response.next],
+        results: [(s) => [s.insightResults], (results): TrendResult[] => (results || []) as TrendResult[]],
+        loadMoreBreakdownUrl: [(s) => [s.insight], (insight) => insight.next],
         numberOfSeries: [
             (selectors) => [selectors.filters],
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
@@ -308,32 +196,15 @@ export const trendsLogic = kea<trendsLogicType>({
                 if (filters.insight === ViewType.LIFECYCLE) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
+                console.log({ results })
                 return results.map((result, index) => ({ ...result, id: index }))
             },
         ],
     }),
 
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ actions, values }) => ({
         setDisplay: async ({ display }) => {
             actions.setFilters({ display })
-        },
-        setFilters: async () => {
-            if (!props.dashboardItemId) {
-                insightLogic.actions.setAllFilters(values.filters)
-            }
-            actions.loadResults()
-        },
-        loadResultsSuccess: () => {
-            if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    insightHistoryLogic.actions.createInsight({
-                        ...values.filters,
-                        insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
-                    })
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filters)
-                }
-            }
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {
@@ -351,7 +222,7 @@ export const trendsLogic = kea<trendsLogicType>({
             actions.setBreakdownValuesLoading(false)
         },
         [eventDefinitionsModel.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            const newFilter = getDefaultFilters(values.filters)
+            const newFilter = getDefaultTrendsFilters(values.filters)
             const mergedFilter: Partial<FilterType> = {
                 ...values.filters,
                 ...newFilter,
@@ -361,106 +232,4 @@ export const trendsLogic = kea<trendsLogicType>({
             }
         },
     }),
-
-    events: ({ actions, cache, props }) => ({
-        afterMount: () => {
-            if (props.dashboardItemId) {
-                // loadResults gets called in urlToAction for non-dashboard insights
-                actions.loadResults()
-            }
-        },
-        beforeUnmount: () => {
-            cache.abortController?.abort()
-        },
-    }),
-
-    actionToUrl: ({ values, props }) => ({
-        setFilters: () => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
-            }
-            return getInsightUrl(values.filters, router.values.hashParams, router.values.hashParams.fromItem)
-        },
-    }),
-
-    urlToAction: ({ actions, values, props }) => ({
-        '/insights': (_, searchParams, hashParams) => {
-            if (props.dashboardItemId) {
-                return
-            }
-            const queryParams = { ...searchParams, ...hashParams.q }
-            if (
-                !queryParams.insight ||
-                queryParams.insight === ViewType.TRENDS ||
-                queryParams.insight === ViewType.SESSIONS ||
-                queryParams.insight === ViewType.STICKINESS ||
-                queryParams.insight === ViewType.LIFECYCLE
-            ) {
-                const cleanSearchParams = cleanFilters(queryParams)
-
-                const keys = Object.keys(queryParams)
-
-                if (keys.length === 0 || (!queryParams.actions && !queryParams.events)) {
-                    cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
-                }
-
-                // TODO: Deprecated; should be removed once backend is updated
-                if (queryParams.insight === ViewType.STICKINESS) {
-                    cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
-                }
-                if (queryParams.insight === ViewType.LIFECYCLE) {
-                    cleanSearchParams['shown_as'] = ShownAsValue.LIFECYCLE
-                }
-
-                if (queryParams.insight === ViewType.SESSIONS && !queryParams.session) {
-                    cleanSearchParams['session'] = 'avg'
-                }
-
-                if (queryParams.date_from === 'all' || queryParams.insight === ViewType.LIFECYCLE) {
-                    cleanSearchParams['compare'] = false
-                }
-
-                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams))
-
-                if (!objectsEqual(cleanSearchParams, values.loadedFilters)) {
-                    actions.setFilters(cleanSearchParams, false)
-                } else {
-                    insightLogic.actions.setAllFilters(values.filters)
-                }
-
-                handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
-            }
-        },
-    }),
 })
-
-const handleLifecycleDefault = (
-    params: Partial<FilterType>,
-    callback: (filters: Partial<FilterType>) => void
-): void => {
-    if (params.insight === ViewType.LIFECYCLE) {
-        if (params.events?.length) {
-            callback({
-                ...params,
-                events: [
-                    {
-                        ...params.events[0],
-                        math: 'total',
-                    },
-                ],
-                actions: [],
-            })
-        } else if (params.actions?.length) {
-            callback({
-                ...params,
-                events: [],
-                actions: [
-                    {
-                        ...params.actions[0],
-                        math: 'total',
-                    },
-                ],
-            })
-        }
-    }
-}

@@ -2,10 +2,12 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { Checkbox } from 'antd'
 import { compareFilterLogic } from './compareFilterLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function CompareFilter(): JSX.Element {
-    const { compare, disabled } = useValues(compareFilterLogic)
-    const { setCompare } = useActions(compareFilterLogic)
+    const { insight } = useValues(insightLogic)
+    const { compare, disabled } = useValues(compareFilterLogic({ id: insight?.id || 'new' }))
+    const { setCompare } = useActions(compareFilterLogic({ id: insight?.id || 'new' }))
     return (
         <Checkbox
             onChange={(e) => {
