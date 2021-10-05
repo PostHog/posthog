@@ -367,13 +367,33 @@ def insight_test_factory(event_factory, person_factory):
         def test_insight_paths_basic(self):
             person_factory(team=self.team, distinct_ids=["person_1"])
             event_factory(
-                properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
+                properties={"$current_url": "/", "test": "val"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
             )
             event_factory(
-                properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
+                properties={"$current_url": "/about", "test": "val"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
             )
 
-            response = self.client.get("/api/insight/path",).json()
+            person_factory(team=self.team, distinct_ids=["dontcount"])
+            event_factory(
+                properties={"$current_url": "/", "test": "val"},
+                distinct_id="dontcount",
+                event="$pageview",
+                team=self.team,
+            )
+            event_factory(
+                properties={"$current_url": "/about", "test": "val"},
+                distinct_id="dontcount",
+                event="$pageview",
+                team=self.team,
+            )
+
+            response = self.client.post("/api/insight/path", {"properties": [{"key": "test", "value": "val"}],}).json()
             self.assertEqual(len(response["result"]), 1)
 
         def test_insight_funnels_basic_post(self):
