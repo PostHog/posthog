@@ -36,6 +36,19 @@ def send_license_usage():
                     "events_count": events_count,
                 },
             )
+            return
+
+        posthoganalytics.capture(
+            User.objects.first().distinct_id,  # type: ignore
+            "send license usage data",
+            {
+                "date": date_from.strftime("%Y-%m-%d"),
+                "date_from": date_from.strftime("%Y-%m-%d"),
+                "date_to": date_to.strftime("%Y-%m-%d"),
+                "events_count": events_count,
+                "license_key": license.key,  # TODO: Should we hash this?
+            },
+        )
     except Exception as err:
         posthoganalytics.capture(
             User.objects.first().distinct_id,  # type: ignore
