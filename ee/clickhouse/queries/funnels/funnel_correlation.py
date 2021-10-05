@@ -1,14 +1,20 @@
-from typing import List, TypedDict
+import dataclasses
+from typing import Any, Dict, List, Literal, Tuple, TypedDict
 
+from ee.clickhouse.client import sync_execute
+from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
 from posthog.models import Filter, Team
 from posthog.models.filters import Filter
 
 
 class EventOddsRatio(TypedDict):
     event: str
+
     success_count: int
     failure_count: int
+
     odds_ratio: float
+    correlation_type: Literal["success", "failure"]
 
 
 class FunnelCorrelationResponse(TypedDict):
@@ -71,7 +77,7 @@ class FunnelCorrelation:
            avoid pulling all people into across the wire.
          - there can be an order of magnitude more events than people, so we
            should avoid pulling all events across the wire.
-         - there may be a large but not hug number of distinct events, let's say
+         - there may be a large but not huge number of distinct events, let's say
            100 different names for events. We should avoid n+1 queries for the
            event names dimension
 
@@ -84,66 +90,143 @@ class FunnelCorrelation:
             correlation, e.g. "watched video"
 
         """
-        num_people_by_success_by_event_visited = get_people_by_success_by_event_visited(
-            team_id=self._team.pk, filter=self._filter
+        event_contingency_tables = get_partial_event_contingency_tables(team=self._team, filter=self._filter)
+
+        odds_ratios = [get_entity_odds_ratio(event_stats) for event_stats in event_contingency_tables]
+
+        positively_correlated_events = sorted(
+            [odds_ratio for odds_ratio in odds_ratios if odds_ratio["correlation_type"] == "success"],
+            key=lambda x: x["odds_ratio"],
+            reverse=True,
         )
 
-        odds_ratios = [get_entity_odds_ratio(event_stats) for event_stats in num_people_by_success_by_event_visited]
+        negatively_correlated_events = sorted(
+            [odds_ratio for odds_ratio in odds_ratios if odds_ratio["correlation_type"] == "failure"],
+            key=lambda x: x["odds_ratio"],
+            reverse=False,
+        )
 
-        # Return the top ten positively correlated events
-        return {"events": sorted(odds_ratios, key=lambda odds_ratio: -odds_ratio["odds_ratio"])[:10]}
+        # Return the top ten positively correlated events, and top then negatively correlated events
+        return {"events": positively_correlated_events[:10] + negatively_correlated_events[:10]}
 
 
-class EventStats(TypedDict):
+def get_funnel_persons_cte(team: Team, filter: Filter) -> Tuple[str, Dict[str, Any]]:
+    funnel_persons_generator = ClickhouseFunnelPersons(
+        filter,
+        team,
+        # NOTE: we want to include the latest timestamp of the `target_step`,
+        # from this we can deduce if the person reached the end of the funnel,
+        # i.e. successful
+        include_timestamp=True,
+        # NOTE: we don't need these as we have all the information we need to
+        # deduce if the person was successful or not
+        include_preceding_timestamp=False,
+        no_person_limit=True,
+    )
+
+    return (
+        funnel_persons_generator.get_query(),
+        funnel_persons_generator.params,
+    )
+
+
+@dataclasses.dataclass
+class EventStats:
     success_count: int
     failure_count: int
 
 
-class EventContingencyTable(TypedDict):
+@dataclasses.dataclass
+class EventContingencyTable:
     """
-    Represents a contingency table for a single event.
+    Represents a contingency table for a single event. Note that this isn't a
+    complete contingency table, but rather only includes totals for
+    failure/success as opposed to including the number of successes for cases
+    that a persons _doesn't_ visit an event.
     """
 
     event: str
-
     visited: EventStats
-    not_visited: EventStats
+
+    success_total: int
+    failure_total: int
 
 
-def get_people_by_success_by_event_visited(team_id: int, filter: Filter):
+def get_partial_event_contingency_tables(team: Team, filter: Filter) -> List[EventContingencyTable]:
+    """
+    For each event a person that started going through the funnel, gets stats
+    for how many of these users are sucessful and how many are unsuccessful.
+
+    It's a partial table as it doesn't include numbers of the negation of the
+    event, but does include the total success/failure numbers, which is enough
+    for us to calculate the odds ratio.
+    """
+    funnel_persons_query, funnel_persons_params = get_funnel_persons_cte(team=team, filter=filter)
+    query = f"""
+        WITH 
+            funnel_people AS ({funnel_persons_query}),
+            toDateTime(%(date_to)s) AS date_to
+        SELECT 
+            event.event AS name, 
+
+            -- If we have a timestamp, we know the person reached the end of the
+            -- funnel (I think)
+            countIf(person.timestamp IS NULL) AS success_count,
+
+            -- And the converse being for failures
+            countIf(person.timestamp IS NOT NULL) AS failure_count
+        FROM events AS event
+        
+        JOIN person_distinct_id AS pdi
+            ON pdi.distinct_id = events.distinct_id
+
+        -- Right join, so we can get the total success/failure numbers as well
+        RIGHT JOIN funnel_people AS person
+            ON pdi.person_id = person.person_id
+
+        -- Make sure we're only looking at events before the final step, or
+        -- failing that, date_to
+        WHERE event.timestamp < COALESCE(person.timestamp, date_to)
+        GROUP BY name
+        WITH TOTALS
+    """
+    params = {
+        **funnel_persons_params,
+        "date_to": filter.date_to,
+    }
+    results_then_total = sync_execute(query, params)
+
+    # Make typechecking happy. It should never be anything other than a list
+    assert isinstance(results_then_total, list)
+
+    # The last entry will give us the total funnel failures and successes
+    results, (_, success_total, failure_total) = results_then_total[:-1], results_then_total[-1]
+
+    # Add a little structure, and keep it close to the query definition so it's
+    # obvious what's going on with result indices.
     return [
         EventContingencyTable(
-            event="signup",
-            visited=EventStats(success_count=1, failure_count=2),
-            not_visited=EventStats(success_count=3, failure_count=4),
-        ),
-        EventContingencyTable(
-            event="watch video",
-            visited=EventStats(success_count=1, failure_count=2),
-            not_visited=EventStats(success_count=3, failure_count=4),
-        ),
+            event=result[0],
+            visited=EventStats(success_count=result[1], failure_count=result[2]),
+            success_total=success_total,
+            failure_total=failure_total,
+        )
+        for result in results
     ]
 
 
 def get_entity_odds_ratio(event_contingency_table: EventContingencyTable) -> EventOddsRatio:
+    if event_contingency_table.success_total and event_contingency_table.failure_total:
+        odds_ratio = (event_contingency_table.visited.success_count / event_contingency_table.success_total) / (
+            event_contingency_table.visited.failure_count / event_contingency_table.failure_total
+        )
+    else:
+        odds_ratio = 1
+
     return EventOddsRatio(
-        event=event_contingency_table["event"],
-        success_count=event_contingency_table["visited"]["success_count"],
-        failure_count=event_contingency_table["visited"]["failure_count"],
-        odds_ratio=(
-            (
-                event_contingency_table["visited"]["success_count"]
-                / (
-                    event_contingency_table["visited"]["success_count"]
-                    + event_contingency_table["visited"]["failure_count"]
-                )
-            )
-            / (
-                event_contingency_table["not_visited"]["success_count"]
-                / (
-                    event_contingency_table["not_visited"]["success_count"]
-                    + event_contingency_table["not_visited"]["failure_count"]
-                )
-            )
-        ),
+        event=event_contingency_table.event,
+        success_count=event_contingency_table.visited.success_count,
+        failure_count=event_contingency_table.visited.failure_count,
+        odds_ratio=odds_ratio,
+        correlation_type="success" if odds_ratio > 1 else "failure",
     )
