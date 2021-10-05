@@ -67,6 +67,10 @@ export const insightLogic = kea<insightLogicType>({
         toggleControlsCollapsed: true,
         saveNewTag: (tag: string) => ({ tag }),
         deleteTag: (tag: string) => ({ tag }),
+        setInsight: (insight: Partial<DashboardItemType>, shouldMergeWithExisting: boolean = false) => ({
+            insight,
+            shouldMergeWithExisting,
+        }),
         setInsightMode: (mode: ItemMode, source: InsightEventSource | null) => ({ mode, source }),
         setInsightDescription: (description: string) => ({ description }),
         saveInsight: true,
@@ -84,7 +88,13 @@ export const insightLogic = kea<insightLogicType>({
                 await breakpoint(300)
                 return await api.update(`api/insight/${values.insight.id}`, payload)
             },
-            setInsight: (insight) => insight,
+            setInsight: ({ insight, shouldMergeWithExisting }) =>
+                shouldMergeWithExisting
+                    ? {
+                          ...values.insight,
+                          ...insight,
+                      }
+                    : insight,
             updateInsightFilters: ({ filters }) => ({ ...values.insight, filters }),
         },
     }),
@@ -271,6 +281,7 @@ export const insightLogic = kea<insightLogicType>({
             actions.setTagLoading(true)
             if (values.insight.tags?.includes(tag)) {
                 errorToast(undefined, 'Oops! Your insight already has that tag.')
+                actions.setTagLoading(false)
                 return
             }
             actions.setInsight({ ...values.insight, tags: [...(values.insight.tags || []), tag] })
