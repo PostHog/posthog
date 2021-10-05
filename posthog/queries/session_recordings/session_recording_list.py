@@ -182,7 +182,9 @@ class SessionRecordingList(BaseQuery):
         return (event_query, {}, aggregate_select_clause, aggregate_where_clause)
 
     def _build_query(self) -> Tuple[str, Dict]:
-        base_params = {"team_id": self._team.pk, "limit": self.SESSION_RECORDINGS_DEFAULT_LIMIT, "offset": 0}
+        limit = self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
+        offset = self._filter.offset or 0
+        base_params = {"team_id": self._team.pk, "limit": limit, "offset": offset}
         events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
         recording_start_time_params, recording_start_time_clause = self._get_recording_start_time_clause()
         distinct_id_params, distinct_id_clause = self._get_distinct_id_clause()
