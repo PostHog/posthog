@@ -112,15 +112,15 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 load_time: loadTime,
                 duration: eventIndex.getDuration(),
                 start_time: recordingData?.start_time,
-                events_length: eventIndex.pageChangeEvents().length,
+                page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
                 user_is_identified: recordingData.person?.is_identified,
                 source: values.source,
             }
-            eventUsageLogic.actions.reportRecordingWatched({ delay: 0, ...payload })
+            eventUsageLogic.actions.reportRecordingViewed({ delay: 0, ...payload })
             // tests will wait for all breakpoints to finish
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportRecordingWatched({ delay: 10, ...payload })
+            eventUsageLogic.actions.reportRecordingViewed({ delay: 10, ...payload })
         },
     }),
     loaders: ({ values, actions }) => ({

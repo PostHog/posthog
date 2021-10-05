@@ -56,12 +56,12 @@ export enum RecordingWatchedSource {
     SessionsListPlayAll = 'sessions_list_play_all', // DEPRECATED play all button on sessions list
 }
 
-interface RecordingWatchedProps {
+interface RecordingViewedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
     load_time: number // How much time it took to load the session (backend) (milliseconds)
     duration: number // How long is the total recording (milliseconds)
     start_time?: string // Start time of the session
-    events_length: number
+    page_change_events_length: number
     recording_width?: number
     user_is_identified?: boolean
     source: RecordingWatchedSource
@@ -133,7 +133,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, RecordingWatchedProps>>({
+export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, RecordingViewedProps>>({
     connect: [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -249,7 +249,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
-        reportRecordingWatched: (payload: RecordingWatchedProps) => ({ payload }),
+        reportRecordingViewed: (payload: RecordingViewedProps) => ({ payload }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -591,9 +591,9 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
         },
-        reportRecordingWatched: ({ payload }) => {
+        reportRecordingViewed: ({ payload }) => {
             const { delay, ...props } = payload
-            posthog.capture(`recording ${delay ? 'analyzed' : 'watched'}`, props)
+            posthog.capture(`recording ${delay ? 'analyzed' : 'viewed'}`, props)
         },
     },
 })
