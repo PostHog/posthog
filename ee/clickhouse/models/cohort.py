@@ -266,13 +266,24 @@ def recalculate_cohortpeople(cohort: Cohort):
 
 
 def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Property]:
+    """
+    'Simplifies' cohort property filters, removing team-specific context from properties.
+    """
     from ee.clickhouse.models.cohort import is_precalculated_query
 
-    # static cohort
-    # precalculated cohort
+    if cohort.is_static:
+        return [Property(type="static-cohort", key="id", value=cohort.pk)]
+
+    # Cohort has been precalculated
     if is_precalculated_query(cohort):
         return [Property(type="precalculated-cohort", key="id", value=cohort.pk)]
-    # calculated cohort
+
+    # Cohort can have multiple match groups.
+    # Each group is either
+    # 1. "user has done X in time range Y at least N times" or
+    # 2. "user has properties XYZ", including belonging to another cohort
+    #
+    # Users who match _any_ of the groups are considered to match the cohort.
     group_filters = []
     for group in cohort.groups:
         if group.get("action_id") or group.get("event_id"):
