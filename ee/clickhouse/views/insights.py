@@ -81,11 +81,6 @@ class ClickhouseInsightsViewSet(InsightViewSet):
 
         return {"result": resp}
 
-    @action(methods=["GET", "POST"], detail=False)
-    def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
-        response = self.calculate_funnel(request)
-        return Response(response)
-
     @cached_function
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team

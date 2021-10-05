@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { toParams, objectsEqual, uuid } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 import api from 'lib/api'
 import { router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -93,7 +93,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 if (!refresh && (props.cachedResults || props.preventLoading) && values.filter === props.filters) {
                     return { paths: props.cachedResults, filter }
                 }
-                const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
+                const params = { ...filter, ...(refresh ? { refresh: true } : {}) }
 
                 const queryId = uuid()
                 const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
@@ -104,7 +104,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
 
                 let paths
                 try {
-                    paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
+                    paths = await api.create(`api/insight/path`, params)
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
