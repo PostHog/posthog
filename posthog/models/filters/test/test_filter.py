@@ -417,6 +417,18 @@ def property_to_Q_test_factory(filter_events: Callable, event_factory, person_fa
             events = filter_events(filter=filter, team=self.team, person_query=True)
             self.assertEqual(len(events), 1)
 
+        def test_filter_on_distinct_id(self):
+            # Distinct_id is a special case in that we still want to filter on it even if it wasn't set as a property
+            person1 = person_factory(team_id=self.team.pk, distinct_ids=["user_1"])
+            person2 = person_factory(team_id=self.team.pk, distinct_ids=["user_2"])
+            event_factory(team=self.team, distinct_id="user_1", event="$pageview")
+            event_factory(team=self.team, distinct_id="user_2", event="$pageview")
+            filter = Filter(
+                data={"events": [{"id": "$pageview"}], "properties": [{"key": "distinct_id", "value": "user_1"}]}
+            )
+            events = filter_events(filter=filter, team=self.team)
+            self.assertEqual(len(events), 1)
+
     return TestPropertiesToQ
 
 

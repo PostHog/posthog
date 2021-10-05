@@ -66,31 +66,36 @@ class Property:
         from .cohort import CohortPeople
 
         value = self._parse_value(self.value)
+        if self.key == "distinct_id":
+            # Special case, we still want to be able to filter on distinct_id even if it wasn't set in the properties
+            key = "distinct_id"
+        else:
+            key = "properties__{}".format(self.key)
         if self.type == "cohort":
             cohort_id = int(cast(Union[str, int], value))
             return Q(Exists(CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("id"),).only("id")))
 
         if self.operator == "is_not":
-            return Q(~lookup_q(f"properties__{self.key}", value) | ~Q(properties__has_key=self.key))
+            return Q(~lookup_q(key, value) | ~Q(properties__has_key=self.key))
         if self.operator == "is_set":
-            return Q(**{"properties__{}__isnull".format(self.key): False})
+            return Q(**{"{}__isnull".format(key): False})
         if self.operator == "is_not_set":
-            return Q(**{"properties__{}__isnull".format(self.key): True})
+            return Q(**{"{}__isnull".format(key): True})
         if self.operator in ("regex", "not_regex") and not is_valid_regex(value):
             # Return no data for invalid regexes
             return Q(pk=-1)
         if isinstance(self.operator, str) and self.operator.startswith("not_"):
             return Q(
-                ~Q(**{"properties__{}__{}".format(self.key, self.operator[4:]): value})
+                ~Q(**{"{}__{}".format(key, self.operator[4:]): value})
                 | ~Q(properties__has_key=self.key)
-                | Q(**{"properties__{}".format(self.key): None})
+                | Q(**{key: None})
             )
 
         if self.operator == "exact" or self.operator is None:
-            return lookup_q(f"properties__{self.key}", value)
+            return lookup_q(key, value)
         else:
             assert not isinstance(value, list)
-            return Q(**{f"properties__{self.key}__{self.operator}": value})
+            return Q(**{"{key}__{self.operator}": value})
 
 
 def lookup_q(key: str, value: Any) -> Q:

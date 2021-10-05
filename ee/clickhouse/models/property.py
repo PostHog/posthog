@@ -213,6 +213,10 @@ def get_property_string_expr(
 ) -> Tuple[str, bool]:
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
+    # We still want to be able to filter on distinct_id even if it wasn't set in properties
+    if property_name == "distinct_id":
+        return "distinct_id"
+
     if allow_denormalized_props and property_name in materialized_columns:
         return materialized_columns[property_name], True
 
