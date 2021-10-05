@@ -41,7 +41,7 @@ const isToolbarInput = (event: Event, ignorableElements: string[]): boolean => {
     }
 
     const sourceElement = path[0] as HTMLElement
-    const tagName = sourceElement.tagName
+    const tagName = sourceElement.tagName || 'not an html element'
     return ignorableElements.includes(tagName.toLowerCase())
 }
 
