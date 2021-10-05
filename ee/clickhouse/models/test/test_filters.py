@@ -67,7 +67,7 @@ class TestFiltering(
             team=self.team, groups=[{"properties": {"$some_prop__is_not": "something"}}], name="cohort2"
         )
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
 
         prop_clause, prop_clause_params = parse_prop_clauses(filter.properties, self.team.pk)
         query = """
@@ -80,7 +80,7 @@ class TestFiltering(
         self.assertEqual(result, person1_distinct_id)
 
         # test cohort2 with negation
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],})
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],}, team=self.team)
         prop_clause, prop_clause_params = parse_prop_clauses(filter.properties, self.team.pk)
         query = """
         SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}

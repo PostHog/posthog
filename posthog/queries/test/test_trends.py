@@ -1327,7 +1327,8 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                     data={
                         "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
                         "events": [{"id": "event_name"}],
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
