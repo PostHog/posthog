@@ -67,7 +67,7 @@ class FeatureFlag(models.Model):
         # :TRICKY: .get("multivariate", {}) returns "None" if the key is explicitly set to "null" inside json filters
         multivariate = self.get_filters().get("multivariate", None)
         if isinstance(multivariate, dict):
-            variants = multivariate.get("variants", [])
+            variants = multivariate.get("variants", None)
             if isinstance(variants, list):
                 return variants
 
