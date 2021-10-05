@@ -28,7 +28,7 @@ class SessionRecordingList(BaseQuery):
             all_recordings.start_time,
             all_recordings.end_time,
             all_recordings.duration,
-            person_distinct_id.person_id
+            all_recordings.distinct_id
         FROM (
             SELECT
                 session_id,
@@ -41,15 +41,12 @@ class SessionRecordingList(BaseQuery):
             WHERE
                 team_id = %(team_id)s
                 {events_timestamp_clause}
+                {distinct_id_clause}
             GROUP BY session_id
         ) as all_recordings
-        JOIN posthog_persondistinctid as person_distinct_id 
-            ON person_distinct_id.distinct_id = all_recordings.distinct_id 
-            AND person_distinct_id.team_id = %(team_id)s
         WHERE full_snapshots > 0
         {recording_start_time_clause}
-        {duration_clause}
-        {person_id_clause} 
+        {duration_clause} 
     """
 
     _limited_session_recordings_query: str = """
@@ -66,18 +63,15 @@ class SessionRecordingList(BaseQuery):
             MIN(session_recordings.start_time) as start_time,
             MIN(session_recordings.end_time) as end_time,
             MIN(session_recordings.duration) as duration,
-            MIN(person_distinct_id.person_id) as person_id
+            MIN(filtered_events.distinct_id) as distinct_id
             {event_filter_aggregate_select_clause}
         FROM (
             {events_query}
         ) AS filtered_events
-        JOIN posthog_persondistinctid as person_distinct_id ON 
-            person_distinct_id.distinct_id = filtered_events.distinct_id
-            AND person_distinct_id.team_id = %(team_id)s
         JOIN (
             {core_session_recording_query}
         ) AS session_recordings
-        ON session_recordings.person_id = person_distinct_id.person_id
+        ON session_recordings.distinct_id = filtered_events.distinct_id
         WHERE
             filtered_events.timestamp >= session_recordings.start_time 
             AND filtered_events.timestamp <= session_recordings.end_time
@@ -115,14 +109,16 @@ class SessionRecordingList(BaseQuery):
             start_time_params["end_time"] = self._filter.date_to
         return start_time_params, start_time_clause
 
-    def _get_person_id_clause(self):
-        person_id_clause = ""
-        person_id_params = {}
+    def _get_distinct_id_clause(self):
+        distinct_id_clause = ""
+        distinct_id_params = {}
         if self._filter.person_uuid:
             person = Person.objects.get(uuid=self._filter.person_uuid)
-            person_id_clause = f"AND person_distinct_id.person_id = %(person_uuid)s"
-            person_id_params = {"person_uuid": person.pk}
-        return person_id_params, person_id_clause
+            distinct_id_clause = (
+                f"AND distinct_id IN (SELECT distinct_id from posthog_persondistinctid WHERE person_id = %(person_id)s)"
+            )
+            distinct_id_params = {"person_id": person.pk}
+        return distinct_id_params, distinct_id_clause
 
     def _get_duration_clause(self):
         duration_clause = ""
@@ -185,17 +181,17 @@ class SessionRecordingList(BaseQuery):
         base_params = {"team_id": self._team.pk, "limit": self.SESSION_RECORDINGS_DEFAULT_LIMIT, "offset": 0}
         events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
         recording_start_time_params, recording_start_time_clause = self._get_recording_start_time_clause()
-        person_id_params, person_id_clause = self._get_person_id_clause()
+        distinct_id_params, distinct_id_clause = self._get_distinct_id_clause()
         duration_params, duration_clause = self._get_duration_clause()
         core_session_recording_query = self._core_session_recording_query.format(
-            person_id_clause=person_id_clause,
+            distinct_id_clause=distinct_id_clause,
             events_timestamp_clause=events_timestamp_clause,
             recording_start_time_clause=recording_start_time_clause,
             duration_clause=duration_clause,
         )
         params = {
             **base_params,
-            **person_id_params,
+            **distinct_id_params,
             **events_timestamp_params,
             **duration_params,
             **recording_start_time_params,

@@ -23,11 +23,11 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             all_recordings.start_time,
             all_recordings.end_time,
             all_recordings.duration,
-            person_distinct_id.person_id
+            all_recordings.distinct_id
         FROM(
             SELECT
                 session_id,
-                any(distinct_id) as distinct_id,
+                distinct_id as distinct_id,
                 MIN(timestamp) AS start_time,
                 MAX(timestamp) AS end_time,
                 dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
@@ -36,15 +36,12 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             WHERE
                 team_id = %(team_id)s
                 {events_timestamp_clause}
-            GROUP BY session_id
+                {distinct_id_clause}
+            GROUP BY session_id, distinct_id
         ) as all_recordings
-        JOIN person_distinct_id 
-            ON person_distinct_id.distinct_id = all_recordings.distinct_id
         WHERE full_snapshots > 0
-        AND person_distinct_id.team_id = %(team_id)s
         {recording_start_time_clause}
-        {duration_clause}
-        {person_id_clause} 
+        {duration_clause} 
     """
 
     _limited_session_recordings_query: str = """
@@ -61,7 +58,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             any(session_recordings.start_time) as start_time,
             any(session_recordings.end_time) as end_time,
             any(session_recordings.duration) as duration,
-            any(person_distinct_id.person_id) as person_id
+            any(session_recordings.distinct_id) as distinct_id
             {event_filter_aggregate_select_clause}
         FROM (
             SELECT
@@ -74,11 +71,10 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
                 {events_timestamp_clause}
                 {event_filter_event_where_clause}
         ) AS filtered_events
-        JOIN person_distinct_id ON person_distinct_id.distinct_id = filtered_events.distinct_id
         JOIN (
             {core_session_recording_query}
         ) AS session_recordings
-        ON session_recordings.person_id = person_distinct_id.person_id
+        ON session_recordings.distinct_id = filtered_events.distinct_id
         WHERE
             filtered_events.timestamp >= session_recordings.start_time 
             AND filtered_events.timestamp <= session_recordings.end_time
@@ -117,22 +113,24 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             }
         return duration_params, duration_clause
 
-    def _get_person_id_clause(self):
-        person_id_clause = ""
-        person_id_params = {}
+    def _get_distinct_id_clause(self):
+        distinct_id_clause = ""
+        distinct_id_params = {}
         if self._filter.person_uuid:
-            person_id_clause = f"AND person_distinct_id.person_id = %(person_uuid)s"
-            person_id_params = {"person_uuid": self._filter.person_uuid}
-        return person_id_params, person_id_clause
+            distinct_id_clause = (
+                f"AND distinct_id IN (SELECT distinct_id from person_distinct_id WHERE person_id = %(person_uuid)s)"
+            )
+            distinct_id_params = {"person_uuid": self._filter.person_uuid}
+        return distinct_id_params, distinct_id_clause
 
     def _build_query(self) -> Tuple[str, Dict]:
         params = {"team_id": self._team.pk, "limit": self.SESSION_RECORDINGS_DEFAULT_LIMIT, "offset": 0}
         events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
         recording_start_time_params, recording_start_time_clause = self._get_recording_start_time_clause()
-        person_id_params, person_id_clause = self._get_person_id_clause()
+        distinct_id_params, distinct_id_clause = self._get_distinct_id_clause()
         duration_params, duration_clause = self._get_duration_clause()
         core_session_recording_query = self._core_session_recording_query.format(
-            person_id_clause=person_id_clause,
+            distinct_id_clause=distinct_id_clause,
             events_timestamp_clause=events_timestamp_clause,
             recording_start_time_clause=recording_start_time_clause,
             duration_clause=duration_clause,
@@ -143,7 +141,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             return (
                 self._session_recordings_query_with_entity_filter.format(
                     core_session_recording_query=core_session_recording_query,
-                    person_id_clause=person_id_clause,
+                    distinct_id_clause=distinct_id_clause,
                     events_timestamp_clause=events_timestamp_clause,
                     recording_start_time_clause=recording_start_time_clause,
                     event_filter_event_select_clause=event_filters.event_select_clause,
@@ -153,7 +151,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
                 ),
                 {
                     **params,
-                    **person_id_params,
+                    **distinct_id_params,
                     **events_timestamp_params,
                     **duration_params,
                     **event_filters.params,
@@ -163,13 +161,13 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         return (
             self._limited_session_recordings_query.format(
                 core_session_recording_query=core_session_recording_query,
-                person_id_clause=person_id_clause,
+                distinct_id_clause=distinct_id_clause,
                 events_timestamp_clause=events_timestamp_clause,
                 recording_start_time_clause=recording_start_time_clause,
             ),
             {
                 **params,
-                **person_id_params,
+                **distinct_id_params,
                 **events_timestamp_params,
                 **duration_params,
                 **recording_start_time_params,
@@ -177,7 +175,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
         )
 
     def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
-        return [dict(zip(["session_id", "start_time", "end_time", "duration", "person_id"], row)) for row in results]
+        return [dict(zip(["session_id", "start_time", "end_time", "duration", "distinct_id"], row)) for row in results]
 
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
         query, query_params = self._build_query()

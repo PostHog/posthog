@@ -18,7 +18,7 @@ class SessionRecordingSerializer(serializers.Serializer):
     duration = serializers.DurationField()
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
-    person_id = serializers.UUIDField()
+    distinct_id = serializers.CharField()
 
     def to_representation(self, instance):
         return {
@@ -27,7 +27,7 @@ class SessionRecordingSerializer(serializers.Serializer):
             "recording_duration": instance.get("duration"),
             "start_time": instance["start_time"],
             "end_time": instance["end_time"],
-            "person_id": instance["person_id"],
+            "distinct_id": instance["distinct_id"],
         }
 
 
