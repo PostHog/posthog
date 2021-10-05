@@ -200,7 +200,7 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
 
     if app_settings.SHELL_PLUS_PRINT_SQL:
         print()
-        print(format_sql(rendered_sql))
+        print(format_sql(formatted_sql))
 
     return annotated_sql, args, tags
 
