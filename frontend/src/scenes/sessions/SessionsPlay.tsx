@@ -91,6 +91,8 @@ export function SessionsPlay(): JSX.Element {
         playerRef.current?.seek(time)
     }
 
+    console.log('RECORDING', sessionPlayerData)
+
     return (
         <div className="session-player">
             <Row gutter={16} style={{ height: '100%' }}>

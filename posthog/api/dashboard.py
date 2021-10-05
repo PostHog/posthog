@@ -10,7 +10,6 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import authentication, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 

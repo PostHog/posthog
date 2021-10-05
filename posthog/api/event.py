@@ -171,7 +171,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             except IndexError:
                 event.serialized_person = None  # type: ignore
             try:
-                event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][0]  # type: ignore
+                event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][
+                    0
+                ]  # type: ignore
             except IndexError:
                 event.elements_group_cache = None  # type: ignore
         return events
@@ -323,7 +325,10 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 status=400,
             )
         session_recording = SessionRecording().run(
-            team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
+            request=request,
+            team=self.team,
+            filter=Filter(request=request),
+            session_recording_id=request.GET["session_recording_id"],
         )
 
         if request.GET.get("save_view"):

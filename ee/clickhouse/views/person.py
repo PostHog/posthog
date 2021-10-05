@@ -15,11 +15,11 @@ from ee.clickhouse.queries.paths import ClickhousePathsPersons
 from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
 from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.person import PersonViewSet
-from posthog.api.utils import format_offset_absolute_url
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, FunnelVizType
 from posthog.decorators import cached_function
 from posthog.models import Event, Filter, Person
 from posthog.models.filters.path_filter import PathFilter
+from posthog.utils import format_offset_absolute_url
 
 
 class ClickhousePersonViewSet(PersonViewSet):

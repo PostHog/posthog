@@ -18,9 +18,15 @@ interface SessionPlayerData {
     snapshots: eventWithTime[]
     person: PersonType | null
     start_time: string
+    next: string | null
 }
 
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
+interface RecordingRequest {
+    sessionRecordingId?: string
+    url?: string
+}
+
+export const sessionsPlayLogic = kea<sessionsPlayLogicType<RecordingRequest, SessionPlayerData, SessionRecordingId>>({
     connect: {
         values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
         actions: [
@@ -36,18 +42,20 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         openNextRecordingOnLoad: true,
         setSource: (source: RecordingWatchedSource) => ({ source }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
+        appendToRecordingData: (nextSnapshots: eventWithTime[]) => ({ nextSnapshots }),
     },
     reducers: {
         sessionRecordingId: [
             null as SessionRecordingId | null,
             {
-                loadRecording: (_, sessionRecordingId) => sessionRecordingId,
+                loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
             },
         ],
         sessionPlayerData: [
             null as null | SessionPlayerData,
             {
-                loadRecording: () => null,
+                appendToRecordingData: (state, { nextSnapshots }) =>
+                    state ? { ...state, snapshots: [...state.snapshots, ...nextSnapshots] } : null,
             },
         ],
         addingTagShown: [
@@ -87,7 +95,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         goToNext: () => {
             if (values.recordingIndex < values.orderedSessionRecordingIds.length - 1) {
                 const id = values.orderedSessionRecordingIds[values.recordingIndex + 1]
-                actions.loadRecording(id)
+                actions.loadRecording({ sessionRecordingId: id })
             } else if (values.pagination) {
                 // :TRICKY: Load next page of sessions, which will call appendNewSessions which will call goToNext again
                 actions.openNextRecordingOnLoad()
@@ -98,7 +106,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         },
         goToPrevious: () => {
             const id = values.orderedSessionRecordingIds[values.recordingIndex - 1]
-            actions.loadRecording(id)
+            actions.loadRecording({ sessionRecordingId: id })
         },
         appendNewSessions: () => {
             if (values.sessionRecordingId && values.loadingNextRecording) {
@@ -122,6 +130,13 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
             eventUsageLogic.actions.reportRecordingViewed({ delay: 10, ...payload })
         },
+        loadRecordingSuccess: async () => {
+            // If there is more data to poll for load the next batch.
+            // This will keep calling loadRecording until `next` is empty.
+            if (!!values.sessionPlayerData?.next) {
+                await actions.loadRecording({ url: values.sessionPlayerData.next })
+            }
+        },
     }),
     loaders: ({ values, actions }) => ({
         tags: [
@@ -138,12 +153,25 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
             },
         ],
         sessionPlayerData: {
-            loadRecording: async (sessionRecordingId: string): Promise<SessionPlayerData> => {
+            loadRecording: async ({ sessionRecordingId, url }: RecordingRequest): Promise<SessionPlayerData> => {
                 const startTime = performance.now()
-                const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
-                const response = await api.get(`api/event/session_recording?${params}`)
+
+                let response
+                if (url) {
+                    // See https://github.com/PostHog/posthog/blob/b015df3eeb8444d0a20f36e0479cca39cddf69d7/posthog/queries/sessions/session_recording.py#L76-L76
+                    response = await api.get(url)
+                } else {
+                    const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
+                    response = await api.get(`api/event/session_recording?${params}`)
+                }
+                console.log('RESPONSE', response)
                 actions.reportUsage(response.result, performance.now() - startTime)
-                return response.result
+
+                const currData = values.sessionPlayerData
+                return {
+                    ...response.result,
+                    snapshots: [...(currData?.snapshots ?? []), ...(response.result?.snapshots ?? [])],
+                }
             },
         },
     }),
@@ -230,7 +258,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 actions.setSource(source as RecordingWatchedSource)
             }
             if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
-                actions.loadRecording(sessionRecordingId)
+                actions.loadRecording({ sessionRecordingId })
             }
         }
 

@@ -20,6 +20,7 @@ SINGLE_RECORDING_QUERY = """
         team_id = %(team_id)s
         AND session_id = %(session_id)s
     ORDER BY timestamp
+    LIMIT %(limit)s OFFSET %(offset)s
 """
 
 SESSIONS_IN_RANGE_QUERY = """
@@ -50,12 +51,15 @@ SESSIONS_IN_RANGE_QUERY_COLUMNS = ["session_id", "distinct_id", "start_time", "e
 
 class SessionRecording(BaseSessionRecording):
     def query_recording_snapshots(
-        self, team: Team, session_id: str
-    ) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
-        response = sync_execute(SINGLE_RECORDING_QUERY, {"team_id": team.id, "session_id": session_id})
+        self, team: Team, session_id: str, limit: int, offset: int
+    ) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots, bool]:
+        response = sync_execute(
+            SINGLE_RECORDING_QUERY, {"team_id": team.id, "session_id": session_id, "limit": limit, "offset": offset}
+        )
         if len(response) == 0:
-            return None, None, []
-        return response[0][0], response[0][1], [json.loads(snapshot_data) for _, _, snapshot_data in response]
+            return None, None, [], False
+        snapshots = [json.loads(snapshot_data) for _, _, snapshot_data in response]
+        return response[0][0], response[0][1], snapshots, len(snapshots) > limit - 1
 
 
 def join_with_session_recordings(team: Team, sessions_results: List[Any], filter: SessionsFilter) -> List[Any]:

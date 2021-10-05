@@ -793,3 +793,20 @@ def get_helm_info_env() -> dict:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
     except Exception:
         return {}
+
+
+OFFSET_REGEX = re.compile(r"([&?]offset=)(\d+)")
+
+
+def format_offset_absolute_url(request: Request, offset: int):
+    url_to_format = request.get_raw_uri()
+
+    if not url_to_format:
+        return None
+
+    if OFFSET_REGEX.search(url_to_format):
+        url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
+    else:
+        url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"offset={offset}"
+
+    return url_to_format
