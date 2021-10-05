@@ -26,7 +26,11 @@ INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
 class OrganizationManager(models.Manager):
     def bootstrap(
-        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
+        self,
+        user: Any,
+        *,
+        team_fields: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
@@ -37,7 +41,9 @@ class OrganizationManager(models.Manager):
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
-                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER,
+                    organization=organization,
+                    user=user,
+                    level=OrganizationMembership.Level.OWNER,
                 )
                 user.current_organization = organization
                 user.current_team = team
@@ -155,6 +161,7 @@ class Organization(UUIDModel):
             "person_count": sum((team.person_set.count() for team in self.teams.all())),
             "setup_section_2_completed": self.setup_section_2_completed,
             "personalization": self.personalization,
+            "name": self.name,
         }
 
 
@@ -228,7 +235,10 @@ class OrganizationMembership(UUIDModel):
 
 class OrganizationInvite(UUIDModel):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite",
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="invites",
+        related_query_name="invite",
     )
     target_email: models.EmailField = models.EmailField(null=True, db_index=True)
     first_name: models.CharField = models.CharField(max_length=30, blank=True, default="")
@@ -255,16 +265,19 @@ class OrganizationInvite(UUIDModel):
 
         if self.is_expired():
             raise exceptions.ValidationError(
-                "This invite has expired. Please ask your admin for a new one.", code="expired",
+                "This invite has expired. Please ask your admin for a new one.",
+                code="expired",
             )
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(
-                "You already are a member of this organization.", code="user_already_member",
+                "You already are a member of this organization.",
+                code="user_already_member",
             )
 
         if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email,
+            organization=self.organization,
+            user__email=self.target_email,
         ).exists():
             raise exceptions.ValidationError(
                 "Another user with this email address already belongs to this organization.",

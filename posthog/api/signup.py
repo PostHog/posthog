@@ -49,7 +49,9 @@ class SignupSerializer(serializers.Serializer):
         organization_name = validated_data.pop("organization_name", validated_data["first_name"])
 
         self._organization, self._team, self._user = User.objects.bootstrap(
-            organization_name=organization_name, create_team=self.create_team, **validated_data,
+            organization_name=organization_name,
+            create_team=self.create_team,
+            **validated_data,
         )
         user = self._user
 
@@ -59,7 +61,9 @@ class SignupSerializer(serializers.Serializer):
             self._organization.save()
 
         login(
-            self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
+            self.context["request"],
+            user,
+            backend="django.contrib.auth.backends.ModelBackend",
         )
 
         report_user_signed_up(
@@ -68,6 +72,8 @@ class SignupSerializer(serializers.Serializer):
             is_organization_first_user=True,
             new_onboarding_enabled=(not self._organization.setup_section_2_completed),
             backend_processor="OrganizationSignupSerializer",
+            user_analytics_metadata=user.get_analytics_metadata(),
+            org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
         )
 
         return user
@@ -158,7 +164,9 @@ class InviteSignupSerializer(serializers.Serializer):
 
         if is_new_user:
             login(
-                self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend",
+                self.context["request"],
+                user,
+                backend="django.contrib.auth.backends.ModelBackend",
             )
 
             report_user_signed_up(
@@ -167,6 +175,8 @@ class InviteSignupSerializer(serializers.Serializer):
                 is_organization_first_user=False,
                 new_onboarding_enabled=(not invite.organization.setup_section_2_completed),
                 backend_processor="OrganizationInviteSignupSerializer",
+                user_analytics_metadata=user.get_analytics_metadata(),
+                org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
             )
 
         else:
@@ -416,6 +426,8 @@ def social_create_user(strategy: DjangoStrategy, details, backend, request, user
         new_onboarding_enabled=False,
         backend_processor=backend_processor,
         social_provider=backend.name,
+        user_analytics_metadata=user.get_analytics_metadata(),
+        org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
     )
 
     return {"is_new": True, "user": user}
