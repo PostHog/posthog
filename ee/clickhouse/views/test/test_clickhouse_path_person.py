@@ -151,7 +151,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, len(people))
         self.assertIsNone(next)
 
-    def test_basic_format_with_funnel_path(self):
+    def test_basic_format_with_funnel_path_post(self):
         self._create_sample_data(7)
         request_data = {
             "insight": INSIGHT_PATHS,
@@ -161,29 +161,58 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2021-05-07",
             "path_start_key": "1_step two",
             "path_end_key": "2_step three",
-            "funnel_filter": json.dumps(
-                {
-                    "insight": INSIGHT_FUNNELS,
-                    "interval": "day",
-                    "date_from": "2021-05-01 00:00:00",
-                    "date_to": "2021-05-07 00:00:00",
-                    "funnel_window_interval": 7,
-                    "funnel_window_interval_unit": "day",
-                    "funnel_step": 2,
-                    "events": [
-                        {"id": "step one", "order": 0},
-                        {"id": "step two", "order": 1},
-                        {"id": "step three", "order": 2},
-                    ],
-                }
-            ),
         }
 
-        get_response = self.client.get("/api/person/path/", data=request_data)
-        post_response = self.client.post("/api/person/path/", data=request_data)
-        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        funnel_filter = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        post_response = self.client.post("/api/person/path/", data={**request_data, "funnel_filter": funnel_filter})
         self.assertEqual(post_response.status_code, status.HTTP_200_OK)
-        get_j = get_response.json()
         post_j = post_response.json()
-        self.assertEqual(4, len(get_j["results"][0]["people"]))
         self.assertEqual(4, len(post_j["results"][0]["people"]))
+
+    def test_basic_format_with_funnel_path_get(self):
+        self._create_sample_data(7)
+        request_data = {
+            "insight": INSIGHT_PATHS,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
+            "filter_test_accounts": "false",
+            "date_from": "2021-05-01",
+            "date_to": "2021-05-07",
+            "path_start_key": "1_step two",
+            "path_end_key": "2_step three",
+        }
+
+        funnel_filter = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        get_response = self.client.get(
+            "/api/person/path/", data={**request_data, "funnel_filter": json.dumps(funnel_filter)}
+        )
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        get_j = get_response.json()
+        self.assertEqual(4, len(get_j["results"][0]["people"]))
