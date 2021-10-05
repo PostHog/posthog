@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-from time import sleep
 from typing import List
 from unittest.mock import patch
 
