@@ -64,7 +64,10 @@ class FeatureFlag(models.Model):
 
     @property
     def variants(self):
-        return self.get_filters().get("multivariate", {}).get("variants", [])
+        # :TRICKY: "multivariate" can be "null" inside json, causing .get("dictkey", {}) to be "None" and throw
+        multivariate = self.get_filters().get("multivariate", None)
+        if isinstance(multivariate, dict):
+            return multivariate.get("variants", []) or []  # can explicitly be "null" inside the json
 
     def get_filters(self):
         if "groups" in self.filters:
