@@ -172,7 +172,6 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_identify.assert_called_once()
         mock_capture.assert_called_once()
-        mock_identify.assert_called_once()
 
         self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
         self.assertEqual("user signed up", mock_capture.call_args.args[1])
