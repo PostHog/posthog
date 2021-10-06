@@ -5,13 +5,14 @@ from typing import Any, Dict, Optional, TypedDict
 from uuid import uuid4
 
 import pytest
+from django.core.cache import cache
 from django.test import Client
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
 from posthog.models.person import Person
-from posthog.test.base import BaseTest
 from posthog.models.team import Team
+from posthog.test.base import BaseTest
 
 
 @pytest.mark.clickhouse_only
@@ -42,12 +43,54 @@ class FunnelCorrelationTest(BaseTest):
             #
             # Both of them have a "watched video" event
 
-            create_person(distinct_ids=["Person 1"], team=self.team)
+            events = {
+                "Person 1": [
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "watched video", "timestamp": datetime(2020, 1, 2)},
+                ],
+                "Person 2": [
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "watched video", "timestamp": datetime(2020, 1, 2)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+            }
 
-            _create_event(
-                team=self.team, distinct_id="Person 1", event="signup", timestamp=datetime(2020, 1, 1), properties={},
+            create_events(events_by_person=events, team=self.team)
+
+            odds = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
+                    funnel_step=2,
+                    date_to="2020-04-04",
+                ),
             )
 
+        assert odds == {
+            "is_cached": False,
+            "last_refresh": "2020-01-01T00:00:00Z",
+            "result": {
+                "events": [
+                    # Top 10
+                    # TODO: remove events that are explicitly included in the funnel definitions
+                    {
+                        "correlation_type": "failure",
+                        "event": "signup",
+                        "failure_count": 1,
+                        "odds_ratio": 1.0,
+                        "success_count": 1,
+                    },
+                    {
+                        "event": "watched video",
+                        "success_count": 1,
+                        "failure_count": 1,
+                        "odds_ratio": 1.0,
+                        "correlation_type": "failure",
+                    },
+                ]
+            },
+        }
 
     def test_event_correlation_is_partitioned_by_team(self):
         """
@@ -78,6 +121,10 @@ class FunnelCorrelationTest(BaseTest):
 
             create_events(events_by_person=events, team=self.team)
 
+            # We need to make sure we clear the cache other tests that have run
+            # done interfere with this test
+            cache.clear()
+
             odds_before = get_funnel_correlation_ok(
                 client=self.client,
                 team_id=self.team.pk,
@@ -91,6 +138,9 @@ class FunnelCorrelationTest(BaseTest):
             other_team = create_team(organization=self.organization)
             create_events(events_by_person=events, team=other_team)
 
+            # We need to make sure we clear the cache so we get the same results again
+            cache.clear()
+
             odds_after = get_funnel_correlation_ok(
                 client=self.client,
                 team_id=self.team.pk,
@@ -102,49 +152,6 @@ class FunnelCorrelationTest(BaseTest):
             )
 
             assert odds_before == odds_after
-
-
-            _create_event(
-                team=self.team,
-                distinct_id="Person 2",
-                event="view insights",
-                timestamp=datetime(2020, 1, 3),
-                properties={},
-            )
-
-            odds = get_funnel_correlation_ok(
-                client=self.client,
-                team_id=self.team.pk,
-                request=FunnelCorrelationRequest(
-                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
-                    date_to="2020-04-04",
-                ),
-            )
-
-        assert odds == {
-            "is_cached": False,
-            "last_refresh": "2020-01-01T00:00:00Z",
-            "result": {
-                "events": [
-                    # Top 10
-                    # TODO: remove events that are explicitly included in the funnel definitions
-                    {
-                        "correlation_type": "failure",
-                        "event": "signup",
-                        "failure_count": 1,
-                        "odds_ratio": 1.0,
-                        "success_count": 1,
-                    },
-                    {
-                        "event": "watched video",
-                        "success_count": 1,
-                        "failure_count": 1,
-                        "odds_ratio": 1.0,
-                        "correlation_type": "failure",
-                    },
-                ]
-            },
-        }
 
 
 def create_team(organization):
