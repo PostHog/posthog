@@ -69,7 +69,7 @@ class Person(models.Model):
     # used to prevent race conditions with set and set_once
     properties_last_updated_at: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
 
-    # for each prop, store if last op was $set or $set_once
+    # used for evaluating if we need to override the value or not (value: set or set_once)
     properties_last_operation: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
