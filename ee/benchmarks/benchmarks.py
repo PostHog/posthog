@@ -20,6 +20,7 @@ SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01"}
 
 class QuerySuite:
     timeout = 3000.0  # Timeout for the whole suite
+    version = "v001"  # Version. Incrementing this will invalidate previous results
 
     team: Team
 

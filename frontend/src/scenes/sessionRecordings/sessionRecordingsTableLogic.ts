@@ -4,11 +4,13 @@ import { toParams } from 'lib/utils'
 import { SessionRecordingType } from '~/types'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 type SessionRecordingId = string
 interface Params {
     properties?: any
     sessionRecordingId?: SessionRecordingId
+    source?: RecordingWatchedSource
 }
 
 export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<SessionRecordingId>>({
@@ -18,7 +20,10 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
     },
     actions: {
         getSessionRecordings: true,
-        openSessionPlayer: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
+        openSessionPlayer: (sessionRecordingId: SessionRecordingId | null, source: RecordingWatchedSource) => ({
+            sessionRecordingId,
+            source,
+        }),
         closeSessionPlayer: true,
     },
     loaders: ({ props }) => ({
@@ -74,7 +79,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
 
         return {
             loadSessionRecordings: () => buildURL({}, true),
-            openSessionPlayer: () => buildURL(),
+            openSessionPlayer: ({ source }) => buildURL({ source }),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
     },
@@ -83,7 +88,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
         const urlToAction = (_: any, params: Params): void => {
             const nulledSessionRecordingId = params.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.sessionRecordingId) {
-                actions.openSessionPlayer(nulledSessionRecordingId)
+                actions.openSessionPlayer(nulledSessionRecordingId, RecordingWatchedSource.Direct)
             }
         }
 

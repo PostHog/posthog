@@ -311,7 +311,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # - request_type: (string: $pageview, $autocapture, $screen, custom_event) specifies the path type
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_path(request)
         return Response(result)
@@ -319,7 +319,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
+        filter = PathFilter(request=request, data={**request.data, "insight": INSIGHT_PATHS})
         resp = paths.Paths().run(filter=filter, team=team)
         return {"result": resp}
 

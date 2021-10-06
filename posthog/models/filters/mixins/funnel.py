@@ -120,6 +120,10 @@ class FunnelPersonsStepMixin(BaseParamMixin):
     # -1 means dropoff into step 1
     @cached_property
     def funnel_step(self) -> Optional[int]:
+        """
+        Specifies the step index within a funnel entities definition for which
+        we want to get the `timestamp` for, per person.
+        """
         _step = int(self._data.get(FUNNEL_STEP, "0"))
         if _step == 0:
             return None

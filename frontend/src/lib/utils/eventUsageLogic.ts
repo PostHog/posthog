@@ -48,6 +48,25 @@ export enum InsightEventSource {
     AddDescription = 'add_insight_description',
 }
 
+export enum RecordingWatchedSource {
+    Direct = 'direct', // Visiting the URL directly
+    Unknown = 'unknown',
+    RecordingsList = 'recordings_list', // New recordings list page
+    SessionsList = 'sessions_list', // DEPRECATED sessions list page
+    SessionsListPlayAll = 'sessions_list_play_all', // DEPRECATED play all button on sessions list
+}
+
+interface RecordingViewedProps {
+    delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
+    load_time: number // How much time it took to load the session (backend) (milliseconds)
+    duration: number // How long is the total recording (milliseconds)
+    start_time?: string // Start time of the session
+    page_change_events_length: number
+    recording_width?: number
+    user_is_identified?: boolean
+    source: RecordingWatchedSource
+}
+
 function flattenProperties(properties: PropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
@@ -114,7 +133,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
+export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, RecordingViewedProps>>({
     connect: [preflightLogic],
     actions: {
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
@@ -230,6 +249,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
+        reportRecordingViewed: (payload: RecordingViewedProps) => ({ payload }),
     },
     listeners: {
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
@@ -570,6 +590,10 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         },
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
+        },
+        reportRecordingViewed: ({ payload }) => {
+            const { delay, ...props } = payload
+            posthog.capture(`recording ${delay ? 'analyzed' : 'viewed'}`, props)
         },
     },
 })
