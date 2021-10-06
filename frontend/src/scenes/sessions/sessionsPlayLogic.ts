@@ -21,12 +21,7 @@ interface SessionPlayerData {
     next: string | null
 }
 
-interface RecordingRequest {
-    sessionRecordingId?: string
-    url?: string
-}
-
-export const sessionsPlayLogic = kea<sessionsPlayLogicType<RecordingRequest, SessionPlayerData, SessionRecordingId>>({
+export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
     connect: {
         values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
         actions: [
@@ -43,6 +38,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<RecordingRequest, Ses
         setSource: (source: RecordingWatchedSource) => ({ source }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({ recordingData, loadTime }),
         appendToRecordingData: (nextSnapshots: eventWithTime[]) => ({ nextSnapshots }),
+        loadRecording: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
     },
     reducers: {
         sessionRecordingId: [
@@ -95,7 +91,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<RecordingRequest, Ses
         goToNext: () => {
             if (values.recordingIndex < values.orderedSessionRecordingIds.length - 1) {
                 const id = values.orderedSessionRecordingIds[values.recordingIndex + 1]
-                actions.loadRecording({ sessionRecordingId: id })
+                actions.loadRecording(id)
             } else if (values.pagination) {
                 // :TRICKY: Load next page of sessions, which will call appendNewSessions which will call goToNext again
                 actions.openNextRecordingOnLoad()
@@ -106,7 +102,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<RecordingRequest, Ses
         },
         goToPrevious: () => {
             const id = values.orderedSessionRecordingIds[values.recordingIndex - 1]
-            actions.loadRecording({ sessionRecordingId: id })
+            actions.loadRecording(id)
         },
         appendNewSessions: () => {
             if (values.sessionRecordingId && values.loadingNextRecording) {
@@ -134,7 +130,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<RecordingRequest, Ses
             // If there is more data to poll for load the next batch.
             // This will keep calling loadRecording until `next` is empty.
             if (!!values.sessionPlayerData?.next) {
-                await actions.loadRecording({ url: values.sessionPlayerData.next })
+                await actions.loadRecording(undefined, values.sessionPlayerData.next)
             }
         },
     }),
@@ -153,12 +149,11 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<RecordingRequest, Ses
             },
         ],
         sessionPlayerData: {
-            loadRecording: async ({ sessionRecordingId, url }: RecordingRequest): Promise<SessionPlayerData> => {
+            loadRecording: async ({ sessionRecordingId, url }): Promise<SessionPlayerData> => {
                 const startTime = performance.now()
 
                 let response
                 if (url) {
-                    // See https://github.com/PostHog/posthog/blob/b015df3eeb8444d0a20f36e0479cca39cddf69d7/posthog/queries/sessions/session_recording.py#L76-L76
                     response = await api.get(url)
                 } else {
                     const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
@@ -258,7 +253,7 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<RecordingRequest, Ses
                 actions.setSource(source as RecordingWatchedSource)
             }
             if (values && sessionRecordingId !== values.sessionRecordingId && sessionRecordingId) {
-                actions.loadRecording({ sessionRecordingId })
+                actions.loadRecording(sessionRecordingId)
             }
         }
 

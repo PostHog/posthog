@@ -72,10 +72,9 @@ class SessionRecording:
     ) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
 
-        limit, offset = (
-            filter.limit if filter.limit else RECORDINGS_NUM_CHUNKS_LIMIT,
-            filter.offset if filter.offset else 0,
-        )
+        limit = filter.limit if filter.limit else RECORDINGS_NUM_CHUNKS_LIMIT
+        offset = filter.offset if filter.offset else 0
+
         distinct_id, start_time, snapshots, should_paginate = self.query_recording_snapshots(
             team, session_recording_id, limit, offset
         )
