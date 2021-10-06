@@ -61,20 +61,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
             title: 'Person',
             key: 'person',
             render: function RenderPersonLink(sessionRecording: SessionRecordingType) {
-                if (isPersonPage) {
-                    return <PersonHeader person={sessionRecording.person} />
-                }
-                return (
-                    <a
-                        onClick={(e) => {
-                            e.preventDefault()
-                        }}
-                        href={`/person/${encodeURIComponent(sessionRecording.distinct_id as string)}`}
-                        className="ph-no-capture"
-                    >
-                        <PersonHeader person={sessionRecording.person} />
-                    </a>
-                )
+                return <PersonHeader person={sessionRecording.person} />
             },
             ellipsis: true,
             span: 3,
@@ -138,8 +125,11 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                     loading={sessionRecordings.length === 0 && sessionRecordingsResponseLoading}
                     pagination={false}
                     onRow={(sessionRecording) => ({
-                        onClick: () => {
-                            openSessionPlayer(sessionRecording.id)
+                        onClick: (e) => {
+                            // Lets the link to the person open the person's page and not the session recording
+                            if (!(e.target as HTMLElement).closest('a')) {
+                                openSessionPlayer(sessionRecording.id)
+                            }
                         },
                     })}
                     size="small"
