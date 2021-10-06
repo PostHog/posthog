@@ -50,6 +50,7 @@ export function SessionsPlay(): JSX.Element {
         sessionPlayerData,
         sessionPlayerDataLoading,
         loadingNextRecording,
+        isRecordingReadyToPlay,
         sessionDate,
         addingTagShown,
         addingTag,
@@ -71,7 +72,7 @@ export function SessionsPlay(): JSX.Element {
     const [recordingMetadata] = useMemo(() => eventIndex.getRecordingMetadata(playerTime), [eventIndex, playerTime])
     const activeIndex = useMemo(() => findCurrent(playerTime, shownPlayerEvents), [shownPlayerEvents, playerTime])[1]
 
-    const isLoadingSession = sessionPlayerDataLoading || loadingNextRecording
+    const isLoadingSession = !isRecordingReadyToPlay && (sessionPlayerDataLoading || loadingNextRecording)
     const isLoadingEvents = isLoadingSession || shouldLoadSessionEvents
 
     useEffect(() => {
@@ -90,8 +91,6 @@ export function SessionsPlay(): JSX.Element {
         setCurrentPlayerTime(time)
         playerRef.current?.seek(time)
     }
-
-    console.log('RECORDING', sessionPlayerData)
 
     return (
         <div className="session-player">
@@ -127,6 +126,7 @@ export function SessionsPlay(): JSX.Element {
                             <span className="ph-no-capture">
                                 <Player
                                     ref={playerRef}
+                                    key="session-player"
                                     events={sessionPlayerData?.snapshots || []}
                                     onPlayerTimeChange={setCurrentPlayerTime}
                                     onNext={showNext ? goToNext : undefined}

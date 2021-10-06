@@ -50,7 +50,7 @@ SESSIONS_IN_RANGE_QUERY = """
     WHERE full_snapshots > 0 {filter_query}
 """
 
-RECORDINGS_NUM_CHUNKS_LIMIT = 100
+RECORDINGS_NUM_CHUNKS_LIMIT = 50
 
 
 class SessionRecording:

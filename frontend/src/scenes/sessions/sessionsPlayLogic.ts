@@ -74,6 +74,15 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 closeSessionPlayer: () => false,
             },
         ],
+        isRecordingReadyToPlay: [
+            false,
+            {
+                loadRecordingSuccess: (_, { sessionPlayerData }) => {
+                    // If sessionPlayerData has a next url, the first chunk has already been loaded
+                    return !!sessionPlayerData?.next
+                },
+            },
+        ],
         source: [
             RecordingWatchedSource.Unknown as RecordingWatchedSource,
             {
