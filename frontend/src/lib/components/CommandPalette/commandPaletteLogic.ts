@@ -291,7 +291,7 @@ export const commandPaletteLogic = kea<
                     resolver: dashboards.map((dashboard: DashboardType) => ({
                         key: `dashboard_${dashboard.id}`,
                         icon: LineChartOutlined,
-                        display: `Go to: Dashboard ${dashboard.name}`,
+                        display: `Go to Dashboard: ${dashboard.name}`,
                         executor: () => {
                             const { push } = router.actions
                             push(urls.dashboard(dashboard.id))
