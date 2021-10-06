@@ -242,7 +242,7 @@ class FunnelCorrelation:
         """
         params = {
             **funnel_persons_params,
-            "funnel_step_names": [entity.id for entity in self._filter.entities],
+            "funnel_step_names": [entity.id for entity in self._filter.events],
             "target_step": len(self._filter.entities),
         }
         results_with_total = sync_execute(query, params)
