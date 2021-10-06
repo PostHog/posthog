@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict, List, Type
+from typing import Any, Dict, List, Union
 
 from ee.clickhouse.models.event import (
     get_agg_event_count_for_teams,
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def event_usage_report() -> Dict[str, Any]:
-    distinct_id = User.objects.first().distinct_id
+    distinct_id = User.objects.first().distinct_id  # type: ignore
     period_start, period_end = get_previous_day()
     month_start = period_start.replace(day=1)
     report: Dict[str, Any] = {
@@ -35,8 +35,8 @@ def event_usage_report() -> Dict[str, Any]:
         "events_count_month_to_date": 0,
     }
 
-    instance_usage_by_org: Dict[str, Any] = {}
-    org_teams: Dict[str, List[str]] = {}
+    instance_usage_by_org: Dict[str, Dict[str, int]] = {}
+    org_teams: Dict[str, List[Union[str, int]]] = {}
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         org = str(team.organization.id)
@@ -48,7 +48,7 @@ def event_usage_report() -> Dict[str, Any]:
     for org, teams in org_teams.items():
         usage = default_instance_usage
         try:
-            usage["events_count_total"] += get_agg_event_count_for_teams(teams)
+            usage["events_count_total"] = get_agg_event_count_for_teams(teams)
             usage["events_count_new_in_period"] += get_agg_event_count_for_teams_and_period(
                 teams, period_start, period_end
             )
@@ -58,7 +58,7 @@ def event_usage_report() -> Dict[str, Any]:
             instance_usage_by_org[org] = usage
 
         except Exception as err:
-            report_org_usage_failure(distinct_id, err)
+            report_org_usage_failure(distinct_id, str(err))
 
     report["instance_usage_by_org"] = instance_usage_by_org
     return report
