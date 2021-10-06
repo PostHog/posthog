@@ -250,6 +250,7 @@ export const FEATURE_FLAGS = {
     FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown',
     RENAME_FILTERS: '6063-rename-filters',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
+    CORRELATION_ANALYSIS: 'correlation-analysis',
 }
 
 export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'

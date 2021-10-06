@@ -8,6 +8,8 @@ from posthog.constants import (
     DISPLAY,
     DROP_OFF,
     ENTRANCE_PERIOD_START,
+    FUNNEL_CORRELATION_TYPE,
+    FUNNEL_CORRELATION_VALUE,
     FUNNEL_FROM_STEP,
     FUNNEL_LAYOUT,
     FUNNEL_ORDER_TYPE,
@@ -21,6 +23,7 @@ from posthog.constants import (
     INSIGHT,
     INSIGHT_FUNNELS,
     TRENDS_LINEAR,
+    FunnelCorrelationType,
     FunnelOrderType,
     FunnelVizType,
 )
@@ -120,6 +123,10 @@ class FunnelPersonsStepMixin(BaseParamMixin):
     # -1 means dropoff into step 1
     @cached_property
     def funnel_step(self) -> Optional[int]:
+        """
+        Specifies the step index within a funnel entities definition for which
+        we want to get the `timestamp` for, per person.
+        """
         _step = int(self._data.get(FUNNEL_STEP, "0"))
         if _step == 0:
             return None
@@ -207,4 +214,30 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
             result_dict[ENTRANCE_PERIOD_START] = self.entrance_period_start.isoformat()
         if self.drop_off is not None:
             result_dict[DROP_OFF] = self.drop_off
+        return result_dict
+
+
+class FunnelCorrelationMixin(BaseParamMixin):
+    @cached_property
+    def correlation_type(self) -> Optional[FunnelCorrelationType]:
+        raw_type = self._data.get(FUNNEL_CORRELATION_TYPE)
+        if raw_type:
+            try:
+                return FunnelCorrelationType(raw_type)
+            except ValueError:
+                return None
+
+        return None
+
+    @cached_property
+    def correlation_property_value(self) -> Optional[str]:
+        return self._data.get(FUNNEL_CORRELATION_VALUE)
+
+    @include_dict
+    def funnel_correlation_to_dict(self):
+        result_dict: Dict = {}
+        if self.correlation_type:
+            result_dict[FUNNEL_CORRELATION_TYPE] = self.correlation_type
+        if self.correlation_property_value:
+            result_dict[FUNNEL_CORRELATION_VALUE] = self.correlation_property_value
         return result_dict

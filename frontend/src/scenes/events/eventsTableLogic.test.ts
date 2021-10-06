@@ -36,7 +36,11 @@ const makePropertyFilter = (value: string = randomString()): PropertyFilter => (
 describe('eventsTableLogic', () => {
     let logic: BuiltLogic<eventsTableLogicType<ApiError, EventsTableLogicProps, OnFetchEventsSuccess>>
 
-    mockAPI(async () => ({ results: [], count: 0 }))
+    mockAPI(async () => {
+        // delay the API response so the default value test can complete before it
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        return { results: [], count: 0 }
+    })
 
     initKeaTestLogic({
         logic: eventsTableLogic,
@@ -55,7 +59,7 @@ describe('eventsTableLogic', () => {
             initialPathname: '/',
             properties: expect.arrayContaining([]),
             eventFilter: '',
-            isLoading: false,
+            isLoading: true,
             isLoadingNext: false,
             events: [],
             hasNext: false,
@@ -270,47 +274,36 @@ describe('eventsTableLogic', () => {
         })
 
         describe('the isloading flag', () => {
-            // had complicated implementation but on testing the fetchEvents action maintains the current state
-
-            it('simple cases', async () => {
-                await expectLogic(logic).toMatchValues({ isLoading: false })
+            it('isloading starts true', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setDelayedLoading()
-                }).toMatchValues({ isLoading: true })
-                await expectLogic(logic, () => {
-                    logic.actions.setDelayedLoading()
                     logic.actions.fetchEventsSuccess({ events: [], hasNext: randomBool(), isNext: randomBool() })
                 }).toMatchValues({ isLoading: false })
+            })
+
+            it('fetch events success set isloading to false', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setDelayedLoading()
+                    logic.actions.fetchEventsSuccess({ events: [], hasNext: randomBool(), isNext: randomBool() })
+                }).toMatchValues({ isLoading: false })
+            })
+
+            it('fetch events failure set isloading to false', async () => {
+                await expectLogic(logic, () => {
                     logic.actions.fetchOrPollFailure({})
                 }).toMatchValues({ isLoading: false })
             })
 
-            it('on FetchEvents remains true when next params is true', async () => {
+            it('set delayed loading sets isloading to true', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setDelayedLoading() // now it is true
-                    logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
+                    logic.actions.fetchOrPollFailure({})
+                    logic.actions.setDelayedLoading()
                 }).toMatchValues({ isLoading: true })
             })
 
-            it('on FetchEvents remains false when next params is true', async () => {
+            it('Fetch Events sets isLoading to true', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
-                }).toMatchValues({ isLoading: false })
-            })
-
-            it('on FetchEvents remains true when next params is false', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setDelayedLoading() // now it is true
+                    logic.actions.fetchEventsSuccess({ events: [], hasNext: randomBool(), isNext: randomBool() })
                     logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
                 }).toMatchValues({ isLoading: true })
-            })
-
-            it('on FetchEvents remains false when next params is false', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.fetchEvents({ events: [], hasNext: randomBool(), isNext: randomBool() })
-                }).toMatchValues({ isLoading: false })
             })
         })
 

@@ -1202,3 +1202,17 @@ export interface PathEdgeParameters {
     min_edge_weight?: number | undefined
     max_edge_weight?: number | undefined
 }
+
+export interface FunnelCorrelation {
+    event?: string
+    property?: string
+    odds_ratio: number
+    success_count: number
+    failure_count: number
+    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
+}
+
+export enum FunnelCorrelationType {
+    Success = 'success',
+    Failure = 'failure',
+}
