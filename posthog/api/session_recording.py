@@ -42,7 +42,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
-        session_recordings = self._get_session_recording_list(filter)
+        (session_recordings, more_recordings_available) = self._get_session_recording_list(filter)
 
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
@@ -59,7 +59,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)
         session_recording_serializer.is_valid(raise_exception=True)
 
-        return Response({"results": session_recording_serializer.data})
+        return Response({"results": session_recording_serializer.data, "has_next": more_recordings_available})
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]

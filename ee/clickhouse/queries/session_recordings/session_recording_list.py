@@ -90,7 +90,8 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
         query, query_params = self._build_query()
         results = sync_execute(query, query_params)
-        return self.data_to_return(results)
+        results = self.data_to_return(results)
+        return self._paginate_results(results)
 
 
 def format_event_filters(filter: SessionRecordingsFilter) -> EventFiltersSQL:

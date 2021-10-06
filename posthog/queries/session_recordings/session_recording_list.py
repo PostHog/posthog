@@ -90,6 +90,9 @@ class SessionRecordingList(BaseQuery):
     def _has_entity_filters(self):
         return self._filter.entities and len(self._filter.entities) > 0
 
+    def _get_limit(self):
+        return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
+
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
     def _get_events_timestamp_clause(self):
@@ -182,7 +185,8 @@ class SessionRecordingList(BaseQuery):
         return (event_query, {}, aggregate_select_clause, aggregate_where_clause)
 
     def _build_query(self) -> Tuple[str, Dict]:
-        limit = self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
+        # One more is added to the limit to check if there are more results available
+        limit = self._get_limit() + 1
         offset = self._filter.offset or 0
         base_params = {"team_id": self._team.pk, "limit": limit, "offset": offset}
         events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
@@ -231,11 +235,20 @@ class SessionRecordingList(BaseQuery):
     def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
         return [row._asdict() for row in results]
 
+    def _paginate_results(self, results):
+        limit = self._get_limit()
+        more_recordings_available = False
+        if len(results) > limit:
+            more_recordings_available = True
+            results = results[0:limit]
+        return (results, more_recordings_available)
+
     def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
         with connection.cursor() as cursor:
             query, query_params = self._build_query()
             cursor.execute(query, query_params)
             results = namedtuplefetchall(cursor)
-        return self.data_to_return(results)
+        results = self.data_to_return(results)
+        return self._paginate_results(results)
 
     __repr__ = sane_repr("_team", "_filter")

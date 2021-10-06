@@ -3,12 +3,13 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { Card, Table, Typography } from 'antd'
+import { Button, Card, Table, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { useIsTableScrolling } from 'lib/components/Table/utils'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
+import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -17,10 +18,17 @@ interface SessionRecordingsTableProps {
 
 export function SessionRecordingsTable({ personUUID, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
-    const { sessionRecordings, sessionRecordingsLoading, sessionRecordingId, filters } = useValues(
+    const {
+        sessionRecordings,
+        sessionRecordingsResponseLoading,
+        sessionRecordingId,
+        filters,
+        hasNext,
+        hasPrev,
+    } = useValues(sessionRecordingsTableLogicInstance)
+    const { openSessionPlayer, closeSessionPlayer, setFilters, loadNext, loadPrev } = useActions(
         sessionRecordingsTableLogicInstance
     )
-    const { openSessionPlayer, closeSessionPlayer, setFilters } = useActions(sessionRecordingsTableLogicInstance)
     const { tableScrollX } = useIsTableScrolling('lg')
 
     const columns = [
@@ -94,8 +102,8 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                     rowKey="id"
                     dataSource={sessionRecordings}
                     columns={columns}
-                    loading={sessionRecordings.length === 0 && sessionRecordingsLoading}
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                    loading={sessionRecordings.length === 0 && sessionRecordingsResponseLoading}
+                    pagination={false}
                     onRow={(sessionRecording) => ({
                         onClick: () => {
                             openSessionPlayer(sessionRecording.id)
@@ -106,6 +114,30 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                     data-attr="session-recording-table"
                     scroll={{ x: tableScrollX }}
                 />
+                {(hasPrev || hasNext) && (
+                    <div style={{ margin: '3rem auto 10rem', width: 200, display: 'flex', alignItems: 'center' }}>
+                        <Button
+                            type="link"
+                            disabled={!hasPrev}
+                            onClick={() => {
+                                loadPrev()
+                                window.scrollTo(0, 0)
+                            }}
+                        >
+                            <LeftOutlined /> Previous
+                        </Button>
+                        <Button
+                            type="link"
+                            disabled={!hasNext}
+                            onClick={() => {
+                                loadNext()
+                                window.scrollTo(0, 0)
+                            }}
+                        >
+                            Next <RightOutlined />
+                        </Button>
+                    </div>
+                )}
             </Card>
             <div style={{ marginTop: '5rem' }} />
             {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} onClose={closeSessionPlayer} />}

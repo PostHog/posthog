@@ -11,7 +11,16 @@ interface Params {
     sessionRecordingId?: SessionRecordingId
 }
 
-export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<SessionRecordingId>>({
+interface SessionRecordingsResponse {
+    results: SessionRecordingType[]
+    has_next: boolean
+}
+
+const LIMIT = 50
+
+export const sessionRecordingsTableLogic = kea<
+    sessionRecordingsTableLogicType<SessionRecordingId, SessionRecordingsResponse>
+>({
     key: (props) => props.personUUID || 'global',
     props: {} as {
         personUUID?: string
@@ -21,25 +30,27 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
         openSessionPlayer: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
         closeSessionPlayer: true,
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
+        loadNext: true,
+        loadPrev: true,
     },
     loaders: ({ props, values }) => ({
-        sessionRecordings: [
-            [] as SessionRecordingType[],
+        sessionRecordingsResponse: [
+            {
+                results: [],
+                has_next: false,
+            } as SessionRecordingsResponse,
             {
                 getSessionRecordings: async () => {
                     const params = toParams({
                         person_uuid: props.personUUID ?? '',
                         actions: values.filters.actions,
                         events: values.filters.events,
-                        // session_recording_duration: {
-                        //     key: 'duration',
-                        //     value: 600,
-                        //     operator: 'lt',
-                        //     type: 'session_recording_duration',
-                        // },
+                        date_from: 'all',
+                        offset: values.offset,
+                        limit: LIMIT,
                     })
                     const response = await api.get(`api/projects/@current/session_recordings?${params}`)
-                    return response.results
+                    return response
                 },
             },
         ],
@@ -68,12 +79,36 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<S
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
+        offset: [
+            0,
+            {
+                loadNext: (previousOffset) => previousOffset + LIMIT,
+                loadPrev: (previousOffset) => Math.max(previousOffset - LIMIT),
+            },
+        ],
     },
     listeners: ({ actions }) => ({
         setFilters: () => {
             actions.getSessionRecordings()
         },
+        loadNext: () => {
+            actions.getSessionRecordings()
+        },
+        loadPrev: () => {
+            actions.getSessionRecordings()
+        },
     }),
+    selectors: {
+        sessionRecordings: [
+            (s) => [s.sessionRecordingsResponse],
+            (sessionRecordingsResponse) => sessionRecordingsResponse.results,
+        ],
+        hasPrev: [(s) => [s.offset], (offset) => offset > 0],
+        hasNext: [
+            (s) => [s.sessionRecordingsResponse],
+            (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
+        ],
+    },
     actionToUrl: ({ values }) => {
         const buildURL = (
             overrides: Partial<Params> = {},
