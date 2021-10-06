@@ -11,10 +11,8 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelInsight(): JSX.Element {
-    const { insight } = useValues(insightLogic)
-    const { isValidFunnel, isLoading, filters, areFiltersValid } = useValues(
-        funnelLogic({ dashboardItemId: insight?.id })
-    )
+    const { insightProps } = useValues(insightLogic)
+    const { isValidFunnel, isLoading, filters, areFiltersValid } = useValues(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)

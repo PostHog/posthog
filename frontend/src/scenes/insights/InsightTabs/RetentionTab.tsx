@@ -18,11 +18,11 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function RetentionTab(): JSX.Element {
-    const { insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
-        retentionTableLogic({ dashboardItemId: insight?.id })
+        retentionTableLogic(insightProps)
     )
-    const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: insight?.id }))
+    const { setFilters } = useActions(retentionTableLogic(insightProps))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)

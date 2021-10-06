@@ -22,9 +22,9 @@ export interface TrendTabProps {
 }
 
 export function TrendTab({ view }: TrendTabProps): JSX.Element {
-    const { insight } = useValues(insightLogic)
-    const { filters } = useValues(trendsLogic({ dashboardItemId: insight?.id, view }))
-    const { setFilters, toggleLifecycle } = useActions(trendsLogic({ dashboardItemId: insight?.id, view }))
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(trendsLogic(insightProps))
+    const { setFilters, toggleLifecycle } = useActions(trendsLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
     const [isUsingFormulas, setIsUsingFormulas] = useState(filters.formula ? true : false)
     const lifecycles = [
@@ -188,7 +188,9 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     />
                                     {filters.breakdown && (
                                         <CloseButton
-                                            onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
+                                            onClick={(): void =>
+                                                setFilters({ breakdown: undefined, breakdown_type: null })
+                                            }
                                             style={{ marginTop: 1, marginLeft: 5 }}
                                         />
                                     )}

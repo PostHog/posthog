@@ -3,13 +3,15 @@ import { useValues, useActions } from 'kea'
 import { insightDateFilterLogic } from './insightDateFilterLogic'
 import { DateFilterProps, DateFilter } from 'lib/components/DateFilter/DateFilter'
 import './index.scss'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function InsightDateFilter(props: DateFilterProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     const {
         dates: { dateFrom, dateTo },
         highlightDateChange,
-    } = useValues(insightDateFilterLogic)
-    const { setDates } = useActions(insightDateFilterLogic)
+    } = useValues(insightDateFilterLogic(insightProps))
+    const { setDates } = useActions(insightDateFilterLogic(insightProps))
 
     return (
         <span className={highlightDateChange ? 'insights-date-filter highlighted' : ''}>

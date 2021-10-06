@@ -14,9 +14,9 @@ interface InvertalFilterProps {
 }
 
 export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
-    const { insight } = useValues(insightLogic)
-    const { interval } = useValues(intervalFilterLogic({ id: insight?.id || 'new' }))
-    const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic({ id: insight?.id || 'new' }))
+    const { insightProps } = useValues(insightLogic)
+    const { interval } = useValues(intervalFilterLogic(insightProps))
+    const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic(insightProps))
     const options = Object.entries(intervals).map(([key, { label }]) => ({
         key,
         value: key,

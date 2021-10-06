@@ -5,15 +5,15 @@ import { insightDateFilterLogicType } from './insightDateFilterLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface InsightDateFilterLogicProps {
-    id: number | 'new'
+    dashboardItemId?: number
 }
 
 export const insightDateFilterLogic = kea<insightDateFilterLogicType<InsightDateFilterLogicProps>>({
     props: {} as InsightDateFilterLogicProps,
-    key: (props) => props.id || 'new',
+    key: (props) => props.dashboardItemId || 'new',
     connect: (props: InsightDateFilterLogicProps) => ({
-        values: [insightLogic(props), ['filters']],
-        actions: [insightLogic(props), ['updateInsightFilters']],
+        values: [insightLogic({ id: props.dashboardItemId }), ['filters']],
+        actions: [insightLogic({ id: props.dashboardItemId }), ['updateInsightFilters']],
     }),
     actions: () => ({
         setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({

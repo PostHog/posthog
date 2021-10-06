@@ -9,15 +9,15 @@ function isFunnelVizType(filter: FunnelVizType | ChartDisplayType): filter is Fu
 }
 
 interface ChartFilterLogicProps {
-    id: number | 'new'
+    dashboardItemId?: number
 }
 
 export const chartFilterLogic = kea<chartFilterLogicType<ChartFilterLogicProps>>({
     props: {} as ChartFilterLogicProps,
-    key: (props) => props.id || 'new',
+    key: (props) => props.dashboardItemId || 'new',
     connect: (props: ChartFilterLogicProps) => ({
-        values: [insightLogic(props), ['filters']],
-        actions: [insightLogic(props), ['updateInsightFilters']],
+        values: [insightLogic({ id: props.dashboardItemId }), ['filters']],
+        actions: [insightLogic({ id: props.dashboardItemId }), ['updateInsightFilters']],
     }),
     actions: () => ({
         setChartFilter: (filter: ChartDisplayType | FunnelVizType) => ({ filter }),

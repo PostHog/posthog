@@ -20,10 +20,10 @@ export function PathTab(): JSX.Element {
 }
 
 export function OldPathTab(): JSX.Element {
-    const { insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { customEventNames } = useValues(eventDefinitionsModel)
-    const { filter } = useValues(pathsLogic({ dashboardItemId: insight?.id }))
-    const { setFilter } = useActions(pathsLogic({ dashboardItemId: insight?.id }))
+    const { filter } = useValues(pathsLogic(insightProps))
+    const { setFilter } = useActions(pathsLogic(insightProps))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)

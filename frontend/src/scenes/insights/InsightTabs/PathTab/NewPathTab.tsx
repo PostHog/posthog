@@ -23,9 +23,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function NewPathTab(): JSX.Element {
-    const { insight } = useValues(insightLogic)
-    const { filter } = useValues(pathsLogic({ dashboardItemId: insight?.id }))
-    const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId: insight?.id }))
+    const { insightProps } = useValues(insightLogic)
+    const { filter } = useValues(pathsLogic(insightProps))
+    const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)

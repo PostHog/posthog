@@ -14,9 +14,9 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function SessionTab(): JSX.Element {
-    const { insight } = useValues(insightLogic)
-    const { filters } = useValues(trendsLogic({ dashboardItemId: insight?.id, view: ViewType.SESSIONS }))
-    const { setFilters } = useActions(trendsLogic({ dashboardItemId: insight?.id, view: ViewType.SESSIONS }))
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(trendsLogic(insightProps))
+    const { setFilters } = useActions(trendsLogic(insightProps))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)

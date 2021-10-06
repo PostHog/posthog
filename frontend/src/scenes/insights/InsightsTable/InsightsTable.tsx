@@ -33,11 +33,9 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 }
 
 export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
-    const { insight } = useValues(insightLogic)
-    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(
-        trendsLogic({ dashboardItemId: insight?.id })
-    )
-    const { toggleVisibility } = useActions(trendsLogic({ dashboardItemId: insight?.id }))
+    const { insightProps } = useValues(insightLogic)
+    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic(insightProps))
+    const { toggleVisibility } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
     const hasMathUniqueFilter = !!(

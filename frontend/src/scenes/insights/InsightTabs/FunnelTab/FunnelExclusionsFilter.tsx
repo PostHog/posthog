@@ -8,6 +8,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 function ExclusionRowSuffix({
     filter,
@@ -20,8 +21,9 @@ function ExclusionRowSuffix({
     onClose?: () => void
     isVertical: boolean
 }): JSX.Element | null {
-    const { filters, areFiltersValid, numberOfSeries, exclusionDefaultStepRange } = useValues(funnelLogic)
-    const { setOneEventExclusionFilter } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { filters, areFiltersValid, numberOfSeries, exclusionDefaultStepRange } = useValues(funnelLogic(insightProps))
+    const { setOneEventExclusionFilter } = useActions(funnelLogic(insightProps))
 
     const stepRange = {
         funnel_from_step: filters.exclusions?.[index]?.funnel_from_step ?? exclusionDefaultStepRange.funnel_from_step,
@@ -131,8 +133,9 @@ function ExclusionRow({
 }
 
 export function FunnelExclusionsFilter(): JSX.Element | null {
-    const { exclusionFilters, areFiltersValid, exclusionDefaultStepRange } = useValues(funnelLogic)
-    const { setEventExclusionFilters } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { exclusionFilters, areFiltersValid, exclusionDefaultStepRange } = useValues(funnelLogic(insightProps))
+    const { setEventExclusionFilters } = useActions(funnelLogic(insightProps))
     const ref = useRef(null)
     const [width] = useSize(ref)
     const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality

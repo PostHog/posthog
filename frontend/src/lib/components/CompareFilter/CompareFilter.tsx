@@ -5,9 +5,9 @@ import { compareFilterLogic } from './compareFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function CompareFilter(): JSX.Element {
-    const { insight } = useValues(insightLogic)
-    const { compare, disabled } = useValues(compareFilterLogic({ id: insight?.id || 'new' }))
-    const { setCompare } = useActions(compareFilterLogic({ id: insight?.id || 'new' }))
+    const { insightProps } = useValues(insightLogic)
+    const { compare, disabled } = useValues(compareFilterLogic(insightProps))
+    const { setCompare } = useActions(compareFilterLogic(insightProps))
     return (
         <Checkbox
             onChange={(e) => {

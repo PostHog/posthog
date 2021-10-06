@@ -5,15 +5,15 @@ import { IntervalKeyType } from 'lib/components/IntervalFilter/intervals'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface IntervalFilterLogicProps {
-    id: number | 'new'
+    dashboardItemId?: number
 }
 
 export const intervalFilterLogic = kea<intervalFilterLogicType<IntervalFilterLogicProps>>({
     props: {} as IntervalFilterLogicProps,
-    key: (props) => props.id || 'new',
+    key: (props) => props.dashboardItemId || 'new',
     connect: (props: IntervalFilterLogicProps) => ({
-        values: [insightLogic(props), ['filters']],
-        actions: [insightLogic(props), ['updateInsightFilters']],
+        values: [insightLogic({ id: props.dashboardItemId }), ['filters']],
+        actions: [insightLogic({ id: props.dashboardItemId }), ['updateInsightFilters']],
     }),
     actions: () => ({
         setIntervalFilter: (interval: IntervalKeyType) => ({ interval }),

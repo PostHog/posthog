@@ -11,9 +11,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 export function RetentionDatePicker(): JSX.Element {
-    const { insight } = useValues(insightLogic)
-    const { filters } = useValues(retentionTableLogic({ dashboardItemId: insight?.id }))
-    const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: insight?.id }))
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(retentionTableLogic(insightProps))
+    const { setFilters } = useActions(retentionTableLogic(insightProps))
     const yearSuffix = filters.date_to && dayjs(filters.date_to).year() !== dayjs().year() ? ', YYYY' : ''
     return (
         <>

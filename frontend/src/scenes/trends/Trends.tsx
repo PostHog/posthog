@@ -1,5 +1,5 @@
 import React from 'react'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PersonModal } from './PersonModal'
 import {
     ACTIONS_LINE_GRAPH_LINEAR,
@@ -25,15 +25,11 @@ interface Props {
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
-    const { insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
-    const {
-        filters: _filters,
-        loadMoreBreakdownUrl,
-        breakdownValuesLoading,
-    } = useValues(trendsLogic({ dashboardItemId: insight?.id }))
-    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: insight?.id }))
+    const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
+    const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
@@ -50,11 +46,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
             if (view === ViewType.SESSIONS && _filters.session === 'dist') {
                 return <ActionsTable filters={_filters} view={view} />
             }
-            return (
-                <BindLogic logic={trendsLogic} props={{ dashboardItemId: insight?.id, view, filters: null }}>
-                    <InsightsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
-                </BindLogic>
-            )
+            return <InsightsTable isLegend={false} showTotalCount={view !== ViewType.SESSIONS} />
         }
         if (_filters.display === ACTIONS_PIE_CHART) {
             return <ActionsPie filters={_filters} view={view} />

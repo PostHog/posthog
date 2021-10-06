@@ -21,9 +21,9 @@ interface ChartFilterProps {
 }
 
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
-    const { insight } = useValues(insightLogic)
-    const { chartFilter } = useValues(chartFilterLogic({ id: insight?.id || 'new' }))
-    const { setChartFilter } = useActions(chartFilterLogic({ id: insight?.id || 'new' }))
+    const { insightProps } = useValues(insightLogic)
+    const { chartFilter } = useValues(chartFilterLogic(insightProps))
+    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
     const { preflight } = useValues(preflightLogic)
 
     const linearDisabled = !!filters.session && filters.session === 'dist'

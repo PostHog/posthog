@@ -41,8 +41,8 @@ export function MetricsChart({ plugin }: { plugin: PluginTypeWithConfig }): JSX.
         properties: [pluginNameFilter, pluginTagFilter],
     } as Partial<FilterType>
 
-    const { insight } = useValues(insightLogic)
-    const { loadResults } = useActions(trendsLogic({ filters, dashboardItemId: insight?.id, view: ViewType.TRENDS }))
+    const { insightProps } = useValues(insightLogic)
+    const { loadResults } = useActions(trendsLogic(insightProps))
 
     useEffect(() => {
         loadResults()

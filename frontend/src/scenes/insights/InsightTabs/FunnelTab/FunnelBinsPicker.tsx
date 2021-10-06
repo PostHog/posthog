@@ -7,6 +7,7 @@ import { BinCountValue } from '~/types'
 import { BarChartOutlined } from '@ant-design/icons'
 import clsx from 'clsx'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface BinOption {
     key?: string
@@ -37,8 +38,9 @@ const options: BinOption[] = [
 ]
 
 export function FunnelBinsPicker(): JSX.Element {
-    const { filters, numericBinCount } = useValues(funnelLogic)
-    const { setBinCount } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { filters, numericBinCount } = useValues(funnelLogic(insightProps))
+    const { setBinCount } = useActions(funnelLogic(insightProps))
 
     return (
         <Select

@@ -3,7 +3,7 @@ import { errorToast, objectsEqual, toParams, toParams as toAPIParams, uuid } fro
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
-import { DashboardItemType, FilterType, InsightType, ItemMode, TrendResult, ViewType } from '~/types'
+import { DashboardItemType, FilterType, ItemMode, TrendResult, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
@@ -28,14 +28,14 @@ This includes handling the urls and view state
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
 export interface InsightLogicProps {
-    id: number | 'new'
+    id?: number
     from?: 'dashboard' | 'scene'
 }
 export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
     props: {} as InsightLogicProps,
     key: (props) => props.id || 'new',
     actions: () => ({
-        setActiveView: (type: InsightType) => ({ type }),
+        setActiveView: (type: ViewType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
         startQuery: (queryId: string) => ({ queryId }),
         endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
@@ -72,7 +72,12 @@ export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
-            { id: props.id, tags: [], filters: {}, result: null } as Partial<DashboardItemType>,
+            {
+                id: props.id,
+                tags: [],
+                filters: {},
+                result: null,
+            } as Partial<DashboardItemType>,
             {
                 loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
                 setInsight: ({ insight, shouldMergeWithExisting }) =>
@@ -155,7 +160,7 @@ export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
                         if (dashboardItemId) {
                             dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                         }
-                        return []
+                        return values.insight
                     }
                     breakpoint()
                     cache.abortController = null
@@ -168,7 +173,7 @@ export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
                         )
                     }
 
-                    return { ...response, filters }
+                    return { ...values.insight, ...response, filters }
                 },
             },
         ],
@@ -269,11 +274,12 @@ export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
         ],
     },
     selectors: {
+        insightProps: [(s) => [s.insight], (insight) => ({ dashboardItemId: insight?.id })],
         insightFilters: [(s) => [s.insight], (insight): Partial<FilterType> => insight.filters || {}],
         insightName: [(s) => [s.insight], (insight) => insight.name],
         results: [(s) => [s.insight], (insight) => insight.result],
         resultsLoading: [(s) => [s.insightLoading], (loading) => loading],
-        activeView: [(s) => [s.filters], (filters) => filters.insight],
+        activeView: [(s) => [s.filters], (filters): ViewType | undefined => filters.insight as ViewType | undefined],
         areFiltersValid: [(s) => [s.filters], (filters) => objectsEqual(filters, cleanFilters(filters))],
     },
     listeners: ({ actions, values, props }) => ({
@@ -434,7 +440,7 @@ export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
             if (!props.id) {
                 debugger
             }
-            if (props.id && props.id !== 'new') {
+            if (props.id) {
                 actions.loadInsight(props.id)
             } else {
                 actions.loadResults()

@@ -5,15 +5,15 @@ import { compareFilterLogicType } from './compareFilterLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface CompareFilterLogicProps {
-    id: number | 'new'
+    dashboardItemId?: number
 }
 
 export const compareFilterLogic = kea<compareFilterLogicType<CompareFilterLogicProps>>({
     props: {} as CompareFilterLogicProps,
-    key: (props) => props.id || 'new',
+    key: (props) => props.dashboardItemId || 'new',
     connect: (props: CompareFilterLogicProps) => ({
-        values: [insightLogic(props), ['filters']],
-        actions: [insightLogic(props), ['updateInsightFilters']],
+        values: [insightLogic({ id: props.dashboardItemId }), ['filters']],
+        actions: [insightLogic({ id: props.dashboardItemId }), ['updateInsightFilters']],
     }),
     actions: () => ({
         setCompare: (compare: boolean) => ({ compare }),
