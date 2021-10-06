@@ -147,26 +147,25 @@ class FunnelCorrelation:
         """
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
-        # TODO: replace countIf with the distinct equivalent
+        non_deleted_distinct_ids = f"""
+            SELECT distinct_id,
+                argMax(person_id, _timestamp) as person_id
+            FROM (
+                SELECT distinct_id,
+                        person_id,
+                        max(_timestamp) as _timestamp
+                    FROM person_distinct_id
+                    WHERE team_id = {self._team.pk}
+                    GROUP BY person_id,
+                            distinct_id,
+                            team_id
+                HAVING max(is_deleted) = 0
+            )
+            GROUP BY distinct_id
+        """
+
         query = f"""
             WITH 
-                funnel_people AS ({funnel_persons_query}),
-                non_deleted_distinct_ids AS (
-                    SELECT distinct_id,
-                        argMax(person_id, _timestamp) as person_id
-                    FROM (
-                        SELECT distinct_id,
-                                person_id,
-                                max(_timestamp) as _timestamp
-                            FROM person_distinct_id
-                            WHERE team_id = {self._team.pk}
-                            GROUP BY person_id,
-                                    distinct_id,
-                                    team_id
-                        HAVING max(is_deleted) = 0
-                    )
-                    GROUP BY distinct_id
-                ),
                 toDateTime(%(date_to)s) AS date_to,
                 toDateTime(%(date_from)s) AS date_from,
                 %(target_step)s AS target_step,
@@ -190,14 +189,14 @@ class FunnelCorrelation:
 
             FROM events AS event
             
-            JOIN non_deleted_distinct_ids AS pdi
+            JOIN ({non_deleted_distinct_ids}) AS pdi
                 ON pdi.distinct_id = events.distinct_id AND pdi.team_id = event.team_id
 
             -- NOTE: I would love to right join here, so we count get total
             -- success/failure numbers in one pass, but this causes out of memory
             -- error mentioning issues with right filling. I'm sure there's a way
             -- to do it but lifes too short.
-            JOIN funnel_people AS person
+            JOIN ({funnel_persons_query}) AS person
                 ON pdi.person_id = person.person_id
 
             -- Make sure we're only looking at events before the final step, or
@@ -239,7 +238,7 @@ class FunnelCorrelation:
                     person.person_id,
                     person.steps <> target_step
                 ) AS failure_count
-            FROM funnel_people AS person
+            FROM ({funnel_persons_query}) AS person
         """
         params = {
             **funnel_persons_params,
