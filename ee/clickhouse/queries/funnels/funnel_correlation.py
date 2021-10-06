@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Literal, Tuple, TypedDict
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from posthog.constants import FunnelCorrelationType
 from posthog.models import Filter, Team
 from posthog.models.filters import Filter
 
@@ -55,9 +56,10 @@ class FunnelCorrelation:
         self._team = team
 
         if self._filter.funnel_step is None:
-            self._filter = self._filter.with_data({"funnel_step": len(self._filter.entities)})
+            self._filter = self._filter.with_data({"funnel_step": 1})
+            # Funnel Step by default set to 1, to give us all people who entered the funnel
 
-    def run(self, *args, **kwargs) -> FunnelCorrelationResponse:
+    def run(self) -> FunnelCorrelationResponse:
         """
         Run the diagnose query.
 
@@ -159,7 +161,7 @@ class FunnelCorrelation:
                 countIf(person.steps = target_step) AS success_count,
 
                 -- And the converse being for failures
-                countIf(person.timestamp <> target_step) AS failure_count
+                countIf(person.steps <> target_step) AS failure_count
             FROM events AS event
             
             JOIN person_distinct_id AS pdi
@@ -172,14 +174,15 @@ class FunnelCorrelation:
             -- Make sure we're only looking at events before the final step, or
             -- failing that, date_to
             -- TODO: add a lower bounds for events
-            WHERE event.timestamp < COALESCE(person.timestamp, date_to)
+            WHERE event.timestamp < COALESCE(person.final_timestamp, date_to)
+            AND event.timestamp >= person.first_timestamp
             GROUP BY name
             WITH TOTALS
         """
         params = {
             **funnel_persons_params,
             "date_to": self._filter.date_to,
-            "target_step": self._filter.funnel_step,
+            "target_step": len(self._filter.entities),
         }
         results_then_total = sync_execute(query, params)
 
@@ -216,7 +219,7 @@ class FunnelCorrelation:
         )
 
         return (
-            funnel_persons_generator.get_query(extra_fields=["steps"]),
+            funnel_persons_generator.get_query(extra_fields=["steps", "final_timestamp", "first_timestamp"]),
             funnel_persons_generator.params,
         )
 
