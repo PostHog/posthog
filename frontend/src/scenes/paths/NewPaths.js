@@ -86,7 +86,7 @@ function NoData() {
 }
 
 const DEFAULT_PATHS_ID = 'default_paths'
-const HIDE_PATH_CARD_HEIGHT = 100
+const HIDE_PATH_CARD_HEIGHT = 30
 
 export function NewPaths({ dashboardItemId = null, filters = null, color = 'white' }) {
     const canvas = useRef(null)
