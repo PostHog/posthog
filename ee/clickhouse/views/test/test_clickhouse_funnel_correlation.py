@@ -2,13 +2,14 @@ import dataclasses
 import json
 from datetime import datetime
 from typing import Any, Dict, Optional, TypedDict
+from uuid import uuid4
 
 import pytest
 from django.test import Client
 from freezegun import freeze_time
 
-from posthog.api.test.test_event_definition import EventData, capture_event
-from posthog.api.test.test_retention import identify
+from ee.clickhouse.models.event import create_event
+from posthog.models.person import Person
 from posthog.test.base import BaseTest
 from posthog.utils import is_clickhouse_enabled
 
@@ -39,58 +40,40 @@ class FunnelCorrelationTest(BaseTest):
             #
             # Both of them have a "watched video" event
 
-            create_person(distinct_id="Person 1", team_id=self.team.pk)
+            create_person(distinct_ids=["Person 1"], team=self.team)
 
-            create_event(
-                event=EventData(
-                    team_id=self.team.pk,
-                    distinct_id="Person 1",
-                    event="signup",
-                    timestamp=datetime(2020, 1, 1),
-                    properties={},
-                )
+            _create_event(
+                team=self.team, distinct_id="Person 1", event="signup", timestamp=datetime(2020, 1, 1), properties={},
             )
 
-            create_event(
-                event=EventData(
-                    team_id=self.team.pk,
-                    distinct_id="Person 1",
-                    event="watched video",
-                    timestamp=datetime(2020, 1, 2),
-                    properties={},
-                )
+            _create_event(
+                team=self.team,
+                distinct_id="Person 1",
+                event="watched video",
+                timestamp=datetime(2020, 1, 2),
+                properties={},
             )
 
-            create_person(distinct_id="Person 2", team_id=self.team.pk)
+            create_person(distinct_ids=["Person 2"], team=self.team)
 
-            create_event(
-                event=EventData(
-                    team_id=self.team.pk,
-                    distinct_id="Person 2",
-                    event="signup",
-                    timestamp=datetime(2020, 1, 1),
-                    properties={},
-                )
+            _create_event(
+                team=self.team, distinct_id="Person 2", event="signup", timestamp=datetime(2020, 1, 1), properties={},
             )
 
-            create_event(
-                event=EventData(
-                    team_id=self.team.pk,
-                    distinct_id="Person 2",
-                    event="watched video",
-                    timestamp=datetime(2020, 1, 2),
-                    properties={},
-                )
+            _create_event(
+                team=self.team,
+                distinct_id="Person 2",
+                event="watched video",
+                timestamp=datetime(2020, 1, 2),
+                properties={},
             )
 
-            create_event(
-                event=EventData(
-                    team_id=self.team.pk,
-                    distinct_id="Person 2",
-                    event="view insights",
-                    timestamp=datetime(2020, 1, 3),
-                    properties={},
-                )
+            _create_event(
+                team=self.team,
+                distinct_id="Person 2",
+                event="view insights",
+                timestamp=datetime(2020, 1, 3),
+                properties={},
             )
 
             odds = get_funnel_correlation_ok(
@@ -156,24 +139,11 @@ def get_funnel_correlation_ok(client: Client, team_id: int, request: FunnelCorre
     return response.json()
 
 
-def create_person(distinct_id: str, team_id: int, properties: Optional[Dict[str, Any]] = None):
-    # TODO: change this from being a proxy to identify to being explicit about
-    # adding to events/persons/person_distinct_id tables
-    properties = properties or {}
-
-    if is_clickhouse_enabled():
-        from ee.clickhouse.models.person import Person, PersonDistinctId
-
-        person = Person.objects.create(team_id=team_id, properties=properties)
-        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
-    else:
-        from posthog.models.person import Person, PersonDistinctId
-
-        person = Person.objects.create(team_id=team_id, properties=properties)
-        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
+def create_person(**kwargs):
+    person = Person.objects.create(**kwargs)
+    return person
 
 
-def create_event(event: EventData):
-    # TODO: change this from being a proxy to capture_event to being explicit about
-    # adding to events tables
-    return capture_event(event=event)
+def _create_event(**kwargs):
+    kwargs.update({"event_uuid": uuid4()})
+    create_event(**kwargs)
