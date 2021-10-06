@@ -128,7 +128,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             .size([width, height])
 
         const { nodes, links } = sankey(paths)
-        setPathItemCards(nodes)
+        setPathItemCards(nodes.map((node) => ({ ...node, visible: node.y1 - node.y0 > 30 })))
 
         svg.append('g')
             .selectAll('rect')
@@ -163,6 +163,18 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                     ? d3.color('#5375ff')
                     : d3.color('#191919')
                 return startNodeColor
+            })
+            .on('mouseover', (data) => {
+                if (data.y1 - data.y0 > 30) {
+                    return
+                }
+                setPathItemCards(
+                    nodes.map((node) =>
+                        node.index === data.index
+                            ? { ...node, visible: true }
+                            : { ...node, visible: node.y1 - node.y0 > 30 }
+                    )
+                )
             })
             .append('title')
             .text((d) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
@@ -398,7 +410,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                 border: '1px solid var(--border)',
                                                 padding: 4,
                                                 justifyContent: 'space-between',
-                                                display: 'flex',
+                                                display: `${pathItemCard.visible ? 'flex' : 'none'}`,
                                             }}
                                         >
                                             <div style={{ display: 'flex', alignItems: 'center' }}>
