@@ -125,7 +125,7 @@ def get_funnel_persons_cte(team: Team, filter: Filter) -> Tuple[str, Dict[str, A
     )
 
     return (
-        funnel_persons_generator.get_query(),
+        funnel_persons_generator.get_query(extra_fields=["steps"]),
         funnel_persons_generator.params,
     )
 
@@ -162,19 +162,22 @@ def get_partial_event_contingency_tables(team: Team, filter: Filter) -> List[Eve
     for us to calculate the odds ratio.
     """
     funnel_persons_query, funnel_persons_params = get_funnel_persons_cte(team=team, filter=filter)
+
+    # TODO: replace countIf with the distinct equivalent
     query = f"""
         WITH 
             funnel_people AS ({funnel_persons_query}),
-            toDateTime(%(date_to)s) AS date_to
+            toDateTime(%(date_to)s) AS date_to,
+            %(target_step)s AS target_step
         SELECT 
             event.event AS name, 
 
             -- If we have a timestamp, we know the person reached the end of the
             -- funnel (I think)
-            countIf(person.timestamp IS NULL) AS success_count,
+            countIf(person.steps = target_step) AS success_count,
 
             -- And the converse being for failures
-            countIf(person.timestamp IS NOT NULL) AS failure_count
+            countIf(person.timestamp <> target_step) AS failure_count
         FROM events AS event
         
         JOIN person_distinct_id AS pdi
@@ -186,6 +189,7 @@ def get_partial_event_contingency_tables(team: Team, filter: Filter) -> List[Eve
 
         -- Make sure we're only looking at events before the final step, or
         -- failing that, date_to
+        -- TODO: add a lower bounds for events
         WHERE event.timestamp < COALESCE(person.timestamp, date_to)
         GROUP BY name
         WITH TOTALS
@@ -193,6 +197,7 @@ def get_partial_event_contingency_tables(team: Team, filter: Filter) -> List[Eve
     params = {
         **funnel_persons_params,
         "date_to": filter.date_to,
+        "target_step": len(filter.entities),
     }
     results_then_total = sync_execute(query, params)
 

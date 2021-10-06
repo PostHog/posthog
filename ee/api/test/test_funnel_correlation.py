@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from posthog.api.test.test_event_definition import EventData, capture_event
 from posthog.api.test.test_retention import identify
 from posthog.test.base import BaseTest
+from posthog.utils import is_clickhouse_enabled
 
 
 @pytest.mark.clickhouse_only
@@ -97,7 +98,7 @@ class FunnelCorrelationTest(BaseTest):
                 team_id=self.team.pk,
                 request=FunnelCorrelationRequest(
                     events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
-                    funnel_step=1,
+                    funnel_step=2,
                     date_to="2020-04-04",
                 ),
             )
@@ -108,7 +109,21 @@ class FunnelCorrelationTest(BaseTest):
             "result": {
                 "events": [
                     # Top 10
-                    {"event": "watched video", "success_count": 1, "failure_count": 1, "odds_ratio": 1},
+                    # TODO: remove events that are explicitly included in the funnel definitions
+                    {
+                        "correlation_type": "failure",
+                        "event": "signup",
+                        "failure_count": 1,
+                        "odds_ratio": 1.0,
+                        "success_count": 1,
+                    },
+                    {
+                        "event": "watched video",
+                        "success_count": 1,
+                        "failure_count": 1,
+                        "odds_ratio": 1.0,
+                        "correlation_type": "failure",
+                    },
                 ]
             },
         }
@@ -144,7 +159,18 @@ def get_funnel_correlation_ok(client: Client, team_id: int, request: FunnelCorre
 def create_person(distinct_id: str, team_id: int, properties: Optional[Dict[str, Any]] = None):
     # TODO: change this from being a proxy to identify to being explicit about
     # adding to events/persons/person_distinct_id tables
-    return identify(distinct_id=distinct_id, team_id=team_id, properties=properties)
+    properties = properties or {}
+
+    if is_clickhouse_enabled():
+        from ee.clickhouse.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team_id, properties=properties)
+        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
+    else:
+        from posthog.models.person import Person, PersonDistinctId
+
+        person = Person.objects.create(team_id=team_id, properties=properties)
+        PersonDistinctId.objects.create(distinct_id=distinct_id, team_id=team_id, person_id=person.id)
 
 
 def create_event(event: EventData):
