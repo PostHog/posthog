@@ -105,7 +105,7 @@ class HasDoneProperty(Property):
     start_time: Optional[str]
     end_time: Optional[str]
     count: Optional[int]
-    count_operator: Optional[OperatorType]
+    count_operator: Optional[Literal["eq", "lte", "gte"]]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
