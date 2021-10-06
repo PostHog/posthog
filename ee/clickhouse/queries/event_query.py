@@ -21,6 +21,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
     _filter: Union[Filter, PathFilter, RetentionFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
+    _person_query: ClickhousePersonQuery
     _should_join_distinct_ids = False
     _should_join_persons = False
     _should_round_interval = False
@@ -42,6 +43,9 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._filter = filter
         self._team_id = team_id
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
+        self._person_query = ClickhousePersonQuery(
+            self._filter, self._team_id, self._column_optimizer, self._extra_person_fields
+        )
         self.params: Dict[str, Any] = {
             "team_id": self._team_id,
         }
@@ -77,7 +81,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return ""
 
     def _determine_should_join_persons(self) -> None:
-        if self._column_optimizer.is_using_person_properties:
+        if self._person_query.is_used:
             self._should_join_distinct_ids = True
             self._should_join_persons = True
             return
@@ -102,9 +106,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             return
 
     def _should_property_join_persons(self, prop: Property) -> bool:
-        if prop.type in ("person", "static-cohort", "precalculated-cohort"):
-            return True
-
         return prop.type == "cohort" and self._does_cohort_need_persons(prop)
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
@@ -125,7 +126,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         if self._should_join_persons:
             return f"""
             INNER JOIN (
-                {ClickhousePersonQuery(self._filter, self._team_id, self._column_optimizer, self._extra_person_fields).get_query()}
+                {self._person_query.get_query()}
             ) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """
