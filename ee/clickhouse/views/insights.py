@@ -16,6 +16,7 @@ from ee.clickhouse.queries.funnels import (
     ClickhouseFunnelTrends,
     ClickhouseFunnelUnordered,
 )
+from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
@@ -106,6 +107,29 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             }
         else:
             return {"result": funnel_order_class(team=team, filter=filter).run()}
+
+    # ******************************************
+    # /insight/funnel_correlation
+    #
+    # params:
+    # - params are the same as for funnel
+    #
+    # Returns significant events, i.e. those that are correlated with a person
+    # making it through a funnel
+    # ******************************************
+    @action(methods=["GET"], url_path="funnel/correlation", detail=False)
+    def funnel_correlation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_funnel_correlation(request)
+        return Response(result)
+
+    @cached_function
+    def calculate_funnel_correlation(self, request: Request) -> Dict[str, Any]:
+        team = self.team
+        filter = Filter(request=request)
+
+        result = FunnelCorrelation(filter=filter, team=team).run()
+
+        return {"result": result}
 
     @cached_function
     def calculate_retention(self, request: Request) -> Dict[str, Any]:
