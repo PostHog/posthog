@@ -157,7 +157,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                         }
                     }
                 }
-
+                if (isPathStartOrEnd(d)) {
+                    return d3.color('purple')
+                }
                 const startNodeColor = d3.color(c)
                     ? d3.color(c)
                     : color === 'white' // is this ever not white?
@@ -227,7 +229,6 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             })
             .on('mouseleave', () => {
                 svg.selectAll('path').attr('stroke', 'var(--primary)')
-                svg.selectAll('rect').attr('fill', 'var(--primary)')
             })
 
         link.append('g')
@@ -261,6 +262,14 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
 
     const getContinuingValue = (sourceLinks) => {
         return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
+    }
+
+    const isPathStartOrEnd = (pathItemCard) => {
+        const cardName = pageUrl(pathItemCard)
+        return (
+            (filter.start_point === cardName && pathItemCard.targetLinks.length === 0) ||
+            (filter.end_point === cardName && pathItemCard.sourceLinks.length === 0)
+        )
     }
 
     return (
@@ -423,7 +432,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         : pathItemCard.y0 + (pathItemCard.y1 - pathItemCard.y0) / 2,
                                                 background: 'white',
                                                 width: 200,
-                                                border: '1px solid var(--border)',
+                                                border: `1px solid ${
+                                                    isPathStartOrEnd(pathItemCard) ? 'purple' : 'var(--border)'
+                                                }`,
                                                 padding: 4,
                                                 justifyContent: 'space-between',
                                                 alignItems: 'center',
