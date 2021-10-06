@@ -208,6 +208,8 @@ class FunnelCorrelation:
                 event.timestamp >= date_from
                 AND event.timestamp < date_to
 
+                AND event.team_id = {self._team.pk}
+
                 -- Add in per person filtering on event time range. We just want
                 -- to include events that happened within the bounds of the 
                 -- persons time in the funnel.
