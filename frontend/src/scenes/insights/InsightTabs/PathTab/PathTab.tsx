@@ -23,7 +23,7 @@ export function OldPathTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { customEventNames } = useValues(eventDefinitionsModel)
     const { filter } = useValues(pathsLogic(insightProps))
-    const { setFilter } = useActions(pathsLogic(insightProps))
+    const { setFilters } = useActions(pathsLogic(insightProps))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
@@ -38,7 +38,7 @@ export function OldPathTab(): JSX.Element {
                             value={filter?.path_type || PathType.PageView}
                             defaultValue={PathType.PageView}
                             dropdownMatchSelectWidth={false}
-                            onChange={(value): void => setFilter({ path_type: value, start_point: null })}
+                            onChange={(value): void => setFilters({ path_type: value, start_point: undefined })}
                             style={{ paddingTop: 2 }}
                         >
                             {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
@@ -60,7 +60,7 @@ export function OldPathTab(): JSX.Element {
                                       }))
                                     : undefined
                             }
-                            onSet={(value: string | number): void => setFilter({ start_point: value })}
+                            onSet={(value: string | number): void => setFilters({ start_point: value })}
                             propertyKey={pathOptionsToProperty[filter.path_type || PathType.PageView]}
                             type="event"
                             style={{ width: 200, paddingTop: 2 }}
@@ -76,9 +76,9 @@ export function OldPathTab(): JSX.Element {
                 <PropertyFilters
                     pageKey="insight-path"
                     propertyFilters={filter.properties}
-                    onChange={(properties) => setFilter({ properties })}
+                    onChange={(properties) => setFilters({ properties })}
                 />
-                <TestAccountFilter filters={filter} onChange={setFilter} />
+                <TestAccountFilter filters={filter} onChange={setFilters} />
             </Col>
         </Row>
     )

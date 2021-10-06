@@ -248,7 +248,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     : null
             },
         ],
-        lastAppliedFilters: [(s) => [s.results], (results) => results.filters],
+        lastAppliedFilters: [(s) => [s.results], (results) => results.filters || {}],
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
