@@ -152,6 +152,7 @@ class FunnelCorrelation:
             WITH 
                 funnel_people AS ({funnel_persons_query}),
                 toDateTime(%(date_to)s) AS date_to,
+                toDateTime(%(date_from)s) AS date_from,
                 %(target_step)s AS target_step
             SELECT 
                 event.event AS name, 
@@ -173,9 +174,11 @@ class FunnelCorrelation:
 
             -- Make sure we're only looking at events before the final step, or
             -- failing that, date_to
-            -- TODO: add a lower bounds for events
-            WHERE event.timestamp < COALESCE(person.final_timestamp, date_to)
-            AND event.timestamp >= person.first_timestamp
+            WHERE 
+                event.timestamp >= date_from
+                AND event.timestamp > person.first_timestamp
+                AND event.timestamp < date_to
+                AND event.timestamp < COALESCE(person.timestamp, date_to)
             GROUP BY name
             WITH TOTALS
         """

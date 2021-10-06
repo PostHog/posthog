@@ -22,7 +22,7 @@ class FunnelCorrelationTest(BaseTest):
     we just return mock data
     """
 
-    maxDiff = None
+    CLASS_DATA_LEVEL_SETUP = False
 
     def test_requires_authn(self):
         response = get_funnel_correlation(
@@ -32,7 +32,7 @@ class FunnelCorrelationTest(BaseTest):
         )
         assert response.status_code == 401
 
-    def test_event_correlation_endpoint(self):
+    def test_event_correlation_endpoint_picks_up_events_for_odds_ratios(self):
         with freeze_time("2020-01-01"):
             self.client.force_login(self.user)
 
@@ -57,6 +57,10 @@ class FunnelCorrelationTest(BaseTest):
 
             create_events(events_by_person=events, team=self.team)
 
+            # We need to make sure we clear the cache other tests that have run
+            # done interfere with this test
+            cache.clear()
+
             odds = get_funnel_correlation_ok(
                 client=self.client,
                 team_id=self.team.pk,
@@ -72,8 +76,6 @@ class FunnelCorrelationTest(BaseTest):
             "last_refresh": "2020-01-01T00:00:00Z",
             "result": {
                 "events": [
-                    # Top 10
-                    # TODO: remove events that are explicitly included in the funnel definitions
                     {
                         "correlation_type": "failure",
                         "event": "signup",
@@ -152,6 +154,62 @@ class FunnelCorrelationTest(BaseTest):
             )
 
             assert odds_before == odds_after
+
+    def test_event_correlation_endpoint_does_not_include_historical_events(self):
+        with freeze_time("2020-01-01"):
+            self.client.force_login(self.user)
+
+            # Add in two people:
+            #
+            # Person 1 - a single signup event
+            # Person 2 - a signup event and a view insights event
+            #
+            # Both of them have a "watched video" event but they are before the
+            # signup event
+
+            events = {
+                "Person 1": [
+                    {"event": "watched video", "timestamp": datetime(2019, 1, 2)},
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                ],
+                "Person 2": [
+                    {"event": "watched video", "timestamp": datetime(2019, 1, 2)},
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+            }
+
+            create_events(events_by_person=events, team=self.team)
+
+            # We need to make sure we clear the cache other tests that have run
+            # done interfere with this test
+            cache.clear()
+
+            odds = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
+                    funnel_step=2,
+                    date_to="2020-04-04",
+                ),
+            )
+
+        assert odds == {
+            "is_cached": False,
+            "last_refresh": "2020-01-01T00:00:00Z",
+            "result": {
+                "events": [
+                    {
+                        "correlation_type": "failure",
+                        "event": "signup",
+                        "failure_count": 1,
+                        "odds_ratio": 1.0,
+                        "success_count": 1,
+                    },
+                ]
+            },
+        }
 
 
 def create_team(organization):
