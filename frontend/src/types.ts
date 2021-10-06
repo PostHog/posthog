@@ -1209,7 +1209,7 @@ export interface FunnelCorrelation {
     odds_ratio: number
     success_count: number
     failure_count: number
-    correlation_type: FunnelCorrelationType
+    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
 }
 
 export enum FunnelCorrelationType {

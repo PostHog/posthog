@@ -54,6 +54,9 @@ class FunnelCorrelation:
         self._filter = filter
         self._team = team
 
+        if self._filter.funnel_step is None:
+            self._filter = self._filter.with_data({"funnel_step": len(self._filter.entities)})
+
     def run(self, *args, **kwargs) -> FunnelCorrelationResponse:
         """
         Run the diagnose query.
@@ -176,7 +179,7 @@ class FunnelCorrelation:
         params = {
             **funnel_persons_params,
             "date_to": self._filter.date_to,
-            "target_step": len(self._filter.entities),
+            "target_step": self._filter.funnel_step,
         }
         results_then_total = sync_execute(query, params)
 

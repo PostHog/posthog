@@ -250,83 +250,13 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
         correlations: [
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
-                loadCorrelations: async (correlationTypes: FunnelCorrelationType[]) => {
-                    console.log('correlationtype: ', correlationTypes)
-                    return {
-                        events: [
-                            {
-                                event: 'Event A',
-                                correlation_type: 'success',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 10,
-                            },
-                            {
-                                event: 'Event B',
-                                correlation_type: 'failure',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 9.4,
-                            },
-                            {
-                                event: 'Event C',
-                                correlation_type: 'failure',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 5.4,
-                            },
-                            {
-                                event: 'Event D',
-                                correlation_type: 'success',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 3.4,
-                            },
-                            {
-                                event: 'Event E',
-                                correlation_type: 'failure',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 2.6,
-                            },
-                            {
-                                event: 'Event F',
-                                correlation_type: 'success',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 2.5,
-                            },
-                            {
-                                event: 'Event G',
-                                correlation_type: 'failure',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 2.1,
-                            },
-                            {
-                                event: 'Event H',
-                                correlation_type: 'success',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 2.0,
-                            },
-                            {
-                                event: 'Event I',
-                                correlation_type: 'success',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 1.5,
-                            },
-                            {
-                                event: 'Event J',
-                                correlation_type: 'success',
-                                success_count: 1,
-                                failure_count: 4,
-                                odds_ratio: 1.2,
-                            },
-                        ],
-                    }
-                    // return (await api.create('api/insight/funnel/', {...values.apiParams, correlationTypes})).results
+                loadCorrelations: async () => {
+                    return (
+                        await api.create('api/insight/funnel/correlation', {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'events',
+                        })
+                    ).result
                 },
             },
         ],
@@ -820,7 +750,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            actions.loadCorrelations(values.correlationTypes)
+            actions.loadCorrelations()
 
             if (!props.dashboardItemId) {
                 if (!insightLogic.values.insight.id) {

@@ -109,7 +109,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
             return {"result": funnel_order_class(team=team, filter=filter).run()}
 
     # ******************************************
-    # /insight/funnel_correlation
+    # /insight/funnel/correlation
     #
     # params:
     # - params are the same as for funnel
@@ -117,7 +117,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     # Returns significant events, i.e. those that are correlated with a person
     # making it through a funnel
     # ******************************************
-    @action(methods=["GET"], url_path="funnel/correlation", detail=False)
+    @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
     def funnel_correlation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_funnel_correlation(request)
         return Response(result)
