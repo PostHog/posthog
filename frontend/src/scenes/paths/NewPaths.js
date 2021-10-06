@@ -281,13 +281,13 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     marginTop: -5,
                                                     border: '1px solid var(--border)',
                                                     borderRadius: '0px 0px 4px 4px',
-                                                    width: 240,
+                                                    width: 200,
                                                 }}
                                             >
                                                 {pathItemCard.sourceLinks.length > 0 && (
                                                     <Menu.Item
                                                         disabled
-                                                        className="pathcard-dropdown-info-option"
+                                                        className="pathcard-dropdown-info-option text-small"
                                                         style={{
                                                             borderBottom: `${
                                                                 dropOffValue > 0 || pathItemCard.targetLinks.length > 0
@@ -296,15 +296,15 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                             }`,
                                                         }}
                                                     >
-                                                        <span>
+                                                        <span className="text-small">
                                                             <span style={{ paddingRight: 8 }}>
                                                                 <PathsCompletedArrow />
                                                             </span>{' '}
                                                             Continuing
                                                         </span>{' '}
-                                                        <span style={{ color: 'var(--primary)' }}>
+                                                        <span className="primary text-small">
                                                             <ValueInspectorButton
-                                                                style={{ paddingRight: 0 }}
+                                                                style={{ paddingRight: 0, fontSize: 12 }}
                                                                 onClick={() => openPersonsModal(pathItemCard.name)}
                                                             >
                                                                 {continuingValue}
@@ -326,20 +326,26 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                 {dropOffValue > 0 && (
                                                     <Menu.Item
                                                         disabled
-                                                        className="pathcard-dropdown-info-option"
+                                                        className="pathcard-dropdown-info-option text-small"
                                                         style={{
                                                             borderBottom: '1px solid var(--border)',
                                                         }}
                                                     >
-                                                        <span style={{ display: 'flex' }}>
-                                                            <span style={{ paddingRight: 8 }}>
+                                                        <span className="text-small" style={{ display: 'flex' }}>
+                                                            <span
+                                                                style={{
+                                                                    paddingRight: 8,
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                }}
+                                                            >
                                                                 <PathsDropoffArrow />
                                                             </span>{' '}
                                                             Dropping off
                                                         </span>{' '}
-                                                        <span style={{ color: 'var(--primary)' }}>
+                                                        <span className="primary">
                                                             <ValueInspectorButton
-                                                                style={{ paddingRight: 0 }}
+                                                                style={{ paddingRight: 0, fontSize: 12 }}
                                                                 onClick={() =>
                                                                     openPersonsModal(
                                                                         undefined,
@@ -350,7 +356,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                             >
                                                                 {dropOffValue}{' '}
                                                                 <span
-                                                                    className="text-muted-alt"
+                                                                    className="text-muted-alt text-small"
                                                                     style={{ paddingLeft: 4 }}
                                                                 >
                                                                     (
@@ -370,12 +376,15 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         className="pathcard-dropdown-info-option"
                                                         style={{
                                                             padding: '5px 8px',
+                                                            fontWeight: 500,
+                                                            fontSize: 12,
                                                         }}
                                                     >
                                                         <ClockCircleOutlined
                                                             style={{ color: 'var(--muted)', fontSize: 16 }}
                                                         />
                                                         <span
+                                                            className="text-small"
                                                             style={{
                                                                 wordWrap: 'break-word',
                                                                 whiteSpace: 'normal',
@@ -399,14 +408,14 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                 position: 'absolute',
                                                 left:
                                                     pathItemCard.sourceLinks.length === 0
-                                                        ? pathItemCard.x0 - (240 - 7)
+                                                        ? pathItemCard.x0 - (200 - 7)
                                                         : pathItemCard.x0 + 7,
                                                 top:
                                                     pathItemCard.sourceLinks.length > 0
                                                         ? pathItemCard.y0 + 5
                                                         : pathItemCard.y0 + (pathItemCard.y1 - pathItemCard.y0) / 2,
                                                 background: 'white',
-                                                width: 240,
+                                                width: 200,
                                                 border: '1px solid var(--border)',
                                                 padding: 4,
                                                 justifyContent: 'space-between',
@@ -422,15 +431,15 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                         lineHeight: '10px',
                                                     }}
                                                 >{`0${pathItemCard.name[0]}`}</span>{' '}
-                                                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                                                <span style={{ fontSize: 12, fontWeight: 600 }}>
                                                     {pageUrl(pathItemCard, true)}
                                                 </span>
                                             </div>
                                             <Row style={{ alignSelf: 'center' }}>
                                                 <span
                                                     onClick={() => openPersonsModal(undefined, pathItemCard.name)}
-                                                    className="primary"
-                                                    style={{ alignSelf: 'center', paddingRight: 4 }}
+                                                    className="primary text-small"
+                                                    style={{ alignSelf: 'center', paddingRight: 4, fontWeight: 500 }}
                                                 >
                                                     {continuingValue + dropOffValue}
                                                 </span>
