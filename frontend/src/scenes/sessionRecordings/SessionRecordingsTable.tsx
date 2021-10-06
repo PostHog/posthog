@@ -1,6 +1,5 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Link } from 'lib/components/Link'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
 import { Button, Card, DatePicker, Row, Space, Table, Typography } from 'antd'
@@ -12,6 +11,7 @@ import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import moment from 'moment'
 import { DurationFilter } from './DurationFilter'
+import { PersonHeader } from 'scenes/persons/PersonHeader'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -44,48 +44,48 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
 
     const columns = [
         {
-            key: 'play',
-            render: function RenderPlayButton() {
-                return <PlayCircleOutlined size={16} />
+            title: 'Start time',
+            render: function RenderStartTime(sessionRecording: SessionRecordingType) {
+                return humanFriendlyDetailedTime(sessionRecording.start_time)
             },
-            width: 32,
+            span: 1,
         },
         {
             title: 'Session duration',
             render: function RenderDuration(sessionRecording: SessionRecordingType) {
                 return <span>{humanFriendlyDuration(sessionRecording.recording_duration)}</span>
             },
-            span: 2,
+            span: 1,
         },
         {
             title: 'Person',
             key: 'person',
             render: function RenderPersonLink(sessionRecording: SessionRecordingType) {
+                if (isPersonPage) {
+                    return <PersonHeader person={sessionRecording.person} />
+                }
                 return (
-                    <Link
-                        to={`/person/${encodeURIComponent(sessionRecording.distinct_id as string)}`}
+                    <a
+                        onClick={(e) => {
+                            e.preventDefault()
+                        }}
+                        href={`/person/${encodeURIComponent(sessionRecording.distinct_id as string)}`}
                         className="ph-no-capture"
                     >
-                        {sessionRecording?.email || sessionRecording.distinct_id}
-                    </Link>
+                        <PersonHeader person={sessionRecording.person} />
+                    </a>
                 )
             },
             ellipsis: true,
             span: 3,
         },
+
         {
-            title: 'Start time',
-            render: function RenderStartTime(sessionRecording: SessionRecordingType) {
-                return humanFriendlyDetailedTime(sessionRecording.start_time)
+            key: 'play',
+            render: function RenderPlayButton() {
+                return <PlayCircleOutlined size={16} />
             },
-            span: 2,
-        },
-        {
-            title: 'End time',
-            render: function RenderStartTime(sessionRecording: SessionRecordingType) {
-                return humanFriendlyDetailedTime(sessionRecording.end_time)
-            },
-            span: 2,
+            width: 32,
         },
     ]
     return (

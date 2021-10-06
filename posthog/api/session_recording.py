@@ -4,7 +4,9 @@ from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.models import PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions
@@ -52,14 +54,35 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             )
         )
 
+        distinct_ids = map(lambda x: x["distinct_id"], session_recordings)
+        person_distinct_ids = PersonDistinctId.objects.filter(
+            distinct_id__in=distinct_ids, team=self.team
+        ).select_related("person")
+        distinct_id_to_person = {}
+        for person_distinct_id in person_distinct_ids:
+            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
+
         session_recordings = list(
-            map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings}, session_recordings,)
+            map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings,}, session_recordings,)
         )
 
         session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)
+
         session_recording_serializer.is_valid(raise_exception=True)
 
-        return Response({"results": session_recording_serializer.data, "has_next": more_recordings_available})
+        session_recording_serializer_with_person = list(
+            map(
+                lambda session_recording: {
+                    **session_recording,
+                    "person": PersonSerializer(
+                        instance=distinct_id_to_person.get(session_recording["distinct_id"])
+                    ).data,
+                },
+                session_recording_serializer.data,
+            )
+        )
+
+        return Response({"results": session_recording_serializer_with_person, "has_next": more_recordings_available})
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         session_recording_id = kwargs["pk"]

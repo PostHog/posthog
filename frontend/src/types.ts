@@ -493,6 +493,7 @@ export interface SessionRecordingType {
     end_time: string
     distinct_id?: string
     email?: string
+    person?: PersonType
 }
 
 export interface BillingType {
