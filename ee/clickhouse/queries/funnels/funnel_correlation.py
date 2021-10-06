@@ -175,7 +175,7 @@ class FunnelCorrelation:
             -- failing that, date_to
             -- TODO: add a lower bounds for events
             WHERE event.timestamp < COALESCE(person.final_timestamp, date_to)
-            AND event.timestamp >= person.timestamp
+            AND event.timestamp >= person.first_timestamp
             GROUP BY name
             WITH TOTALS
         """
@@ -219,7 +219,7 @@ class FunnelCorrelation:
         )
 
         return (
-            funnel_persons_generator.get_query(extra_fields=["steps", "final_timestamp"]),
+            funnel_persons_generator.get_query(extra_fields=["steps", "final_timestamp", "first_timestamp"]),
             funnel_persons_generator.params,
         )
 
