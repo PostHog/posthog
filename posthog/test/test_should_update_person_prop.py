@@ -17,6 +17,10 @@ from posthog.test.base import BaseTest
 #  8| set_once | yes           | before                     | set_once    | yes
 #  9| set_once | yes           | after                      | set         | no
 # 10| set_once | yes           | after                      | set_once    | no
+# 11| set      | yes           | equal                      | set         | no
+# 12| set      | yes           | equal                      | set_once    | yes
+# 13| set_once | yes           | equal                      | set         | no
+# 14| set_once | yes           | equal                      | set_once    | yes
 
 # Refers to migration 0173_should_update_person_props_function
 # This is a Postgres function we use in the plugin server
@@ -205,3 +209,34 @@ class TestShouldUpdatePersonProp(BaseTest):
 
             self.assertEqual(previous_op_set_result, False)
             self.assertEqual(previous_op_set_once_result, False)
+
+    # tests cases 11-14 from the table
+    def test_equal_timestamps(self):
+        timestamp = datetime(2000, 1, 1, 1, 1, 1).isoformat()
+        person = Person.objects.create(
+            team=self.team,
+            properties={"a": 0, "b": 0},
+            properties_last_updated_at={
+                "a": timestamp,
+                "b": timestamp,
+            },
+            properties_last_operation={"a": "set", "b": "set_once"},
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT 
+                    should_update_person_prop({person.id}, 'a', '{timestamp}', 'set_once'),
+                    should_update_person_prop({person.id}, 'b', '{timestamp}', 'set_once'),
+                    should_update_person_prop({person.id}, 'a', '{timestamp}', 'set'),
+                    should_update_person_prop({person.id}, 'b', '{timestamp}', 'set')
+            """
+            )
+
+            results = cursor.fetchall()[0]
+
+            self.assertEqual(results[0], False)
+            self.assertEqual(results[1], True)
+            self.assertEqual(results[2], False)
+            self.assertEqual(results[3], True)
