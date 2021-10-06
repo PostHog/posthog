@@ -27,6 +27,12 @@ export function MatchCriteriaSelector({
     const onMatchTypeChange = (input: MatchType): void => {
         onCriteriaChange({
             matchType: input,
+            ...(input === ENTITY_MATCH_TYPE
+                ? {
+                      count_operator: 'gte',
+                      days: '1',
+                  }
+                : {}),
         })
     }
 
