@@ -160,7 +160,7 @@ class FunnelCorrelation:
             FROM events AS event
             
             JOIN person_distinct_id AS pdi
-                ON pdi.distinct_id = events.distinct_id
+                ON pdi.distinct_id = events.distinct_id AND pdi.team_id = event.team_id
 
             -- Right join, so we can get the total success/failure numbers as well
             RIGHT JOIN funnel_people AS person
