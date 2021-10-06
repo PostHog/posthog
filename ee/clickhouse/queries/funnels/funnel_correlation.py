@@ -190,7 +190,7 @@ class FunnelCorrelation:
             FROM events AS event
             
             JOIN ({non_deleted_distinct_ids}) AS pdi
-                ON pdi.distinct_id = events.distinct_id AND pdi.team_id = event.team_id
+                ON pdi.distinct_id = events.distinct_id
 
             -- NOTE: I would love to right join here, so we count get total
             -- success/failure numbers in one pass, but this causes out of memory
