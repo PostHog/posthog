@@ -21,6 +21,8 @@ class FunnelCorrelationTest(BaseTest):
     we just return mock data
     """
 
+    maxDiff = None
+
     def test_requires_authn(self):
         response = get_funnel_correlation(
             client=self.client,
@@ -81,7 +83,6 @@ class FunnelCorrelationTest(BaseTest):
                 team_id=self.team.pk,
                 request=FunnelCorrelationRequest(
                     events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
-                    funnel_step=2,
                     date_to="2020-04-04",
                 ),
             )
@@ -120,8 +121,8 @@ class EventPattern(TypedDict):
 class FunnelCorrelationRequest:
     # Needs to be json encoded list of `EventPattern`s
     events: str
-    funnel_step: int
     date_to: str
+    funnel_step: Optional[int] = None
     date_from: Optional[str] = None
 
 

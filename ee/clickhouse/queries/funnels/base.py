@@ -148,7 +148,12 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return ""
 
     def _get_timestamp_selects(self) -> Tuple[str, str]:
+        """
+        Returns timestamp selectors for the target step and optionally the preceding step.
+        In either case, always returns the timestamp for the last step as well.
+        """
         target_step = self._filter.funnel_step
+        final_step = len(self._filter.entities) - 1
 
         if not target_step:
             return "", ""
@@ -169,11 +174,14 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
 
             return (
-                f", latest_{target_step}, latest_{target_step - 1}",
-                f", argMax(latest_{target_step}, steps) as max_timestamp, argMax(latest_{target_step - 1}, steps) as min_timestamp",
+                f", latest_{target_step}, latest_{target_step - 1}, latest_{final_step}",
+                f", argMax(latest_{target_step}, steps) as max_timestamp, argMax(latest_{target_step - 1}, steps) as min_timestamp, argMax(latest_{final_step}, steps) as final_timestamp",
             )
         elif self._include_timestamp:
-            return f", latest_{target_step}", f", argMax(latest_{target_step}, steps) as timestamp"
+            return (
+                f", latest_{target_step}, latest_{final_step}",
+                f", argMax(latest_{target_step}, steps) as timestamp, argMax(latest_{final_step}, steps) as final_timestamp",
+            )
         else:
             return "", ""
 
