@@ -723,9 +723,20 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
         correlationValues: [
             () => [selectors.correlations, selectors.correlationTypes],
             (correlations, correlationTypes): FunnelCorrelation[] => {
-                return correlations.events?.filter((correlation) =>
-                    correlationTypes.includes(correlation.correlation_type)
-                )
+                return correlations.events
+                    ?.filter((correlation) => correlationTypes.includes(correlation.correlation_type))
+                    .map((value) => {
+                        return {
+                            ...value,
+                            odds_ratio:
+                                value.correlation_type === FunnelCorrelationType.Success
+                                    ? value.odds_ratio
+                                    : 1 / value.odds_ratio,
+                        }
+                    })
+                    .sort((first, second) => {
+                        return second.odds_ratio - first.odds_ratio
+                    })
             },
         ],
     }),

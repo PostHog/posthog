@@ -69,7 +69,7 @@ export function FunnelCorrelationTable({
                                     pointerEvents: 'none',
                                 }}
                             >
-                                Failure
+                                Dropoff
                             </Checkbox>
                         </Col>
                     </Row>
@@ -79,28 +79,37 @@ export function FunnelCorrelationTable({
             <Column
                 title="Correlated Events"
                 key="eventName"
-                render={(_, record: FunnelCorrelation) => (
-                    <>
-                        <h4>
-                            {record.correlation_type === FunnelCorrelationType.Success ? (
-                                <RiseOutlined style={{ color: 'green' }} />
-                            ) : (
-                                <FallOutlined style={{ color: 'red' }} />
-                            )}{' '}
-                            {record.event}
-                        </h4>
-                        <div>
-                            People who converted were{' '}
-                            <mark>
-                                <b>
-                                    {record.odds_ratio}x{' '}
-                                    {record.correlation_type === FunnelCorrelationType.Success ? 'more' : 'less'} likely
-                                </b>
-                            </mark>{' '}
-                            to do this event
-                        </div>
-                    </>
-                )}
+                render={(_, record: FunnelCorrelation) => {
+                    const get_friendly_numeric_value = (value: number): string => {
+                        if (value < 10 && !Number.isInteger(value)) {return value.toFixed(1)}
+
+                        return value.toFixed()
+                    }
+                    const is_success = record.correlation_type === FunnelCorrelationType.Success
+
+                    return (
+                        <>
+                            <h4>
+                                {is_success ? (
+                                    <RiseOutlined style={{ color: 'green' }} />
+                                ) : (
+                                    <FallOutlined style={{ color: 'red' }} />
+                                )}{' '}
+                                {record.event}
+                            </h4>
+                            <div>
+                                People who converted were{' '}
+                                <mark>
+                                    <b>
+                                        {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'}{' '}
+                                        likely
+                                    </b>
+                                </mark>{' '}
+                                to do this event
+                            </div>
+                        </>
+                    )
+                }}
                 align="left"
             />
             <Column title="Completed" dataIndex="success_count" width={90} align="center" />
