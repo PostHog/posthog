@@ -18,8 +18,8 @@ from posthog.test.base import BaseTest
 #  9| set_once | yes           | after                      | set         | no
 # 10| set_once | yes           | after                      | set_once    | no
 # 11| set      | yes           | equal                      | set         | no
-# 12| set      | yes           | equal                      | set_once    | yes
-# 13| set_once | yes           | equal                      | set         | no
+# 12| set_once | yes           | equal                      | set         | no
+# 13| set      | yes           | equal                      | set_once    | yes
 # 14| set_once | yes           | equal                      | set_once    | yes
 
 # Refers to migration 0173_should_update_person_props_function
@@ -228,8 +228,8 @@ class TestShouldUpdatePersonProp(BaseTest):
                 f"""
                 SELECT 
                     should_update_person_prop({person.id}, 'a', '{timestamp}', 'set_once'),
-                    should_update_person_prop({person.id}, 'b', '{timestamp}', 'set_once'),
                     should_update_person_prop({person.id}, 'a', '{timestamp}', 'set'),
+                    should_update_person_prop({person.id}, 'b', '{timestamp}', 'set_once'),
                     should_update_person_prop({person.id}, 'b', '{timestamp}', 'set')
             """
             )
@@ -237,6 +237,6 @@ class TestShouldUpdatePersonProp(BaseTest):
             results = cursor.fetchall()[0]
 
             self.assertEqual(results[0], False)
-            self.assertEqual(results[1], True)
-            self.assertEqual(results[2], False)
+            self.assertEqual(results[1], False)
+            self.assertEqual(results[2], True)
             self.assertEqual(results[3], True)
