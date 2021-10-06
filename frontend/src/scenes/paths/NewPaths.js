@@ -216,10 +216,13 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                 if (data?.source?.targetLinks.length === 0) {
                     return
                 }
-                let node = data.source
-                while (node.targetLinks.length > 0) {
-                    svg.select(`#path-${node.targetLinks[0].index}`).attr('stroke', 'blue')
-                    node = node.targetLinks[0].source
+                let nodesToColor = [data.source]
+                while (nodesToColor.length > 0) {
+                    let _node = nodesToColor.pop()
+                    _node.targetLinks.forEach((_link) => {
+                        svg.select(`#path-${_link.index}`).attr('stroke', 'blue')
+                        nodesToColor.push(_link.source)
+                    })
                 }
             })
             .on('mouseleave', () => {
