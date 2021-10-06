@@ -81,7 +81,9 @@ export function FunnelCorrelationTable({
                 key="eventName"
                 render={(_, record: FunnelCorrelation) => {
                     const get_friendly_numeric_value = (value: number): string => {
-                        if (value < 10 && !Number.isInteger(value)) {return value.toFixed(1)}
+                        if (value < 10 && !Number.isInteger(value)) {
+                            return value.toFixed(1)
+                        }
 
                         return value.toFixed()
                     }
