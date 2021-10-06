@@ -28,7 +28,7 @@ class FunnelCorrelationTest(BaseTest):
         response = get_funnel_correlation(
             client=self.client,
             team_id=self.team.pk,
-            request=FunnelCorrelationRequest(funnel_step=1, date_to="2020-04-04", events=json.dumps([])),
+            request=FunnelCorrelationRequest(date_to="2020-04-04", events=json.dumps([])),
         )
         assert response.status_code == 401
 
@@ -42,15 +42,34 @@ class FunnelCorrelationTest(BaseTest):
             # Person 2 - a signup event and a view insights event
             #
             # Both of them have a "watched video" event
+            #
+            # We then create Person 3, one successful, the other
+            # not. Both have not watched the video.
+            #
+            # So our contingency table for "watched video" should be
+            #
+            # |                  | success  | failure  | total    |
+            # | ---------------- | -------- | -------- | -------- |
+            # | watched          | 1        | 1        | 2        |
+            # | did not watched  | 1        | 0        | 1        |
+            # | total            | 2        | 1        | 3        |
+            #
 
             events = {
                 "Person 1": [
+                    #  Failure / watched
                     {"event": "signup", "timestamp": datetime(2020, 1, 1)},
                     {"event": "watched video", "timestamp": datetime(2020, 1, 2)},
                 ],
                 "Person 2": [
+                    #  Success / watched
                     {"event": "signup", "timestamp": datetime(2020, 1, 1)},
                     {"event": "watched video", "timestamp": datetime(2020, 1, 2)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+                "Person 3": [
+                    # Success / did not watched
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
                     {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
                 ],
             }
@@ -66,7 +85,6 @@ class FunnelCorrelationTest(BaseTest):
                 team_id=self.team.pk,
                 request=FunnelCorrelationRequest(
                     events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
-                    funnel_step=2,
                     date_to="2020-04-04",
                 ),
             )
@@ -77,17 +95,10 @@ class FunnelCorrelationTest(BaseTest):
             "result": {
                 "events": [
                     {
-                        "correlation_type": "failure",
-                        "event": "signup",
-                        "failure_count": 1,
-                        "odds_ratio": 1.0,
-                        "success_count": 1,
-                    },
-                    {
                         "event": "watched video",
                         "success_count": 1,
                         "failure_count": 1,
-                        "odds_ratio": 1.0,
+                        "odds_ratio": 0.5,
                         "correlation_type": "failure",
                     },
                 ]
@@ -132,7 +143,6 @@ class FunnelCorrelationTest(BaseTest):
                 team_id=self.team.pk,
                 request=FunnelCorrelationRequest(
                     events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
-                    funnel_step=2,
                     date_to="2020-04-04",
                 ),
             )
@@ -148,7 +158,6 @@ class FunnelCorrelationTest(BaseTest):
                 team_id=self.team.pk,
                 request=FunnelCorrelationRequest(
                     events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
-                    funnel_step=2,
                     date_to="2020-04-04",
                 ),
             )
@@ -190,7 +199,6 @@ class FunnelCorrelationTest(BaseTest):
                 team_id=self.team.pk,
                 request=FunnelCorrelationRequest(
                     events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
-                    funnel_step=2,
                     date_to="2020-04-04",
                 ),
             )
@@ -198,17 +206,44 @@ class FunnelCorrelationTest(BaseTest):
         assert odds == {
             "is_cached": False,
             "last_refresh": "2020-01-01T00:00:00Z",
-            "result": {
-                "events": [
-                    {
-                        "correlation_type": "failure",
-                        "event": "signup",
-                        "failure_count": 1,
-                        "odds_ratio": 1.0,
-                        "success_count": 1,
-                    },
-                ]
-            },
+            "result": {"events": []},
+        }
+
+    def test_event_correlation_endpoint_does_not_funnel_steps(self):
+        with freeze_time("2020-01-01"):
+            self.client.force_login(self.user)
+
+            # Add Person1 with only the funnel steps involved
+
+            events = {
+                "Person 1": [
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "some waypoint", "timestamp": datetime(2020, 1, 2)},
+                    {"event": "", "timestamp": datetime(2020, 1, 3)},
+                ],
+            }
+
+            create_events(events_by_person=events, team=self.team)
+
+            # We need to make sure we clear the cache other tests that have run
+            # done interfere with this test
+            cache.clear()
+
+            odds = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps(
+                        [EventPattern(id="signup"), EventPattern(id="some waypoint"), EventPattern(id="view insights")]
+                    ),
+                    date_to="2020-04-04",
+                ),
+            )
+
+        assert odds == {
+            "is_cached": False,
+            "last_refresh": "2020-01-01T00:00:00Z",
+            "result": {"events": []},
         }
 
 

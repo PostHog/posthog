@@ -151,49 +151,107 @@ class FunnelCorrelation:
         query = f"""
             WITH 
                 funnel_people AS ({funnel_persons_query}),
+                non_deleted_distinct_ids AS (
+                    SELECT distinct_id,
+                        argMax(person_id, _timestamp) as person_id
+                    FROM (
+                        SELECT distinct_id,
+                                person_id,
+                                max(_timestamp) as _timestamp
+                            FROM person_distinct_id
+                            WHERE team_id = {self._team.pk}
+                            GROUP BY person_id,
+                                    distinct_id,
+                                    team_id
+                        HAVING max(is_deleted) = 0
+                    )
+                    GROUP BY distinct_id
+                ),
                 toDateTime(%(date_to)s) AS date_to,
                 toDateTime(%(date_from)s) AS date_from,
-                %(target_step)s AS target_step
+                %(target_step)s AS target_step,
+                %(funnel_step_names)s as funnel_step_names
+
             SELECT 
                 event.event AS name, 
 
-                -- If we have a timestamp, we know the person reached the end of the
-                -- funnel (I think)
-                countIf(person.steps = target_step) AS success_count,
+                -- If we have a `person.steps = target_step`, we know the person 
+                -- reached the end of the funnel (I think)
+                countDistinctIf(
+                    person.person_id, 
+                    person.steps = target_step
+                ) AS success_count,
 
                 -- And the converse being for failures
-                countIf(person.steps <> target_step) AS failure_count
+                countDistinctIf(
+                    person.person_id, 
+                    person.steps <> target_step
+                ) AS failure_count
+
             FROM events AS event
             
-            JOIN person_distinct_id AS pdi
+            JOIN non_deleted_distinct_ids AS pdi
                 ON pdi.distinct_id = events.distinct_id AND pdi.team_id = event.team_id
 
-            -- Right join, so we can get the total success/failure numbers as well
-            RIGHT JOIN funnel_people AS person
+            -- NOTE: I would love to right join here, so we count get total
+            -- success/failure numbers in one pass, but this causes out of memory
+            -- error mentioning issues with right filling. I'm sure there's a way
+            -- to do it but lifes too short.
+            JOIN funnel_people AS person
                 ON pdi.person_id = person.person_id
 
             -- Make sure we're only looking at events before the final step, or
             -- failing that, date_to
             WHERE 
+                -- add this condition in to ensure we can filter events before 
+                -- joining funnel_people
                 event.timestamp >= date_from
-                AND event.timestamp > person.first_timestamp
                 AND event.timestamp < date_to
-                AND event.timestamp < COALESCE(person.timestamp, date_to)
+
+                -- Add in per person filtering on event time range. We just want
+                -- to include events that happened within the bounds of the 
+                -- persons time in the funnel.
+                AND event.timestamp > person.first_timestamp
+                AND event.timestamp < COALESCE(person.final_timestamp, date_to)
+
+                -- Exclude funnel steps
+                AND event.event NOT IN funnel_step_names
             GROUP BY name
-            WITH TOTALS
+            
+            -- To get the total success/failure numbers, we do an aggregation on 
+            -- the funnel people CTE and count distinct person_ids
+            UNION ALL
+
+            SELECT 
+                -- Use null as a special marker for the WITH TOTALS equivelant.
+                -- We're not using WITH TOTALS because the resulting queries are
+                -- not runnable in Metabase
+                NULL as name, 
+
+                countDistinctIf(
+                    person.person_id, 
+                    person.steps = target_step
+                ) AS success_count,
+
+                countDistinctIf(
+                    person.person_id,
+                    person.steps <> target_step
+                ) AS failure_count
+            FROM funnel_people AS person
         """
         params = {
             **funnel_persons_params,
-            "date_to": self._filter.date_to,
+            "funnel_step_names": [entity.id for entity in self._filter.entities],
             "target_step": len(self._filter.entities),
         }
-        results_then_total = sync_execute(query, params)
+        results_with_total = sync_execute(query, params)
 
         # Make typechecking happy. It should never be anything other than a list
-        assert isinstance(results_then_total, list)
+        assert isinstance(results_with_total, list)
 
-        # The last entry will give us the total funnel failures and successes
-        results, (_, success_total, failure_total) = results_then_total[:-1], results_then_total[-1]
+        # Get the total success/failure counts from the results
+        results = [result for result in results_with_total if result[0]]
+        _, success_total, failure_total = [result for result in results_with_total if not result[0]][0]
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
