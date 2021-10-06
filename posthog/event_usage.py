@@ -130,3 +130,31 @@ def report_bulk_invited(
             "email_available": email_available,
         },
     )
+
+
+def report_org_usage(
+    distinct_id: str,
+    date_from: str,
+    date_to: str,
+    event_count: int,
+    event_count_month_to_date: int,
+    license_keys: List[str] = [],
+) -> None:
+    """
+    Triggered daily by Celery scheduler.
+    """
+    posthoganalytics.capture(
+        distinct_id,
+        "organization event usage report",
+        properties={
+            "date_from": date_from,
+            "date_to": date_to,
+            "event_count": event_count,
+            "event_count_month_to_date": event_count_month_to_date,
+            "license_keys": license_keys,
+        },
+    )
+
+
+def report_org_usage_failure(distinct_id: str, err: str) -> None:
+    posthoganalytics.capture(distinct_id, "organization event usage report failure", properties={"error": err,})

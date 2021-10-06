@@ -91,6 +91,25 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
     return (period_start, period_end)
 
 
+def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+    """
+    Returns a pair of datetimes, representing the start and end of the preceding day.
+    """
+
+    if not at:
+        at = timezone.now()
+
+    period_end: datetime.datetime = datetime.datetime.combine(
+        at - datetime.timedelta(days=1), datetime.time.max, tzinfo=pytz.UTC,
+    )  # very end of the previous day
+
+    period_start: datetime.datetime = datetime.datetime.combine(
+        period_end, datetime.time.min, tzinfo=pytz.UTC,
+    )  # very start of the previous day
+
+    return (period_start, period_end)
+
+
 def relative_date_parse(input: str) -> datetime.datetime:
     try:
         return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
