@@ -1,19 +1,28 @@
 from datetime import timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 from django.db import connection
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 from django.db.models.expressions import ExpressionWrapper
 from django.db.models.fields import BooleanField
+from django.db.models.query import QuerySet
 
 from posthog.models import Event, Team
+from posthog.models.event import EventManager
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
 from posthog.models.utils import namedtuplefetchall, sane_repr
-from posthog.queries.base import BaseQuery, entity_to_Q
+from posthog.queries.base import entity_to_Q
 
 
-class SessionRecordingList(BaseQuery):
+class EventsQueryWithAggregateClausesSQL(NamedTuple):
+    event_query: str
+    event_params: Dict[str, Any]
+    aggregate_select_clause: str
+    aggregate_where_clause: str
+
+
+class SessionRecordingList:
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
     _filter: SessionRecordingsFilter
     _team: Team
@@ -95,7 +104,7 @@ class SessionRecordingList(BaseQuery):
 
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
-    def _get_events_timestamp_clause(self):
+    def _get_events_timestamp_clause(self) -> Tuple[Dict[str, Any], str]:
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
@@ -106,7 +115,7 @@ class SessionRecordingList(BaseQuery):
             timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
         return timestamp_params, timestamp_clause
 
-    def _get_recording_start_time_clause(self):
+    def _get_recording_start_time_clause(self) -> Tuple[Dict[str, Any], str]:
         start_time_clause = ""
         start_time_params = {}
         if self._filter.date_from:
@@ -117,7 +126,7 @@ class SessionRecordingList(BaseQuery):
             start_time_params["end_time"] = self._filter.date_to
         return start_time_params, start_time_clause
 
-    def _get_distinct_id_clause(self):
+    def _get_distinct_id_clause(self) -> Tuple[Dict[str, Any], str]:
         distinct_id_clause = ""
         distinct_id_params = {}
         if self._filter.person_uuid:
@@ -128,7 +137,7 @@ class SessionRecordingList(BaseQuery):
             distinct_id_params = {"person_id": person.pk}
         return distinct_id_params, distinct_id_clause
 
-    def _get_duration_clause(self):
+    def _get_duration_clause(self) -> Tuple[Dict[str, Any], str]:
         duration_clause = ""
         duration_params = {}
         if self._filter.recording_duration_filter:
@@ -142,8 +151,10 @@ class SessionRecordingList(BaseQuery):
             }
         return duration_params, duration_clause
 
-    def _get_events_query(self) -> QuerySet:
-        events = Event.objects.filter(team=self._team).order_by("-timestamp").only("distinct_id", "timestamp")
+    def _get_events_query(self) -> Tuple[str, list]:
+        events: Union[EventManager, QuerySet] = Event.objects.filter(team=self._team).order_by("-timestamp").only(
+            "distinct_id", "timestamp"
+        )
         if self._filter.date_from:
             events = events.filter(timestamp__gte=self._filter.date_from - timedelta(hours=12))
         if self._filter.date_to:
@@ -171,7 +182,7 @@ class SessionRecordingList(BaseQuery):
 
         return event_query, keys
 
-    def _get_events_query_with_aggregate_clauses(self):
+    def _get_events_query_with_aggregate_clauses(self) -> EventsQueryWithAggregateClausesSQL:
         event_query, keys = self._get_events_query()
         aggregate_select_clause = ""
         aggregate_having_conditions = []
@@ -182,9 +193,9 @@ class SessionRecordingList(BaseQuery):
 
         aggregate_where_clause = f"WHERE {' AND '.join(aggregate_having_conditions)}"
 
-        return (event_query, {}, aggregate_select_clause, aggregate_where_clause)
+        return EventsQueryWithAggregateClausesSQL(event_query, {}, aggregate_select_clause, aggregate_where_clause)
 
-    def _build_query(self) -> Tuple[str, Dict]:
+    def _build_query(self) -> Tuple[str, Dict[str, Any]]:
         # One more is added to the limit to check if there are more results available
         limit = self._get_limit() + 1
         offset = self._filter.offset or 0
@@ -235,7 +246,7 @@ class SessionRecordingList(BaseQuery):
     def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
         return [row._asdict() for row in results]
 
-    def _paginate_results(self, results):
+    def _paginate_results(self, results) -> Tuple[Dict[str, Any], bool]:
         limit = self._get_limit()
         more_recordings_available = False
         if len(results) > limit:
@@ -243,7 +254,7 @@ class SessionRecordingList(BaseQuery):
             results = results[0:limit]
         return (results, more_recordings_available)
 
-    def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, *args, **kwargs) -> Tuple[Dict[str, Any], bool]:
         with connection.cursor() as cursor:
             query, query_params = self._build_query()
             cursor.execute(query, query_params)

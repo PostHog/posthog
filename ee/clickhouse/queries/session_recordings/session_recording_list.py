@@ -1,5 +1,4 @@
-from collections import namedtuple
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, NamedTuple, Tuple
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.action import format_entity_filter
@@ -8,12 +7,18 @@ from ee.clickhouse.models.property import parse_prop_clauses
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from posthog.models.entity import Entity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
-
-EventFiltersSQL = namedtuple(
-    "EventFiltersSQL",
-    ["event_select_clause", "event_where_clause", "aggregate_select_clause", "aggregate_where_clause", "params"],
+from posthog.queries.session_recordings.session_recording_list import (
+    EventsQueryWithAggregateClausesSQL,
+    SessionRecordingList,
 )
+
+
+class EventFiltersSQL(NamedTuple):
+    event_select_clause: str
+    event_where_clause: str
+    aggregate_select_clause: str
+    aggregate_where_clause: str
+    params: Dict[str, Any]
 
 
 class ClickhouseSessionRecordingList(SessionRecordingList):
@@ -36,8 +41,9 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             {event_filter_event_where_clause}
     """
 
-    def _get_entity_clause(self):
-        entity_params, entity_clause = {}, ""
+    def _get_entity_clause(self) -> Tuple[Dict[str, Any], str]:
+        entity_clause = ""
+        entity_params: Dict[str, Any] = {}
         if self._has_entity_filters():
             entity = self._filter.entities[0]
             entity_params, entity_content_sql_params = get_entity_filtering_params(
@@ -50,7 +56,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             entity_clause = entity_content_sql_params.get("entity_query", "")
         return entity_params, entity_clause
 
-    def _get_distinct_id_clause(self):
+    def _get_distinct_id_clause(self) -> Tuple[Dict[str, Any], str]:
         distinct_id_clause = ""
         distinct_id_params = {}
         if self._filter.person_uuid:
@@ -60,7 +66,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             distinct_id_params = {"person_uuid": self._filter.person_uuid}
         return distinct_id_params, distinct_id_clause
 
-    def _get_events_query_with_aggregate_clauses(self):
+    def _get_events_query_with_aggregate_clauses(self) -> EventsQueryWithAggregateClausesSQL:
         event_filters = format_event_filters(self._filter)
         events_timestamp_params, events_timestamp_clause = self._get_events_timestamp_clause()
         event_query = self._event_query.format(
@@ -69,13 +75,10 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
             event_filter_event_where_clause=event_filters.event_where_clause,
         )
 
-        params = {"team_id": self._team.pk, **events_timestamp_params, **event_filters.params}
+        params: Dict[str, Any] = {"team_id": self._team.pk, **events_timestamp_params, **event_filters.params}
 
-        return (
-            event_query,
-            params,
-            event_filters.aggregate_select_clause,
-            event_filters.aggregate_where_clause,
+        return EventsQueryWithAggregateClausesSQL(
+            event_query, params, event_filters.aggregate_select_clause, event_filters.aggregate_where_clause,
         )
 
     def _build_query(self) -> Tuple[str, Dict]:
@@ -87,7 +90,7 @@ class ClickhouseSessionRecordingList(SessionRecordingList):
     def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
         return [dict(zip(["session_id", "start_time", "end_time", "duration", "distinct_id"], row)) for row in results]
 
-    def run(self, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, *args, **kwargs) -> Tuple[Dict[str, Any], bool]:
         query, query_params = self._build_query()
         results = sync_execute(query, query_params)
         results = self.data_to_return(results)
