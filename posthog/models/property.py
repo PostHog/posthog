@@ -66,7 +66,7 @@ class Property:
         from .cohort import CohortPeople
 
         value = self._parse_value(self.value)
-        if self.key == "distinct_id" and table == "events":
+        if self.key == "distinct_id" and self.type == "event":
             # Special case, we still want to be able to filter on distinct_id even if it wasn't set in the properties
             key = "distinct_id"
         else:
