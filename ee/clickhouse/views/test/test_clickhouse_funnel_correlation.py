@@ -11,7 +11,7 @@ from freezegun import freeze_time
 from ee.clickhouse.models.event import create_event
 from posthog.models.person import Person
 from posthog.test.base import BaseTest
-from posthog.utils import is_clickhouse_enabled
+from posthog.models.team import Team
 
 
 @pytest.mark.clickhouse_only
@@ -48,27 +48,61 @@ class FunnelCorrelationTest(BaseTest):
                 team=self.team, distinct_id="Person 1", event="signup", timestamp=datetime(2020, 1, 1), properties={},
             )
 
-            _create_event(
-                team=self.team,
-                distinct_id="Person 1",
-                event="watched video",
-                timestamp=datetime(2020, 1, 2),
-                properties={},
+
+    def test_event_correlation_is_partitioned_by_team(self):
+        """
+        Ensure there's no crosstalk between teams
+
+        We check this by:
+
+         1. loading events into team 1
+         2. checking correlation for team 1
+         3. loading events into team 2
+         4. checking correlation for team 1 again, they should be the same
+
+        """
+        with freeze_time("2020-01-01"):
+            self.client.force_login(self.user)
+
+            events = {
+                "Person 1": [
+                    {"event": "watched video", "timestamp": datetime(2019, 1, 2)},
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                ],
+                "Person 2": [
+                    {"event": "watched video", "timestamp": datetime(2019, 1, 2)},
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
+            }
+
+            create_events(events_by_person=events, team=self.team)
+
+            odds_before = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
+                    funnel_step=2,
+                    date_to="2020-04-04",
+                ),
             )
 
-            create_person(distinct_ids=["Person 2"], team=self.team)
+            other_team = create_team(organization=self.organization)
+            create_events(events_by_person=events, team=other_team)
 
-            _create_event(
-                team=self.team, distinct_id="Person 2", event="signup", timestamp=datetime(2020, 1, 1), properties={},
+            odds_after = get_funnel_correlation_ok(
+                client=self.client,
+                team_id=self.team.pk,
+                request=FunnelCorrelationRequest(
+                    events=json.dumps([EventPattern(id="signup"), EventPattern(id="view insights")]),
+                    funnel_step=2,
+                    date_to="2020-04-04",
+                ),
             )
 
-            _create_event(
-                team=self.team,
-                distinct_id="Person 2",
-                event="watched video",
-                timestamp=datetime(2020, 1, 2),
-                properties={},
-            )
+            assert odds_before == odds_after
+
 
             _create_event(
                 team=self.team,
@@ -111,6 +145,26 @@ class FunnelCorrelationTest(BaseTest):
                 ]
             },
         }
+
+
+def create_team(organization):
+    return Team.objects.create(name="Test Team", organization=organization)
+
+
+def create_events(events_by_person, team: Team):
+    """
+    Helper for creating specific events for a team.
+    """
+    for distinct_id, events in events_by_person.items():
+        create_person(distinct_ids=[distinct_id], team=team)
+        for event in events:
+            _create_event(
+                team=team,
+                distinct_id=distinct_id,
+                event=event["event"],
+                timestamp=event["timestamp"],
+                properties=event.get("properties", {}),
+            )
 
 
 class EventPattern(TypedDict):
