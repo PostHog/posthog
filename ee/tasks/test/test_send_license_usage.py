@@ -50,7 +50,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
                 "date_from": "2021-10-09",
                 "date_to": "2021-10-10",
                 "events_count": 3,
-                "license_key": "enterprise",
+                "license_keys": ["enterprise"],
             },
         )
 
