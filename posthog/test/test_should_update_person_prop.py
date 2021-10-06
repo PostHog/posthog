@@ -21,6 +21,56 @@ from posthog.test.base import BaseTest
 # Refers to migration 0173_should_update_person_props_function
 # This is a Postgres function we use in the plugin server
 class TestShouldUpdatePersonProp(BaseTest):
+    def test_update_without_properties_last_updated_at(self):
+        person = Person.objects.create(
+            team=self.team,
+            properties={"a": 0, "b": 0},
+            properties_last_updated_at={},
+            properties_last_operation={"a": "set", "b": "set_once"},
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT 
+                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set'),
+                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set_once')
+            """
+            )
+
+            result = cursor.fetchall()
+            set_op_result = result[0][0]
+            set_once_op_result = result[0][1]
+
+            self.assertEqual(set_op_result, True)
+            self.assertEqual(set_once_op_result, True)
+
+    def test_update_without_properties_last_operation(self):
+        person = Person.objects.create(
+            team=self.team,
+            properties={"a": 0, "b": 0},
+            properties_last_updated_at={
+                "a": datetime(2050, 1, 1, 1, 1, 1).isoformat(),
+                "b": datetime(2050, 1, 1, 1, 1, 1).isoformat(),
+            },
+            properties_last_operation={},
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT 
+                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set'),
+                    should_update_person_prop({person.id}, 'non-existent prop', now()::text, 'set_once')
+            """
+            )
+
+            result = cursor.fetchall()
+            set_op_result = result[0][0]
+            set_once_op_result = result[0][1]
+
+            self.assertEqual(set_op_result, True)
+            self.assertEqual(set_once_op_result, True)
 
     # tests cases 1 and 2 from the table
     def test_update_non_existent_prop(self):

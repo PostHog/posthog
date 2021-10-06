@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
                 SELECT 
                     properties->prop_key IS NOT NULL as property_exists, 
                     _timestamp > COALESCE(properties_last_updated_at ->> prop_key, '0') as is_timestamp_newer, 
-                    COALESCE(properties_last_operation ->> prop_key, '') as last_operation 
+                    COALESCE(properties_last_operation ->> prop_key, 'set') as last_operation 
                     FROM posthog_person
                     WHERE id=person_id
             ) as person_props
