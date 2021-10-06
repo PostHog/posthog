@@ -135,7 +135,6 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             .selectAll('rect')
             .data(nodes)
             .join('rect')
-            .attr('id', (d) => `path-anchor-${d.index}`)
             .attr('x', (d) => d.x0 + 1)
             .attr('y', (d) => d.y0)
             .attr('height', (d) => d.y1 - d.y0)
@@ -222,12 +221,6 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                     svg.select(`#path-${node.targetLinks[0].index}`).attr('stroke', 'blue')
                     node = node.targetLinks[0].source
                 }
-                let endNode = data.source
-                while (endNode.sourceLinks.length > 0) {
-                    endNode = endNode.sourceLinks[0].target
-                }
-                svg.select(`#path-anchor-${node.index}`).attr('fill', 'purple')
-                svg.select(`#path-anchor-${endNode.index}`).attr('fill', 'purple')
             })
             .on('mouseleave', () => {
                 svg.selectAll('path').attr('stroke', 'var(--primary)')
