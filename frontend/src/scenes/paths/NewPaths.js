@@ -86,11 +86,11 @@ function NoData() {
 }
 
 const DEFAULT_PATHS_ID = 'default_paths'
+const HIDE_PATH_CARD_HEIGHT = 100
 
 export function NewPaths({ dashboardItemId = null, filters = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
-    const hidePathCardHeight = 30
     const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
     const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(
         pathsLogic({ dashboardItemId, filters })
@@ -129,7 +129,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             .size([width, height])
 
         const { nodes, links } = sankey(paths)
-        setPathItemCards(nodes.map((node) => ({ ...node, visible: node.y1 - node.y0 > hidePathCardHeight })))
+        setPathItemCards(nodes.map((node) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
 
         svg.append('g')
             .selectAll('rect')
@@ -166,14 +166,14 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                 return startNodeColor
             })
             .on('mouseover', (data) => {
-                if (data.y1 - data.y0 > hidePathCardHeight) {
+                if (data.y1 - data.y0 > HIDE_PATH_CARD_HEIGHT) {
                     return
                 }
                 setPathItemCards(
                     nodes.map((node) =>
                         node.index === data.index
                             ? { ...node, visible: true }
-                            : { ...node, visible: node.y1 - node.y0 > hidePathCardHeight }
+                            : { ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT }
                     )
                 )
             })
@@ -426,6 +426,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                 border: '1px solid var(--border)',
                                                 padding: 4,
                                                 justifyContent: 'space-between',
+                                                alignItems: 'center',
                                                 display: `${pathItemCard.visible ? 'flex' : 'none'}`,
                                             }}
                                         >
