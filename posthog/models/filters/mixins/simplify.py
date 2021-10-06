@@ -9,7 +9,7 @@ T = TypeVar("T")
 
 
 class SimplifyFilterMixin:
-    def simplify(self: T, team: "Team") -> T:
+    def simplify(self: T, team: "Team", **kwargs) -> T:
         """
         Expands this filter to not refer to external resources of the team.
 
@@ -30,7 +30,7 @@ class SimplifyFilterMixin:
 
         simplified_properties = []
         for prop in result.properties:
-            simplified_properties.extend(self.simplify_property(team, prop))
+            simplified_properties.extend(self.simplify_property(team, prop, **kwargs))
 
         return result.with_data({"properties": simplified_properties, "is_simplified": True,})
 
@@ -41,8 +41,11 @@ class SimplifyFilterMixin:
             from ee.clickhouse.models.cohort import simplified_cohort_filter_properties
             from posthog.models import Cohort
 
-            # :TODO: Handle cohort not existing
-            cohort = Cohort.objects.get(pk=property.value, team_id=team.pk)
+            try:
+                cohort = Cohort.objects.get(pk=property.value, team_id=team.pk)
+            except Cohort.DoesNotExist:
+                # :TODO: Handle non-existing resource in-query instead
+                return [property]
 
             return simplified_cohort_filter_properties(cohort, team)
 
