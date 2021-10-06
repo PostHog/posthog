@@ -157,7 +157,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                         }
                     }
                 }
-                if (isPathStartOrEnd(d)) {
+                if (isSelectedPathStartOrEnd(d)) {
                     return d3.color('purple')
                 }
                 const startNodeColor = d3.color(c)
@@ -264,7 +264,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
         return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
     }
 
-    const isPathStartOrEnd = (pathItemCard) => {
+    const isSelectedPathStartOrEnd = (pathItemCard) => {
         const cardName = pageUrl(pathItemCard)
         return (
             (filter.start_point === cardName && pathItemCard.targetLinks.length === 0) ||
@@ -433,7 +433,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                 background: 'white',
                                                 width: 200,
                                                 border: `1px solid ${
-                                                    isPathStartOrEnd(pathItemCard) ? 'purple' : 'var(--border)'
+                                                    isSelectedPathStartOrEnd(pathItemCard) ? 'purple' : 'var(--border)'
                                                 }`,
                                                 padding: 4,
                                                 justifyContent: 'space-between',
