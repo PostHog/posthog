@@ -62,11 +62,11 @@ class Property:
         except (json.JSONDecodeError, TypeError):
             return value
 
-    def property_to_Q(self) -> Q:
+    def property_to_Q(self, table: Optional[TableWithProperties]) -> Q:
         from .cohort import CohortPeople
 
         value = self._parse_value(self.value)
-        if self.key == "distinct_id":
+        if self.key == "distinct_id" and table == "events":
             # Special case, we still want to be able to filter on distinct_id even if it wasn't set in the properties
             key = "distinct_id"
         else:

@@ -151,7 +151,7 @@ def properties_to_Q(
         filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id"),).only("pk")))
 
     for property in [prop for prop in properties if prop.type == "event"]:
-        filters &= property.property_to_Q()
+        filters &= property.property_to_Q(table="events")
 
     # importing from .event and .cohort below to avoid importing from partially initialized modules
 
