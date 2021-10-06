@@ -12,6 +12,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             """
+        -- not-null-ignore
         CREATE OR REPLACE FUNCTION should_update_person_prop(
             in person_id int, 
             in prop_key text, 
