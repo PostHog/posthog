@@ -100,7 +100,7 @@ class TestLoadDataFromRequest(TestCase):
             load_data_from_request(post_request)
 
         push_scope.assert_called_once()
-        mock_set_tag.assert_called_once_with(origin)
+        mock_set_tag.assert_called_once_with("origin", origin)
 
     def test_fails_to_JSON_parse_the_literal_string_undefined_when_not_compressed(self):
         """
