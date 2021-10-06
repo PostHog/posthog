@@ -3,13 +3,15 @@ import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { Button, Card, Table, Typography } from 'antd'
+import { Button, Card, DatePicker, Row, Space, Table, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { useIsTableScrolling } from 'lib/components/Table/utils'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
+import moment from 'moment'
+import { DurationFilter } from './DurationFilter'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -25,10 +27,19 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         filters,
         hasNext,
         hasPrev,
+        fromDate,
+        toDate,
+        durationFilter,
     } = useValues(sessionRecordingsTableLogicInstance)
-    const { openSessionPlayer, closeSessionPlayer, setFilters, loadNext, loadPrev } = useActions(
-        sessionRecordingsTableLogicInstance
-    )
+    const {
+        openSessionPlayer,
+        closeSessionPlayer,
+        setFilters,
+        loadNext,
+        loadPrev,
+        setDateRange,
+        setDurationFilter,
+    } = useActions(sessionRecordingsTableLogicInstance)
     const { tableScrollX } = useIsTableScrolling('lg')
 
     const columns = [
@@ -77,19 +88,17 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
             span: 2,
         },
     ]
-
     return (
         <div className="events" data-attr="events-table">
             <Card>
-                <div style={{ marginBottom: 16, alignItems: 'center' }}>
+                <div style={{ marginBottom: 16 }}>
                     <Typography.Text strong>Filter by events or actions:</Typography.Text>
                     <ActionFilter
                         filters={filters}
                         setFilters={(payload) => {
-                            console.log('p', payload)
                             setFilters(payload)
                         }}
-                        typeKey={'session-recordings'}
+                        typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
                         hideMathSelector={true}
                         buttonCopy="Add event or action filter"
                         horizontalUI
@@ -98,8 +107,32 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         showOr
                     />
                 </div>
+                <Row style={{ justifyContent: 'flex-end', marginBottom: 16 }}>
+                    <Space>
+                        <DurationFilter
+                            onChange={(newFilter) => {
+                                setDurationFilter(newFilter)
+                            }}
+                            filterValue={durationFilter}
+                        />
+                        <DatePicker.RangePicker
+                            ranges={{
+                                'Last 7 Days': [moment().subtract(7, 'd'), null],
+                                'Last 30 Days': [moment().subtract(30, 'd'), null],
+                                'Last 90 Days': [moment().subtract(90, 'd'), null],
+                            }}
+                            onChange={(_, dateStrings) => {
+                                setDateRange(dateStrings[0], dateStrings[1])
+                            }}
+                            value={[fromDate ? moment(fromDate) : null, toDate ? moment(toDate) : null]}
+                            allowEmpty={[true, true]}
+                        />
+                    </Space>
+                </Row>
                 <Table
-                    rowKey="id"
+                    rowKey={(row) => {
+                        return `${row.id}-${row.distinct_id}`
+                    }}
                     dataSource={sessionRecordings}
                     columns={columns}
                     loading={sessionRecordings.length === 0 && sessionRecordingsResponseLoading}
@@ -139,7 +172,6 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                     </div>
                 )}
             </Card>
-            <div style={{ marginTop: '5rem' }} />
             {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} onClose={closeSessionPlayer} />}
         </div>
     )

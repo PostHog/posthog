@@ -1,9 +1,10 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { EntityTypes, FilterType, SessionRecordingType } from '~/types'
+import { EntityTypes, FilterType, PropertyOperator, RecordingDurationFilter, SessionRecordingType } from '~/types'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
+import dayjs from 'dayjs'
 
 type SessionRecordingId = string
 interface Params {
@@ -32,6 +33,11 @@ export const sessionRecordingsTableLogic = kea<
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         loadNext: true,
         loadPrev: true,
+        setDateRange: (incomingFromDate: string | null, incomingToDate: string | null) => ({
+            incomingFromDate,
+            incomingToDate,
+        }),
+        setDurationFilter: (durationFilter: RecordingDurationFilter) => ({ durationFilter }),
     },
     loaders: ({ props, values }) => ({
         sessionRecordingsResponse: [
@@ -45,8 +51,10 @@ export const sessionRecordingsTableLogic = kea<
                         person_uuid: props.personUUID ?? '',
                         actions: values.filters.actions,
                         events: values.filters.events,
-                        date_from: 'all',
+                        date_from: values.fromDate,
+                        date_to: values.toDate,
                         offset: values.offset,
+                        session_recording_duration: values.durationFilter,
                         limit: LIMIT,
                     })
                     const response = await api.get(`api/projects/@current/session_recordings?${params}`)
@@ -79,6 +87,17 @@ export const sessionRecordingsTableLogic = kea<
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
+        durationFilter: [
+            {
+                type: 'recording',
+                key: 'duration',
+                value: 60,
+                operator: PropertyOperator.GreaterThan,
+            } as RecordingDurationFilter,
+            {
+                setDurationFilter: (_, { durationFilter }) => durationFilter,
+            },
+        ],
         offset: [
             0,
             {
@@ -86,9 +105,27 @@ export const sessionRecordingsTableLogic = kea<
                 loadPrev: (previousOffset) => Math.max(previousOffset - LIMIT),
             },
         ],
+        fromDate: [
+            dayjs().subtract(30, 'days').format('YYYY-MM-DD') as null | string,
+            {
+                setDateRange: (_, { incomingFromDate }) => incomingFromDate,
+            },
+        ],
+        toDate: [
+            null as null | string,
+            {
+                setDateRange: (_, { incomingToDate }) => incomingToDate,
+            },
+        ],
     },
     listeners: ({ actions }) => ({
         setFilters: () => {
+            actions.getSessionRecordings()
+        },
+        setDateRange: () => {
+            actions.getSessionRecordings()
+        },
+        setDurationFilter: () => {
             actions.getSessionRecordings()
         },
         loadNext: () => {
