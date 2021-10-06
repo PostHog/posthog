@@ -176,7 +176,7 @@ class FunnelCorrelation:
                 event.event AS name, 
 
                 -- If we have a `person.steps = target_step`, we know the person 
-                -- reached the end of the funnel (I think)
+                -- reached the end of the funnel
                 countDistinctIf(
                     person.person_id, 
                     person.steps = target_step
