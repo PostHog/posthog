@@ -18,8 +18,7 @@ from posthog.test.base import BaseTest
 @pytest.mark.clickhouse_only
 class FunnelCorrelationTest(BaseTest):
     """
-    TODO: fill in details of request structure. At the moment it's not needed as
-    we just return mock data
+    Tests for /api/projects/:project_id/funnel/correlation/
     """
 
     CLASS_DATA_LEVEL_SETUP = False
@@ -76,10 +75,6 @@ class FunnelCorrelationTest(BaseTest):
 
             create_events(events_by_person=events, team=self.team)
 
-            # We need to make sure we clear the cache other tests that have run
-            # done interfere with this test
-            cache.clear()
-
             odds = get_funnel_correlation_ok(
                 client=self.client,
                 team_id=self.team.pk,
@@ -133,10 +128,6 @@ class FunnelCorrelationTest(BaseTest):
             }
 
             create_events(events_by_person=events, team=self.team)
-
-            # We need to make sure we clear the cache other tests that have run
-            # done interfere with this test
-            cache.clear()
 
             odds_before = get_funnel_correlation_ok(
                 client=self.client,
@@ -245,6 +236,11 @@ class FunnelCorrelationTest(BaseTest):
             "last_refresh": "2020-01-01T00:00:00Z",
             "result": {"events": []},
         }
+
+
+@pytest.fixture(autouse=True)
+def clear_django_cache():
+    cache.clear()
 
 
 def create_team(organization):
