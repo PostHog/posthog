@@ -427,6 +427,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                                     className="text-muted"
                                                     style={{
                                                         fontSize: 10,
+                                                        fontWeight: 600,
                                                         marginRight: 4,
                                                         lineHeight: '10px',
                                                     }}
