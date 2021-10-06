@@ -13,7 +13,7 @@ from ee.clickhouse.models.cohort import (
 )
 from ee.clickhouse.models.util import is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
-from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PROPERTY_SQL
+from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
 from posthog.models.event import Selector
 from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyName, PropertyType
@@ -29,6 +29,7 @@ def parse_prop_clauses(
     allow_denormalized_props: bool = True,
     is_person_query=False,
     person_properties_column: Optional[str] = None,
+    has_person_id_joined: bool = True,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -90,19 +91,17 @@ def parse_prop_clauses(
 
             final.append(f"{filter_query} AND {table_name}team_id = %(team_id)s" if team_id else filter_query)
             params.update(filter_params)
-        elif prop.type == "static-cohort":
+        elif prop.type in ("static-cohort", "precalculated-cohort"):
             cohort_id = cast(int, prop.value)
-            filter_query, filter_params = format_static_cohort_query(
-                cohort_id, idx, prepend=prepend, custom_match_field="person_id"
-            )
-            final.append(f" AND {filter_query}")
-            params.update(filter_params)
-        elif prop.type == "precalculated-cohort":
-            cohort_id = cast(int, prop.value)
-            filter_query, filter_params = format_precalculated_cohort_query(
-                cohort_id, idx, prepend=prepend, custom_match_field="person_id"
-            )
-            final.append(f" AND {filter_query}")
+
+            method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
+            filter_query, filter_params = method(cohort_id, idx, prepend=prepend, custom_match_field="person_id")  # type: ignore
+            if has_person_id_joined:
+                final.append(f" AND {filter_query}")
+            else:
+                # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
+                subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(filters=filter_query)
+                final.append(f"AND {table_name}distinct_id IN ({subquery})")
             params.update(filter_params)
 
     return " ".join(final), params
