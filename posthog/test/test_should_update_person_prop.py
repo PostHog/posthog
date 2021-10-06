@@ -19,8 +19,8 @@ from posthog.test.base import BaseTest
 # 10| set_once | yes           | after                      | set_once    | no
 # 11| set      | yes           | equal                      | set         | no
 # 12| set_once | yes           | equal                      | set         | no
-# 13| set      | yes           | equal                      | set_once    | yes
-# 14| set_once | yes           | equal                      | set_once    | yes
+# 13| set      | yes           | equal                      | set_once    | no
+# 14| set_once | yes           | equal                      | set_once    | no
 
 # Refers to migration 0173_should_update_person_props_function
 # This is a Postgres function we use in the plugin server
@@ -235,5 +235,5 @@ class TestShouldUpdatePersonProp(BaseTest):
 
             self.assertEqual(results[0], False)
             self.assertEqual(results[1], False)
-            self.assertEqual(results[2], True)
-            self.assertEqual(results[3], True)
+            self.assertEqual(results[2], False)
+            self.assertEqual(results[3], False)

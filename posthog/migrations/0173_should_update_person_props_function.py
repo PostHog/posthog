@@ -22,12 +22,12 @@ class Migration(migrations.Migration):
         )
         AS $$ 
             SELECT NOT property_exists OR
-            (operation='set' AND is_timestamp_newer) OR
-            (last_operation='set_once' AND NOT is_timestamp_newer)
+            (operation='set' AND _timestamp > stored_timestamp) OR
+            (last_operation='set_once' AND _timestamp < stored_timestamp)
             FROM (
                 SELECT 
                     properties->prop_key IS NOT NULL as property_exists, 
-                    _timestamp > COALESCE(properties_last_updated_at ->> prop_key, '0') as is_timestamp_newer, 
+                    COALESCE(properties_last_updated_at ->> prop_key, '0') as stored_timestamp,
                     COALESCE(properties_last_operation ->> prop_key, 'set') as last_operation 
                     FROM posthog_person
                     WHERE id=person_id
