@@ -25,7 +25,7 @@ from ee.clickhouse.sql.person import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models import Action, Cohort, Filter, Team
-from posthog.models.property import HasDoneProperty, OrProperty, Property
+from posthog.models.property import Property
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
@@ -294,14 +294,16 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Prop
     group_filters: List[List[Property]] = []
     for group in cohort.groups:
         if group.get("action_id") or group.get("event_id"):
-            group_filters.append([HasDoneProperty(type="has_done", **group)])
+            # :TODO: Support hasdone as separate property type
+            return [Property(type="cohort", key="id", value=cohort.pk)]
         elif group.get("properties"):
             # :TRICKY: This will recursively simplify all the properties
             filter = Filter(data=group, team=team)
             group_filters.append(filter.properties)
 
     if len(group_filters) > 1:
-        return [OrProperty(type="or", groups=group_filters)]
+        # :TODO: Support or properties
+        return [Property(type="cohort", key="id", value=cohort.pk)]
     elif len(group_filters) == 1:
         return group_filters[0]
     else:

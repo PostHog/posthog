@@ -22,7 +22,6 @@ class Property:
     value: ValueT
     type: PropertyType
 
-    # :TODO: Multiple dispatch creating!
     def __init__(
         self,
         key: str,
@@ -90,61 +89,6 @@ class Property:
         else:
             assert not isinstance(value, list)
             return Q(**{f"properties__{self.key}__{self.operator}": value})
-
-
-class HasDoneProperty(Property):
-    """
-    Specialized filter property for "user has done X in time range [operator] N times"
-    """
-
-    type: Literal["hasdone"]
-
-    event_id: Optional[str]
-    action_id: Optional[int]
-    days: Optional[str]
-    start_time: Optional[str]
-    end_time: Optional[str]
-    count: Optional[int]
-    count_operator: Optional[Literal["eq", "lte", "gte"]]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.event_id = kwargs.get("event_id")
-        self.action_id = kwargs.get("action_id")
-        self.days = kwargs.get("days")
-        self.start_time = kwargs.get("start_time")
-        self.end_time = kwargs.get("end_time")
-        self.count = kwargs.get("count")
-        self.count_operator = kwargs.get("count_operator")
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            **super().to_dict(),
-            "event_id": self.event_id,
-            "action_id": self.action_id,
-            "days": self.days,
-            "start_time": self.start_time,
-            "end_time": self.end_time,
-            "count": self.count,
-            "count_operator": self.count_operator,
-        }
-
-
-class OrProperty(Property):
-    """
-    Specialized filter property for either A OR B
-    """
-
-    type: Literal["or"]
-    groups: List[List[Property]]
-
-    def __init__(self, type: Literal["or"], groups: List[List[Property]]):
-        self.type = type
-        self.groups = groups
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {"type": self.type, "groups": self.groups}
 
 
 def lookup_q(key: str, value: Any) -> Q:
