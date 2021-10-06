@@ -216,10 +216,7 @@ class TestShouldUpdatePersonProp(BaseTest):
         person = Person.objects.create(
             team=self.team,
             properties={"a": 0, "b": 0},
-            properties_last_updated_at={
-                "a": timestamp,
-                "b": timestamp,
-            },
+            properties_last_updated_at={"a": timestamp, "b": timestamp,},
             properties_last_operation={"a": "set", "b": "set_once"},
         )
 
