@@ -62,7 +62,7 @@ class Property:
         except (json.JSONDecodeError, TypeError):
             return value
 
-    def property_to_Q(self, table: Optional[TableWithProperties]) -> Q:
+    def property_to_Q(self, table: Optional[TableWithProperties] = None) -> Q:
         from .cohort import CohortPeople
 
         value = self._parse_value(self.value)
