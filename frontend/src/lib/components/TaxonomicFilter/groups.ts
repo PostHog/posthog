@@ -9,7 +9,7 @@ import {
 import { actionsModel } from '~/models/actionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
-type SimpleOption = {
+export type SimpleOption = {
     name: string
 }
 
@@ -92,5 +92,12 @@ export const groups: TaxonomicFilterGroup[] = [
         value: 'customEvents',
         getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
         getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
+    },
+    {
+        name: 'Wildcards',
+        type: TaxonomicFilterGroupType.Wildcards,
+        // Populated via optionsFromProp
+        getName: (option: SimpleOption): string => option.name,
+        getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
     },
 ]

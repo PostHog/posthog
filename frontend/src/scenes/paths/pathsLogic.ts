@@ -269,6 +269,12 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 return Object.keys(result).length === 0 ? '' : result
             },
         ],
+        wildcards: [
+            (s) => [s.filter],
+            (filter: Partial<FilterType>) => {
+                return filter.path_groupings?.map((name) => ({ name }))
+            },
+        ],
     },
     actionToUrl: ({ values, props }) => ({
         setProperties: () => {
