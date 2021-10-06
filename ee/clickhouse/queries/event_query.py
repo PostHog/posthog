@@ -44,7 +44,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         self._team_id = team_id
         self._column_optimizer = ColumnOptimizer(self._filter, self._team_id)
         self._person_query = ClickhousePersonQuery(
-            self._filter, self._team_id, self._column_optimizer, self._extra_person_fields
+            self._filter, self._team_id, self._column_optimizer, extra_person_fields
         )
         self.params: Dict[str, Any] = {
             "team_id": self._team_id,
