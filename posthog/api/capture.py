@@ -181,7 +181,7 @@ def get_event(request):
 
     # team cannot be None here
     # determine_team_from_request_data can return None from team, but this is already handled
-    ip = None if team.anonymize_ips else get_ip_address(request)  # type: ignore
+    ip = None if send_events_to_dead_letter_queue or team.anonymize_ips else get_ip_address(request)  # type: ignore
     for event in events:
         parse_and_enqueue_event(
             data,

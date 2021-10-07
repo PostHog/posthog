@@ -154,7 +154,14 @@ def determine_team_from_request_data(
 
         # Postgres deployments don't have a dead letter queue, so
         # just return an error to the client
-        if not is_clickhouse_enabled():
+        if is_clickhouse_enabled():
+            fetch_team_error = getattr(e, "message", repr(e))
+
+            # We use this approach because each individual event needs to go through some parsing
+            # before being added to the dead letter queue
+            send_events_to_dead_letter_queue = True
+
+        else:
             error_response = cors_response(
                 request,
                 generate_exception_response(
@@ -165,11 +172,6 @@ def determine_team_from_request_data(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 ),
             )
-        fetch_team_error = getattr(e, "message", repr(e))
-
-        # We use this approach because each individual event needs to go through some parsing
-        # before being added to the dead letter queue
-        send_events_to_dead_letter_queue = True
 
         return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
 
@@ -214,17 +216,17 @@ def determine_team_from_request_data(
 
         team = user.teams.get(id=project_id)
 
-        # if we still haven't found a team, return an error to the client
-        if not team:
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "No team found for API Key",
-                    type="authentication_error",
-                    code="invalid_personal_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
+    # if we still haven't found a team, return an error to the client
+    if not team:
+        error_response = cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "No team found for API Key",
+                type="authentication_error",
+                code="invalid_personal_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
 
     return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
