@@ -56,6 +56,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         automaticLoadEnabled,
         exportUrl,
         highlightEvents,
+        tableWidth,
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } =
@@ -87,7 +88,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     span: 4,
                     render: function render(item: EventsTableRowItem) {
                         if (!item.event) {
-                            return newEventsRender(item, columnConfig === 'DEFAULT' ? 7 : columnConfig.length)
+                            return newEventsRender(item, tableWidth)
                         }
                         const { event } = item
                         return <PropertyKeyInfo value={eventToName(event)} />
@@ -258,7 +259,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                                   const { event } = item
                                   if (!event) {
                                       if (index === 0) {
-                                          return newEventsRender(item, columnConfig.length + 1)
+                                          return newEventsRender(item, tableWidth)
                                       } else {
                                           return { props: { colSpan: 0 } }
                                       }

@@ -196,7 +196,18 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents),
         ],
-        columnConfig: [() => [userLogic.selectors.user], (user) => user?.events_column_config?.active || 'DEFAULT'],
+        columnConfig: [
+            () => [userLogic.selectors.user],
+            (user) => {
+                return user?.events_column_config?.active || 'DEFAULT'
+            },
+        ],
+        tableWidth: [
+            () => [selectors.columnConfig],
+            (columnConfig: [] | 'DEFAULT'): number => {
+                return columnConfig === 'DEFAULT' ? 7 : columnConfig.length + 1
+            },
+        ],
         exportUrl: [
             () => [selectors.eventFilter, selectors.orderBy, selectors.properties],
             (eventFilter, orderBy, properties) =>
