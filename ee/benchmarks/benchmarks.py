@@ -1,18 +1,17 @@
 # isort: skip_file
 # Needs to be first to set up django environment
-from posthog.constants import FunnelCorrelationType
 from .helpers import *
 
 from datetime import timedelta
 from typing import List, Tuple
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.models import Cohort, Team, Organization
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
+from posthog.constants import FunnelCorrelationType
 
 MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [("events", "$host"), ("person", "email")]
 
