@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, List, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypeVar
 
 from posthog.utils import is_clickhouse_enabled
 
@@ -29,7 +29,7 @@ class SimplifyFilterMixin:
         updated_entities = {}
         if hasattr(result, "entities_to_dict"):
             for entity_type, entities in result.entities_to_dict().items():
-                updated_entities[entity_type] = [self._simplify_entity(team, entity, **kwargs) for entity in entities]  # type: ignore
+                updated_entities[entity_type] = [self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities]  # type: ignore
 
         return result.with_data(
             {
@@ -38,11 +38,15 @@ class SimplifyFilterMixin:
             }
         )
 
-    def _simplify_entity(self, team: "Team", entity_params: Dict, **kwargs) -> Dict:
-        from posthog.models import Entity
+    def _simplify_entity(
+        self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs
+    ) -> Dict:
+        from posthog.models.entity import Entity, ExclusionEntity
 
-        entity = Entity(entity_params)
-        return Entity(
+        EntityClass = ExclusionEntity if entity_type == "exclusions" else Entity
+
+        entity = EntityClass(entity_params)
+        return EntityClass(
             {**entity_params, "properties": self._simplify_properties(team, entity.properties, **kwargs)}
         ).to_dict()
 
