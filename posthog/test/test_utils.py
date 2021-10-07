@@ -4,6 +4,7 @@ from django.test import TestCase
 from django.test.client import RequestFactory
 from freezegun import freeze_time
 
+from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.exceptions import RequestParsingError
 from posthog.models import EventDefinition
 from posthog.test.base import BaseTest
@@ -90,7 +91,7 @@ class TestLoadDataFromRequest(TestCase):
     def test_pushes_request_origin_into_sentry_scope(self, push_scope):
         origin = "potato.io"
 
-        mock_set_tag = self.mock_sentry_context(push_scope)
+        mock_set_tag = mock_sentry_context_for_tagging(push_scope)
 
         rf = RequestFactory()
         post_request = rf.post("/s/", "content", "text/plain")
@@ -128,14 +129,3 @@ class TestLoadDataFromRequest(TestCase):
             "data being loaded from the request body for decompression is the literal string 'undefined'",
             str(ctx.exception),
         )
-
-    def mock_sentry_context(self, push_scope):
-        mock_scope = Mock()
-        mock_set_tag = Mock()
-        mock_scope.set_context = Mock()
-        mock_scope.set_tag = mock_set_tag
-        mock_context_manager = Mock()
-        mock_context_manager.__enter__ = Mock(return_value=mock_scope)
-        mock_context_manager.__exit__ = Mock(return_value=None)
-        push_scope.return_value = mock_context_manager
-        return mock_set_tag
