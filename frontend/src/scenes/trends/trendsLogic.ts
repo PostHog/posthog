@@ -22,6 +22,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { IndexedTrendResult, TrendResponse } from 'scenes/trends/types'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 interface PeopleParamType {
     action: ActionFilter | 'session'
@@ -119,13 +120,7 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
 
 export const trendsLogic = kea<trendsLogicType>({
     props: {} as InsightLogicProps,
-
-    key: (props) => {
-        if (!('dashboardItemId' in props)) {
-            throw new Error('Must init with dashboardItemId, even if undefined')
-        }
-        return props.syncWithUrl ? 'scene' : props.dashboardItemId || 'all_trends'
-    },
+    key: keyForInsightLogicProps('all_trends'),
 
     connect: {
         values: [actionsModel, ['actions']],

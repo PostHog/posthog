@@ -22,6 +22,7 @@ import React from 'react'
 import { Link } from 'lib/components/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -49,12 +50,8 @@ interface UrlParams {
 
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
-    key: (props) => {
-        if (!('dashboardItemId' in props)) {
-            throw new Error('Must init with dashboardItemId, even if undefined')
-        }
-        return props.syncWithUrl ? 'scene' : props.dashboardItemId || 'new'
-    },
+    key: keyForInsightLogicProps('new'),
+
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),

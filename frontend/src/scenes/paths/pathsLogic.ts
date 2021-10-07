@@ -7,6 +7,7 @@ import { pathsLogicType } from './pathsLogicType'
 import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -60,12 +61,8 @@ interface PathNode {
 
 export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     props: {} as InsightLogicProps,
-    key: (props) => {
-        if (!('dashboardItemId' in props)) {
-            throw new Error('Must init with dashboardItemId, even if undefined')
-        }
-        return props.syncWithUrl ? 'scene' : props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
-    },
+    key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
+
     actions: {
         setProperties: (properties) => ({ properties }),
         setFilter: (filter) => filter,

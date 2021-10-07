@@ -14,6 +14,7 @@ import {
     RetentionTrendPeoplePayload,
 } from 'scenes/retention/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -49,12 +50,8 @@ export function defaultFilters(filters: Record<string, any>): Record<string, any
 
 export const retentionTableLogic = kea<retentionTableLogicType>({
     props: {} as InsightLogicProps,
-    key: (props) => {
-        if (!('dashboardItemId' in props)) {
-            throw new Error('Must init with dashboardItemId, even if undefined')
-        }
-        return props.syncWithUrl ? 'scene' : props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
-    },
+    key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
+
     connect: {
         values: [actionsModel, ['actions']],
     },

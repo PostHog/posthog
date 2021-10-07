@@ -52,6 +52,7 @@ import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
     const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
@@ -95,12 +96,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
 
 export const funnelLogic = kea<funnelLogicType>({
     props: {} as InsightLogicProps,
-    key: (props) => {
-        if (!('dashboardItemId' in props)) {
-            throw new Error('Must init with dashboardItemId, even if undefined')
-        }
-        return props.syncWithUrl ? 'scene' : props.dashboardItemId || 'insight_funnel'
-    },
+    key: keyForInsightLogicProps('insight_funnel'),
 
     actions: () => ({
         clearFunnel: true,
