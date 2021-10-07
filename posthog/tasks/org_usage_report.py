@@ -12,7 +12,11 @@ from posthog.version import VERSION
 logger = logging.getLogger(__name__)
 
 
-def send_all_org_usage_reports(*, dry_run: bool = False) -> None:
+def send_all_org_usage_reports(*, dry_run: bool = False) -> List[Dict[str, Any]]:
+    """
+    Creates and sends usage reports for all teams.
+    Returns a list of all the successfully sent reports.
+    """
     distinct_id = User.objects.first().distinct_id  # type: ignore
     period_start, period_end = get_previous_day()
     month_start = period_start.replace(day=1)
@@ -26,6 +30,7 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> None:
         "license_keys": get_instance_licenses(),
     }
     org_teams: Dict[str, List[Union[str, int]]] = {}
+    org_reports: List[Dict[str, Any]] = []
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         org = str(team.organization.id)
@@ -48,6 +53,9 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> None:
                 **usage,
             }
             report_org_usage(distinct_id, report)
+            org_reports.append(report)
+
+    return org_reports
 
 
 def get_org_usage(

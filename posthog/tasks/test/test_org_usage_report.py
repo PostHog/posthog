@@ -6,7 +6,7 @@ from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
 from posthog.models import Event, Organization, Person, Team
-from posthog.tasks.org_usage_report import org_usage_report
+from posthog.tasks.org_usage_report import get_org_usage, send_all_org_usage_reports
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
@@ -20,10 +20,10 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
 
         @patch("os.environ", {"DEPLOYMENT": "tests"})
         def test_org_usage_report(self) -> None:
-            report = org_usage_report(dry_run=True)
+            all_reports = send_all_org_usage_reports(dry_run=True)
 
-            self.assertEqual(report["posthog_version"], VERSION)
-            self.assertEqual(report["deployment"], "tests")
+            self.assertEqual(all_reports[0]["posthog_version"], VERSION)
+            self.assertEqual(all_reports[0]["deployment"], "tests")
 
         def test_event_counts(self) -> None:
             with freeze_time("2020-11-02"):
@@ -39,7 +39,8 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                 _create_event("new_user1", "$event2", "$mobile", now() - relativedelta(days=1, hours=1), team=self.team)
                 _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=self.team)
 
-                org_report = org_usage_report(dry_run=True).get("instance_usage_by_org")[str(self.team.organization.id)]  # type: ignore
+                all_reports = send_all_org_usage_reports(dry_run=True)
+                org_report = all_reports[0]  # type: ignore
 
                 def _test_org_report() -> None:
                     self.assertEqual(org_report["event_count_lifetime"], 5)
@@ -67,7 +68,7 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                     "new_user1", "$eventBefore", "$web", now() - relativedelta(days=2, hours=2), team=self.team
                 )
 
-                updated_org_report = org_usage_report(dry_run=True).get("instance_usage_by_org")[str(self.team.organization.id)]  # type: ignore
+                updated_org_report = send_all_org_usage_reports(dry_run=True)[0]  # type: ignore
 
                 # Check event totals are updated
                 self.assertEqual(
@@ -91,7 +92,7 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                 )
                 # Verify that internal metrics events are not counted
                 self.assertEqual(
-                    org_usage_report(dry_run=True).get("instance_usage_by_org")[str(self.team.organization.id)][  # type: ignore
+                    send_all_org_usage_reports(dry_run=True)[0][  # type: ignore
                         "event_count_lifetime"
                     ],
                     updated_org_report["event_count_lifetime"],
