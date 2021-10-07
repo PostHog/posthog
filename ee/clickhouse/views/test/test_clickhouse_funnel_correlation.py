@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 from uuid import uuid4
 
 import pytest
@@ -292,7 +292,7 @@ class FunnelCorrelationTest(BaseTest):
                 date_to="2020-01-14",
                 date_from="2020-01-01",
                 funnel_correlation_type=FunnelCorrelationType.PROPERTIES,
-                funnel_correlation_value="$browser",
+                funnel_correlation_names=json.dumps(["$browser"]),
             ),
         )
 
@@ -308,14 +308,14 @@ class FunnelCorrelationTest(BaseTest):
             result,
             [
                 {
-                    "event": "Positive",
+                    "event": "$browser::Positive",
                     "success_count": 10,
                     "failure_count": 0,
                     # "odds_ratio": 11.0,
                     "correlation_type": "success",
                 },
                 {
-                    "event": "Negative",
+                    "event": "$browser::Negative",
                     "success_count": 0,
                     "failure_count": 10,
                     # "odds_ratio": 1 / 11,
@@ -362,7 +362,8 @@ class FunnelCorrelationRequest:
     funnel_step: Optional[int] = None
     date_from: Optional[str] = None
     funnel_correlation_type: Optional[FunnelCorrelationType] = None
-    funnel_correlation_value: Optional[str] = None
+    # Needs to be json encoded list of `str`s
+    funnel_correlation_names: Optional[str] = None
 
 
 def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelationRequest):

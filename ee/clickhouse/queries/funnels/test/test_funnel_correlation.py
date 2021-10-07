@@ -108,7 +108,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
             "funnel_correlation_type": "properties",
-            "funnel_correlation_value": "$browser",
+            "funnel_correlation_names": ["$browser"],
         }
 
         filter = Filter(data=filters)
@@ -163,14 +163,14 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             result,
             [
                 {
-                    "event": "Positive",
+                    "event": "$browser::Positive",
                     "success_count": 10,
                     "failure_count": 1,
                     # "odds_ratio": 11 / 2,
                     "correlation_type": "success",
                 },
                 {
-                    "event": "Negative",
+                    "event": "$browser::Negative",
                     "success_count": 1,
                     "failure_count": 10,
                     # "odds_ratio": 2 / 11,
@@ -258,7 +258,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
             "funnel_correlation_type": "properties",
-            # "funnel_correlation_value": "$browser", missing value
+            # "funnel_correlation_names": ["$browser"], missing value
         }
 
         filter = Filter(data=filters)
@@ -274,3 +274,136 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(ValidationError):
             correlation.run()
+
+    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
+    def test_correlation_with_multiple_properties(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "properties",
+            "funnel_correlation_names": ["$browser", "$nice"],
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+
+        #  5 successful people with both properties
+        for i in range(5):
+            _create_person(
+                distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive", "$nice": "very"}
+            )
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        #  10 successful people with some different properties
+        for i in range(5, 15):
+            _create_person(
+                distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive", "$nice": "not"}
+            )
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        # 5 Unsuccessful people with some common properties
+        for i in range(15, 20):
+            _create_person(
+                distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative", "$nice": "smh"}
+            )
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+
+        # One Positive with failure, no $nice property
+        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk, properties={"$browser": "Positive"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z",
+        )
+
+        # One Negative with success, no $nice property
+        _create_person(distinct_ids=[f"user_succ"], team_id=self.team.pk, properties={"$browser": "Negative"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id=f"user_succ", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id=f"user_succ", timestamp="2020-01-04T14:00:00Z",
+        )
+
+        result = correlation.run()["events"]
+
+        # Success Total = 5 + 10 + 1 = 16
+        # Failure Total = 5 + 1 = 6
+        # Add 1 for priors
+
+        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        expected_odds_ratios = [
+            (11) / (1) * (7 / 17),
+            (16 / 2) * (7 / 17),
+            (6 / 1) * (7 / 17),
+            (1 / 6) * (7 / 17),
+            (2 / 6) * (7 / 17),
+            (2 / 2) * (7 / 17),
+        ]
+        # (success + 1) / (failure + 1)
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "$nice::not",
+                    "success_count": 10,
+                    "failure_count": 0,
+                    # "odds_ratio": 4.529411764705882,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "$browser::Positive",
+                    "success_count": 15,
+                    "failure_count": 1,
+                    # "odds_ratio": 3.2941176470588234,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "$nice::very",
+                    "success_count": 5,
+                    "failure_count": 0,
+                    # "odds_ratio": 2.4705882352941178,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "$nice::smh",
+                    "success_count": 0,
+                    "failure_count": 5,
+                    # "odds_ratio": 0.06862745098039216,
+                    "correlation_type": "failure",
+                },
+                {
+                    "event": "$browser::Negative",
+                    "success_count": 1,
+                    "failure_count": 5,
+                    # "odds_ratio": 0.13725490196078433,
+                    "correlation_type": "failure",
+                },
+                {
+                    "event": "$nice::",
+                    "success_count": 1,
+                    "failure_count": 1,
+                    # "odds_ratio": 0.4117647058823529,
+                    "correlation_type": "failure",
+                },
+            ],
+        )

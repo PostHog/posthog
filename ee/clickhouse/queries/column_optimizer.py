@@ -121,8 +121,9 @@ class ColumnOptimizer:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 result |= get_action_tables_and_properties(entity.get_action())
 
-        if self.filter.correlation_type == FunnelCorrelationType.PROPERTIES and self.filter.correlation_property_value:
-            result.add((self.filter.correlation_property_value, "person"))
+        if self.filter.correlation_type == FunnelCorrelationType.PROPERTIES and self.filter.correlation_property_names:
+            for prop_value in self.filter.correlation_property_names:
+                result.add((prop_value, "person"))
 
         return result
 
