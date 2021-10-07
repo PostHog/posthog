@@ -15,7 +15,7 @@ from posthog.models.filters.mixins.common import (
     LimitMixin,
     OffsetMixin,
 )
-from posthog.models.filters.mixins.funnel import FunnelPersonsStepMixin, FunnelWindowMixin
+from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin, FunnelPersonsStepMixin, FunnelWindowMixin
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
     EndPointMixin,
@@ -56,6 +56,7 @@ class PathFilter(
     LimitMixin,
     OffsetMixin,
     PathLimitsMixin,
+    FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):
