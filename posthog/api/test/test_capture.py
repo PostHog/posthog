@@ -3,7 +3,7 @@ import gzip
 import json
 from datetime import timedelta
 from typing import Any, Dict, List, Union
-from unittest.mock import patch
+from unittest.mock import MagicMock, Mock, call, patch
 from urllib.parse import quote
 
 import lzstring
@@ -85,6 +85,66 @@ class TestCapture(BaseTest):
                 "team_id": self.team.pk,
             },
         )
+
+    @patch("posthog.api.capture.push_scope")
+    @patch("posthog.api.capture.celery_app.send_task", MagicMock())
+    def test_capture_event_adds_library_to_sentry(self, patch_push_scope):
+        mock_set_tag = self.mock_sentry_context(patch_push_scope)
+
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "$lib": "web",
+                "$lib_version": "1.14.1",
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        with freeze_time(timezone.now()):
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+            )
+
+        mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
+
+    @patch("posthog.api.capture.push_scope")
+    @patch("posthog.api.capture.celery_app.send_task", MagicMock())
+    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patch_push_scope):
+        mock_set_tag = self.mock_sentry_context(patch_push_scope)
+
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        with freeze_time(timezone.now()):
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+            )
+
+        mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
+
+    @staticmethod
+    def mock_sentry_context(push_scope):
+        mock_scope = Mock()
+        mock_set_tag = Mock()
+        mock_scope.set_context = Mock()
+        mock_scope.set_tag = mock_set_tag
+        mock_context_manager = Mock()
+        mock_context_manager.__enter__ = Mock(return_value=mock_scope)
+        mock_context_manager.__exit__ = Mock(return_value=None)
+        push_scope.return_value = mock_context_manager
+        return mock_set_tag
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")
