@@ -283,7 +283,7 @@ jobs:
               run: |
                   cd deploy/
                   pytest ee -m "not skip_on_multitenancy"
-                  pytest posthog -m "ee"
+                  pytest posthog -m "ee and not skip_on_multitenancy"
 
     foss:
         name: Django tests – FOSS
