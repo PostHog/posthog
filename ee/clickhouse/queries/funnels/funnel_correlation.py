@@ -142,7 +142,7 @@ class FunnelCorrelation:
                 ) person_with_props
             GROUP BY name
             UNION ALL
-            SELECT 'Total' as name, countDistinctIf(person_id, steps = target_step) AS success_count, countDistinctIf(person_id, steps <> target_step) AS failure_count FROM funnel_people
+            SELECT NULL as name, countDistinctIf(person_id, steps = target_step) AS success_count, countDistinctIf(person_id, steps <> target_step) AS failure_count FROM funnel_people
         """
         params = {
             **funnel_persons_params,
@@ -212,9 +212,9 @@ class FunnelCorrelation:
 
         """
         query, params = self.get_query()
-        results_then_total = sync_execute(query, params)
+        results_with_total = sync_execute(query, params)
 
-        event_contingency_tables = self.get_partial_event_contingency_tables(results_then_total)
+        event_contingency_tables = self.get_partial_event_contingency_tables(results_with_total)
 
         odds_ratios = [get_entity_odds_ratio(event_stats) for event_stats in event_contingency_tables]
 
@@ -233,7 +233,7 @@ class FunnelCorrelation:
         # Return the top ten positively correlated events, and top then negatively correlated events
         return {"events": positively_correlated_events[:10] + negatively_correlated_events[:10]}
 
-    def get_partial_event_contingency_tables(self, results_then_total: list) -> List[EventContingencyTable]:
+    def get_partial_event_contingency_tables(self, results_with_total: list) -> List[EventContingencyTable]:
         """
         For each event a person that started going through the funnel, gets stats
         for how many of these users are sucessful and how many are unsuccessful.
@@ -244,7 +244,8 @@ class FunnelCorrelation:
         """
 
         # The last entry will give us the total funnel failures and successes
-        results, (_, success_total, failure_total) = results_then_total[:-1], results_then_total[-1]
+        results = [result for result in results_with_total if result[0]]
+        _, success_total, failure_total = [result for result in results_with_total if not result[0]][0]
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.

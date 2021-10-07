@@ -160,7 +160,6 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):  # type
                 )
 
         result = correlation.run()["events"]
-        print(result)
 
         self.assertCountEqual(
             result,
@@ -169,15 +168,15 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):  # type
                     "event": "Positive",
                     "success_count": 11,
                     "failure_count": 1,
-                    "odds_ratio": 121.0,
+                    "odds_ratio": 11.0,
                     "correlation_type": "success",
                 },
                 {
-                    "event": "Total",
-                    "success_count": 11,
+                    "event": "Negative",
+                    "success_count": 1,
                     "failure_count": 11,
-                    "odds_ratio": 11.0,
-                    "correlation_type": "success",
+                    "odds_ratio": 1 / 11,
+                    "correlation_type": "failure",
                 },
             ],
         )
