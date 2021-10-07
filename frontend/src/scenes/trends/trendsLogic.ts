@@ -10,7 +10,7 @@ import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHist
 import {
     ActionFilter,
     ChartDisplayType,
-    SharedInsightLogicProps,
+    InsightLogicProps,
     EntityTypes,
     FilterType,
     PropertyFilter,
@@ -119,7 +119,7 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
 }
 
 export const trendsLogic = kea<trendsLogicType>({
-    props: {} as SharedInsightLogicProps,
+    props: {} as InsightLogicProps,
 
     key: (props) => {
         return props.dashboardItemId || 'all_trends'

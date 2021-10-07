@@ -963,8 +963,8 @@ export interface ChartParams {
     view: ViewType
 }
 
-// Shared between dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
-export interface SharedInsightLogicProps {
+// Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
+export interface InsightLogicProps {
     // the chart is displayed on a dashboard right now, used in the key if present
     dashboardItemId?: number | null
     // the insight is connected to a dashboard item, yet viewed on the insights scene

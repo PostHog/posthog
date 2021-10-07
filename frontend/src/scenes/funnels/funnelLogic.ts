@@ -25,7 +25,7 @@ import {
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelStepRangeEntityFilter,
-    SharedInsightLogicProps,
+    InsightLogicProps,
     FlattenedFunnelStepByBreakdown,
     FunnelAPIResponse,
     FunnelCorrelation,
@@ -94,7 +94,7 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
     }
 }
 
-export interface FunnelLogicProps extends SharedInsightLogicProps {
+export interface FunnelLogicProps extends InsightLogicProps {
     refresh?: boolean
     exclusionFilters?: Partial<FilterType>
 }

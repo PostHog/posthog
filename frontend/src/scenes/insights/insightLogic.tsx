@@ -39,12 +39,12 @@ interface UrlParams {
 }
 
 export interface InsightLogicProps {
-    id?: number
+    dashboardItemId?: number
 }
 
 export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
     props: {} as InsightLogicProps,
-    key: (props) => props.id || 'new',
+    key: (props) => props.dashboardItemId || 'new',
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),

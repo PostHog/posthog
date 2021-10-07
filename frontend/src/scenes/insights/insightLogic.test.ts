@@ -19,7 +19,7 @@ describe('insightLogic', () => {
         initKeaTestLogic({
             logic: insightLogic,
             props: {
-                id: undefined,
+                dashboardItemId: undefined,
             },
             onLogic: (l) => (logic = l),
         })
@@ -33,7 +33,7 @@ describe('insightLogic', () => {
         initKeaTestLogic({
             logic: insightLogic,
             props: {
-                id: 42,
+                dashboardItemId: 42,
             },
             onLogic: (l) => (logic = l),
         })

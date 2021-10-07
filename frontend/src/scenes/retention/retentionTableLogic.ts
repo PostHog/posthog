@@ -7,7 +7,7 @@ import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insight
 import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
-import { ActionType, SharedInsightLogicProps, FilterType, ViewType } from '~/types'
+import { ActionType, InsightLogicProps, FilterType, ViewType } from '~/types'
 import {
     RetentionTablePayload,
     RetentionTrendPayload,
@@ -49,7 +49,7 @@ export function defaultFilters(filters: Record<string, any>): Record<string, any
 }
 
 export const retentionTableLogic = kea<retentionTableLogicType>({
-    props: {} as SharedInsightLogicProps,
+    props: {} as InsightLogicProps,
     key: (props) => {
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },

@@ -5,7 +5,7 @@ import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
+import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
@@ -60,7 +60,7 @@ interface PathNode {
 }
 
 export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
-    props: {} as SharedInsightLogicProps,
+    props: {} as InsightLogicProps,
     key: (props) => {
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
