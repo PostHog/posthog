@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Dict, List, TypedDict, Union
 
 import pytest
 from django.test import Client
@@ -118,7 +118,7 @@ class TrendsRequest:
     date_to: str
     interval: str
     insight: str
-    breakdown: List[int]
+    breakdown: Union[List[int], str]
     breakdown_type: str
     display: str
     events: List[Dict[str, Any]]
