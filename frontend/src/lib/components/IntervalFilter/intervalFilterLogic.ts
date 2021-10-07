@@ -41,7 +41,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             searchParams.date_from = values.dateFrom
 
             if (!objectsEqual(date_from, values.dateFrom)) {
-                router.actions.replace(pathname, searchParams)
+                router.actions.replace(pathname, searchParams, router.values.hashParams)
             }
         },
     }),

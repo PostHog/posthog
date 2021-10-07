@@ -353,7 +353,7 @@ export const insightLogic = kea<insightLogicType>({
                 urlParams.funnel_viz_type = FunnelVizType.Steps
                 urlParams.display = 'FunnelViz'
             }
-            return ['/insights', urlParams]
+            return ['/insights', urlParams, router.values.hashParams]
         },
     }),
     urlToAction: ({ actions, values }) => ({
