@@ -761,7 +761,10 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS]) {
+            if (
+                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
+                values.clickhouseFeaturesEnabled
+            ) {
                 actions.loadCorrelations()
             }
 
