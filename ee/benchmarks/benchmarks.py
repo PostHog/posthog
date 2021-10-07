@@ -1,5 +1,6 @@
 # isort: skip_file
 # Needs to be first to set up django environment
+from posthog.constants import FunnelCorrelationType
 from .helpers import *
 
 from datetime import timedelta
@@ -8,6 +9,7 @@ from typing import List, Tuple
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.models import Cohort, Team, Organization
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
@@ -171,3 +173,20 @@ class QuerySuite:
         )
 
         ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_correlations_by_events_materialized(self):
+        filter = Filter(data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE,})
+        FunnelCorrelation(filter, self.team).run()
+
+    @benchmark_clickhouse
+    def track_correlations_by_properties_materialized(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
+                **SHORT_DATE_RANGE,
+                "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
+                "funnel_correlation_value": "$browser",
+            }
+        )
+        FunnelCorrelation(filter, self.team).run()
