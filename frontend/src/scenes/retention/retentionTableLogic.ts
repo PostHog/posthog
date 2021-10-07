@@ -164,13 +164,9 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             }
         },
     }),
-    urlToAction: ({ actions, values, key, props }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams) => {
             if (props.syncWithUrl && searchParams.insight === ViewType.RETENTION) {
-                if (key != DEFAULT_RETENTION_LOGIC_KEY) {
-                    return
-                }
-
                 const cleanSearchParams = searchParams
                 const cleanedFilters = values.filters
 

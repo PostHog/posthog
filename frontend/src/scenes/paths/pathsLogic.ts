@@ -284,12 +284,9 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             }
         },
     }),
-    urlToAction: ({ actions, values, key, props }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams: Partial<FilterType>) => {
             if (props.syncWithUrl && searchParams.insight === ViewType.PATHS) {
-                if (key != DEFAULT_PATH_LOGIC_KEY) {
-                    return
-                }
                 const cleanedPathParams = cleanPathParams(searchParams)
 
                 if (cleanedPathParams.funnel_filter && values.filter.date_from) {
