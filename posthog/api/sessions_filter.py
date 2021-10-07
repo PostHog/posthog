@@ -26,7 +26,9 @@ class SessionsFilterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> SessionsFilter:
         request = self.context["request"]
-        instance = SessionsFilter.objects.create(team=request.user.team, created_by=request.user, **validated_data,)
+        instance = SessionsFilter.objects.create(
+            team_id=self.context["team_id"], created_by=request.user, **validated_data,
+        )
         posthoganalytics.capture(instance.created_by.distinct_id, "sessions filter created")
         return instance
 

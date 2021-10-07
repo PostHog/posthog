@@ -2,23 +2,19 @@ import { PageHeader } from 'lib/components/PageHeader'
 import React, { useEffect } from 'react'
 import { LearnAndShare } from './sections/LearnAndShare'
 import { TiledIconModule } from './sections/TiledIconModule'
-
 import { DiscoverInsightsModule } from './sections/DiscoverInsight'
 import { Layout, Space } from 'antd'
 import { RocketOutlined } from '@ant-design/icons'
-
 import './Home.scss'
-
 import { useActions, useValues } from 'kea'
-
-import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TileParams } from '~/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 const { Content } = Layout
 
 export function Home(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { reportProjectHomeSeen } = useActions(eventUsageLogic)
 
     const installationSources: TileParams[] = [
@@ -53,7 +49,7 @@ export function Home(): JSX.Element {
             <LearnAndShare />
         </>
     )
-    const teamHasData = user?.team?.ingested_event
+    const teamHasData = currentTeam?.ingested_event
 
     useEffect(() => {
         reportProjectHomeSeen(teamHasData || false)

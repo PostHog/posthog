@@ -56,7 +56,7 @@ export const onboardingSetupLogic = kea<onboardingSetupLogicType>({
     selectors: {
         // All `step{Key}` selectors represent whether a step has been completed or not
         stepProjectSetup: [
-            () => [userLogic.selectors.demoOnlyProject],
+            () => [teamLogic.selectors.demoOnlyProject],
             (demoOnlyProject: boolean) => {
                 // Step is completed if org has at least one non-demo project
                 return !demoOnlyProject

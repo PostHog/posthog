@@ -1,7 +1,7 @@
 import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function FlutterInstallSnippet(): JSX.Element {
     return <CodeSnippet language={Language.YAML}>{'posthog_flutter: # insert version number'}</CodeSnippet>
@@ -18,12 +18,13 @@ function FlutterCaptureSnippet(): JSX.Element {
 }
 
 function FlutterAndroidSetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const url = window.location.origin
+
     return (
         <CodeSnippet language={Language.XML}>
             {'<application>\n\t<activity>\n\t\t[...]\n\t</activity>\n\t<meta-data android:name="com.posthog.posthog.API_KEY" android:value="' +
-                user?.team?.api_token +
+                currentTeam?.api_token +
                 '" />\n\t<meta-data android:name="com.posthog.posthog.POSTHOG_HOST" android:value="' +
                 url +
                 '" />\n\t<meta-data android:name="com.posthog.posthog.TRACK_APPLICATION_LIFECYCLE_EVENTS" android:value="false" />\n\t<meta-data android:name="com.posthog.posthog.DEBUG" android:value="false" />\n</application>'}
@@ -32,12 +33,13 @@ function FlutterAndroidSetupSnippet(): JSX.Element {
 }
 
 function FlutterIOSSetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const url = window.location.origin
+
     return (
         <CodeSnippet language={Language.XML}>
             {'<dict>\n\t[...]\n\t<key>com.posthog.posthog.API_KEY</key>\n\t<string>' +
-                user?.team?.api_token +
+                currentTeam?.api_token +
                 '</string>\n\t<key>com.posthog.posthog.POSTHOG_HOST</key>\n\t<string>' +
                 url +
                 '</string>\n\t<key>com.posthog.posthog.TRACK_APPLICATION_LIFECYCLE_EVENTS</key>\n\t<false/>\n\t<false/>\n\t[...]\n</dict>'}
