@@ -20,7 +20,7 @@ class SimplifyFilterMixin:
         """
 
         # :TRICKY: Make a copy to avoid caching issues
-        result: Any = self.with_data({"is_simplified": True})
+        result: Any = self.with_data({"is_simplified": True})  # type: ignore
         if getattr(self, "filter_test_accounts", False):
             result = result.with_data(
                 {"properties": result.properties + team.test_account_filters, "filter_test_accounts": False,}
