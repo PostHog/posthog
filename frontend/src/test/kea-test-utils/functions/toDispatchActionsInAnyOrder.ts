@@ -44,12 +44,12 @@ export const toDispatchActionsInAnyOrder: ExpectFunction<ActionToDispatch[]> = {
     },
 }
 
-interface NotFoundActions {
+export interface NotFoundActions {
     notFound: ActionToDispatch[]
     lastIndex: number
 }
 
-function tryToSearchActions(logic: LogicWrapper | BuiltLogic, actions: ActionToDispatch[]): NotFoundActions {
+export function tryToSearchActions(logic: LogicWrapper | BuiltLogic, actions: ActionToDispatch[]): NotFoundActions {
     const actionsToSearch = [...actions]
     const { recordedHistory, historyIndex } = testUtilsContext()
     const actionPointer = historyIndex || -1
