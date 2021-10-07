@@ -9,19 +9,18 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.utils import get_token
+from posthog.api.utils import determine_team_from_request_data, extract_data_from_request, get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
-from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
-from posthog.models import Team, User
+from posthog.models import Team
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.settings import EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC
-from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled, load_data_from_request
+from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled
 
 if is_clickhouse_enabled():
     from ee.kafka_client.client import KafkaProducer
@@ -101,18 +100,6 @@ def _get_sent_at(data, request) -> Optional[datetime]:
         return _datetime_from_seconds_or_millis(sent_at)
 
     return parser.isoparse(sent_at)
-
-
-def _get_project_id(data, request) -> Optional[int]:
-    if request.GET.get("project_id"):
-        return int(request.POST["project_id"])
-    if request.POST.get("project_id"):
-        return int(request.POST["project_id"])
-    if isinstance(data, list):
-        data = data[0]  # Mixpanel Swift SDK
-    if data.get("project_id"):
-        return int(data["project_id"])
-    return None
 
 
 def _get_distinct_id(data: Dict[str, Any]) -> str:
@@ -285,123 +272,3 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
             queue=celery_queue,
             args=[distinct_id, ip, site_url, event, team_id, now.isoformat(), sent_at,],
         )
-
-
-def extract_data_from_request(request):
-    data = None
-    try:
-        data = load_data_from_request(request)
-    except RequestParsingError as error:
-        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
-        return (
-            data,
-            cors_response(
-                request,
-                generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
-            ),
-        )
-
-    if not data:
-        return (
-            data,
-            cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
-                    code="no_data",
-                ),
-            ),
-        )
-
-    return data, None
-
-
-def determine_team_from_request_data(request, data, token):
-    send_events_to_dead_letter_queue = False
-    fetch_team_error = None
-    team = None
-    error_response = None
-
-    try:
-        team = Team.objects.get_team_from_token(token)
-    except Exception as e:
-        capture_exception(e)
-        statsd.incr("capture_endpoint_fetch_team_fail")
-
-        # Postgres deployments don't have a dead letter queue, so
-        # just return an error to the client
-        if not is_clickhouse_enabled():
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Unable to fetch team from database.",
-                    type="server_error",
-                    code="fetch_team_fail",
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                ),
-            )
-        fetch_team_error = getattr(e, "message", repr(e))
-
-        # We use this approach because each individual event needs to go through some parsing
-        # before being added to the dead letter queue
-        send_events_to_dead_letter_queue = True
-
-        return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
-
-    if team is None:
-        try:
-            project_id = _get_project_id(data, request)
-        except ValueError:
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
-                ),
-            )
-            return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
-
-        if not project_id:
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Project API key invalid. You can find your project API key in PostHog project settings.",
-                    type="authentication_error",
-                    code="invalid_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-            return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
-
-        user = User.objects.get_from_personal_api_key(token)
-        if user is None:
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Invalid Personal API key.",
-                    type="authentication_error",
-                    code="invalid_personal_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-            return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
-
-        team = user.teams.get(id=project_id)
-
-        # if we still haven't found a team, return an error to the client
-        if not team:
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "No team found for API Key",
-                    type="authentication_error",
-                    code="invalid_personal_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-
-    return team, send_events_to_dead_letter_queue, fetch_team_error, error_response

@@ -1,10 +1,16 @@
 import re
 from typing import Optional, Tuple
 
-from rest_framework import request
+from rest_framework import request, status
+from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE
+from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Entity
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.utils import cors_response, is_clickhouse_enabled, load_data_from_request
 
 
 def get_target_entity(request: request.Request) -> Entity:
@@ -88,3 +94,135 @@ def clean_token(token):
     is_test_environment = token.startswith("test_")
     token = token[5:] if is_test_environment else token
     return token, is_test_environment
+
+
+def get_project_id_from_request(data, request) -> Optional[int]:
+    if request.GET.get("project_id"):
+        return int(request.POST["project_id"])
+    if request.POST.get("project_id"):
+        return int(request.POST["project_id"])
+    if isinstance(data, list):
+        data = data[0]  # Mixpanel Swift SDK
+    if data.get("project_id"):
+        return int(data["project_id"])
+    return None
+
+
+def extract_data_from_request(request):
+    data = None
+    try:
+        data = load_data_from_request(request)
+    except RequestParsingError as error:
+        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        return (
+            data,
+            cors_response(
+                request,
+                generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
+            ),
+        )
+
+    if not data:
+        return (
+            data,
+            cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "No data found. Make sure to use a POST request when sending the payload in the body of the request.",
+                    code="no_data",
+                ),
+            ),
+        )
+
+    return data, None
+
+
+def determine_team_from_request_data(request, data, token):
+    send_events_to_dead_letter_queue = False
+    fetch_team_error = None
+    team = None
+    error_response = None
+
+    try:
+        team = Team.objects.get_team_from_token(token)
+    except Exception as e:
+        capture_exception(e)
+        statsd.incr("capture_endpoint_fetch_team_fail")
+
+        # Postgres deployments don't have a dead letter queue, so
+        # just return an error to the client
+        if not is_clickhouse_enabled():
+            error_response = cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Unable to fetch team from database.",
+                    type="server_error",
+                    code="fetch_team_fail",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ),
+            )
+        fetch_team_error = getattr(e, "message", repr(e))
+
+        # We use this approach because each individual event needs to go through some parsing
+        # before being added to the dead letter queue
+        send_events_to_dead_letter_queue = True
+
+        return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
+
+    if team is None:
+        try:
+            project_id = get_project_id_from_request(data, request)
+        except ValueError:
+            error_response = cors_response(
+                request,
+                generate_exception_response(
+                    "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
+                ),
+            )
+            return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
+
+        if not project_id:
+            error_response = cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Project API key invalid. You can find your project API key in PostHog project settings.",
+                    type="authentication_error",
+                    code="invalid_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+            return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
+
+        user = User.objects.get_from_personal_api_key(token)
+        if user is None:
+            error_response = cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Invalid Personal API key.",
+                    type="authentication_error",
+                    code="invalid_personal_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+            return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
+
+        team = user.teams.get(id=project_id)
+
+        # if we still haven't found a team, return an error to the client
+        if not team:
+            error_response = cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "No team found for API Key",
+                    type="authentication_error",
+                    code="invalid_personal_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+
+    return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
