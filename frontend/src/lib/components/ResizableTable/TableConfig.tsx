@@ -12,7 +12,6 @@ import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
 
 interface TableConfigInterface {
-    exportUrl?: string
     selectedColumns?: string[] // Allows column visibility customization
     availableColumns?: string[] // List of all available columns (should include selectedColumns too for simplicity)
     immutableColumns?: string[] // List of columns that cannot be removed
