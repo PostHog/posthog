@@ -571,7 +571,8 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "events": [{"id": "$pageview", "type": "events", "order": 0}],
                         "shown_as": TRENDS_LIFECYCLE,
                         FILTER_TEST_ACCOUNTS: True,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team,
             )
@@ -597,7 +598,8 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                         "events": [{"id": "$pageview", "type": "events", "order": 0}],
                         "shown_as": TRENDS_LIFECYCLE,
                         FILTER_TEST_ACCOUNTS: True,
-                    }
+                    },
+                    team=self.team,
                 ),
                 self.team.pk,
                 relative_date_parse("2020-01-13T00:00:00Z"),

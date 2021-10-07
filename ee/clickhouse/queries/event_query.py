@@ -101,14 +101,6 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
             self._should_join_persons = True
             return
 
-        if self._filter.filter_test_accounts:
-            test_account_filters = Team.objects.only("test_account_filters").get(id=self._team_id).test_account_filters
-            test_filter_props = [Property(**prop) for prop in test_account_filters]
-            if any(self._should_property_join_persons(prop) for prop in test_filter_props):
-                self._should_join_distinct_ids = True
-                self._should_join_persons = True
-                return
-
     def _should_property_join_persons(self, prop: Property) -> bool:
         if prop.type == "person":
             return True
@@ -152,17 +144,10 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
         return query, date_params
 
     def _get_props(self, filters: List[Property]) -> Tuple[str, Dict]:
-
-        filter_test_accounts = self._filter.filter_test_accounts
-        team_id = self._team_id
         prepend = "global"
 
         final = []
         params: Dict[str, Any] = {}
-
-        if filter_test_accounts:
-            test_account_filters = Team.objects.only("test_account_filters").get(id=team_id).test_account_filters
-            filters += [Property(**prop) for prop in test_account_filters]
 
         for idx, prop in enumerate(filters):
             if prop.type == "cohort":

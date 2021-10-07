@@ -98,4 +98,4 @@ class UserIdMixin(BaseFilter):
 
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         self.user_id = request.user.pk if request else (data or {}).get("user_id")
-        super().__init__(data, request)
+        super().__init__(data, request, **kwargs)

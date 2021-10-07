@@ -179,7 +179,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         target_date = request.GET.get("target_date", None)
         if target_date is None:
             return response.Response(
