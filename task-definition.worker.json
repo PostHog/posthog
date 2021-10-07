@@ -249,6 +249,11 @@
             ],
             "entryPoint": ["sh", "-c"],
             "command": ["./bin/docker-worker-celery --with-scheduler"],
+            "Ulimit": {
+                "name": "nofile",
+                "hardLimit": 1024000,
+                "softLimit": 1024000
+            },
             "linuxParameters": {
                 "initProcessEnabled": true
             }
