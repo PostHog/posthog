@@ -78,6 +78,8 @@ if is_clickhouse_enabled():
             statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
         except Exception as e:
             capture_exception(e)
+            print("Failed to produce to events dead letter queue with error:", e)
+            statsd.incr("events_dead_letter_queue_produce_error")
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
