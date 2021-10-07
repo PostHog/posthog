@@ -1,9 +1,9 @@
-from typing import TYPE_CHECKING, Any, List, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, List, TypeVar
 
 from posthog.utils import is_clickhouse_enabled
 
 if TYPE_CHECKING:  # Avoid circular import
-    from posthog.models import Property, Team
+    from posthog.models import Entity, Property, Team
 
 T = TypeVar("T")
 
@@ -28,13 +28,34 @@ class SimplifyFilterMixin:
                 }
             )
 
+        updated_entities = {}
+        if hasattr(result, "entities_to_dict"):
+            for entity_type, entities in result.entities_to_dict().items():
+                updated_entities[entity_type] = [self._simplify_entity(team, entity, **kwargs) for entity in entities]
+
+        return result.with_data(
+            {
+                **updated_entities,
+                "properties": self._simplify_properties(team, result.properties, **kwargs),
+                "is_simplified": True,
+            }
+        )
+
+    def _simplify_entity(self, team: "Team", entity_params: Dict, **kwargs) -> Dict:
+        from posthog.models import Entity
+
+        entity = Entity(entity_params)
+        return Entity(
+            {**entity_params, "properties": self._simplify_properties(team, entity.properties, **kwargs)}
+        ).to_dict()
+
+    def _simplify_properties(self, team: "Team", properties: List["Property"], **kwargs) -> List["Property"]:
         simplified_properties = []
-        for prop in result.properties:
-            simplified_properties.extend(self.simplify_property(team, prop, **kwargs))
+        for prop in properties:
+            simplified_properties.extend(self._simplify_property(team, prop, **kwargs))
+        return simplified_properties
 
-        return result.with_data({"properties": simplified_properties, "is_simplified": True,})
-
-    def simplify_property(
+    def _simplify_property(
         self, team: "Team", property: "Property", is_clickhouse_enabled=is_clickhouse_enabled()
     ) -> List["Property"]:
         if property.type == "cohort" and is_clickhouse_enabled:

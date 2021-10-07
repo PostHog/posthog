@@ -133,6 +133,33 @@ class TestFilters(PGTestFilters):
             {"properties": [{"type": "cohort", "key": "id", "value": 555_555, "operator": None}]},
         )
 
+    def test_simplify_entities(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+        )
+        filter = Filter(
+            data={"events": [{"id": "$pageview", "properties": [{"type": "cohort", "key": "id", "value": cohort.pk}]}]}
+        )
+
+        self.assertEqual(
+            filter.simplify(self.team).entities_to_dict(),
+            {
+                "events": [
+                    {
+                        "type": "events",
+                        "id": "$pageview",
+                        "math": None,
+                        "math_property": None,
+                        "custom_name": None,
+                        "order": None,
+                        "name": "$pageview",
+                        "properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"},],
+                    }
+                ],
+            },
+        )
+
 
 class TestFiltering(
     ClickhouseTestMixin, property_to_Q_test_factory(_filter_events, _create_event, _create_person),  # type: ignore
