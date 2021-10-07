@@ -19,14 +19,11 @@ class SimplifyFilterMixin:
         - for cohort properties, replaces them with more concrete lookups or with cohort conditions
         """
 
-        result: Any = self
+        # :TRICKY: Make a copy to avoid caching issues
+        result: Any = self.with_data({"is_simplified": True})
         if getattr(self, "filter_test_accounts", False):
             result = result.with_data(
-                {
-                    "properties": result.properties + team.test_account_filters,
-                    "filter_test_accounts": False,
-                    "is_simplified": True,
-                }
+                {"properties": result.properties + team.test_account_filters, "filter_test_accounts": False,}
             )
 
         updated_entities = {}
@@ -38,7 +35,6 @@ class SimplifyFilterMixin:
             {
                 **updated_entities,
                 "properties": self._simplify_properties(team, result.properties, **kwargs),  # type: ignore
-                "is_simplified": True,
             }
         )
 
