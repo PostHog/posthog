@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from sentry_sdk import push_scope
+from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.api.utils import determine_team_from_request_data, extract_data_from_request, get_token
@@ -48,7 +49,10 @@ if is_clickhouse_enabled():
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
 
-    def log_event(data: Dict, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
+    def log_event(
+        data: Dict,
+        topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,
+    ) -> None:
         if settings.DEBUG:
             print(f'Logging event {data["event"]} to Kafka topic {topic}')
         KafkaProducer().produce(topic=topic, key=data["ip"], data=data)
@@ -72,10 +76,11 @@ if is_clickhouse_enabled():
         data["raw_payload"] = json.dumps(raw_payload)
 
         del data["uuid"]
-
-        KafkaProducer().produce(topic=topic, data=data)
-
-        statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
+        try:
+            KafkaProducer().produce(topic=topic, data=data)
+            statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
+        except Exception as e:
+            capture_exception(e)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -197,7 +202,10 @@ def get_event(request):
 
     timer.stop()
     statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
+        f"posthog_cloud_raw_endpoint_success",
+        tags={
+            "endpoint": "capture",
+        },
     )
     return cors_response(request, JsonResponse({"status": 1}))
 
@@ -278,5 +286,13 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
         celery_app.send_task(
             name=task_name,
             queue=celery_queue,
-            args=[distinct_id, ip, site_url, event, team_id, now.isoformat(), sent_at,],
+            args=[
+                distinct_id,
+                ip,
+                site_url,
+                event,
+                team_id,
+                now.isoformat(),
+                sent_at,
+            ],
         )
