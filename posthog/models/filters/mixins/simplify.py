@@ -15,7 +15,7 @@ class SimplifyFilterMixin:
 
         Actions taken:
         - if filter.filter_test_accounts, adds property filters to `filter.properties`
-        - expands cohort filters
+        - for cohort properties, replaces them with more concrete lookups or with cohort conditions
         """
 
         result: Any = self
