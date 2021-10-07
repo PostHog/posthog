@@ -1,4 +1,5 @@
 import datetime
+import json
 from typing import Dict, List, Literal, Optional, Union
 
 from rest_framework.exceptions import ValidationError
@@ -231,7 +232,10 @@ class FunnelCorrelationMixin(BaseParamMixin):
 
     @cached_property
     def correlation_property_names(self) -> Optional[List[str]]:
-        return self._data.get(FUNNEL_CORRELATION_NAMES)
+        property_names = self._data.get(FUNNEL_CORRELATION_NAMES, [])
+        if isinstance(property_names, str):
+            return json.loads(property_names)
+        return property_names
 
     @include_dict
     def funnel_correlation_to_dict(self):
