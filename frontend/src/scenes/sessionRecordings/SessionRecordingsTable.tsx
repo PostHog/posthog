@@ -48,7 +48,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         sessionRecordings,
         sessionRecordingsResponseLoading,
         sessionRecordingId,
-        filters,
+        entityFilters,
         hasNext,
         hasPrev,
         fromDate,
@@ -58,7 +58,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
     const {
         openSessionPlayer,
         closeSessionPlayer,
-        setFilters,
+        setEntityFilters,
         loadNext,
         loadPrev,
         setDateRange,
@@ -105,9 +105,9 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                 <Typography.Text strong>Filter by events or actions:</Typography.Text>
                 <ActionFilter
                     fullWidth={true}
-                    filters={filters}
+                    filters={entityFilters}
                     setFilters={(payload) => {
-                        setFilters(payload)
+                        setEntityFilters(payload)
                     }}
                     typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
                     hideMathSelector={true}

@@ -1,18 +1,19 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { EntityTypes, FilterType, PropertyOperator, RecordingDurationFilter, SessionRecordingType } from '~/types'
+import { FilterType, PropertyOperator, RecordingDurationFilter, SessionRecordingType } from '~/types'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
 import dayjs from 'dayjs'
 
-type SessionRecordingId = string
+export type SessionRecordingId = string
+export type PersonUUID = string
 interface Params {
     properties?: any
     sessionRecordingId?: SessionRecordingId
 }
 
-interface SessionRecordingsResponse {
+export interface SessionRecordingsResponse {
     results: SessionRecordingType[]
     has_next: boolean
 }
@@ -20,17 +21,17 @@ interface SessionRecordingsResponse {
 const LIMIT = 50
 
 export const sessionRecordingsTableLogic = kea<
-    sessionRecordingsTableLogicType<SessionRecordingId, SessionRecordingsResponse>
+    sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId, SessionRecordingsResponse>
 >({
     key: (props) => props.personUUID || 'global',
     props: {} as {
-        personUUID?: string
+        personUUID?: PersonUUID
     },
     actions: {
         getSessionRecordings: true,
         openSessionPlayer: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
         closeSessionPlayer: true,
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
         loadNext: true,
         loadPrev: true,
         setDateRange: (incomingFromDate: string | null, incomingToDate: string | null) => ({
@@ -49,8 +50,8 @@ export const sessionRecordingsTableLogic = kea<
                 getSessionRecordings: async () => {
                     const params = toParams({
                         person_uuid: props.personUUID ?? '',
-                        actions: values.filters.actions,
-                        events: values.filters.events,
+                        actions: values.entityFilters.actions,
+                        events: values.entityFilters.events,
                         date_from: values.fromDate,
                         date_to: values.toDate,
                         offset: values.offset,
@@ -76,15 +77,13 @@ export const sessionRecordingsTableLogic = kea<
                 closeSessionPlayer: () => null,
             },
         ],
-        filters: [
+        entityFilters: [
             {
-                id: null,
-                type: EntityTypes.NEW_ENTITY,
-                order: 0,
-                name: null,
+                events: [],
+                actions: [],
             } as FilterType,
             {
-                setFilters: (state, { filters }) => ({ ...state, ...filters }),
+                setEntityFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
         durationFilter: [
@@ -119,7 +118,7 @@ export const sessionRecordingsTableLogic = kea<
         ],
     },
     listeners: ({ actions }) => ({
-        setFilters: () => {
+        setEntityFilters: () => {
             actions.getSessionRecordings()
         },
         setDateRange: () => {
