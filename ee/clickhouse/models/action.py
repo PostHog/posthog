@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Counter, Dict, List, Optional, Set, Tuple
 
 from django.forms.models import model_to_dict
 
@@ -105,15 +105,15 @@ def format_entity_filter(entity: Entity, prepend: str = "action", filter_by_team
     return entity_filter, params
 
 
-def get_action_tables_and_properties(action: Action) -> Set[Tuple[PropertyName, PropertyType]]:
+def get_action_tables_and_properties(action: Action) -> Counter[Tuple[PropertyName, PropertyType]]:
     from ee.clickhouse.models.property import extract_tables_and_properties
 
-    result: Set[Tuple[PropertyName, PropertyType]] = set()
+    result: Counter[Tuple[PropertyName, PropertyType]] = Counter()
 
     for action_step in action.steps.all():
         if action_step.url:
-            result.add(("$current_url", "event"))
-        result |= extract_tables_and_properties(Filter(data={"properties": action_step.properties or []}).properties)
+            result[("$current_url", "event")] += 1
+        result += extract_tables_and_properties(Filter(data={"properties": action_step.properties or []}).properties)
 
     return result
 

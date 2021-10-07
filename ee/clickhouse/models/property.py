@@ -1,5 +1,14 @@
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple, cast
+from typing import (
+    Any,
+    Counter,
+    Dict,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    cast,
+)
 
 from django.utils import timezone
 from rest_framework import exceptions
@@ -362,5 +371,5 @@ def build_selector_regex(selector: Selector) -> str:
     return regex
 
 
-def extract_tables_and_properties(props: List[Property]) -> Set[Tuple[PropertyName, PropertyType]]:
-    return set((prop.key, prop.type) for prop in props)
+def extract_tables_and_properties(props: List[Property]) -> Counter[Tuple[PropertyName, PropertyType]]:
+    return Counter((prop.key, prop.type) for prop in props)
