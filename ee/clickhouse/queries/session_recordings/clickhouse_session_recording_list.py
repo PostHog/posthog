@@ -23,7 +23,6 @@ class EventFiltersSQL(NamedTuple):
 
 
 class ClickhouseSessionRecordingList(SessionRecordingList):
-    _duration_filter_clause = "AND duration {operator} %(recording_duration)s"
     _recording_duration_select_statement = (
         "dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,"
     )

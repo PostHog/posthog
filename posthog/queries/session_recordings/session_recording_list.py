@@ -36,8 +36,7 @@ class SessionRecordingList:
         self._filter = filter
         self._team = team
 
-    _duration_filter_clause = "AND duration {operator} INTERVAL '%(recording_duration)s seconds'"
-    _recording_duration_select_statement = "MAX(timestamp) - MIN(timestamp) as duration,"
+    _recording_duration_select_statement = "EXTRACT(EPOCH FROM MAX(timestamp) - MIN(timestamp)) as duration,"
     _recording_full_snapshot_select_statement = "COUNT(*) FILTER(where snapshot_data->>'type' = '2' OR (snapshot_data->>'has_full_snapshot')::boolean) as full_snapshots"
     _session_recording_event_table = "posthog_sessionrecordingevent"
     _session_recording_select_statements = """
@@ -150,7 +149,7 @@ class SessionRecordingList:
                 operator = ">"
             else:
                 operator = "<"
-            duration_clause = self._duration_filter_clause.format(operator=operator)
+            duration_clause = "\nAND duration {operator} %(recording_duration)s".format(operator=operator)
             duration_params = {
                 "recording_duration": self._filter.recording_duration_filter.value,
             }

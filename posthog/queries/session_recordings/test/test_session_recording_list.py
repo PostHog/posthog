@@ -1,26 +1,18 @@
-from datetime import timedelta
+from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
-from freezegun import freeze_time
 
-from posthog.models import (
-    Action,
-    ActionStep,
-    Cohort,
-    Event,
-    Organization,
-    Person,
-    SessionRecordingEvent,
-    Team,
-)
+from posthog.models import Action, ActionStep, Event, Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
-from posthog.tasks.calculate_action import calculate_action, calculate_actions_from_last_calculation
+from posthog.tasks.calculate_action import calculate_action
 from posthog.test.base import BaseTest
 
 
-def factory_session_recordings_list_test(session_recording_list, event_factory, session_recording_event_factory):
+def factory_session_recordings_list_test(
+    session_recording_list, event_factory, session_recording_event_factory, action_factory, action_step_factory
+):
     class TestSessionRecordingsList(BaseTest):
 
         base_time = now() - relativedelta(hours=1)
@@ -28,22 +20,22 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
         def create_action(self, name, team_id=None, properties=[]):
             if team_id == None:
                 team_id = self.team.pk
-            action = Action.objects.create(team_id=team_id, name=name)
-            ActionStep.objects.create(action=action, event=name, properties=properties)
+            action = action_factory(team_id=team_id, name=name)
+            action_step_factory(action=action, event=name, properties=properties)
             return action
 
         def create_event(
             self,
             distinct_id,
             timestamp,
-            team_id=None,
+            team=None,
             event_name="$pageview",
             properties={"$os": "Windows 95", "$current_url": "aloha.com/2"},
         ):
-            if team_id == None:
-                team_id = self.team.pk
+            if team == None:
+                team = self.team
             event_factory(
-                team_id=team_id, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties,
+                team=team, event=event_name, timestamp=timestamp, distinct_id=distinct_id, properties=properties,
             )
 
         def create_snapshot(self, distinct_id, session_id, timestamp, type=2, team_id=None):
@@ -99,7 +91,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["distinct_id"], "user")
             self.assertEqual(session_recordings[0]["start_time"], self.base_time)
             self.assertEqual(session_recordings[0]["end_time"], self.base_time + relativedelta(seconds=30))
-            self.assertEqual(session_recordings[0]["duration"], timedelta(seconds=30))
+            self.assertEqual(session_recordings[0]["duration"], 30)
 
         def test_event_filter(self):
             self.create_snapshot("user", "1", self.base_time)
@@ -256,7 +248,7 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["distinct_id"], "user")
             self.assertEqual(session_recordings[0]["start_time"], self.base_time)
             self.assertEqual(session_recordings[0]["end_time"], self.base_time + relativedelta(seconds=30))
-            self.assertEqual(session_recordings[0]["duration"], timedelta(seconds=30))
+            self.assertEqual(session_recordings[0]["duration"], 30)
 
         def test_duration_filter(self):
             self.create_snapshot("user", "1", self.base_time)
@@ -315,20 +307,21 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             self.assertEqual(session_recordings[0]["session_id"], "1")
 
         def test_recording_that_spans_time_bounds(self):
-            self.create_snapshot("user", "1", self.base_time - relativedelta(days=3))
-            self.create_snapshot("user", "1", self.base_time - relativedelta(days=3) + relativedelta(hours=6))
+            day_line = datetime(2021, 11, 5)
+            self.create_snapshot("user", "1", day_line - relativedelta(hours=3))
+            self.create_snapshot("user", "1", day_line + relativedelta(hours=3))
 
             filter = SessionRecordingsFilter(
                 data={
-                    "date_to": (self.base_time - relativedelta(days=3) + relativedelta(hour=3)).strftime("%Y-%m-%d"),
-                    "date_from": (self.base_time - relativedelta(days=10)).strftime("%Y-%m-%d"),
+                    "date_to": day_line.strftime("%Y-%m-%d"),
+                    "date_from": (day_line - relativedelta(days=10)).strftime("%Y-%m-%d"),
                 }
             )
             session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 1)
             self.assertEqual(session_recordings[0]["session_id"], "1")
-            self.assertEqual(session_recordings[0]["duration"], timedelta(hours=6))
+            self.assertEqual(session_recordings[0]["duration"], 6 * 60 * 60)
 
         def test_person_id_filter(self):
             p = Person.objects.create(team=self.team, distinct_ids=["user", "user2"], properties={"email": "bla"})
@@ -417,8 +410,11 @@ def factory_session_recordings_list_test(session_recording_list, event_factory, 
             (session_recordings, _) = session_recording_list_instance.run()
             self.assertEqual(len(session_recordings), 0)
 
+        def test_teams_dont_leak_event_filter(self):
+            pass
+
     return TestSessionRecordingsList
 
 
-class TestSessionRecordingsAPI(factory_session_recordings_list_test(SessionRecordingList, Event.objects.create, SessionRecordingEvent.objects.create)):  # type: ignore
+class TestSessionRecordingsAPI(factory_session_recordings_list_test(SessionRecordingList, Event.objects.create, SessionRecordingEvent.objects.create, Action.objects.create, ActionStep.objects.create)):  # type: ignore
     pass
