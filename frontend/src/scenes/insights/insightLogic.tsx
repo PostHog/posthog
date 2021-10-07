@@ -311,6 +311,7 @@ export const insightLogic = kea<insightLogicType>({
                 saved: true,
             })
             actions.setInsight(savedInsight)
+            actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             toast(
                 <div data-attr="success-toast">
                     Insight saved!&nbsp;
