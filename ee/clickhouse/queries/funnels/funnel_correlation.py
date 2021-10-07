@@ -169,19 +169,19 @@ class FunnelCorrelation:
 
     def get_properties_query(self) -> Tuple[str, Dict[str, Any]]:
 
-        if not self._filter.correlation_property_values:
+        if not self._filter.correlation_property_names:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
         person_property_expressions = []
         person_property_params = {}
-        for index, property_value in enumerate(self._filter.correlation_property_values):
-            param_name = f"property_value_{index}"
+        for index, property_name in enumerate(self._filter.correlation_property_names):
+            param_name = f"property_name_{index}"
             expression, _ = get_property_string_expr(
-                "person", property_value, f"%({param_name})s", ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
+                "person", property_name, f"%({param_name})s", ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
             )
-            person_property_params[param_name] = property_value
+            person_property_params[param_name] = property_name
             person_property_expressions.append(expression)
 
         person_query = ClickhousePersonQuery(
@@ -246,7 +246,7 @@ class FunnelCorrelation:
             **funnel_persons_params,
             **person_property_params,
             "target_step": len(self._filter.entities),
-            "property_names": self._filter.correlation_property_values,
+            "property_names": self._filter.correlation_property_names,
         }
 
         return query, params

@@ -108,7 +108,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
             "funnel_correlation_type": "properties",
-            "funnel_correlation_values": ["$browser"],
+            "funnel_correlation_names": ["$browser"],
         }
 
         filter = Filter(data=filters)
@@ -258,7 +258,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
             "funnel_correlation_type": "properties",
-            # "funnel_correlation_values": ["$browser"], missing value
+            # "funnel_correlation_names": ["$browser"], missing value
         }
 
         filter = Filter(data=filters)
@@ -286,7 +286,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "date_from": "2020-01-01",
             "date_to": "2020-01-14",
             "funnel_correlation_type": "properties",
-            "funnel_correlation_values": ["$browser", "$nice"],
+            "funnel_correlation_names": ["$browser", "$nice"],
         }
 
         filter = Filter(data=filters)

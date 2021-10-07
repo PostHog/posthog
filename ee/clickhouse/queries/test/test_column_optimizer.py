@@ -48,12 +48,12 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
         # Funnel Correlation cases
         filter = BASE_FILTER.with_data(
-            {"funnel_correlation_type": "events", "funnel_correlation_values": ["random_column"]}
+            {"funnel_correlation_type": "events", "funnel_correlation_names": ["random_column"]}
         )
         self.assertEqual(properties_used_in_filter(filter), set())
 
         filter = BASE_FILTER.with_data(
-            {"funnel_correlation_type": "properties", "funnel_correlation_values": ["random_column", "$browser"]}
+            {"funnel_correlation_type": "properties", "funnel_correlation_names": ["random_column", "$browser"]}
         )
         self.assertEqual(properties_used_in_filter(filter), {("random_column", "person"), ("$browser", "person")})
 

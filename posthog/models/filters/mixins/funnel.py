@@ -8,8 +8,8 @@ from posthog.constants import (
     DISPLAY,
     DROP_OFF,
     ENTRANCE_PERIOD_START,
+    FUNNEL_CORRELATION_NAMES,
     FUNNEL_CORRELATION_TYPE,
-    FUNNEL_CORRELATION_VALUES,
     FUNNEL_FROM_STEP,
     FUNNEL_LAYOUT,
     FUNNEL_ORDER_TYPE,
@@ -230,14 +230,14 @@ class FunnelCorrelationMixin(BaseParamMixin):
         return None
 
     @cached_property
-    def correlation_property_values(self) -> Optional[List[str]]:
-        return self._data.get(FUNNEL_CORRELATION_VALUES)
+    def correlation_property_names(self) -> Optional[List[str]]:
+        return self._data.get(FUNNEL_CORRELATION_NAMES)
 
     @include_dict
     def funnel_correlation_to_dict(self):
         result_dict: Dict = {}
         if self.correlation_type:
             result_dict[FUNNEL_CORRELATION_TYPE] = self.correlation_type
-        if self.correlation_property_values:
-            result_dict[FUNNEL_CORRELATION_VALUES] = self.correlation_property_values
+        if self.correlation_property_names:
+            result_dict[FUNNEL_CORRELATION_NAMES] = self.correlation_property_names
         return result_dict
