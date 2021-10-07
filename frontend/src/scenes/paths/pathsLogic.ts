@@ -175,7 +175,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 })
                 insightLogic(props).actions.setAsSaved(insight)
             } else {
-                insightLogic(props).actions.updateInsightFilters(values.filter)
+                insightLogic(props).actions.updateInsightFilters(filters)
             }
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
