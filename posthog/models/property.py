@@ -36,7 +36,9 @@ class Property:
         self.type = type if type else "event"
 
     def __repr__(self):
-        return f"Property({self.to_dict()})"
+        return "Property({}: {}{}={})".format(
+            self.type, self.key, "__{}".format(self.operator) if self.operator else "", self.value,
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
