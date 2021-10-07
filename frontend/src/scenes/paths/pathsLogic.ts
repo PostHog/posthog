@@ -1,7 +1,7 @@
 import { kea } from 'kea'
-import { toParams, objectsEqual, uuid } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 import api from 'lib/api'
-import { router } from 'kea-router'
+import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
@@ -78,6 +78,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             path_end_key,
             path_dropoff_key,
         }),
+        viewPathToFunnel: (pathItemCard: any) => ({ pathItemCard }),
     },
     loaders: ({ values, props }) => ({
         results: {
@@ -93,7 +94,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 if (!refresh && (props.cachedResults || props.preventLoading) && values.filter === props.filters) {
                     return { paths: props.cachedResults, filter }
                 }
-                const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
+                const params = { ...filter, ...(refresh ? { refresh: true } : {}) }
 
                 const queryId = uuid()
                 const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
@@ -104,7 +105,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
 
                 let paths
                 try {
-                    paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
+                    paths = await api.create(`api/insight/path`, params)
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
@@ -183,6 +184,42 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
             })
         },
+        viewPathToFunnel: ({ pathItemCard }) => {
+            const events = []
+            let currentItemCard = pathItemCard
+            while (currentItemCard.targetLinks.length > 0) {
+                const name = currentItemCard.name.includes('http')
+                    ? '$pageview'
+                    : currentItemCard.name.replace(/(^[0-9]+_)/, '')
+                events.push({
+                    id: name,
+                    name: name,
+                    type: 'events',
+                    order: currentItemCard.depth - 1,
+                    ...(currentItemCard.name.includes('http') && {
+                        properties: [
+                            {
+                                key: '$current_url',
+                                operator: 'exact',
+                                type: 'event',
+                                value: currentItemCard.name.replace(/(^[0-9]+_)/, ''),
+                            },
+                        ],
+                    }),
+                })
+                currentItemCard = currentItemCard.targetLinks[0].source
+            }
+            router.actions.push(
+                combineUrl(
+                    '/insights',
+                    encodeParams({
+                        insight: ViewType.FUNNELS,
+                        events,
+                        date_from: values.filter.date_from,
+                    })
+                ).url
+            )
+        },
     }),
     selectors: {
         paths: [
@@ -232,6 +269,12 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 return Object.keys(result).length === 0 ? '' : result
             },
         ],
+        wildcards: [
+            (s) => [s.filter],
+            (filter: Partial<FilterType>) => {
+                return filter.path_groupings?.map((name) => ({ name }))
+            },
+        ],
     },
     actionToUrl: ({ values, props }) => ({
         setProperties: () => {
@@ -252,6 +295,10 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     return
                 }
                 const cleanedPathParams = cleanPathParams(searchParams)
+
+                if (cleanedPathParams.funnel_filter && values.filter.date_from) {
+                    cleanedPathParams.funnel_filter.date_from = values.filter.date_from
+                }
 
                 if (!objectsEqual(cleanedPathParams, values.filter)) {
                     actions.setFilter(cleanedPathParams)

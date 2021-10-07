@@ -105,7 +105,7 @@ jobs:
               run: |
                   python manage.py makemigrations --check --dry-run
                   git fetch origin master
-                  git diff --name-only origin/master..HEAD | grep migrations | python manage.py test_migrations_are_null
+                  git diff --name-only origin/master..HEAD | grep posthog/migrations | python manage.py test_migrations_are_null
 
             - name: Add kafka host to /etc/hosts for kafka connectivity
               run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
@@ -126,6 +126,7 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
                   pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml
+                  pytest posthog -m "ee"
             - uses: codecov/codecov-action@v2
               with:
                   files: ./coverage-postgres.xml,./coverage-clickhouse.xml
@@ -183,6 +184,7 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
                   pytest ee/
+                  pytest posthog -m "ee"
 
     cloud:
         name: Django tests – Cloud
@@ -281,6 +283,7 @@ jobs:
               run: |
                   cd deploy/
                   pytest ee -m "not skip_on_multitenancy"
+                  pytest posthog -m "ee and not skip_on_multitenancy"
 
     foss:
         name: Django tests – FOSS

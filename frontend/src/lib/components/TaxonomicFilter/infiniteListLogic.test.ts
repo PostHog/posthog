@@ -113,3 +113,30 @@ describe('infiniteListLogic', () => {
         ])
     })
 })
+
+describe('infiniteListLogic with optionsFromProp', () => {
+    let logic: BuiltLogic<infiniteListLogicType>
+
+    initKeaTestLogic({
+        logic: infiniteListLogic,
+        props: {
+            taxonomicFilterLogicKey: 'testList',
+            listGroupType: TaxonomicFilterGroupType.Wildcards,
+            optionsFromProp: {
+                wildcard: [{ name: 'first' }, { name: 'second' }],
+            },
+        },
+        onLogic: (l) => (logic = l),
+    })
+
+    it('doesnt call loadRemoteItems on mount, loads results locally', async () => {
+        await expectLogic(logic)
+            .toDispatchActions([])
+            .toMatchValues({
+                results: expect.arrayContaining([
+                    expect.objectContaining({ name: 'first' }),
+                    expect.objectContaining({ name: 'second' }),
+                ]),
+            })
+    })
+})

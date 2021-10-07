@@ -1,15 +1,15 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
-import { userLogic } from 'scenes/userLogic'
 import { navigationLogicType } from './navigationLogicType'
-import { OrganizationType, SystemStatus, UserType } from '~/types'
+import { SystemStatus } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { Environments, ENVIRONMENT_LOCAL_STORAGE_KEY, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from '../../scenes/teamLogic'
 
 type WarningType =
     | 'welcome'
@@ -129,15 +129,9 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 return !latestVersionLoading && !preflight?.cloud && latestVersion !== preflight?.posthog_version
             },
         ],
-        currentTeam: [
-            () => [userLogic.selectors.user],
-            (user) => {
-                return user?.team?.id
-            },
-        ],
         demoWarning: [
-            () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
-            (user: UserType, organization: OrganizationType): WarningType => {
+            () => [organizationLogic.selectors.currentOrganization, teamLogic.selectors.currentTeam],
+            (organization, currentTeam): WarningType => {
                 if (!organization) {
                     return null
                 }
@@ -145,16 +139,16 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
                 if (
                     organization.setup.is_active &&
                     dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&
-                    user.team?.is_demo
+                    currentTeam?.is_demo
                 ) {
                     return 'welcome'
-                } else if (organization.setup.is_active && user.team?.is_demo) {
+                } else if (organization.setup.is_active && currentTeam?.is_demo) {
                     return 'incomplete_setup_on_demo_project'
                 } else if (organization.setup.is_active) {
                     return 'incomplete_setup_on_real_project'
-                } else if (user.team?.is_demo) {
+                } else if (currentTeam?.is_demo) {
                     return 'demo_project'
-                } else if (user.team && !user.team.ingested_event) {
+                } else if (currentTeam && !currentTeam.ingested_event) {
                     return 'real_project_with_no_events'
                 }
                 return null

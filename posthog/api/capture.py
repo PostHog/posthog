@@ -9,6 +9,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
+from sentry_sdk import push_scope
 from statshog.defaults.django import statsd
 
 from posthog.api.utils import determine_team_from_request_data, extract_data_from_request, get_token
@@ -226,6 +227,12 @@ def parse_and_enqueue_event(
     # Support test_[apiKey] for users with multiple environments
     if event["properties"].get("$environment") is None and is_test_env:
         event["properties"]["$environment"] = ENVIRONMENT_TEST
+
+    library = event["properties"].get("$lib", "unknown")
+    library_version = event["properties"].get("$lib_version", "unknown")
+    with push_scope() as scope:
+        scope.set_tag("library", library)
+        scope.set_tag("library.version", library_version)
 
     if send_to_dead_letter_queue:
         kafka_event = parse_kafka_event_data(

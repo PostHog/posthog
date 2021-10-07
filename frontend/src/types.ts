@@ -558,7 +558,7 @@ export interface DashboardType {
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
-    tags: string[]
+    tags: string[] // TODO: To be implemented
 }
 
 export type DashboardLayoutSize = 'lg' | 'sm' | 'xs' | 'xxs'
@@ -1201,4 +1201,18 @@ export interface PathEdgeParameters {
     edge_limit?: number | undefined
     min_edge_weight?: number | undefined
     max_edge_weight?: number | undefined
+}
+
+export interface FunnelCorrelation {
+    event?: string
+    property?: string
+    odds_ratio: number
+    success_count: number
+    failure_count: number
+    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
+}
+
+export enum FunnelCorrelationType {
+    Success = 'success',
+    Failure = 'failure',
 }

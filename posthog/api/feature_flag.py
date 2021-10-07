@@ -57,7 +57,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             exclude_kwargs = {"pk": cast(FeatureFlag, self.instance).pk}
 
         if (
-            FeatureFlag.objects.filter(key=value, team=self.context["request"].user.team, deleted=False)
+            FeatureFlag.objects.filter(key=value, team_id=self.context["team_id"], deleted=False)
             .exclude(**exclude_kwargs)
             .exists()
         ):
@@ -81,7 +81,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
                 "Invalid variant definitions: Variant rollout percentages must sum to 100."
             )
 
-        FeatureFlag.objects.filter(key=validated_data["key"], team=request.user.team, deleted=True).delete()
+        FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
         instance = super().create(validated_data)
 
         posthoganalytics.capture(

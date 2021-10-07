@@ -29,6 +29,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 
 interface Props {
     loadResults: () => void
@@ -184,6 +185,9 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                 </div>
             </Card>
             {renderTable()}
+            {preflight?.is_clickhouse_enabled &&
+                activeView === ViewType.FUNNELS &&
+                featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] && <FunnelCorrelationTable filters={allFilters} />}
         </>
     )
 }

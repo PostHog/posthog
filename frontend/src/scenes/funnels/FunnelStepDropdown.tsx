@@ -32,6 +32,7 @@ export function FunnelStepDropdown({
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.before,
+                                                    date_from: filterProps.date_from,
                                                 },
                                                 '?'
                                             )
@@ -53,6 +54,7 @@ export function FunnelStepDropdown({
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.between,
+                                                    date_from: filterProps.date_from,
                                                 },
                                                 '?'
                                             )
@@ -73,6 +75,7 @@ export function FunnelStepDropdown({
                                                 funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
                                                 insight: ViewType.PATHS,
                                                 funnel_paths: FunnelPathType.after,
+                                                date_from: filterProps.date_from,
                                             },
                                             '?'
                                         )
@@ -93,6 +96,7 @@ export function FunnelStepDropdown({
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.after,
+                                                    date_from: filterProps.date_from,
                                                 },
                                                 '?'
                                             )
@@ -114,6 +118,7 @@ export function FunnelStepDropdown({
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.before,
+                                                    date_from: filterProps.date_from,
                                                 },
                                                 '?'
                                             )

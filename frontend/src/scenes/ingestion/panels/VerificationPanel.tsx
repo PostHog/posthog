@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { Button, Row, Spin, Space, Popconfirm, Dropdown, Menu, Typography } from 'antd'
@@ -11,10 +10,11 @@ import { CreateInviteModalWithButton } from 'scenes/organization/Settings/Create
 const { Text } = Typography
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function VerificationPanel(): JSX.Element {
-    const { loadUser } = useActions(userLogic)
-    const { user } = useValues(userLogic)
+    const { loadCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { setVerify, completeOnboarding } = useActions(ingestionLogic)
     const { index, totalSteps } = useValues(ingestionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -22,8 +22,8 @@ export function VerificationPanel(): JSX.Element {
     const [isHelpMenuShowing, setHelpMenuShowing] = useState(false)
 
     useInterval(() => {
-        if (!user?.team?.ingested_event && !isPopConfirmShowing && !isHelpMenuShowing) {
-            loadUser()
+        if (!currentTeam?.ingested_event && !isPopConfirmShowing && !isHelpMenuShowing) {
+            loadCurrentTeam()
         }
     }, 2000)
 
@@ -126,7 +126,7 @@ export function VerificationPanel(): JSX.Element {
 
     return (
         <CardContainer index={index} totalSteps={totalSteps} onBack={() => setVerify(false)}>
-            {!user?.team?.ingested_event ? (
+            {!currentTeam?.ingested_event ? (
                 <>
                     <Row align="middle">
                         <Spin />

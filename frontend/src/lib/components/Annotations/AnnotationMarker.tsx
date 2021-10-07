@@ -12,6 +12,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { AnnotationScope, AnnotationType } from '~/types'
 import styles from '~/vars.scss'
+import { teamLogic } from '../../../scenes/teamLogic'
+import { organizationLogic } from '../../../scenes/organizationLogic'
 
 const { TextArea } = Input
 
@@ -91,6 +93,8 @@ export function AnnotationMarker({
     }, [visible])
 
     const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
 
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
@@ -204,13 +208,13 @@ export function AnnotationMarker({
                                                 </i>
                                                 {data.scope === AnnotationScope.Project ? (
                                                     <Tooltip
-                                                        title={`This annotation is shown on all charts in project ${user?.team?.name}`}
+                                                        title={`This annotation is shown on all charts in project ${currentTeam?.name}`}
                                                     >
                                                         <ProjectOutlined />
                                                     </Tooltip>
                                                 ) : data.scope === AnnotationScope.Organization ? (
                                                     <Tooltip
-                                                        title={`This annotation is shown on all charts in organization ${user?.organization?.name}`}
+                                                        title={`This annotation is shown on all charts in organization ${currentOrganization?.name}`}
                                                     >
                                                         <DeploymentUnitOutlined />
                                                     </Tooltip>

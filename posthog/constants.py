@@ -113,6 +113,8 @@ FUNNEL_STEP_BREAKDOWN = "funnel_step_breakdown"
 FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
+FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
+FUNNEL_CORRELATION_VALUE = "funnel_correlation_value"
 BIN_COUNT = "bin_count"
 ENTRANCE_PERIOD_START = "entrance_period_start"
 DROP_OFF = "drop_off"
@@ -142,6 +144,11 @@ class FunnelVizType(str, Enum):
     TRENDS = "trends"
     TIME_TO_CONVERT = "time_to_convert"
     STEPS = "steps"
+
+
+class FunnelCorrelationType(str, Enum):
+    EVENTS = "events"
+    PROPERTIES = "properties"
 
 
 RETENTION_RECURRING = "retention_recurring"

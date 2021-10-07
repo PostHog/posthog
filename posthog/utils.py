@@ -392,6 +392,7 @@ def load_data_from_request(request):
     # add the data in sentry's scope in case there's an exception
     with push_scope() as scope:
         scope.set_context("data", data)
+        scope.set_tag("origin", request.META.get("REMOTE_HOST"))
 
     compression = (
         request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
