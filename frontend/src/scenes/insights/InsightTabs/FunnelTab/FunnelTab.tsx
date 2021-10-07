@@ -21,7 +21,6 @@ import { BreakdownFilter } from 'scenes/insights/BreakdownFilter'
 import { CloseButton } from 'lib/components/CloseButton'
 import { FunnelConversionWindowFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelConversionWindowFilter'
 import { FunnelExclusionsFilter } from 'scenes/insights/InsightTabs/FunnelTab/FunnelExclusionsFilter'
-import { SavedFunnels } from 'scenes/insights/SavedCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -202,10 +201,6 @@ export function FunnelTab(): JSX.Element {
                     <hr />
                     <h4 className="secondary">Options</h4>
                     <FunnelConversionWindowFilter />
-                    <hr />
-                    {/* TODO: Remove saved funnels after #3408 is wrapped up. */}
-                    <h4 className="secondary">Saved Funnels</h4>
-                    <SavedFunnels />
                 </Col>
             </Row>
         </>
