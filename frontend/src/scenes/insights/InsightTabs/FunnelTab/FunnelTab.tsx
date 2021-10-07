@@ -202,10 +202,14 @@ export function FunnelTab(): JSX.Element {
                     <hr />
                     <h4 className="secondary">Options</h4>
                     <FunnelConversionWindowFilter />
-                    <hr />
-                    {/* TODO: Remove saved funnels after #3408 is wrapped up. */}
-                    <h4 className="secondary">Saved Funnels</h4>
-                    <SavedFunnels />
+                    {!featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                        <>
+                            <hr />
+                            {/* TODO: Remove saved funnels after #3408 is wrapped up. */}
+                            <h4 className="secondary">Saved Funnels</h4>
+                            <SavedFunnels />
+                        </>
+                    )}
                 </Col>
             </Row>
         </>
