@@ -20,12 +20,11 @@ from posthog.helpers.session_recording import preprocess_session_recording_event
 from posthog.models import Team
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.settings import EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC
 from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled
 
 if is_clickhouse_enabled():
     from ee.kafka_client.client import KafkaProducer
-    from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_EVENTS_PLUGIN_INGESTION
+    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 
     def parse_kafka_event_data(
         distinct_id: str,
@@ -52,30 +51,6 @@ if is_clickhouse_enabled():
         if settings.DEBUG:
             print(f'Logging event {data["event"]} to Kafka topic {topic}')
         KafkaProducer().produce(topic=topic, key=data["ip"], data=data)
-
-    def log_event_to_dead_letter_queue(
-        raw_payload: Dict,
-        event_name: str,
-        event: Dict,
-        error_message: str,
-        error_location: str,
-        topic: str = KAFKA_DEAD_LETTER_QUEUE,
-    ):
-        data = event.copy()
-        data["failure_timestamp"] = datetime.now().isoformat()
-        data["error_location"] = error_location
-        data["error"] = error_message
-        data["elements_chain"] = ""
-        data["id"] = str(UUIDT())
-        data["event_uuid"] = event["uuid"]
-        data["event"] = event_name
-        data["raw_payload"] = json.dumps(raw_payload)
-
-        del data["uuid"]
-
-        KafkaProducer().produce(topic=topic, data=data)
-
-        statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -152,9 +127,7 @@ def get_event(request):
             ),
         )
 
-    team, send_events_to_dead_letter_queue, fetch_team_error, error_response = determine_team_from_request_data(
-        request, data, token
-    )
+    team, error_response = determine_team_from_request_data(request, data, token)
 
     if error_response:
         return error_response
@@ -180,19 +153,10 @@ def get_event(request):
 
     site_url = request.build_absolute_uri("/")[:-1]
 
-    ip = None if send_events_to_dead_letter_queue or team.anonymize_ips else get_ip_address(request)  # type: ignore
+    ip = None if team.anonymize_ips else get_ip_address(request)  # type: ignore
     for event in events:
         parse_and_enqueue_event(
-            data,
-            event,
-            site_url,
-            ip,
-            now,
-            sent_at,
-            team,
-            is_test_env,
-            send_events_to_dead_letter_queue,
-            fetch_team_error,
+            data, event, site_url, ip, now, sent_at, team, is_test_env,
         )
 
     timer.stop()
@@ -202,9 +166,7 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def parse_and_enqueue_event(
-    data, event, site_url, ip, now, sent_at, team, is_test_env, send_to_dead_letter_queue=False, fetch_team_error=""
-) -> None:
+def parse_and_enqueue_event(data, event, site_url, ip, now, sent_at, team, is_test_env) -> None:
     try:
         distinct_id = _get_distinct_id(event)
     except KeyError:
@@ -231,27 +193,6 @@ def parse_and_enqueue_event(
     with push_scope() as scope:
         scope.set_tag("library", library)
         scope.set_tag("library.version", library_version)
-
-    if send_to_dead_letter_queue:
-        kafka_event = parse_kafka_event_data(
-            distinct_id=distinct_id,
-            ip=None,
-            site_url=site_url,
-            team_id=None,
-            now=now,
-            event_uuid=event_uuid,
-            data=event,
-            sent_at=sent_at,
-        )
-
-        log_event_to_dead_letter_queue(
-            data,
-            event["event"],
-            kafka_event,
-            f"Unable to fetch team from Postgres. Error: {fetch_team_error}",
-            "django_server_capture_endpoint",
-        )
-        return
 
     _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 

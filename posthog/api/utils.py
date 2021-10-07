@@ -138,11 +138,7 @@ def extract_data_from_request(request):
     return data, None
 
 
-def determine_team_from_request_data(
-    request, data, token
-) -> Tuple[Optional[Team], Optional[bool], Optional[str], Optional[Any]]:
-    send_events_to_dead_letter_queue = False
-    fetch_team_error = None
+def determine_team_from_request_data(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
     team = None
     error_response = None
 
@@ -152,28 +148,18 @@ def determine_team_from_request_data(
         capture_exception(e)
         statsd.incr("capture_endpoint_fetch_team_fail")
 
-        # Postgres deployments don't have a dead letter queue, so
-        # just return an error to the client
-        if is_clickhouse_enabled():
-            fetch_team_error = getattr(e, "message", repr(e))
+        error_response = cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "Unable to fetch team from database.",
+                type="server_error",
+                code="fetch_team_fail",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+        )
 
-            # We use this approach because each individual event needs to go through some parsing
-            # before being added to the dead letter queue
-            send_events_to_dead_letter_queue = True
-
-        else:
-            error_response = cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Unable to fetch team from database.",
-                    type="server_error",
-                    code="fetch_team_fail",
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                ),
-            )
-
-        return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
+        return team, error_response
 
     if team is None:
         try:
@@ -185,7 +171,7 @@ def determine_team_from_request_data(
                     "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
                 ),
             )
-            return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
+            return team, error_response
 
         if not project_id:
             error_response = cors_response(
@@ -198,7 +184,7 @@ def determine_team_from_request_data(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
-            return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
+            return team, error_response
 
         user = User.objects.get_from_personal_api_key(token)
         if user is None:
@@ -212,7 +198,7 @@ def determine_team_from_request_data(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
-            return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
+            return team, error_response
 
         team = user.teams.get(id=project_id)
 
@@ -229,4 +215,4 @@ def determine_team_from_request_data(
             ),
         )
 
-    return team, send_events_to_dead_letter_queue, fetch_team_error, error_response
+    return team, error_response
