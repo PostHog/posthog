@@ -1,5 +1,5 @@
 import datetime
-from typing import Dict, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -9,7 +9,7 @@ from posthog.constants import (
     DROP_OFF,
     ENTRANCE_PERIOD_START,
     FUNNEL_CORRELATION_TYPE,
-    FUNNEL_CORRELATION_VALUE,
+    FUNNEL_CORRELATION_VALUES,
     FUNNEL_FROM_STEP,
     FUNNEL_LAYOUT,
     FUNNEL_ORDER_TYPE,
@@ -230,14 +230,14 @@ class FunnelCorrelationMixin(BaseParamMixin):
         return None
 
     @cached_property
-    def correlation_property_value(self) -> Optional[str]:
-        return self._data.get(FUNNEL_CORRELATION_VALUE)
+    def correlation_property_values(self) -> Optional[List[str]]:
+        return self._data.get(FUNNEL_CORRELATION_VALUES)
 
     @include_dict
     def funnel_correlation_to_dict(self):
         result_dict: Dict = {}
         if self.correlation_type:
             result_dict[FUNNEL_CORRELATION_TYPE] = self.correlation_type
-        if self.correlation_property_value:
-            result_dict[FUNNEL_CORRELATION_VALUE] = self.correlation_property_value
+        if self.correlation_property_values:
+            result_dict[FUNNEL_CORRELATION_VALUES] = self.correlation_property_values
         return result_dict

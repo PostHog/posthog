@@ -169,17 +169,20 @@ class FunnelCorrelation:
 
     def get_properties_query(self) -> Tuple[str, Dict[str, Any]]:
 
-        if not self._filter.correlation_property_value:
-            raise ValidationError("Property Correlation expects a Property to run correlation on")
+        if not self._filter.correlation_property_values:
+            raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
-        person_property_expression, _ = get_property_string_expr(
-            "person",
-            cast(str, self._filter.correlation_property_value),
-            "%(property_name)s",
-            ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
-        )
+        person_property_expressions = []
+        person_property_params = {}
+        for index, property_value in enumerate(self._filter.correlation_property_values):
+            param_name = f"property_value_{index}"
+            expression, _ = get_property_string_expr(
+                "person", property_value, f"%({param_name})s", ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
+            )
+            person_property_params[param_name] = property_value
+            person_property_expressions.append(expression)
 
         person_query = ClickhousePersonQuery(
             self._filter, self._team.pk, ColumnOptimizer(self._filter, self._team.pk)
@@ -190,16 +193,22 @@ class FunnelCorrelation:
                 funnel_people as ({funnel_persons_query}),
                 %(target_step)s AS target_step
             SELECT
-                prop as name,
+                concat(prop.1, '::', prop.2) as name,
                 countDistinctIf(person_id, steps = target_step) AS success_count,
                 countDistinctIf(person_id, steps <> target_step) AS failure_count
             FROM (
-                SELECT person_id, funnel_people.steps as steps, {person_property_expression} as prop
+                SELECT
+                    person_id,
+                    funnel_people.steps as steps,
+                    arrayJoin(arrayZip(
+                        %(property_names)s,
+                        [{','.join(person_property_expressions)}]
+                    )) as prop
                 FROM funnel_people
                 JOIN ({person_query}) person
                 ON person.id = funnel_people.person_id
             ) person_with_props
-            GROUP BY name
+            GROUP BY prop.1, prop.2
             UNION ALL
             SELECT
                 '{self.TOTAL_IDENTIFIER}' as name,
@@ -209,8 +218,9 @@ class FunnelCorrelation:
         """
         params = {
             **funnel_persons_params,
+            **person_property_params,
             "target_step": len(self._filter.entities),
-            "property_name": self._filter.correlation_property_value,
+            "property_names": self._filter.correlation_property_values,
         }
 
         return query, params
