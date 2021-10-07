@@ -11,7 +11,7 @@ from posthog.version import VERSION
 logger = logging.getLogger(__name__)
 
 
-def event_usage_report(*, dry_run: bool = False) -> Dict[str, Any]:
+def org_usage_report(*, dry_run: bool = False) -> Dict[str, Any]:
     distinct_id = User.objects.first().distinct_id  # type: ignore
     period_start, period_end = get_previous_day()
     month_start = period_start.replace(day=1)
