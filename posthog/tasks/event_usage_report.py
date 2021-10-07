@@ -19,6 +19,7 @@ def event_usage_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "posthog_version": VERSION,
         "deployment": os.getenv("DEPLOYMENT", "unknown"),
         "realm": get_instance_realm(),
+        "is_clickhouse_enabled": is_clickhouse_enabled(),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
         "license_keys": get_instance_licenses(),

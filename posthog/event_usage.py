@@ -2,7 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import posthoganalytics
 
@@ -132,7 +132,7 @@ def report_bulk_invited(
     )
 
 
-def report_org_usage(distinct_id: str, properties: Dict,) -> None:
+def report_org_usage(distinct_id: str, properties: Dict[str, Any]) -> None:
     """
     Triggered daily by Celery scheduler.
     """
