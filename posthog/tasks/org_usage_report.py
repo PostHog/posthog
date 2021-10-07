@@ -51,6 +51,7 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[Dict[str, Any]]
             report = {
                 **metadata,
                 **usage,
+                "organization_id": org,
             }
             report_org_usage(distinct_id, report)
             org_reports.append(report)
