@@ -94,28 +94,27 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):  # type
 
         result = correlation.run()["events"]
 
-        self.assertCountEqual(
+        odds_ratios = [item.pop("odds_ratio") for item in result]
+        expected_odds_ratios = [6, 1 / 6]
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(
             result,
             [
                 {
                     "event": "positively_related",
                     "success_count": 6,
                     "failure_count": 1,
-                    "odds_ratio": 6.0,
+                    # "odds_ratio": 6.0,
                     "correlation_type": "success",
                 },
                 {
                     "event": "negatively_related",
                     "success_count": 1,
                     "failure_count": 6,
-                    "odds_ratio": 1 / 6,
-                    "correlation_type": "failure",
-                },
-                {
-                    "event": "user signed up",
-                    "success_count": 11,
-                    "failure_count": 11,
-                    "odds_ratio": 1.0,
+                    # "odds_ratio": 1 / 6,
                     "correlation_type": "failure",
                 },
             ],
@@ -161,21 +160,27 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):  # type
 
         result = correlation.run()["events"]
 
-        self.assertCountEqual(
+        odds_ratios = [item.pop("odds_ratio") for item in result]
+        expected_odds_ratios = [11, 1 / 11]
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(
             result,
             [
                 {
                     "event": "Positive",
                     "success_count": 11,
                     "failure_count": 1,
-                    "odds_ratio": 11.0,
+                    # "odds_ratio": 11.0,
                     "correlation_type": "success",
                 },
                 {
                     "event": "Negative",
                     "success_count": 1,
                     "failure_count": 11,
-                    "odds_ratio": 1 / 11,
+                    # "odds_ratio": 1 / 11,
                     "correlation_type": "failure",
                 },
             ],

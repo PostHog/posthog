@@ -1,19 +1,20 @@
 import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function PythonInstallSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Bash}>{'pip install posthog'}</CodeSnippet>
 }
 
 function PythonSetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <CodeSnippet language={Language.Python}>
             {`import posthog
 
-posthog.api_key = '${user?.team?.api_token}'
+posthog.api_key = '${currentTeam?.api_token}'
 posthog.host = '${window.location.origin}'`}
         </CodeSnippet>
     )

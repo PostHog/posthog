@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Literal, Tuple, TypedDict
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import get_property_string_expr
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import FunnelCorrelationType
 from posthog.models import Filter, Team
 from posthog.models.filters import Filter
@@ -68,43 +69,88 @@ class FunnelCorrelation:
         return self.get_properties_query()
 
     def get_event_query(self) -> Tuple[str, Dict[str, Any]]:
+
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
-        # TODO: replace countIf with the distinct equivalent
         query = f"""
             WITH 
-                funnel_people AS ({funnel_persons_query}),
                 toDateTime(%(date_to)s) AS date_to,
-                %(target_step)s AS target_step
+                toDateTime(%(date_from)s) AS date_from,
+                %(target_step)s AS target_step,
+                %(funnel_step_names)s as funnel_step_names
+
             SELECT 
                 event.event AS name, 
 
-                -- If we have a timestamp, we know the person reached the end of the
-                -- funnel (I think)
-                countIf(person.steps = target_step) AS success_count,
+                -- If we have a `person.steps = target_step`, we know the person 
+                -- reached the end of the funnel
+                countDistinctIf(
+                    person.person_id, 
+                    person.steps = target_step
+                ) AS success_count,
 
                 -- And the converse being for failures
-                countIf(person.steps <> target_step) AS failure_count
+                countDistinctIf(
+                    person.person_id, 
+                    person.steps <> target_step
+                ) AS failure_count
+
             FROM events AS event
             
-            JOIN person_distinct_id AS pdi
+            JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
                 ON pdi.distinct_id = events.distinct_id
 
-            -- Right join, so we can get the total success/failure numbers as well
-            RIGHT JOIN funnel_people AS person
+            -- NOTE: I would love to right join here, so we count get total
+            -- success/failure numbers in one pass, but this causes out of memory
+            -- error mentioning issues with right filling. I'm sure there's a way
+            -- to do it but lifes too short.
+            JOIN ({funnel_persons_query}) AS person
                 ON pdi.person_id = person.person_id
 
             -- Make sure we're only looking at events before the final step, or
             -- failing that, date_to
-            -- TODO: add a lower bounds for events
-            WHERE event.timestamp < COALESCE(person.final_timestamp, date_to)
-            AND event.timestamp >= person.first_timestamp
+            WHERE 
+                -- add this condition in to ensure we can filter events before 
+                -- joining funnel_people
+                event.timestamp >= date_from
+                AND event.timestamp < date_to
+
+                AND event.team_id = {self._team.pk}
+
+                -- Add in per person filtering on event time range. We just want
+                -- to include events that happened within the bounds of the 
+                -- persons time in the funnel.
+                AND event.timestamp > person.first_timestamp
+                AND event.timestamp < COALESCE(person.final_timestamp, date_to)
+
+                -- Exclude funnel steps
+                AND event.event NOT IN funnel_step_names
             GROUP BY name
-            WITH TOTALS
+            
+            -- To get the total success/failure numbers, we do an aggregation on 
+            -- the funnel people CTE and count distinct person_ids
+            UNION ALL
+
+            SELECT 
+                -- Use null as a special marker for the WITH TOTALS equivelant.
+                -- We're not using WITH TOTALS because the resulting queries are
+                -- not runnable in Metabase
+                NULL as name, 
+
+                countDistinctIf(
+                    person.person_id, 
+                    person.steps = target_step
+                ) AS success_count,
+
+                countDistinctIf(
+                    person.person_id,
+                    person.steps <> target_step
+                ) AS failure_count
+            FROM ({funnel_persons_query}) AS person
         """
         params = {
             **funnel_persons_params,
-            "date_to": self._filter.date_to,
+            "funnel_step_names": [entity.id for entity in self._filter.events],
             "target_step": len(self._filter.entities),
         }
 
@@ -121,7 +167,6 @@ class FunnelCorrelation:
         query = f"""
             WITH 
                 funnel_people AS ({funnel_persons_query}),
-                toDateTime(%(date_to)s) AS date_to,
                 %(target_step)s AS target_step
             SELECT
                 prop as name,
@@ -138,15 +183,15 @@ class FunnelCorrelation:
                         GROUP BY id
                     HAVING is_deleted = 0
                 ) person
-                INNER JOIN funnel_people ON person.id = funnel_people.person_id
-                ) person_with_props
+                JOIN ({funnel_persons_query}) AS funnel_people
+                ON person.id = funnel_people.person_id
+            ) person_with_props
             GROUP BY name
             UNION ALL
-            SELECT NULL as name, countDistinctIf(person_id, steps = target_step) AS success_count, countDistinctIf(person_id, steps <> target_step) AS failure_count FROM funnel_people
+            SELECT NULL as name, countDistinctIf(person_id, steps = target_step) AS success_count, countDistinctIf(person_id, steps <> target_step) AS failure_count FROM ({funnel_persons_query}) AS funnel_people
         """
         params = {
             **funnel_persons_params,
-            "date_to": self._filter.date_to,
             "target_step": len(self._filter.entities),
             "property_name": self._filter.correlation_property_value,
         }
@@ -243,7 +288,7 @@ class FunnelCorrelation:
         for us to calculate the odds ratio.
         """
 
-        # The last entry will give us the total funnel failures and successes
+        # Get the total success/failure counts from the results
         results = [result for result in results_with_total if result[0]]
         _, success_total, failure_total = [result for result in results_with_total if not result[0]][0]
 

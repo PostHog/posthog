@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { DependencyList } from 'react'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { HotKeys, GlobalHotKeys } from '~/types'
+import { GlobalHotKeys, HotKeys } from '~/types'
 
 export interface HotkeyInterface {
     action: () => void
@@ -26,6 +26,25 @@ export const useGlobalKeyboardHotkeys = (hotkeys: GlobalHotkeysInterface, deps?:
 
 type AllHotKeys = GlobalHotKeys | HotKeys
 type AllHotkeysInterface = Partial<Record<AllHotKeys, HotkeyInterface>>
+
+/**
+ * input boxes in the hovering toolbar do not have event target of input.
+ * they are detected as for e.g.div#__POSTHOG_TOOLBAR__.ph-no-capture
+ * see https://developer.mozilla.org/en-US/docs/Web/API/Event/composedPath
+ * @param event
+ * @param ignorableElements
+ */
+const isToolbarInput = (event: Event, ignorableElements: string[]): boolean => {
+    const path = event.composedPath() || (event as any).path
+    if (!path) {
+        return false
+    }
+
+    const sourceElement = path[0] as HTMLElement
+    const tagName = sourceElement.tagName || 'not an html element'
+    return ignorableElements.includes(tagName.toLowerCase())
+}
+
 /**
  *
  * @param hotkeys Hotkeys to listen to and actions to execute
@@ -51,7 +70,8 @@ function _useKeyboardHotkeys(hotkeys: AllHotkeysInterface, deps?: DependencyList
             }
 
             // Ignore typing on inputs (default behavior); except Esc key
-            if (key !== 'Escape' && IGNORE_INPUTS.includes((event.target as HTMLElement).tagName.toLowerCase())) {
+            const isDOMInput = IGNORE_INPUTS.includes((event.target as HTMLElement).tagName.toLowerCase())
+            if (key !== 'Escape' && (isDOMInput || isToolbarInput(event, IGNORE_INPUTS))) {
                 return
             }
 

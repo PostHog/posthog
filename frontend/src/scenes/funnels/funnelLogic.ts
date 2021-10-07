@@ -761,7 +761,9 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            actions.loadCorrelations()
+            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS]) {
+                actions.loadCorrelations()
+            }
 
             if (!props.dashboardItemId) {
                 if (!insightLogic.values.insight.id) {
