@@ -178,7 +178,7 @@ class QuerySuite:
         ClickhouseTrends().run(filter, self.team)
 
     @benchmark_clickhouse
-    def track_correlations_by_events_materialized(self):
+    def track_correlations_by_events(self):
         filter = Filter(
             data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE,}, team=self.team
         )
