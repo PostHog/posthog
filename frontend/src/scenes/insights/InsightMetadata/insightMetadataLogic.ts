@@ -14,6 +14,7 @@ export interface InsightMetadataLogicProps {
 
 export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadataLogicProps>>({
     props: {} as InsightMetadataLogicProps,
+    key: (props) => `${props.insightProps?.dashboardItemId || 'new'}-${Object.keys(props.insight || {}).join(',')}`,
     actions: {
         setInsightMetadata: (insight: Partial<DashboardItemType>) => ({ insight }),
         saveInsightMetadata: (property: keyof DashboardItemType, shouldPersist: boolean = false) => ({
@@ -48,7 +49,7 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
         isEditable: [
             () => [featureFlagLogic.selectors.featureFlags, userLogic.selectors.user],
             (ff, user) => {
-                return (
+                return !!(
                     ff[FEATURE_FLAGS.SAVED_INSIGHTS] &&
                     user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION)
                 )
