@@ -28,7 +28,7 @@ export function TableConfig({
 }: TableConfigInterface): JSX.Element {
     const { modalVisible } = useValues(tableConfigLogic)
     const { setModalVisible } = useActions(tableConfigLogic)
-    console.log({ selectedColumns, availableColumns, onColumnUpdate })
+
     return (
         <>
             <div className="table-options">
@@ -124,7 +124,7 @@ function ColumnConfigurator({
         }
     }
 
-    function RenderAvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
+    function AvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
         const disabled = saving
         return (
             <div
@@ -139,7 +139,7 @@ function ColumnConfigurator({
         )
     }
 
-    function RenderSelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
+    function SelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
         const disabled = immutableColumns?.includes(selectedColumnsDisplay[index]) || saving
 
         return (
@@ -189,7 +189,7 @@ function ColumnConfigurator({
                 onChange={(e) => setSearchTerm(e.target.value)}
             />
             <Row gutter={16} className="mt">
-                <Col sm={11}>
+                <Col xs={24} sm={11}>
                     <Card>
                         <h3 className="l3">Available columns</h3>
                         <div style={{ height: 320 }}>
@@ -199,7 +199,7 @@ function ColumnConfigurator({
                                         <VirtualizedList
                                             height={height}
                                             rowCount={selectableColumnsDisplay.length}
-                                            rowRenderer={RenderAvailableColumn}
+                                            rowRenderer={AvailableColumn}
                                             rowHeight={32}
                                             width={width}
                                         />
@@ -209,8 +209,8 @@ function ColumnConfigurator({
                         </div>
                     </Card>
                 </Col>
-                <Col sm={2} />
-                <Col sm={11}>
+                <Col xs={0} sm={2} />
+                <Col xs={24} sm={11}>
                     <Card>
                         <h3 className="l3">Visible columns</h3>
                         <div style={{ height: 320 }}>
@@ -220,7 +220,7 @@ function ColumnConfigurator({
                                         <VirtualizedList
                                             height={height}
                                             rowCount={selectedColumnsDisplay.length}
-                                            rowRenderer={RenderSelectedColumn}
+                                            rowRenderer={SelectedColumn}
                                             rowHeight={32}
                                             width={width}
                                             scrollToIndex={scrollSelectedToIndex}

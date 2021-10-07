@@ -281,12 +281,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                   ),
         [columnConfig]
     )
-    console.log({
-        propertyNames,
-        isOn: featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG],
-        columns,
-        selectedConfigOptions,
-    })
+
     return (
         <div className="events" data-attr="events-table">
             <PageHeader
