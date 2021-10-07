@@ -817,10 +817,8 @@ export const funnelLogic = kea<funnelLogicType>({
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
-            if (!props.dashboardItemId) {
-                insightLogic(props).actions.setAllFilters(cleanedParams)
-                insightLogic(props).actions.setLastRefresh(null)
-            }
+            insightLogic(props).actions.setAllFilters(cleanedParams)
+            insightLogic(props).actions.setLastRefresh(null)
         },
         setEventExclusionFilters: () => {
             if (!equal(values.filters.exclusions || [], values.lastAppliedFilters.exclusions || [])) {

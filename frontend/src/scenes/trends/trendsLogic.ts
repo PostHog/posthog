@@ -319,9 +319,7 @@ export const trendsLogic = kea<trendsLogicType>({
             actions.setFilters({ display })
         },
         setFilters: async () => {
-            if (!props.dashboardItemId) {
-                insightLogic(props).actions.setAllFilters(values.filters)
-            }
+            insightLogic(props).actions.setAllFilters(values.filters)
             actions.loadResults()
         },
         loadResultsSuccess: async () => {
