@@ -10,6 +10,13 @@
             z-index: 999;
         }
     }
+
+    .pathcard-dropdown-info {
+        margin-top: -5;
+        border: 1px solid $border;
+        border-radius: 0px 0px 4px 4px;
+        width: 200;
+    }
 }
 
 .paths-dropdown-ellipsis {

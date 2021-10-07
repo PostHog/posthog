@@ -13,7 +13,7 @@ import './Paths.scss'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { FunnelPathType } from '~/types'
 
-function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
+function roundedRect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
     retval = 'M' + (x + r) + ',' + y
     retval += 'h' + (w - 2 * r)
@@ -102,36 +102,25 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
         renderPaths()
     }, [paths, !pathsLoading, size, color])
 
-    function renderPaths() {
-        const elements = document
-            .getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)
-            .querySelectorAll(`.paths svg`)
-        elements.forEach((node) => node.parentNode.removeChild(node))
-
-        if (!paths || paths.nodes.length === 0) {
-            setPathItemCards([])
-            return
-        }
-        let width = canvas.current.offsetWidth
-        let height = canvas.current.offsetHeight
-
-        let svg = d3
+    const createCanvas = (width, height) => {
+        return d3
             .select(canvas.current)
             .append('svg')
             .style('background', 'var(--item-background)')
             .style('width', width)
             .style('height', height)
+    }
 
-        let sankey = new Sankey.sankey()
+    const createSankey = (width, height) => {
+        return new Sankey.sankey()
             .nodeId((d) => d.name)
             .nodeAlign(Sankey.sankeyJustify)
             .nodeSort(null)
             .nodeWidth(15)
             .size([width, height])
+    }
 
-        const { nodes, links } = sankey(paths)
-        setPathItemCards(nodes.map((node) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
-
+    const appendPathNodes = (svg, nodes) => {
         svg.append('g')
             .selectAll('rect')
             .data(nodes)
@@ -182,7 +171,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             })
             .append('title')
             .text((d) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
+    }
 
+    const appendDropoffs = (svg) => {
         const dropOffGradient = svg
             .append('defs')
             .append('linearGradient')
@@ -198,7 +189,9 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
             .append('stop')
             .attr('offset', '100%')
             .attr('stop-color', color === 'white' ? '#fff' : 'var(--item-background)')
+    }
 
+    const appendPathLinks = (svg, links) => {
         const link = svg
             .append('g')
             .attr('fill', 'none')
@@ -242,7 +235,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                     data.source.y1 -
                     data.source.y0 -
                     data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)
-                return rounded_rect(0, 0, 30, _height, Math.min(25, _height), false, true, false, false)
+                return roundedRect(0, 0, 30, _height, Math.min(25, _height), false, true, false, false)
             })
             .attr('fill', 'url(#dropoff-gradient)')
             .attr('stroke-width', 0)
@@ -255,6 +248,32 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                     ')'
                 )
             })
+    }
+
+    function renderPaths() {
+        const elements = document
+            .getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)
+            .querySelectorAll(`.paths svg`)
+        elements.forEach((node) => node.parentNode.removeChild(node))
+
+        if (!paths || paths.nodes.length === 0) {
+            setPathItemCards([])
+            return
+        }
+
+        const width = canvas.current.offsetWidth
+        const height = canvas.current.offsetHeight
+
+        const svg = createCanvas(width, height)
+
+        const sankey = createSankey(width, height)
+
+        const { nodes, links } = sankey(paths)
+        setPathItemCards(nodes.map((node) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
+
+        appendPathNodes(svg, nodes)
+        appendDropoffs(svg)
+        appendPathLinks(svg, links)
     }
 
     const getDropOffValue = (pathItemCard) => {
@@ -299,14 +318,7 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                                     <Dropdown
                                         key={idx}
                                         overlay={
-                                            <Menu
-                                                style={{
-                                                    marginTop: -5,
-                                                    border: '1px solid var(--border)',
-                                                    borderRadius: '0px 0px 4px 4px',
-                                                    width: 200,
-                                                }}
-                                            >
+                                            <Menu className="pathcard-dropdown-info">
                                                 {pathItemCard.sourceLinks.length > 0 && (
                                                     <Menu.Item
                                                         disabled
