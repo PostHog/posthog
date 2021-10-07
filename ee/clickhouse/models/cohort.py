@@ -211,7 +211,6 @@ def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) 
 
 
 def is_precalculated_query(cohort: Cohort) -> bool:
-
     if (
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
