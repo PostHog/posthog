@@ -15,6 +15,12 @@ describe('insightLogic', () => {
         }
     })
 
+    it('requires props', () => {
+        expect(() => {
+            insightLogic()
+        }).toThrow('Must init with dashboardItemId, even if undefined')
+    })
+
     describe('when there is no props id', () => {
         initKeaTestLogic({
             logic: insightLogic,

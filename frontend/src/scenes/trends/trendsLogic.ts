@@ -122,6 +122,9 @@ export const trendsLogic = kea<trendsLogicType>({
     props: {} as InsightLogicProps,
 
     key: (props) => {
+        if (!('dashboardItemId' in props)) {
+            throw new Error('Must init with dashboardItemId, even if undefined')
+        }
         return props.dashboardItemId || 'all_trends'
     },
 
@@ -162,8 +165,8 @@ export const trendsLogic = kea<trendsLogicType>({
                 cache.abortController = new AbortController()
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
-                insightLogic.actions.startQuery(queryId)
+                const dashboardItemId = props.dashboardItemId
+                insightLogic(props).actions.startQuery(queryId)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                 }
@@ -189,7 +192,7 @@ export const trendsLogic = kea<trendsLogicType>({
                     }
                 } catch (e) {
                     if (e.name === 'AbortError') {
-                        insightLogic.actions.abortQuery(
+                        insightLogic(props).actions.abortQuery(
                             queryId,
                             (values.filters.insight as ViewType) || ViewType.TRENDS,
                             scene,
@@ -198,7 +201,7 @@ export const trendsLogic = kea<trendsLogicType>({
                     }
                     breakpoint()
                     cache.abortController = null
-                    insightLogic.actions.endQuery(
+                    insightLogic(props).actions.endQuery(
                         queryId,
                         (values.filters.insight as ViewType) || ViewType.TRENDS,
                         null,
@@ -211,7 +214,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 }
                 breakpoint()
                 cache.abortController = null
-                insightLogic.actions.endQuery(
+                insightLogic(props).actions.endQuery(
                     queryId,
                     (values.filters.insight as ViewType) || ViewType.TRENDS,
                     response.last_refresh
@@ -318,20 +321,18 @@ export const trendsLogic = kea<trendsLogicType>({
         },
         setFilters: async () => {
             if (!props.dashboardItemId) {
-                insightLogic.actions.setAllFilters(values.filters)
+                insightLogic(props).actions.setAllFilters(values.filters)
             }
             actions.loadResults()
         },
         loadResultsSuccess: () => {
             if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    insightHistoryLogic.actions.createInsight({
-                        ...values.filters,
-                        insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
-                    })
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filters)
-                }
+                insightHistoryLogic.actions.createInsight({
+                    ...values.filters,
+                    insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
+                })
+            } else {
+                insightLogic(props).actions.updateInsightFilters(values.filters)
             }
         },
         loadMoreBreakdownValues: async () => {
@@ -375,16 +376,15 @@ export const trendsLogic = kea<trendsLogicType>({
 
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
+            if (props.syncWithUrl) {
+                return ['/insights', values.filters, router.values.hashParams, { replace: true }]
             }
-            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams: Partial<FilterType>) => {
-            if (props.dashboardItemId) {
+            if (!props.syncWithUrl) {
                 return
             }
             if (
@@ -423,7 +423,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 if (!objectsEqual(cleanSearchParams, values.loadedFilters)) {
                     actions.setFilters(cleanSearchParams, false)
                 } else {
-                    insightLogic.actions.setAllFilters(values.filters)
+                    insightLogic(props).actions.setAllFilters(values.filters)
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))

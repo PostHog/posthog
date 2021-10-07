@@ -94,14 +94,12 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
     }
 }
 
-export interface FunnelLogicProps extends InsightLogicProps {
-    refresh?: boolean
-    exclusionFilters?: Partial<FilterType>
-}
-
-export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
-    props: {} as FunnelLogicProps,
+export const funnelLogic = kea<funnelLogicType>({
+    props: {} as InsightLogicProps,
     key: (props) => {
+        if (!('dashboardItemId' in props)) {
+            throw new Error('Must init with dashboardItemId, even if undefined')
+        }
         return props.dashboardItemId || 'insight_funnel'
     },
 
@@ -205,9 +203,9 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     }
 
                     const queryId = uuid()
-                    const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
+                    const { dashboardItemId } = props
 
-                    insightLogic.actions.startQuery(queryId)
+                    insightLogic(props).actions.startQuery(queryId)
                     if (dashboardItemId) {
                         dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                     }
@@ -217,7 +215,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                         const result = await loadFunnelResults()
                         breakpoint()
                         resultsPackage = { ...resultsPackage, results: result.result }
-                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                        insightLogic(props).actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                         if (dashboardItemId) {
                             dashboardsModel.actions.updateDashboardRefreshStatus(
                                 dashboardItemId,
@@ -228,7 +226,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                         return resultsPackage
                     } catch (e) {
                         if (!isBreakpoint(e)) {
-                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                            insightLogic(props).actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                             if (dashboardItemId) {
                                 dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                             }
@@ -327,11 +325,11 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             },
         ],
         error: [
-            null as any, // TODO: Error typing in typescript doesn't exist natively
+            null as any,
             {
-                [insightLogic.actionTypes.startQuery]: () => null,
-                [insightLogic.actionTypes.endQuery]: (_, { exception }) => exception ?? null,
-                [insightLogic.actionTypes.abortQuery]: (_, { exception }) => exception ?? null,
+                [insightLogic(props).actionTypes.startQuery]: () => null,
+                [insightLogic(props).actionTypes.endQuery]: (_: any, { exception }: any) => exception ?? null,
+                [insightLogic(props).actionTypes.abortQuery]: (_: any, { exception }: any) => exception ?? null,
             },
         ],
         correlationTypes: [
@@ -342,7 +340,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
         ],
     }),
 
-    selectors: ({ props, selectors }) => ({
+    selectors: ({ selectors }) => ({
         isLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
         results: [(s) => [s.rawResults], (rawResults) => rawResults.results],
         resultsLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
@@ -482,7 +480,6 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 const { from_dashboard } = filters
                 const cleanedParams = cleanFunnelParams(filters)
                 return {
-                    ...(props.refresh ? { refresh: true } : {}),
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
                 }
@@ -766,11 +763,9 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             }
 
             if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    actions.createInsight(values.filters)
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filters)
-                }
+                actions.createInsight(values.filters)
+            } else {
+                insightLogic(props).actions.updateInsightFilters(values.filters)
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
@@ -821,8 +816,8 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             }
             const cleanedParams = cleanFunnelParams(values.filters)
             if (!props.dashboardItemId) {
-                insightLogic.actions.setAllFilters(cleanedParams)
-                insightLogic.actions.setLastRefresh(null)
+                insightLogic(props).actions.setAllFilters(cleanedParams)
+                insightLogic(props).actions.setLastRefresh(null)
             }
         },
         setEventExclusionFilters: () => {
@@ -844,8 +839,8 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             actions.loadFunnels()
         },
         clearFunnel: async () => {
-            if (!props.dashboardItemId) {
-                insightLogic.actions.setAllFilters({})
+            if (!props.syncWithUrl) {
+                insightLogic(props).actions.setAllFilters({})
             }
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
@@ -875,19 +870,19 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
     }),
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
-            if (!props.dashboardItemId) {
+            if (!props.syncWithUrl) {
                 return ['/insights', values.propertiesForUrl, router.values.hashParams, { replace: true }]
             }
         },
         clearFunnel: () => {
-            if (!props.dashboardItemId) {
+            if (!props.syncWithUrl) {
                 return ['/insights', { insight: ViewType.FUNNELS }, router.values.hashParams, { replace: true }]
             }
         },
     }),
     urlToAction: ({ actions, props }) => ({
         '/insights': (_, searchParams: Partial<FilterType>) => {
-            if (props.dashboardItemId) {
+            if (!props.syncWithUrl) {
                 return
             }
             if (searchParams.insight === ViewType.FUNNELS) {

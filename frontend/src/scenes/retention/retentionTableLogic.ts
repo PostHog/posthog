@@ -51,6 +51,9 @@ export function defaultFilters(filters: Record<string, any>): Record<string, any
 export const retentionTableLogic = kea<retentionTableLogicType>({
     props: {} as InsightLogicProps,
     key: (props) => {
+        if (!('dashboardItemId' in props)) {
+            throw new Error('Must init with dashboardItemId, even if undefined')
+        }
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
     connect: {
@@ -77,8 +80,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                     return props.cachedResults
                 }
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
-                insightLogic.actions.startQuery(queryId)
+                const dashboardItemId = props.dashboardItemId
+                insightLogic(props).actions.startQuery(queryId)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                 }
@@ -89,14 +92,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                     res = await api.get(`api/insight/retention/?${urlParams}`)
                 } catch (e) {
                     breakpoint()
-                    insightLogic.actions.endQuery(queryId, ViewType.RETENTION, null, e)
+                    insightLogic(props).actions.endQuery(queryId, ViewType.RETENTION, null, e)
                     if (dashboardItemId) {
                         dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     }
                     return []
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
+                insightLogic(props).actions.endQuery(queryId, ViewType.RETENTION, res.last_refresh)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, res.last_refresh)
                 }
@@ -162,21 +165,19 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     }),
     actionToUrl: ({ props, values }) => ({
         setFilters: () => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
+            if (props.syncWithUrl) {
+                return ['/insights', values.filters, router.values.hashParams, { replace: true }]
             }
-            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
         setProperties: () => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
+            if (props.syncWithUrl) {
+                return ['/insights', values.filters, router.values.hashParams, { replace: true }]
             }
-            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
     }),
-    urlToAction: ({ actions, values, key }) => ({
+    urlToAction: ({ actions, values, key, props }) => ({
         '/insights': ({}, searchParams: Record<string, any>) => {
-            if (searchParams.insight === ViewType.RETENTION) {
+            if (props.syncWithUrl && searchParams.insight === ViewType.RETENTION) {
                 if (key != DEFAULT_RETENTION_LOGIC_KEY) {
                     return
                 }
@@ -203,13 +204,11 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         },
         loadResults: () => {
             actions.clearPeople()
-            insightLogic.actions.setAllFilters(values.filters)
+            insightLogic(props).actions.setAllFilters(values.filters)
             if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    actions.createInsight(values.filters)
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filters)
-                }
+                actions.createInsight(values.filters)
+            } else {
+                insightLogic(props).actions.updateInsightFilters(values.filters)
             }
         },
         loadMorePeople: async () => {

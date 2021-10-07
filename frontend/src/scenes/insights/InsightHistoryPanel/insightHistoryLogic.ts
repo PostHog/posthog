@@ -163,7 +163,12 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>({
             const insight = await api.create('api/insight', {
                 filters,
             })
-            insightLogic.actions.setInsight(insight)
+            // TODO: this must go somewhere else
+            insightLogic({
+                dashboardItemId: insight,
+                cachedResults: insight.result,
+                filters: insight.filters,
+            }).actions.setInsight(insight)
         },
         updateInsight: async ({ insight }) => {
             await api.update(`api/insight/${insight.id}`, insight)

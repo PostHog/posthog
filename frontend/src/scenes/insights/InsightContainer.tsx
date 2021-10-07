@@ -54,9 +54,17 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
     } = useValues(router)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const { lastRefresh, isLoading, activeView, allFilters, insightMode, showTimeoutMessage, showErrorMessage } =
-        useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
+    const {
+        insightProps,
+        lastRefresh,
+        isLoading,
+        activeView,
+        allFilters,
+        insightMode,
+        showTimeoutMessage,
+        showErrorMessage,
+    } = useValues(insightLogic)
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -187,7 +195,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             {renderTable()}
             {preflight?.is_clickhouse_enabled &&
                 activeView === ViewType.FUNNELS &&
-                featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] && <FunnelCorrelationTable filters={allFilters} />}
+                featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] && <FunnelCorrelationTable />}
         </>
     )
 }

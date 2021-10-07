@@ -1,6 +1,6 @@
 import './Insights.scss'
 import React from 'react'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import { Row, Col, Card, Button, Popconfirm, Tooltip } from 'antd'
@@ -33,9 +33,10 @@ export function Insights(): JSX.Element {
         hashParams: { fromItem },
     } = useValues(router)
 
+    const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
+    const { insightProps, activeView, allFilters, controlsCollapsed, insight, insightMode } = useValues(logic)
+    const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight } = useActions(logic)
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const { activeView, allFilters, controlsCollapsed, insight, insightMode } = useValues(insightLogic)
-    const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight } = useActions(insightLogic)
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)
@@ -45,10 +46,7 @@ export function Insights(): JSX.Element {
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
 
-    const logicFromInsight = getLogicFromInsight(activeView as InsightType, {
-        fromDashboardItemId: fromItem || null,
-        filters: allFilters,
-    })
+    const logicFromInsight = getLogicFromInsight(activeView as InsightType, insightProps)
     const { loadResults } = useActions(logicFromInsight)
     const { resultsLoading } = useValues(logicFromInsight)
 
@@ -88,7 +86,7 @@ export function Insights(): JSX.Element {
         },
     })
 
-    return (
+    const scene = (
         <div className="insights-page">
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View ? (
                 <div className="insight-metadata">
@@ -264,5 +262,11 @@ export function Insights(): JSX.Element {
                 </>
             )}
         </div>
+    )
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            {scene}
+        </BindLogic>
     )
 }

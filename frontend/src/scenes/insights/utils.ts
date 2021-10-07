@@ -8,16 +8,16 @@ import { ensureStringIsNotBlank } from 'lib/utils'
 
 export const getLogicFromInsight = (
     insight: InsightType | undefined,
-    logicProps: InsightLogicProps
+    insightProps: InsightLogicProps
 ): Logic & BuiltLogic => {
     if (insight === ViewType.FUNNELS) {
-        return funnelLogic(logicProps)
+        return funnelLogic(insightProps)
     } else if (insight === ViewType.RETENTION) {
-        return retentionTableLogic(logicProps)
+        return retentionTableLogic(insightProps)
     } else if (insight === ViewType.PATHS) {
-        return pathsLogic(logicProps)
+        return pathsLogic(insightProps)
     } else {
-        return trendsLogic(logicProps)
+        return trendsLogic(insightProps)
     }
 }
 

@@ -4,15 +4,11 @@ import { A, combineUrl, encodeParams } from 'kea-router'
 import { FunnelPathType, ViewType } from '~/types'
 import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function FunnelStepDropdown({
-    dashboardItemId,
-    index,
-}: {
-    dashboardItemId?: number
-    index: number
-}): JSX.Element {
-    const logic = funnelLogic({ dashboardItemId })
+export function FunnelStepDropdown({ index }: { index: number }): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
     const { propertiesForUrl: filterProps } = useValues(logic)
 
     const adjustedIndex = index + 1

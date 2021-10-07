@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { insightMetadataLogicType } from './insightMetadataLogicType'
-import { AvailableFeature, DashboardItemType } from '~/types'
+import { AvailableFeature, DashboardItemType, InsightLogicProps } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { cleanMetadataValues } from 'scenes/insights/InsightMetadata/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -8,6 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface InsightMetadataLogicProps {
+    insightProps: InsightLogicProps
     insight?: Partial<DashboardItemType>
 }
 
@@ -23,9 +24,9 @@ export const insightMetadataLogic = kea<insightMetadataLogicType<InsightMetadata
         showEditMode: (property: keyof DashboardItemType) => ({ property }),
         showViewMode: (property: keyof DashboardItemType) => ({ property }),
     },
-    connect: {
-        actions: [insightLogic, ['setInsight', 'updateInsight']],
-    },
+    connect: ({ insightProps }: InsightMetadataLogicProps) => ({
+        actions: [insightLogic(insightProps), ['setInsight', 'updateInsight']],
+    }),
     reducers: ({ props }) => ({
         insightMetadata: [
             cleanMetadataValues(props.insight ?? {}),

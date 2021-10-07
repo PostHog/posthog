@@ -3,7 +3,16 @@ import { toParams, fromParams, errorToast } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
-import { DashboardItemType, Entity, FilterType, FunnelVizType, ItemMode, PropertyFilter, ViewType } from '~/types'
+import {
+    DashboardItemType,
+    Entity,
+    FilterType,
+    FunnelVizType,
+    InsightLogicProps,
+    ItemMode,
+    PropertyFilter,
+    ViewType,
+} from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
@@ -38,13 +47,14 @@ interface UrlParams {
     actions?: Entity[]
 }
 
-export interface InsightLogicProps {
-    dashboardItemId?: number
-}
-
-export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
+export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
-    key: (props) => props.dashboardItemId || 'new',
+    key: (props) => {
+        if (!('dashboardItemId' in props)) {
+            throw new Error('Must init with dashboardItemId, even if undefined')
+        }
+        return props.dashboardItemId || 'new'
+    },
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
@@ -201,6 +211,7 @@ export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
         ],
     },
     selectors: {
+        insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
     },
     listeners: ({ actions, values }) => ({

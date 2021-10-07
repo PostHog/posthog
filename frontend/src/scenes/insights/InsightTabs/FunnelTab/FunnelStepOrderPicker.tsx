@@ -4,6 +4,7 @@ import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface StepOption {
     key?: string
@@ -27,8 +28,9 @@ const options: StepOption[] = [
 ]
 
 export function FunnelStepOrderPicker(): JSX.Element {
-    const { filters } = useValues(funnelLogic)
-    const { setFilters } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(funnelLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
 
     return (
         <Select

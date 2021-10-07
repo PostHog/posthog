@@ -62,6 +62,9 @@ interface PathNode {
 export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     props: {} as InsightLogicProps,
     key: (props) => {
+        if (!('dashboardItemId' in props)) {
+            throw new Error('Must init with dashboardItemId, even if undefined')
+        }
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
     connect: {
@@ -97,8 +100,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 const params = { ...filter, ...(refresh ? { refresh: true } : {}) }
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
-                insightLogic.actions.startQuery(queryId)
+                const dashboardItemId = props.dashboardItemId
+                insightLogic(props).actions.startQuery(queryId)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                 }
@@ -108,7 +111,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     paths = await api.create(`api/insight/path`, params)
                 } catch (e) {
                     breakpoint()
-                    insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
+                    insightLogic(props).actions.endQuery(queryId, ViewType.PATHS, null, e)
                     if (dashboardItemId) {
                         dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     }
@@ -116,7 +119,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
+                insightLogic(props).actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, paths.last_refresh)
                 }
@@ -165,13 +168,14 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             actions.loadResults(true)
         },
         loadResults: () => {
-            insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
+            insightLogic(props).actions.setAllFilters({
+                ...cleanPathParams(values.filter),
+                properties: values.properties,
+            })
             if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filter)
-                }
+                actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+            } else {
+                insightLogic(props).actions.updateInsightFilters(values.filter)
             }
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
@@ -278,19 +282,19 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     },
     actionToUrl: ({ values, props }) => ({
         setProperties: () => {
-            if (!props.dashboardItemId) {
+            if (props.syncWithUrl) {
                 return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
             }
         },
         setFilter: () => {
-            if (!props.dashboardItemId) {
+            if (props.syncWithUrl) {
                 return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
             }
         },
     }),
-    urlToAction: ({ actions, values, key }) => ({
+    urlToAction: ({ actions, values, key, props }) => ({
         '/insights': ({}, searchParams: Partial<FilterType>) => {
-            if (searchParams.insight === ViewType.PATHS) {
+            if (props.syncWithUrl && searchParams.insight === ViewType.PATHS) {
                 if (key != DEFAULT_PATH_LOGIC_KEY) {
                     return
                 }

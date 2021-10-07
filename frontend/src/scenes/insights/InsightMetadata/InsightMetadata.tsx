@@ -19,7 +19,8 @@ interface MetadataProps {
 
 function Title({ insight, insightMode }: MetadataProps): JSX.Element {
     const property = 'name'
-    const logic = insightMetadataLogic({ insight: { [property]: insight?.[property] } })
+    const { insightProps } = useValues(insightLogic)
+    const logic = insightMetadataLogic({ insightProps, insight: { [property]: insight?.[property] } })
     const { editableProps, isEditable } = useValues(logic)
     const { setInsightMetadata, saveInsightMetadata, cancelInsightMetadata, showEditMode } = useActions(logic)
     const placeholder = insight[property] ?? `Insight #${insight.id ?? '...'}`
@@ -80,7 +81,8 @@ function Title({ insight, insightMode }: MetadataProps): JSX.Element {
 
 function Description({ insight, insightMode }: MetadataProps): JSX.Element | null {
     const property = 'description'
-    const logic = insightMetadataLogic({ insight: { [property]: insight?.[property] } })
+    const { insightProps } = useValues(insightLogic)
+    const logic = insightMetadataLogic({ insightProps, insight: { [property]: insight?.[property] } })
     const { editableProps, isEditable } = useValues(logic)
     const { setInsightMetadata, saveInsightMetadata, showEditMode, cancelInsightMetadata } = useActions(logic)
 

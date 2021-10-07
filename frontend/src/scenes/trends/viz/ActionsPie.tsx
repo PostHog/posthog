@@ -8,18 +8,18 @@ import { useValues, useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, TrendResultWithAggregate } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function ActionsPie({
     dashboardItemId,
-    view,
     filters: filtersParam,
     color = 'white',
-    cachedResults,
     inSharedMode,
 }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<Record<string, any>[] | null>(null)
     const [total, setTotal] = useState(0)
-    const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
+    const { insightProps } = useValues(insightLogic)
+    const logic = trendsLogic(insightProps)
     const { loadPeople } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 
