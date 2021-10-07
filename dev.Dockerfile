@@ -10,6 +10,9 @@ WORKDIR /code/
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+RUN apt-get install software-properties-common \
+    && add-apt-repository 'deb [arch=amd64] http://apt.postgresql.org/pub/repos/apt alpine-pgdg main'
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends 'curl=7.*' 'git=1:2.*' 'build-essential=12.*' 'libpq-dev=13.*' \
     && apt-get install -y --no-install-recommends 'pkg-config=0.*' 'libxml2-dev=2.*' 'libxmlsec1-dev=1.*' 'libxmlsec1-openssl=1.*' \
