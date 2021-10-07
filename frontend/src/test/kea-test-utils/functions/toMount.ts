@@ -6,7 +6,7 @@ export const toMount: ExpectFunction<BuiltLogic | LogicWrapper | (BuiltLogic | L
         const {
             mount: { mounted },
         } = getContext()
-        const logics = [logic, ...(Array.isArray(otherLogics) ? otherLogics : [otherLogics])]
+        const logics = [logic, ...(Array.isArray(otherLogics) ? otherLogics : [otherLogics])].filter((l) => !!l)
 
         for (const logicToMount of logics) {
             const pathString = '_isKeaBuild' in logicToMount ? logicToMount.pathString : logicToMount.build().pathString
