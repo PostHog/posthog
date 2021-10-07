@@ -16,7 +16,10 @@ export const funnelCommandLogic = kea<funnelCommandLogicType>({
                     icon: FunnelPlotOutlined,
                     display: 'Clear Funnel',
                     executor: () => {
-                        funnelLogic({ dashboardItemId: router.values.searchParams.fromItem }).actions.clearFunnel()
+                        funnelLogic({
+                            dashboardItemId: router.values.searchParams.fromItem,
+                            syncWithUrl: true,
+                        }).actions.clearFunnel()
                     },
                 },
             ]
