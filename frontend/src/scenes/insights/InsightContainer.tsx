@@ -30,6 +30,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
+import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 
 interface Props {
     loadResults: () => void
@@ -173,6 +174,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                     >
                         <Col>
                             <FunnelCanvasLabel />
+                            <PathCanvasLabel />
                         </Col>
                         {lastRefresh && (
                             <ComputationTimeWithRefresh lastRefresh={lastRefresh} loadResults={loadResults} />
