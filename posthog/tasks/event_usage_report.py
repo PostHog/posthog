@@ -2,11 +2,14 @@ import logging
 import os
 from typing import Any, Dict, List, Union
 
+from django.conf import settings
+
 from ee.clickhouse.models.event import (
     get_agg_event_count_for_teams,
     get_agg_event_count_for_teams_and_period,
     get_events_TEST,
 )
+from posthog.constants import AnalyticsDBMS
 from posthog.event_usage import report_org_usage_failure
 from posthog.models import Event, Team, User
 from posthog.tasks.status_report import get_instance_licenses
@@ -48,7 +51,7 @@ def event_usage_report() -> Dict[str, Any]:
     for org, teams in org_teams.items():
         usage = default_instance_usage
         try:
-            if is_clickhouse_enabled():
+            if settings.EE_AVAILABLE and settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
                 usage["events_count_total"] = get_agg_event_count_for_teams(teams)
                 usage["events_count_new_in_period"] = get_agg_event_count_for_teams_and_period(
                     teams, period_start, period_end
