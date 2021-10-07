@@ -6,7 +6,6 @@ import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
 import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
-import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import {
     ActionFilter,
     ChartDisplayType,
@@ -325,12 +324,13 @@ export const trendsLogic = kea<trendsLogicType>({
             }
             actions.loadResults()
         },
-        loadResultsSuccess: () => {
+        loadResultsSuccess: async () => {
             if (!props.dashboardItemId) {
-                insightHistoryLogic.actions.createInsight({
-                    ...values.filters,
+                const insight = await api.create('api/insight', {
+                    filters: values.filters,
                     insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
                 })
+                insightLogic(props).actions.setAsSaved(insight)
             } else {
                 insightLogic(props).actions.updateInsightFilters(values.filters)
             }

@@ -3,7 +3,6 @@ import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, sum, uuid } from 'lib/utils'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
@@ -141,7 +140,7 @@ export const funnelLogic = kea<funnelLogicType>({
     }),
 
     connect: {
-        actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
+        actions: [funnelsModel, ['loadFunnels']],
         logic: [insightLogic, eventUsageLogic, dashboardsModel],
     },
 
@@ -763,7 +762,10 @@ export const funnelLogic = kea<funnelLogicType>({
             }
 
             if (!props.dashboardItemId) {
-                actions.createInsight(values.filters)
+                const insight = await api.create('api/insight', {
+                    filters: values.filters,
+                })
+                insightLogic(props).actions.setAsSaved(insight)
             } else {
                 insightLogic(props).actions.updateInsightFilters(values.filters)
             }

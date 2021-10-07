@@ -91,27 +91,30 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: true,
         updateInsightFilters: (filters: FilterType) => ({ filters }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
+        setAsSaved: (insight: Partial<DashboardItemType>) => ({ insight }),
     }),
-    loaders: ({ values }) => ({
-        insight: {
-            __default: { tags: [] } as Partial<DashboardItemType>,
-            loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
-            updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
-                if (!Object.entries(payload).length) {
-                    return
-                }
-                await breakpoint(300)
-                return await api.update(`api/insight/${values.insight.id}`, payload)
+    loaders: ({ values, props }) => ({
+        insight: [
+            (props.cachedResults || { tags: [] }) as Partial<DashboardItemType>,
+            {
+                loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
+                updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
+                    if (!Object.entries(payload).length) {
+                        return
+                    }
+                    await breakpoint(300)
+                    return await api.update(`api/insight/${values.insight.id}`, payload)
+                },
+                setInsight: ({ insight, shouldMergeWithExisting }) =>
+                    shouldMergeWithExisting
+                        ? {
+                              ...values.insight,
+                              ...insight,
+                          }
+                        : insight,
+                updateInsightFilters: ({ filters }) => ({ ...values.insight, filters }),
             },
-            setInsight: ({ insight, shouldMergeWithExisting }) =>
-                shouldMergeWithExisting
-                    ? {
-                          ...values.insight,
-                          ...insight,
-                      }
-                    : insight,
-            updateInsightFilters: ({ filters }) => ({ ...values.insight, filters }),
-        },
+        ],
     }),
     reducers: {
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
@@ -207,7 +210,7 @@ export const insightLogic = kea<insightLogicType>({
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
     },
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         updateInsightSuccess: () => {
             actions.setInsightMode(ItemMode.View, null)
         },
@@ -317,38 +320,66 @@ export const insightLogic = kea<insightLogicType>({
         },
         updateInsightFilters: async ({ filters }) => {
             if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]) {
-                api.update(`api/insight/${values.insight.id}`, { filters })
+                await api.update(`api/insight/${values.insight.id}`, { filters })
             }
         },
+        setAsSaved: async ({ insight }) => {
+            // :TRICKY:
+            // - this logic is mounted with the key as "new", if we save an ID here, the logic will invalidate
+            // - so boot up a new logic with the ID as the key, and preload the results.
+            // - assume it'll take max 5sec for the frontend to switch over to the new logic
+            const logicWithId = insightLogic.build(
+                {
+                    ...props,
+                    dashboardItemId: insight.id,
+                    cachedResults: insight.result,
+                    filters: insight.filters,
+                },
+                false
+            )
+            const unmount = logicWithId.mount()
+            window.setTimeout(() => unmount(), 5000)
+            if (props.syncWithUrl) {
+                router.actions.replace('/insights', router.values.searchParams, {
+                    ...router.values.hashParams,
+                    fromItem: insight.id,
+                })
+            }
+            actions.setInsight(insight)
+        },
     }),
-    actionToUrl: ({ actions, values }) => ({
+    actionToUrl: ({ actions, values, props }) => ({
         setActiveView: ({ type }) => {
-            actions.updateActiveView(type)
+            if (props.syncWithUrl) {
+                actions.updateActiveView(type)
 
-            const urlParams: UrlParams = {
-                insight: type,
-                properties: values.allFilters.properties,
-                filter_test_accounts: defaultFilterTestAccounts(),
-                events: (values.allFilters.events || []) as Entity[],
-                actions: (values.allFilters.actions || []) as Entity[],
-            }
+                const urlParams: UrlParams = {
+                    insight: type,
+                    properties: values.allFilters.properties,
+                    filter_test_accounts: defaultFilterTestAccounts(),
+                    events: (values.allFilters.events || []) as Entity[],
+                    actions: (values.allFilters.actions || []) as Entity[],
+                }
 
-            if (type === ViewType.FUNNELS) {
-                urlParams.funnel_viz_type = FunnelVizType.Steps
-                urlParams.display = 'FunnelViz'
+                if (type === ViewType.FUNNELS) {
+                    urlParams.funnel_viz_type = FunnelVizType.Steps
+                    urlParams.display = 'FunnelViz'
+                }
+                return ['/insights', urlParams, { ...router.values.hashParams, fromItem: values.insight.id || null }]
             }
-            return ['/insights', urlParams, router.values.hashParams]
         },
     }),
-    urlToAction: ({ actions, values }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
-            if (searchParams.insight && searchParams.insight !== values.activeView) {
-                actions.updateActiveView(searchParams.insight)
-            }
-            if (hashParams.fromItem) {
-                actions.loadInsight(hashParams.fromItem)
-            } else {
-                actions.setInsightMode(ItemMode.Edit, null)
+            if (props.syncWithUrl) {
+                if (searchParams.insight && searchParams.insight !== values.activeView) {
+                    actions.updateActiveView(searchParams.insight)
+                }
+                if (hashParams.fromItem) {
+                    actions.loadInsight(hashParams.fromItem)
+                } else {
+                    actions.setInsightMode(ItemMode.Edit, null)
+                }
             }
         },
     }),

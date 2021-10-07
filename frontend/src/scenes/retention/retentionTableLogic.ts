@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { toParams, objectsEqual, uuid } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
 import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
@@ -57,7 +56,6 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
     connect: {
-        actions: [insightHistoryLogic, ['createInsight']],
         values: [actionsModel, ['actions']],
     },
     actions: () => ({
@@ -202,11 +200,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         setFilters: () => {
             actions.loadResults()
         },
-        loadResults: () => {
+        loadResultsSuccess: async () => {
             actions.clearPeople()
             insightLogic(props).actions.setAllFilters(values.filters)
             if (!props.dashboardItemId) {
-                actions.createInsight(values.filters)
+                const insight = await api.create('api/insight', {
+                    filters: values.filters,
+                })
+                insightLogic(props).actions.setAsSaved(insight)
             } else {
                 insightLogic(props).actions.updateInsightFilters(values.filters)
             }

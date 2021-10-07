@@ -3,7 +3,6 @@ import { objectsEqual, uuid } from 'lib/utils'
 import api from 'lib/api'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
 import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -66,9 +65,6 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
         return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
-    },
-    connect: {
-        actions: [insightHistoryLogic, ['createInsight']],
     },
     actions: {
         setProperties: (properties) => ({ properties }),
@@ -167,13 +163,17 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         setFilter: () => {
             actions.loadResults(true)
         },
-        loadResults: () => {
-            insightLogic(props).actions.setAllFilters({
+        loadResultsSuccess: async () => {
+            const filters = {
                 ...cleanPathParams(values.filter),
                 properties: values.properties,
-            })
+            }
+            insightLogic(props).actions.setAllFilters(filters)
             if (!props.dashboardItemId) {
-                actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
+                const insight = await api.create('api/insight', {
+                    filters,
+                })
+                insightLogic(props).actions.setAsSaved(insight)
             } else {
                 insightLogic(props).actions.updateInsightFilters(values.filter)
             }
