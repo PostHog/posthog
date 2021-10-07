@@ -22,6 +22,11 @@ class EventsQueryWithAggregateClausesSQL(NamedTuple):
     aggregate_where_clause: str
 
 
+class SessionRecordingQueryResult(NamedTuple):
+    results: List
+    has_more_recording: bool
+
+
 class SessionRecordingList:
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
     _filter: SessionRecordingsFilter
@@ -35,7 +40,12 @@ class SessionRecordingList:
     _recording_duration_select_statement = "MAX(timestamp) - MIN(timestamp) as duration,"
     _recording_full_snapshot_select_statement = "COUNT(*) FILTER(where snapshot_data->>'type' = '2' OR (snapshot_data->>'has_full_snapshot')::boolean) as full_snapshots"
     _session_recording_event_table = "posthog_sessionrecordingevent"
-
+    _session_recording_select_statements = """
+            MIN(session_recordings.start_time) as start_time,
+            MIN(session_recordings.end_time) as end_time,
+            MIN(session_recordings.duration) as duration,
+            MIN(filtered_events.distinct_id) as distinct_id
+    """
     _core_session_recording_query: str = """
         SELECT 
             all_recordings.session_id,
@@ -74,10 +84,7 @@ class SessionRecordingList:
     (
         SELECT
             session_recordings.session_id,
-            ANY(session_recordings.start_time) as start_time,
-            ANY(session_recordings.end_time) as end_time,
-            ANY(session_recordings.duration) as duration,
-            ANY(filtered_events.distinct_id) as distinct_id
+            {session_recording_select_statements}
             {event_filter_aggregate_select_clause}
         FROM (
             {events_query}
@@ -131,10 +138,8 @@ class SessionRecordingList:
         distinct_id_params = {}
         if self._filter.person_uuid:
             person = Person.objects.get(uuid=self._filter.person_uuid)
-            distinct_id_clause = (
-                f"AND distinct_id IN (SELECT distinct_id from posthog_persondistinctid WHERE person_id = %(person_id)s)"
-            )
-            distinct_id_params = {"person_id": person.pk}
+            distinct_id_clause = f"AND distinct_id IN (SELECT distinct_id from posthog_persondistinctid WHERE person_id = %(person_id)s AND team_id = %(team_id)s)"
+            distinct_id_params = {"person_id": person.pk, "team_id": self._team.pk}
         return distinct_id_params, distinct_id_clause
 
     def _get_duration_clause(self) -> Tuple[Dict[str, Any], str]:
@@ -163,7 +168,7 @@ class SessionRecordingList:
         keys = []
         event_q_filters = []
 
-        for i, entity in enumerate(self._filter.event_and_action_filters):
+        for i, entity in enumerate(self._filter.entities):
             key = f"entity_{i}"
             q_filter = entity_to_Q(entity, self._team.pk)
             event_q_filters.append(q_filter)
@@ -188,7 +193,7 @@ class SessionRecordingList:
         aggregate_having_conditions = []
         for key in keys:
             aggregate_field_name = f"count_{key}"
-            aggregate_select_clause += f", SUM(CASE WHEN {key} THEN 1 ELSE 0 END) as {aggregate_field_name}"
+            aggregate_select_clause += f"\n, SUM(CASE WHEN {key} THEN 1 ELSE 0 END) as {aggregate_field_name}"
             aggregate_having_conditions.append(f"{aggregate_field_name} > 0")
 
         aggregate_where_clause = f"WHERE {' AND '.join(aggregate_having_conditions)}"
@@ -231,6 +236,7 @@ class SessionRecordingList:
             ) = self._get_events_query_with_aggregate_clauses()
             return (
                 self._session_recordings_query_with_entity_filter.format(
+                    session_recording_select_statements=self._session_recording_select_statements,
                     core_session_recording_query=core_session_recording_query,
                     events_query=events_query,
                     event_filter_aggregate_select_clause=aggregate_select_clause,
@@ -243,23 +249,23 @@ class SessionRecordingList:
             params,
         )
 
-    def data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
+    def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
         return [row._asdict() for row in results]
 
-    def _paginate_results(self, results) -> Tuple[Dict[str, Any], bool]:
+    def _paginate_results(self, session_recordings) -> SessionRecordingQueryResult:
         limit = self._get_limit()
         more_recordings_available = False
-        if len(results) > limit:
+        if len(session_recordings) > limit:
             more_recordings_available = True
-            results = results[0:limit]
-        return (results, more_recordings_available)
+            session_recordings = session_recordings[0:limit]
+        return SessionRecordingQueryResult(session_recordings, more_recordings_available)
 
-    def run(self, *args, **kwargs) -> Tuple[Dict[str, Any], bool]:
+    def run(self, *args, **kwargs) -> SessionRecordingQueryResult:
         with connection.cursor() as cursor:
             query, query_params = self._build_query()
             cursor.execute(query, query_params)
-            results = namedtuplefetchall(cursor)
-        results = self.data_to_return(results)
-        return self._paginate_results(results)
+            query_results = namedtuplefetchall(cursor)
+        session_recordings = self._data_to_return(query_results)
+        return self._paginate_results(session_recordings)
 
     __repr__ = sane_repr("_team", "_filter")
