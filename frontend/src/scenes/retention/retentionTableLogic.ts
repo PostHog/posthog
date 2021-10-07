@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toParams, objectsEqual, uuid } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
-import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, InsightLogicProps, FilterType, ViewType } from '~/types'
 import {
@@ -108,15 +108,9 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         people: {
             __default: {} as RetentionTablePeoplePayload | RetentionTrendPeoplePayload,
             loadPeople: async (rowIndex: number) => {
-                if (values.filters.display === ACTIONS_LINE_GRAPH_LINEAR) {
-                    const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
-                    const res = await api.get(`api/person/retention/?${urlParams}`)
-                    return res
-                } else {
-                    const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
-                    const res = await api.get(`api/person/retention/?${urlParams}`)
-                    return res
-                }
+                const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
+                const res = await api.get(`api/person/retention/?${urlParams}`)
+                return res
             },
         },
     }),
