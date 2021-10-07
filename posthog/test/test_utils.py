@@ -1,7 +1,10 @@
+from unittest.mock import Mock, patch
+
 from django.test import TestCase
 from django.test.client import RequestFactory
 from freezegun import freeze_time
 
+from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.exceptions import RequestParsingError
 from posthog.models import EventDefinition
 from posthog.test.base import BaseTest
@@ -84,6 +87,22 @@ class TestDefaultEventName(BaseTest):
 
 
 class TestLoadDataFromRequest(TestCase):
+    @patch("posthog.utils.push_scope")
+    def test_pushes_request_origin_into_sentry_scope(self, push_scope):
+        origin = "potato.io"
+
+        mock_set_tag = mock_sentry_context_for_tagging(push_scope)
+
+        rf = RequestFactory()
+        post_request = rf.post("/s/", "content", "text/plain")
+        post_request.META["REMOTE_HOST"] = origin
+
+        with self.assertRaises(RequestParsingError) as ctx:
+            load_data_from_request(post_request)
+
+        push_scope.assert_called_once()
+        mock_set_tag.assert_called_once_with("origin", origin)
+
     def test_fails_to_JSON_parse_the_literal_string_undefined_when_not_compressed(self):
         """
         load_data_from_request assumes that any data
