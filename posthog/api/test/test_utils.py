@@ -6,8 +6,9 @@ from django.http.response import JsonResponse
 from rest_framework import status
 
 from posthog.api.test.test_capture import mocked_get_team_from_token
-from posthog.api.utils import determine_team_from_request_data
+from posthog.api.utils import determine_team_from_request_data, extract_data_from_request
 from posthog.test.base import BaseTest
+from posthog.utils import load_data_from_request
 
 
 def return_true():
@@ -66,3 +67,18 @@ class TestUtils(BaseTest):
         self.assertEqual(error_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
         get_team_from_token_patcher.stop()
+
+    def test_extract_data_from_request(self):
+        # No data in request
+        data, error_response = extract_data_from_request(HttpRequest())
+        self.assertEqual(data, None)
+        self.assertEqual(error_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual("No data found" in json.loads(error_response.getvalue())["detail"], True)
+
+        # Valid request with event
+        request = HttpRequest()
+        request.method = "POST"
+        request.POST = {"data": json.dumps({"event": "some event"})}
+        data, error_response = extract_data_from_request(request)
+        self.assertEqual(data, {"event": "some event"})
+        self.assertEqual(error_response, None)
