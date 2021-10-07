@@ -74,9 +74,6 @@ class FunnelCorrelation:
         The query returns success and failure count for event / property values, along with total success and failure counts.
         """
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            if not self._filter.correlation_property_value:
-                raise ValidationError("Property Correlation expects a Property to run correlation on")
-
             return self.get_properties_query()
 
         return self.get_event_query()
@@ -171,6 +168,9 @@ class FunnelCorrelation:
         return query, params
 
     def get_properties_query(self) -> Tuple[str, Dict[str, Any]]:
+
+        if not self._filter.correlation_property_value:
+            raise ValidationError("Property Correlation expects a Property to run correlation on")
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
