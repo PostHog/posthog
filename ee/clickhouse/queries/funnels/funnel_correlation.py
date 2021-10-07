@@ -63,7 +63,11 @@ class FunnelCorrelation:
             self._filter = self._filter.with_data({"funnel_step": 1})
             # Funnel Step by default set to 1, to give us all people who entered the funnel
 
-    def get_query(self):
+    def get_contingency_table_query(self) -> Tuple[str, Dict[str, Any]]:
+        """
+        Returns a query string and params, which are used to generate the contingency table.
+        The query returns success and failure count for event / property values, along with total success and failure counts.
+        """
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             if not self._filter.correlation_property_value:
                 raise ValidationError("Property Correlation expects a Property to run correlation on")
@@ -173,13 +177,15 @@ class FunnelCorrelation:
                 %(target_step)s AS target_step
             SELECT
                 prop as name,
-                countDistinctIf(id, steps = target_step) AS success_count,
-                countDistinctIf(id, steps <> target_step) AS failure_count
+                countDistinctIf(person_id, steps = target_step) AS success_count,
+                countDistinctIf(person_id, steps <> target_step) AS failure_count
             FROM (
-                SELECT id, funnel_people.steps as steps, {person_property_expression} as prop
+                SELECT person_id, funnel_people.steps as steps, {person_property_expression} as prop
                 FROM (
                     SELECT id,
                            argMax(properties, person._timestamp) as properties,
+                           -- We get the latest properties of the person, not necessarily the
+                           -- ones they had inside the funnel
                            max(is_deleted) as is_deleted
                         FROM person
                         WHERE team_id = %(team_id)s
@@ -259,7 +265,7 @@ class FunnelCorrelation:
             correlation, e.g. "watched video"
 
         """
-        query, params = self.get_query()
+        query, params = self.get_contingency_table_query()
         results_with_total = sync_execute(query, params)
 
         event_contingency_tables = self.get_partial_event_contingency_tables(results_with_total)

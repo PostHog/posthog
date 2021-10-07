@@ -163,3 +163,73 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+    def test_no_divide_by_zero_errors(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+
+        for i in range(2):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            # failure count for this event is 0
+            _create_event(
+                team=self.team, event="positive", distinct_id=f"user_{i}", timestamp="2020-01-03T14:00:00Z",
+            )
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        for i in range(2, 4):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            if i % 2 == 0:
+                # success count for this event is 0
+                _create_event(
+                    team=self.team,
+                    event="negatively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                )
+
+        result = correlation.run()["events"]
+        print(result)
+
+        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        expected_odds_ratios = [3, 1 / 2]
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "positive",
+                    "success_count": 3,
+                    "failure_count": 1,
+                    # "odds_ratio": 3.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "negatively_related",
+                    "success_count": 1,
+                    "failure_count": 2,
+                    # "odds_ratio": 1 / 2,
+                    "correlation_type": "failure",
+                },
+            ],
+        )
