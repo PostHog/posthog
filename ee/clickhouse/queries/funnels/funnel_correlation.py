@@ -1,8 +1,14 @@
 import dataclasses
-from typing import Any, Dict, List, Literal, Tuple, TypedDict
+from typing import Any, Dict, List, Literal, Tuple, TypedDict, cast
+
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.models.property import get_property_string_expr
+from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
+from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import FunnelCorrelationType
 from posthog.models import Filter, Team
 from posthog.models.filters import Filter
@@ -51,6 +57,9 @@ class EventContingencyTable:
 
 
 class FunnelCorrelation:
+
+    TOTAL_IDENTIFIER = "Total_Values_In_Query"
+
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
         self._team = team
@@ -58,6 +67,153 @@ class FunnelCorrelation:
         if self._filter.funnel_step is None:
             self._filter = self._filter.with_data({"funnel_step": 1})
             # Funnel Step by default set to 1, to give us all people who entered the funnel
+
+    def get_contingency_table_query(self) -> Tuple[str, Dict[str, Any]]:
+        """
+        Returns a query string and params, which are used to generate the contingency table.
+        The query returns success and failure count for event / property values, along with total success and failure counts.
+        """
+        if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
+            if not self._filter.correlation_property_value:
+                raise ValidationError("Property Correlation expects a Property to run correlation on")
+
+            return self.get_properties_query()
+
+        return self.get_event_query()
+
+    def get_event_query(self) -> Tuple[str, Dict[str, Any]]:
+
+        funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
+
+        query = f"""
+            WITH 
+                funnel_people as ({funnel_persons_query}),
+                toDateTime(%(date_to)s) AS date_to,
+                toDateTime(%(date_from)s) AS date_from,
+                %(target_step)s AS target_step,
+                %(funnel_step_names)s as funnel_step_names
+
+            SELECT 
+                event.event AS name, 
+
+                -- If we have a `person.steps = target_step`, we know the person 
+                -- reached the end of the funnel
+                countDistinctIf(
+                    person.person_id, 
+                    person.steps = target_step
+                ) AS success_count,
+
+                -- And the converse being for failures
+                countDistinctIf(
+                    person.person_id, 
+                    person.steps <> target_step
+                ) AS failure_count
+
+            FROM events AS event
+            
+            JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi
+                ON pdi.distinct_id = events.distinct_id
+
+            -- NOTE: I would love to right join here, so we count get total
+            -- success/failure numbers in one pass, but this causes out of memory
+            -- error mentioning issues with right filling. I'm sure there's a way
+            -- to do it but lifes too short.
+            JOIN funnel_people AS person
+                ON pdi.person_id = person.person_id
+
+            -- Make sure we're only looking at events before the final step, or
+            -- failing that, date_to
+            WHERE 
+                -- add this condition in to ensure we can filter events before 
+                -- joining funnel_people
+                event.timestamp >= date_from
+                AND event.timestamp < date_to
+
+                AND event.team_id = {self._team.pk}
+
+                -- Add in per person filtering on event time range. We just want
+                -- to include events that happened within the bounds of the 
+                -- persons time in the funnel.
+                AND event.timestamp > person.first_timestamp
+                AND event.timestamp < COALESCE(person.final_timestamp, date_to)
+
+                -- Exclude funnel steps
+                AND event.event NOT IN funnel_step_names
+            GROUP BY name
+            
+            -- To get the total success/failure numbers, we do an aggregation on 
+            -- the funnel people CTE and count distinct person_ids
+            UNION ALL
+
+            SELECT 
+                -- Use null as a special marker for the WITH TOTALS equivelant.
+                -- We're not using WITH TOTALS because the resulting queries are
+                -- not runnable in Metabase
+                '{self.TOTAL_IDENTIFIER}' as name, 
+
+                countDistinctIf(
+                    person.person_id, 
+                    person.steps = target_step
+                ) AS success_count,
+
+                countDistinctIf(
+                    person.person_id,
+                    person.steps <> target_step
+                ) AS failure_count
+            FROM funnel_people AS person
+        """
+        params = {
+            **funnel_persons_params,
+            "funnel_step_names": [entity.id for entity in self._filter.events],
+            "target_step": len(self._filter.entities),
+        }
+
+        return query, params
+
+    def get_properties_query(self) -> Tuple[str, Dict[str, Any]]:
+
+        funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
+
+        person_property_expression, _ = get_property_string_expr(
+            "person",
+            cast(str, self._filter.correlation_property_value),
+            "%(property_name)s",
+            ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
+        )
+
+        person_query = ClickhousePersonQuery(
+            self._filter, self._team.pk, ColumnOptimizer(self._filter, self._team.pk)
+        ).get_query()
+
+        query = f"""
+            WITH 
+                funnel_people as ({funnel_persons_query}),
+                %(target_step)s AS target_step
+            SELECT
+                prop as name,
+                countDistinctIf(person_id, steps = target_step) AS success_count,
+                countDistinctIf(person_id, steps <> target_step) AS failure_count
+            FROM (
+                SELECT person_id, funnel_people.steps as steps, {person_property_expression} as prop
+                FROM funnel_people
+                JOIN ({person_query}) person
+                ON person.id = funnel_people.person_id
+            ) person_with_props
+            GROUP BY name
+            UNION ALL
+            SELECT
+                '{self.TOTAL_IDENTIFIER}' as name,
+                countDistinctIf(person_id, steps = target_step) AS success_count,
+                countDistinctIf(person_id, steps <> target_step) AS failure_count
+            FROM funnel_people
+        """
+        params = {
+            **funnel_persons_params,
+            "target_step": len(self._filter.entities),
+            "property_name": self._filter.correlation_property_value,
+        }
+
+        return query, params
 
     def run(self) -> FunnelCorrelationResponse:
         """
@@ -117,7 +273,10 @@ class FunnelCorrelation:
             correlation, e.g. "watched video"
 
         """
-        event_contingency_tables = self.get_partial_event_contingency_tables()
+        query, params = self.get_contingency_table_query()
+        results_with_total = sync_execute(query, params)
+
+        event_contingency_tables = self.get_partial_event_contingency_tables(results_with_total)
 
         odds_ratios = [get_entity_odds_ratio(event_stats) for event_stats in event_contingency_tables]
 
@@ -136,7 +295,7 @@ class FunnelCorrelation:
         # Return the top ten positively correlated events, and top then negatively correlated events
         return {"events": positively_correlated_events[:10] + negatively_correlated_events[:10]}
 
-    def get_partial_event_contingency_tables(self) -> List[EventContingencyTable]:
+    def get_partial_event_contingency_tables(self, results_with_total: list) -> List[EventContingencyTable]:
         """
         For each event a person that started going through the funnel, gets stats
         for how many of these users are sucessful and how many are unsuccessful.
@@ -145,114 +304,12 @@ class FunnelCorrelation:
         event, but does include the total success/failure numbers, which is enough
         for us to calculate the odds ratio.
         """
-        funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
-
-        non_deleted_distinct_ids = f"""
-            SELECT distinct_id,
-                argMax(person_id, _timestamp) as person_id
-            FROM (
-                SELECT distinct_id,
-                        person_id,
-                        max(_timestamp) as _timestamp
-                    FROM person_distinct_id
-                    WHERE team_id = {self._team.pk}
-                    GROUP BY person_id,
-                            distinct_id,
-                            team_id
-                HAVING max(is_deleted) = 0
-            )
-            GROUP BY distinct_id
-        """
-
-        query = f"""
-            WITH 
-                toDateTime(%(date_to)s) AS date_to,
-                toDateTime(%(date_from)s) AS date_from,
-                %(target_step)s AS target_step,
-                %(funnel_step_names)s as funnel_step_names
-
-            SELECT 
-                event.event AS name, 
-
-                -- If we have a `person.steps = target_step`, we know the person 
-                -- reached the end of the funnel
-                countDistinctIf(
-                    person.person_id, 
-                    person.steps = target_step
-                ) AS success_count,
-
-                -- And the converse being for failures
-                countDistinctIf(
-                    person.person_id, 
-                    person.steps <> target_step
-                ) AS failure_count
-
-            FROM events AS event
-            
-            JOIN ({non_deleted_distinct_ids}) AS pdi
-                ON pdi.distinct_id = events.distinct_id
-
-            -- NOTE: I would love to right join here, so we count get total
-            -- success/failure numbers in one pass, but this causes out of memory
-            -- error mentioning issues with right filling. I'm sure there's a way
-            -- to do it but lifes too short.
-            JOIN ({funnel_persons_query}) AS person
-                ON pdi.person_id = person.person_id
-
-            -- Make sure we're only looking at events before the final step, or
-            -- failing that, date_to
-            WHERE 
-                -- add this condition in to ensure we can filter events before 
-                -- joining funnel_people
-                event.timestamp >= date_from
-                AND event.timestamp < date_to
-
-                AND event.team_id = {self._team.pk}
-
-                -- Add in per person filtering on event time range. We just want
-                -- to include events that happened within the bounds of the 
-                -- persons time in the funnel.
-                AND event.timestamp > person.first_timestamp
-                AND event.timestamp < COALESCE(person.final_timestamp, date_to)
-
-                -- Exclude funnel steps
-                AND event.event NOT IN funnel_step_names
-            GROUP BY name
-            
-            -- To get the total success/failure numbers, we do an aggregation on 
-            -- the funnel people CTE and count distinct person_ids
-            UNION ALL
-
-            SELECT 
-                -- Use null as a special marker for the WITH TOTALS equivelant.
-                -- We're not using WITH TOTALS because the resulting queries are
-                -- not runnable in Metabase
-                NULL as name, 
-
-                countDistinctIf(
-                    person.person_id, 
-                    person.steps = target_step
-                ) AS success_count,
-
-                countDistinctIf(
-                    person.person_id,
-                    person.steps <> target_step
-                ) AS failure_count
-            FROM ({funnel_persons_query}) AS person
-        """
-        params = {
-            **funnel_persons_params,
-            "funnel_step_names": [entity.id for entity in self._filter.events],
-            "target_step": len(self._filter.entities),
-        }
-        results_with_total = sync_execute(query, params)
-
-        # Make typechecking happy. It should never be anything other than a list
-        assert isinstance(results_with_total, list)
 
         # Get the total success/failure counts from the results
-        results = [result for result in results_with_total if result[0]]
-        _, success_total, failure_total = [result for result in results_with_total if not result[0]][0]
+        results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]
+        _, success_total, failure_total = [
+            result for result in results_with_total if result[0] == self.TOTAL_IDENTIFIER
+        ][0]
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
@@ -287,9 +344,17 @@ class FunnelCorrelation:
 
 
 def get_entity_odds_ratio(event_contingency_table: EventContingencyTable) -> EventOddsRatio:
+
+    # Add 1 to all values to prevent divide by zero errors, and introduce a [prior](https://en.wikipedia.org/wiki/Prior_probability)
+
+    prior_counts = 1
     if event_contingency_table.success_total and event_contingency_table.failure_total:
-        odds_ratio = (event_contingency_table.visited.success_count / event_contingency_table.success_total) / (
-            event_contingency_table.visited.failure_count / event_contingency_table.failure_total
+        odds_ratio = (
+            (event_contingency_table.visited.success_count + prior_counts)
+            * (event_contingency_table.failure_total + prior_counts)
+        ) / (
+            (event_contingency_table.success_total + prior_counts)
+            * (event_contingency_table.visited.failure_count + prior_counts)
         )
     else:
         odds_ratio = 1
