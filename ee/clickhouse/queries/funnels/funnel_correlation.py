@@ -1,5 +1,7 @@
 import dataclasses
-from typing import Any, Dict, List, Literal, Tuple, TypedDict
+from typing import Any, Dict, List, Literal, Tuple, TypedDict, cast
+
+from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import get_property_string_expr
@@ -62,11 +64,13 @@ class FunnelCorrelation:
             # Funnel Step by default set to 1, to give us all people who entered the funnel
 
     def get_query(self):
+        if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
+            if not self._filter.correlation_property_value:
+                raise ValidationError("Property Correlation expects a Property to run correlation on")
 
-        if self._filter.correlation_type == FunnelCorrelationType.EVENTS:
-            return self.get_event_query()
+            return self.get_properties_query()
 
-        return self.get_properties_query()
+        return self.get_event_query()
 
     def get_event_query(self) -> Tuple[str, Dict[str, Any]]:
 
@@ -161,12 +165,11 @@ class FunnelCorrelation:
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
         person_property_expression, _ = get_property_string_expr(
-            "person", self._filter.correlation_property_value, "%(property_name)s", "properties"
+            "person", cast(str, self._filter.correlation_property_value), "%(property_name)s", "properties"
         )
 
         query = f"""
             WITH 
-                funnel_people AS ({funnel_persons_query}),
                 %(target_step)s AS target_step
             SELECT
                 prop as name,

@@ -2,36 +2,13 @@ from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel import ClickhouseFunnel
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
-from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
-from ee.clickhouse.queries.funnels.test.breakdown_cases import funnel_breakdown_test_factory
-from ee.clickhouse.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.models import Element
-from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.queries.test.test_funnel import funnel_test_factory
 from posthog.test.base import APIBaseTest, test_with_materialized_columns
-
-FORMAT_TIME = "%Y-%m-%d 00:00:00"
-MAX_STEP_COLUMN = 0
-COUNT_COLUMN = 1
-PERSON_ID_COLUMN = 2
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name, properties=properties)
-    return action
 
 
 def _create_person(**kwargs):
@@ -44,7 +21,7 @@ def _create_event(**kwargs):
     create_event(**kwargs)
 
 
-class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):  # type: ignore
+class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
     maxDiff = None
 
@@ -94,7 +71,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):  # type
 
         result = correlation.run()["events"]
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]
+        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [6, 1 / 6]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
@@ -120,6 +97,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):  # type
             ],
         )
 
+    @test_with_materialized_columns(["$browser"])
     def test_basic_funnel_correlation_with_properties(self):
         filters = {
             "events": [
@@ -160,7 +138,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):  # type
 
         result = correlation.run()["events"]
 
-        odds_ratios = [item.pop("odds_ratio") for item in result]
+        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [11, 1 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
