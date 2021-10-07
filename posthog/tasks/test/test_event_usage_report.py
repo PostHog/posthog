@@ -5,12 +5,9 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
-from posthog.models import Event, Organization, Person, Plugin, Team
-from posthog.models.plugin import PluginConfig
-from posthog.models.utils import UUIDT
+from posthog.models import Event, Organization, Person, Team
 from posthog.tasks.event_usage_report import event_usage_report
 from posthog.test.base import APIBaseTest
-from posthog.utils import is_clickhouse_enabled
 from posthog.version import VERSION
 
 
