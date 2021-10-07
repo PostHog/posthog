@@ -54,6 +54,12 @@ class FunnelCorrelationTest(BaseTest):
             # | did not watched  | 1        | 0        | 1        |
             # | total            | 2        | 1        | 3        |
             #
+            # For Calculating Odds Ratio, we add a prior count of 1 to everything
+            #
+            # So our odds ratio should be
+            #  (success + prior / failure + prior) * (failure_total + prior / success_total + prior)
+            # = ( 1 + 1 / 1 + 1) * ( 1 + 1 / 2 + 1)
+            # = 2/3
 
             events = {
                 "Person 1": [
@@ -94,7 +100,7 @@ class FunnelCorrelationTest(BaseTest):
                         "event": "watched video",
                         "success_count": 1,
                         "failure_count": 1,
-                        "odds_ratio": 0.5,
+                        "odds_ratio": 2 / 3,
                         "correlation_type": "failure",
                     },
                 ]
@@ -214,6 +220,7 @@ class FunnelCorrelationTest(BaseTest):
                     {"event": "", "timestamp": datetime(2020, 1, 3)},
                 ],
             }
+            # '' is a weird event name to have, but if it exists, our duty to report it
 
             create_events(events_by_person=events, team=self.team)
 
@@ -235,7 +242,17 @@ class FunnelCorrelationTest(BaseTest):
         assert odds == {
             "is_cached": False,
             "last_refresh": "2020-01-01T00:00:00Z",
-            "result": {"events": []},
+            "result": {
+                "events": [
+                    {
+                        "correlation_type": "failure",
+                        "event": "",
+                        "failure_count": 1,
+                        "odds_ratio": 1.0,
+                        "success_count": 0,
+                    }
+                ]
+            },
         }
 
     def test_correlation_endpoint_with_properties(self):
@@ -292,15 +309,15 @@ class FunnelCorrelationTest(BaseTest):
             [
                 {
                     "event": "Positive",
-                    "success_count": 11,
-                    "failure_count": 1,
+                    "success_count": 10,
+                    "failure_count": 0,
                     # "odds_ratio": 11.0,
                     "correlation_type": "success",
                 },
                 {
                     "event": "Negative",
-                    "success_count": 1,
-                    "failure_count": 11,
+                    "success_count": 0,
+                    "failure_count": 10,
                     # "odds_ratio": 1 / 11,
                     "correlation_type": "failure",
                 },

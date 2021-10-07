@@ -82,15 +82,15 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "event": "positively_related",
-                    "success_count": 6,
-                    "failure_count": 1,
+                    "success_count": 5,
+                    "failure_count": 0,
                     # "odds_ratio": 6.0,
                     "correlation_type": "success",
                 },
                 {
                     "event": "negatively_related",
-                    "success_count": 1,
-                    "failure_count": 6,
+                    "success_count": 0,
+                    "failure_count": 5,
                     # "odds_ratio": 1 / 6,
                     "correlation_type": "failure",
                 },
@@ -136,10 +136,25 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2020-01-03T14:00:00Z",
                 )
 
+        # One Positive with failure
+        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk, properties={"$browser": "Positive"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id=f"user_fail", timestamp="2020-01-02T14:00:00Z",
+        )
+
+        # One Negative with success
+        _create_person(distinct_ids=[f"user_succ"], team_id=self.team.pk, properties={"$browser": "Negative"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id=f"user_succ", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id=f"user_succ", timestamp="2020-01-04T14:00:00Z",
+        )
+
         result = correlation.run()["events"]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
-        expected_odds_ratios = [11, 1 / 11]
+        expected_odds_ratios = [11 / 2, 2 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
             self.assertAlmostEqual(odds, expected_odds)
@@ -149,16 +164,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "event": "Positive",
-                    "success_count": 11,
+                    "success_count": 10,
                     "failure_count": 1,
-                    # "odds_ratio": 11.0,
+                    # "odds_ratio": 11 / 2,
                     "correlation_type": "success",
                 },
                 {
                     "event": "Negative",
                     "success_count": 1,
-                    "failure_count": 11,
-                    # "odds_ratio": 1 / 11,
+                    "failure_count": 10,
+                    # "odds_ratio": 2 / 11,
                     "correlation_type": "failure",
                 },
             ],
@@ -218,15 +233,15 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "event": "positive",
-                    "success_count": 3,
-                    "failure_count": 1,
+                    "success_count": 2,
+                    "failure_count": 0,
                     # "odds_ratio": 3.0,
                     "correlation_type": "success",
                 },
                 {
                     "event": "negatively_related",
-                    "success_count": 1,
-                    "failure_count": 2,
+                    "success_count": 0,
+                    "failure_count": 1,
                     # "odds_ratio": 1 / 2,
                     "correlation_type": "failure",
                 },

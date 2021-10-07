@@ -57,6 +57,9 @@ class EventContingencyTable:
 
 
 class FunnelCorrelation:
+
+    TOTAL_IDENTIFIER = "Total_Values_In_Query"
+
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
         self._team = team
@@ -84,6 +87,7 @@ class FunnelCorrelation:
 
         query = f"""
             WITH 
+                funnel_people as ({funnel_persons_query}),
                 toDateTime(%(date_to)s) AS date_to,
                 toDateTime(%(date_from)s) AS date_from,
                 %(target_step)s AS target_step,
@@ -114,7 +118,7 @@ class FunnelCorrelation:
             -- success/failure numbers in one pass, but this causes out of memory
             -- error mentioning issues with right filling. I'm sure there's a way
             -- to do it but lifes too short.
-            JOIN ({funnel_persons_query}) AS person
+            JOIN funnel_people AS person
                 ON pdi.person_id = person.person_id
 
             -- Make sure we're only looking at events before the final step, or
@@ -145,7 +149,7 @@ class FunnelCorrelation:
                 -- Use null as a special marker for the WITH TOTALS equivelant.
                 -- We're not using WITH TOTALS because the resulting queries are
                 -- not runnable in Metabase
-                NULL as name, 
+                '{self.TOTAL_IDENTIFIER}' as name, 
 
                 countDistinctIf(
                     person.person_id, 
@@ -156,7 +160,7 @@ class FunnelCorrelation:
                     person.person_id,
                     person.steps <> target_step
                 ) AS failure_count
-            FROM ({funnel_persons_query}) AS person
+            FROM funnel_people AS person
         """
         params = {
             **funnel_persons_params,
@@ -183,6 +187,7 @@ class FunnelCorrelation:
 
         query = f"""
             WITH 
+                funnel_people as ({funnel_persons_query}),
                 %(target_step)s AS target_step
             SELECT
                 prop as name,
@@ -190,13 +195,17 @@ class FunnelCorrelation:
                 countDistinctIf(person_id, steps <> target_step) AS failure_count
             FROM (
                 SELECT person_id, funnel_people.steps as steps, {person_property_expression} as prop
-                FROM ({funnel_persons_query}) AS funnel_people
+                FROM funnel_people
                 JOIN ({person_query}) person
                 ON person.id = funnel_people.person_id
             ) person_with_props
             GROUP BY name
             UNION ALL
-            SELECT NULL as name, countDistinctIf(person_id, steps = target_step) AS success_count, countDistinctIf(person_id, steps <> target_step) AS failure_count FROM ({funnel_persons_query}) AS funnel_people
+            SELECT
+                '{self.TOTAL_IDENTIFIER}' as name,
+                countDistinctIf(person_id, steps = target_step) AS success_count,
+                countDistinctIf(person_id, steps <> target_step) AS failure_count
+            FROM funnel_people
         """
         params = {
             **funnel_persons_params,
@@ -297,18 +306,19 @@ class FunnelCorrelation:
         """
 
         # Get the total success/failure counts from the results
-        results = [result for result in results_with_total if result[0]]
-        _, success_total, failure_total = [result for result in results_with_total if not result[0]][0]
+        results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]
+        _, success_total, failure_total = [
+            result for result in results_with_total if result[0] == self.TOTAL_IDENTIFIER
+        ][0]
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
-        # Add 1 to all values to prevent divide by zero errors
         return [
             EventContingencyTable(
                 event=result[0],
-                visited=EventStats(success_count=result[1] + 1, failure_count=result[2] + 1),
-                success_total=success_total + 1,
-                failure_total=failure_total + 1,
+                visited=EventStats(success_count=result[1], failure_count=result[2]),
+                success_total=success_total,
+                failure_total=failure_total,
             )
             for result in results
         ]
@@ -334,9 +344,17 @@ class FunnelCorrelation:
 
 
 def get_entity_odds_ratio(event_contingency_table: EventContingencyTable) -> EventOddsRatio:
+
+    # Add 1 to all values to prevent divide by zero errors, and introduce a [prior](https://en.wikipedia.org/wiki/Prior_probability)
+
+    prior_counts = 1
     if event_contingency_table.success_total and event_contingency_table.failure_total:
-        odds_ratio = (event_contingency_table.visited.success_count / event_contingency_table.success_total) / (
-            event_contingency_table.visited.failure_count / event_contingency_table.failure_total
+        odds_ratio = (
+            (event_contingency_table.visited.success_count + prior_counts)
+            * (event_contingency_table.failure_total + prior_counts)
+        ) / (
+            (event_contingency_table.success_total + prior_counts)
+            * (event_contingency_table.visited.failure_count + prior_counts)
         )
     else:
         odds_ratio = 1
