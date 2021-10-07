@@ -28,7 +28,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             p = Person.objects.create(
                 team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
-            base_time = now() - relativedelta(hours=1)
+            base_time = now() - relativedelta(days=1)
             self.create_snapshot("user", "1", base_time)
             self.create_snapshot("user", "1", base_time + relativedelta(seconds=10))
             self.create_snapshot("user2", "2", base_time + relativedelta(seconds=20))
@@ -60,8 +60,8 @@ def factory_test_session_recordings_api(session_recording_event_factory):
         def test_session_recordings_dont_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
 
-            self.create_snapshot("user", "1", now(), team_id=another_team.pk)
-            self.create_snapshot("user", "2", now())
+            self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=another_team.pk)
+            self.create_snapshot("user", "2", now() - relativedelta(days=1))
 
             response = self.client.get("/api/projects/@current/session_recordings")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -70,7 +70,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][0]["id"], "2")
 
         def test_session_recording_for_user_with_multiple_distinct_ids(self):
-            base_time = now() - timedelta(hours=1)
+            base_time = now() - timedelta(days=1)
             p = Person.objects.create(
                 team=self.team,
                 distinct_ids=["d1", "d2"],
@@ -85,7 +85,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response_data["results"][1]["person"]["id"], p.pk)
 
         def test_viewed_state_of_session_recording(self):
-            base_time = now() - timedelta(hours=1)
+            base_time = now() - timedelta(days=1)
             SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
             self.create_snapshot("u1", "1", base_time)
             self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30))
@@ -101,7 +101,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             p = Person.objects.create(
                 team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
-            base_time = now()
+            base_time = now() - relativedelta(days=1)
             self.create_snapshot("d1", "1", base_time)
             self.create_snapshot("d1", "1", base_time + relativedelta(seconds=30))
             response = self.client.get("/api/projects/@current/session_recordings/1")
@@ -116,12 +116,12 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
         def test_single_session_recording_doesnt_leak_teams(self):
             another_team = Team.objects.create(organization=self.organization)
-            self.create_snapshot("user", "1", now(), team_id=another_team.pk)
+            self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=another_team.pk)
             response = self.client.get("/api/projects/@current/session_recordings/1")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         def test_session_recording_with_no_person(self):
-            self.create_snapshot("d1", "1", now())
+            self.create_snapshot("d1", "1", now() - relativedelta(days=1))
             response = self.client.get("/api/projects/@current/session_recordings/1")
             response_data = response.json()
             self.assertEqual(response_data["result"]["person"], None)
@@ -131,7 +131,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         def test_setting_viewed_state_of_session_recording(self):
-            self.create_snapshot("u1", "1", now())
+            self.create_snapshot("u1", "1", now() - relativedelta(days=1))
             response = self.client.get("/api/projects/@current/session_recordings")
             response_data = response.json()
             # Make sure it starts not viewed
