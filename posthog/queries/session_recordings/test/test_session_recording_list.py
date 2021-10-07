@@ -411,7 +411,19 @@ def factory_session_recordings_list_test(
             self.assertEqual(len(session_recordings), 0)
 
         def test_teams_dont_leak_event_filter(self):
-            pass
+            another_team = Team.objects.create(organization=self.organization)
+
+            self.create_snapshot("user", "1", self.base_time)
+            self.create_event(1, self.base_time + relativedelta(seconds=15), team=another_team)
+            self.create_snapshot("user", "1", self.base_time + relativedelta(seconds=30))
+
+            filter = SessionRecordingsFilter(
+                data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
+            )
+
+            session_recording_list_instance = session_recording_list(filter=filter, team=self.team)
+            (session_recordings, _) = session_recording_list_instance.run()
+            self.assertEqual(len(session_recordings), 0)
 
     return TestSessionRecordingsList
 
