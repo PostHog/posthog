@@ -3,12 +3,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, TypeVar
 from posthog.utils import is_clickhouse_enabled
 
 if TYPE_CHECKING:  # Avoid circular import
-    from posthog.models import Entity, Property, Team
+    from posthog.models import Property, Team
 
 T = TypeVar("T")
 
 
 class SimplifyFilterMixin:
+    # :KLUDGE: A lot of this logic ignores typing since generics w/ mixins are hard to get working properly
     def simplify(self: T, team: "Team", **kwargs) -> T:
         """
         Expands this filter to not refer to external resources of the team.
@@ -31,12 +32,12 @@ class SimplifyFilterMixin:
         updated_entities = {}
         if hasattr(result, "entities_to_dict"):
             for entity_type, entities in result.entities_to_dict().items():
-                updated_entities[entity_type] = [self._simplify_entity(team, entity, **kwargs) for entity in entities]
+                updated_entities[entity_type] = [self._simplify_entity(team, entity, **kwargs) for entity in entities]  # type: ignore
 
         return result.with_data(
             {
                 **updated_entities,
-                "properties": self._simplify_properties(team, result.properties, **kwargs),
+                "properties": self._simplify_properties(team, result.properties, **kwargs),  # type: ignore
                 "is_simplified": True,
             }
         )
