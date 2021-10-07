@@ -138,67 +138,59 @@ export function Insights(): JSX.Element {
                     />
 
                     <div className="insight-metadata">
-                        {insight.id && (
-                            <>
-                                <Row align="middle" style={{ marginTop: 24, justifyContent: 'space-between' }}>
-                                    <Col style={{ flex: 1 }}>
-                                        <InsightMetadata.Title insight={insight} insightMode={insightMode} />
-                                    </Col>
-                                    <Col className="insights-tab-actions">
-                                        <>
-                                            <Popconfirm
-                                                title="Are you sure? This will clear all filters and any progress will be lost."
-                                                onConfirm={() => {
-                                                    window.scrollTo({ top: 0 })
-                                                    push(`/insights?insight=${insight?.filters?.insight}`)
-                                                    reportInsightsTabReset()
-                                                }}
-                                            >
-                                                <Tooltip placement="top" title="Reset all filters">
-                                                    <Button type="link" className="btn-reset">
-                                                        {'Reset'}
-                                                    </Button>
-                                                </Tooltip>
-                                            </Popconfirm>
-                                            <SaveToDashboard
-                                                displayComponent={
-                                                    <Button style={{ color: 'var(--primary)' }} className="btn-save">
-                                                        {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
-                                                            ? 'Save & add to dashboard'
-                                                            : 'Add to dashboard'}
-                                                    </Button>
-                                                }
-                                                tooltipOptions={{
-                                                    placement: 'bottom',
-                                                    title: 'Save to dashboard',
-                                                }}
-                                                item={{
-                                                    entity: {
-                                                        filters: insight.filters || allFilters,
-                                                        annotations: annotationsToCreate,
-                                                    },
-                                                }}
-                                            />
-                                            {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
-                                                <Button
-                                                    style={{ marginLeft: 8 }}
-                                                    type="primary"
-                                                    onClick={() => saveInsight()}
-                                                >
-                                                    Save
-                                                </Button>
-                                            )}
-                                        </>
-                                    </Col>
-                                </Row>
-                                <Row>
-                                    <InsightMetadata.Description insight={insight} insightMode={insightMode} />
-                                </Row>
-                                <Row>
-                                    <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
-                                </Row>
-                            </>
-                        )}
+                        <Row align="middle" style={{ marginTop: 24, justifyContent: 'space-between' }}>
+                            <Col style={{ flex: 1 }}>
+                                <InsightMetadata.Title insight={insight} insightMode={insightMode} />
+                            </Col>
+                            <Col className="insights-tab-actions">
+                                <>
+                                    <Popconfirm
+                                        title="Are you sure? This will clear all filters and any progress will be lost."
+                                        onConfirm={() => {
+                                            window.scrollTo({ top: 0 })
+                                            push(`/insights?insight=${insight?.filters?.insight}`)
+                                            reportInsightsTabReset()
+                                        }}
+                                    >
+                                        <Tooltip placement="top" title="Reset all filters">
+                                            <Button type="link" className="btn-reset">
+                                                {'Reset'}
+                                            </Button>
+                                        </Tooltip>
+                                    </Popconfirm>
+                                    <SaveToDashboard
+                                        displayComponent={
+                                            <Button style={{ color: 'var(--primary)' }} className="btn-save">
+                                                {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]
+                                                    ? 'Save & add to dashboard'
+                                                    : 'Add to dashboard'}
+                                            </Button>
+                                        }
+                                        tooltipOptions={{
+                                            placement: 'bottom',
+                                            title: 'Save to dashboard',
+                                        }}
+                                        item={{
+                                            entity: {
+                                                filters: insight.filters || allFilters,
+                                                annotations: annotationsToCreate,
+                                            },
+                                        }}
+                                    />
+                                    {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
+                                        <Button style={{ marginLeft: 8 }} type="primary" onClick={() => saveInsight()}>
+                                            Save
+                                        </Button>
+                                    )}
+                                </>
+                            </Col>
+                        </Row>
+                        <Row>
+                            <InsightMetadata.Description insight={insight} insightMode={insightMode} />
+                        </Row>
+                        <Row>
+                            <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
+                        </Row>
                     </div>
 
                     <Row style={{ marginTop: 16 }}>
