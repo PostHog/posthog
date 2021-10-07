@@ -104,9 +104,10 @@ class TestCapture(BaseTest):
             },
         }
         with freeze_time(timezone.now()):
-            self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
-            )
+            with self.assertNumQueries(2):
+                self.client.get(
+                    "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+                )
 
         mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
 
@@ -126,9 +127,10 @@ class TestCapture(BaseTest):
             },
         }
         with freeze_time(timezone.now()):
-            self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
-            )
+            with self.assertNumQueries(1):
+                self.client.get(
+                    "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+                )
 
         mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
 
