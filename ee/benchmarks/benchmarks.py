@@ -13,7 +13,11 @@ from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
 
-MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [("events", "$host"), ("person", "email")]
+MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
+    ("events", "$host"),
+    ("person", "email"),
+    ("person", "$browser"),
+]
 
 DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01"}
 SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01"}
@@ -175,7 +179,10 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_correlations_by_events_materialized(self):
-        filter = Filter(data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE,})
+        filter = Filter(
+            data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE,}, team=self.team
+        )
+
         FunnelCorrelation(filter, self.team).run()
 
     @benchmark_clickhouse
@@ -186,6 +193,21 @@ class QuerySuite:
                 **SHORT_DATE_RANGE,
                 "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
                 "funnel_correlation_value": "$browser",
-            }
+            },
+            team=self.team,
         )
         FunnelCorrelation(filter, self.team).run()
+
+    @benchmark_clickhouse
+    def track_correlations_by_properties(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
+                **SHORT_DATE_RANGE,
+                "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
+                "funnel_correlation_value": "$browser",
+            },
+            team=self.team,
+        )
+        with no_materialized_columns():
+            FunnelCorrelation(filter, self.team).run()
