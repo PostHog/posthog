@@ -2,9 +2,10 @@ from contextlib import contextmanager
 from typing import List
 from unittest.mock import patch
 
+import sqlparse
 from django.db import DEFAULT_DB_ALIAS
 
-from ee.clickhouse.client import sync_execute
+from ee.clickhouse.client import ch_pool, sync_execute
 from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from ee.clickhouse.sql.person import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL
 from posthog.test.base import BaseTest
@@ -26,17 +27,27 @@ class ClickhouseTestMixin:
 
     @contextmanager
     def capture_select_queries(self):
-        from ee.clickhouse.client import _annotate_tagged_query
+        queries = []
+        original_get_client = ch_pool.get_client
 
-        sqls: List[str] = []
+        # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
+        # a roundabout way to handle this, but it seems tricky to spy on the
+        # unbound class method `Client.execute` directly easily
+        @contextmanager
+        def get_client():
+            with original_get_client() as client:
+                original_client_execute = client.execute
 
-        def wrapped_method(*args):
-            if args[0].strip().startswith("SELECT"):
-                sqls.append(args[0])
-            return _annotate_tagged_query(*args)
+                def execute_wrapper(query, *args, **kwargs):
+                    if sqlparse.format(query, strip_comments=True).strip().startswith("SELECT"):
+                        queries.append(query)
+                    return original_client_execute(query, *args, **kwargs)
 
-        with patch("ee.clickhouse.client._annotate_tagged_query", wraps=wrapped_method) as wrapped_annotate:
-            yield sqls
+                with patch.object(client, "execute", wraps=execute_wrapper) as _:
+                    yield client
+
+        with patch("ee.clickhouse.client.ch_pool.get_client", wraps=get_client) as _:
+            yield queries
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):

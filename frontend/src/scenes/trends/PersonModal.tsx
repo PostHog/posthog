@@ -48,7 +48,7 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
             ) : filters.insight === ViewType.PATHS ? (
                 <>
                     {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
-                    <PropertyKeyInfo value={people?.label || ''} disablePopover />
+                    <PropertyKeyInfo value={people?.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
                 </>
             ) : (
                 <>

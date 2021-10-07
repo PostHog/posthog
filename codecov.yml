@@ -1,0 +1,3 @@
+# Disable PR comments for now to not spam PRs. We should still have annotations
+# on files
+comment: false

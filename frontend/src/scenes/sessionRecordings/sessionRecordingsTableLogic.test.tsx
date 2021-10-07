@@ -4,6 +4,7 @@ import { BuiltLogic } from 'kea'
 import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { router } from 'kea-router'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 jest.mock('lib/api')
 
@@ -46,7 +47,9 @@ describe('sessionRecordingsTableLogic', () => {
                 expectLogic(logic).toMatchValues({ sessionRecordingId: null })
             })
             it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
-                expectLogic(logic, () => logic.actions.openSessionPlayer('abc')).toMatchValues({
+                expectLogic(logic, () =>
+                    logic.actions.openSessionPlayer('abc', RecordingWatchedSource.RecordingsList)
+                ).toMatchValues({
                     sessionRecordingId: 'abc',
                 })
                 expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'abc')

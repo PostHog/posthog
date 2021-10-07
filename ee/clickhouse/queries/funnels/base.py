@@ -21,6 +21,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
     _team: Team
     _include_timestamp: Optional[bool]
     _include_preceding_timestamp: Optional[bool]
+    _no_person_limit: Optional[bool]  # used when paths are querying for filter people
 
     def __init__(
         self,
@@ -28,6 +29,7 @@ class ClickhouseFunnelBase(ABC, Funnel):
         team: Team,
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
+        no_person_limit: Optional[bool] = False,
     ) -> None:
         self._filter = filter
         self._team = team
@@ -53,6 +55,8 @@ class ClickhouseFunnelBase(ABC, Funnel):
             self.params.update(new_limit)
 
         self._update_filters()
+
+        self._no_person_limit = no_person_limit
 
     def run(self, *args, **kwargs):
         if len(self._filter.entities) == 0:
@@ -144,7 +148,13 @@ class ClickhouseFunnelBase(ABC, Funnel):
             return ""
 
     def _get_timestamp_selects(self) -> Tuple[str, str]:
+        """
+        Returns timestamp selectors for the target step and optionally the preceding step.
+        In the former case, always returns the timestamp for the first and last step as well.
+        """
         target_step = self._filter.funnel_step
+        final_step = len(self._filter.entities) - 1
+        first_step = 0
 
         if not target_step:
             return "", ""
@@ -169,7 +179,10 @@ class ClickhouseFunnelBase(ABC, Funnel):
                 f", argMax(latest_{target_step}, steps) as max_timestamp, argMax(latest_{target_step - 1}, steps) as min_timestamp",
             )
         elif self._include_timestamp:
-            return f", latest_{target_step}", f", argMax(latest_{target_step}, steps) as timestamp"
+            return (
+                f", latest_{target_step}, latest_{final_step}, latest_{first_step}",
+                f", argMax(latest_{target_step}, steps) as timestamp, argMax(latest_{final_step}, steps) as final_timestamp, argMax(latest_{first_step}, steps) as first_timestamp",
+            )
         else:
             return "", ""
 

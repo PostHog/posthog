@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from django.http.request import HttpRequest
+from rest_framework.request import Request
 
 from posthog.constants import INSIGHT_PATHS
 from posthog.models.filters.base_filter import BaseFilter
@@ -59,7 +59,7 @@ class PathFilter(
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         if data:
             data["insight"] = INSIGHT_PATHS
         else:

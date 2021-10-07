@@ -23,6 +23,7 @@ export function TaxonomicFilter({
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.Cohorts,
     ],
+    optionsFromProp,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -39,6 +40,7 @@ export function TaxonomicFilter({
         value,
         onChange,
         groupTypes,
+        optionsFromProp,
     }
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { searchQuery } = useValues(logic)

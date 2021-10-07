@@ -1,16 +1,26 @@
 import React from 'react'
 import { Menu, Dropdown } from 'antd'
-import { EllipsisOutlined } from '@ant-design/icons'
 import { A, combineUrl, encodeParams } from 'kea-router'
-import { FilterType, FunnelPathType, ViewType } from '~/types'
+import { FunnelPathType, ViewType } from '~/types'
+import { funnelLogic } from './funnelLogic'
+import { useValues } from 'kea'
 
-export function FunnelStepDropdown({ filterProps, index }: { filterProps: FilterType; index: number }): JSX.Element {
+export function FunnelStepDropdown({
+    dashboardItemId,
+    index,
+}: {
+    dashboardItemId?: number
+    index: number
+}): JSX.Element {
+    const logic = funnelLogic({ dashboardItemId })
+    const { propertiesForUrl: filterProps } = useValues(logic)
+
     const adjustedIndex = index + 1
     return (
         <div style={{ marginLeft: 10 }}>
             <Dropdown
                 overlay={
-                    <Menu>
+                    <Menu className="paths-options-dropdown">
                         {adjustedIndex > 1 && (
                             <Menu.Item key="0">
                                 <A
@@ -22,6 +32,7 @@ export function FunnelStepDropdown({ filterProps, index }: { filterProps: Filter
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.before,
+                                                    date_from: filterProps.date_from,
                                                 },
                                                 '?'
                                             )
@@ -43,6 +54,7 @@ export function FunnelStepDropdown({ filterProps, index }: { filterProps: Filter
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.between,
+                                                    date_from: filterProps.date_from,
                                                 },
                                                 '?'
                                             )
@@ -63,6 +75,7 @@ export function FunnelStepDropdown({ filterProps, index }: { filterProps: Filter
                                                 funnel_filter: { ...filterProps, funnel_step: adjustedIndex },
                                                 insight: ViewType.PATHS,
                                                 funnel_paths: FunnelPathType.after,
+                                                date_from: filterProps.date_from,
                                             },
                                             '?'
                                         )
@@ -83,6 +96,7 @@ export function FunnelStepDropdown({ filterProps, index }: { filterProps: Filter
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.after,
+                                                    date_from: filterProps.date_from,
                                                 },
                                                 '?'
                                             )
@@ -104,6 +118,7 @@ export function FunnelStepDropdown({ filterProps, index }: { filterProps: Filter
                                                     funnel_filter: { ...filterProps, funnel_step: adjustedIndex * -1 },
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.before,
+                                                    date_from: filterProps.date_from,
                                                 },
                                                 '?'
                                             )
@@ -118,7 +133,7 @@ export function FunnelStepDropdown({ filterProps, index }: { filterProps: Filter
                 }
                 trigger={['click']}
             >
-                <EllipsisOutlined />
+                <div className="paths-dropdown-ellipsis">...</div>
             </Dropdown>
         </div>
     )

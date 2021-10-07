@@ -189,7 +189,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 )
             },
             defaultSortOrder: 'descend',
-            sorter: (a, b) => a.count - b.count,
+            sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
             fixed: 'right',
             width: 120,

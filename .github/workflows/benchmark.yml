@@ -5,6 +5,7 @@ on:
         branches: ['*']
     schedule:
         - cron: '0 4 * * 1-5' # Mon-Fri 4AM UTC
+    workflow_dispatch: {}
 
 concurrency: 'benchmarks' # Ensure only one of this runs at a time
 

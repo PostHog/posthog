@@ -8,16 +8,18 @@ import { Button } from 'antd'
 import { Popup } from '../../lib/components/Popup/Popup'
 import clsx from 'clsx'
 import { Tooltip } from '../../lib/components/Tooltip'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 interface SessionRecordingsButtonProps {
     sessionRecordings: SessionRecordingType[]
+    source: RecordingWatchedSource
 }
 
-export const sessionPlayerUrl = (sessionRecordingId: string): string => {
-    return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId })}`
+export const sessionPlayerUrl = (sessionRecordingId: string, source: RecordingWatchedSource): string => {
+    return `${location.pathname}?${toParams({ ...fromParams(), sessionRecordingId, source })}`
 }
 
-export function SessionRecordingsButton({ sessionRecordings }: SessionRecordingsButtonProps): JSX.Element {
+export function SessionRecordingsButton({ sessionRecordings, source }: SessionRecordingsButtonProps): JSX.Element {
     const [areRecordingsShown, setAreRecordingsShown] = useState(false)
 
     const wereAllRecordingsViewed = !sessionRecordings.some(({ viewed }) => !viewed)
@@ -33,7 +35,7 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
                 return isSingleRecording ? (
                     <div className="session-recordings-button__wrapper" ref={setRef}>
                         <Link
-                            to={sessionPlayerUrl(sessionRecordings[0].id)}
+                            to={sessionPlayerUrl(sessionRecordings[0].id, source)}
                             onClick={(event) => {
                                 event.stopPropagation()
                                 setAreRecordingsShown(false)
@@ -69,7 +71,7 @@ export function SessionRecordingsButton({ sessionRecordings }: SessionRecordings
             overlay={sessionRecordings.map(({ id, viewed, recording_duration, start_time }, index) => (
                 <Link
                     key={id}
-                    to={sessionPlayerUrl(id)}
+                    to={sessionPlayerUrl(id, source)}
                     className={clsx(
                         'session-recordings-popup__link',
                         viewed && 'session-recordings-popup__link--viewed'

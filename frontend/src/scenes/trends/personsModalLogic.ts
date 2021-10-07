@@ -159,8 +159,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === ViewType.PATHS) {
                     const cleanedParams = cleanPathParams(filters)
-                    const pathParams = toParams(cleanedParams)
-                    people = await api.get(`api/person/path/?${pathParams}${searchTermParam}`)
+                    people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
                 } else {
                     const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },

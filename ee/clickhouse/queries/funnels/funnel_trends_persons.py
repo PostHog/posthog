@@ -34,6 +34,7 @@ class ClickhouseFunnelTrendsPersons(ClickhouseFunnelTrends):
             steps_per_person_query=step_counts_query,
             persons_steps=did_not_reach_to_step_count_condition if drop_off else reached_to_step_count_condition,
             extra_fields="",
+            limit="" if self._no_person_limit else "LIMIT %(limit)s",
         )
 
     def _summarize_data(self, results):

@@ -146,6 +146,7 @@ class ClickhousePaths:
             self._team,
             include_timestamp=bool(self._filter.funnel_paths),
             include_preceding_timestamp=self._filter.funnel_paths == FUNNEL_PATH_BETWEEN_STEPS,
+            no_person_limit=True,
         )
         funnel_persons_query = funnel_persons_generator.get_query()
         funnel_persons_query_new_params = funnel_persons_query.replace("%(", "%(funnel_")
