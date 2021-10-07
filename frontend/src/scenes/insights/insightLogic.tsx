@@ -102,18 +102,18 @@ export const insightLogic = kea<insightLogicType>({
                     await breakpoint(300)
                     return await api.update(`api/insight/${values.insight.id}`, payload)
                 },
-                setInsight: ({ insight, shouldMergeWithExisting }) =>
-                    shouldMergeWithExisting
-                        ? {
-                              ...values.insight,
-                              ...insight,
-                          }
-                        : insight,
             },
         ],
     }),
     reducers: {
         insight: {
+            setInsight: (state, { insight, shouldMergeWithExisting }) =>
+                shouldMergeWithExisting
+                    ? {
+                          ...state,
+                          ...insight,
+                      }
+                    : insight,
             updateInsightFilters: (state, { filters }) => ({ ...state, filters }),
         },
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
