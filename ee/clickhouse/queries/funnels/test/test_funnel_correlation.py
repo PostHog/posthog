@@ -247,3 +247,30 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+    def test_correlation_with_properties_raises_validation_error(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "properties",
+            # "funnel_correlation_value": "$browser", missing value
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+
+        _create_person(distinct_ids=[f"user_1"], team_id=self.team.pk, properties={"$browser": "Positive"})
+        _create_event(
+            team=self.team, event="user signed up", distinct_id=f"user_1", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id=f"user_1", timestamp="2020-01-04T14:00:00Z",
+        )
+
+        with self.assertRaises(ValidationError):
+            correlation.run()
