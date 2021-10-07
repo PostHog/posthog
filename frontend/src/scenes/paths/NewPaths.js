@@ -11,6 +11,7 @@ import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
+import { FunnelPathType } from '~/types'
 
 function rounded_rect(x, y, w, h, r, tl, tr, bl, br) {
     var retval
@@ -266,9 +267,15 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
 
     const isSelectedPathStartOrEnd = (pathItemCard) => {
         const cardName = pageUrl(pathItemCard)
+        const isPathStart = pathItemCard.targetLinks.length === 0
+        const isPathEnd = pathItemCard.sourceLinks.length === 0
         return (
-            (filter.start_point === cardName && pathItemCard.targetLinks.length === 0) ||
-            (filter.end_point === cardName && pathItemCard.sourceLinks.length === 0)
+            (filter.start_point === cardName && isPathStart) ||
+            (filter.end_point === cardName && isPathEnd) ||
+            (filter.funnel_paths === FunnelPathType.between &&
+                ((cardName === filter.funnel_filter.events[filter.funnel_filter.funnel_step - 1].name && isPathEnd) ||
+                    (cardName === filter.funnel_filter.events[filter.funnel_filter.funnel_step - 2].name &&
+                        isPathStart)))
         )
     }
 
