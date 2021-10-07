@@ -9,7 +9,7 @@ from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.property import Property, PropertyName, PropertyType
+from posthog.models.property import Property, PropertyName, PropertyType, TableWithProperties
 from posthog.models.team import Team
 
 
@@ -25,34 +25,24 @@ class ColumnOptimizer:
         self.team_id = team_id
 
     @cached_property
-    def materialized_event_columns_to_query(self) -> List[ColumnName]:
+    def event_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of event table columns containing materialized properties that this query needs"
 
-        materialized_columns = get_materialized_columns("events")
-        return [
-            materialized_columns[property_name]
-            for property_name, type in self._used_properties_with_type("event")
-            if property_name in materialized_columns
-        ]
+        return self.columns_to_query("events", self._used_properties_with_type("event"))
 
     @cached_property
-    def materialized_person_columns_to_query(self) -> List[ColumnName]:
+    def person_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of person table columns containing materialized properties that this query needs"
 
-        materialized_columns = get_materialized_columns("person")
-        return [
-            materialized_columns[property_name]
-            for property_name, type in self._used_properties_with_type("person")
-            if property_name in materialized_columns
-        ]
+        return self.columns_to_query("person", self._used_properties_with_type("person"))
 
-    @cached_property
-    def should_query_event_properties_column(self) -> bool:
-        return len(self.materialized_event_columns_to_query) != len(self._used_properties_with_type("event"))
+    def columns_to_query(
+        self, table: TableWithProperties, used_properties: Set[Tuple[PropertyName, PropertyType]]
+    ) -> Set[ColumnName]:
+        "Transforms a list of property names to what columns are needed for that query"
 
-    @cached_property
-    def should_query_person_properties_column(self) -> bool:
-        return len(self.materialized_person_columns_to_query) != len(self._used_properties_with_type("person"))
+        materialized_columns = get_materialized_columns(table)
+        return set(materialized_columns.get(property_name, "properties") for property_name, _ in used_properties)
 
     @cached_property
     def is_using_person_properties(self) -> bool:
