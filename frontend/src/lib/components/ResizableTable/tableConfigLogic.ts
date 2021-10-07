@@ -1,17 +1,15 @@
 import { kea } from 'kea'
 import { tableConfigLogicType } from './tableConfigLogicType'
 
-type StateType = 'columnConfig' | null
-
-export const tableConfigLogic = kea<tableConfigLogicType<StateType>>({
+export const tableConfigLogic = kea<tableConfigLogicType>({
     actions: {
-        setState: (state: StateType) => ({ state }),
+        setModalVisible: (visible: boolean) => ({ visible }),
     },
     reducers: {
-        state: [
-            null as StateType,
+        modalVisible: [
+            false,
             {
-                setState: (_, { state }) => state,
+                setModalVisible: (_, { visible }) => visible,
             },
         ],
     },

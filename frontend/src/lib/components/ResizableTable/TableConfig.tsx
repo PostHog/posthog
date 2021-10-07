@@ -27,8 +27,8 @@ export function TableConfig({
     onColumnUpdate,
     ...props
 }: TableConfigInterface): JSX.Element {
-    const { state } = useValues(tableConfigLogic)
-    const { setState } = useActions(tableConfigLogic)
+    const { modalVisible } = useValues(tableConfigLogic)
+    const { setModalVisible } = useActions(tableConfigLogic)
     console.log({ selectedColumns, availableColumns, onColumnUpdate })
     return (
         <>
@@ -39,16 +39,16 @@ export function TableConfig({
                             <>
                                 <Button
                                     data-attr="events-table-column-selector"
-                                    onClick={() => setState('columnConfig')}
+                                    onClick={() => setModalVisible(true)}
                                     icon={<ControlOutlined rotate={90} />}
                                 >
                                     Configure Columns
                                 </Button>
-                                {state === 'columnConfig' && (
+                                {modalVisible && (
                                     <ColumnConfigurator
                                         allColumns={availableColumns}
                                         currentSelection={selectedColumns}
-                                        onClose={() => setState(null)}
+                                        onClose={() => setModalVisible(false)}
                                         onColumnUpdate={onColumnUpdate}
                                         {...props}
                                     />
