@@ -8,9 +8,9 @@ from ee.clickhouse.models.event import (
     get_events_TEST,
 )
 from posthog.event_usage import report_org_usage_failure
-from posthog.models import Team, User
+from posthog.models import Event, Team, User
 from posthog.tasks.status_report import get_instance_licenses
-from posthog.utils import get_instance_realm, get_previous_day
+from posthog.utils import get_instance_realm, get_previous_day, is_clickhouse_enabled
 from posthog.version import VERSION
 
 logger = logging.getLogger(__name__)
@@ -48,13 +48,22 @@ def event_usage_report() -> Dict[str, Any]:
     for org, teams in org_teams.items():
         usage = default_instance_usage
         try:
-            usage["events_count_total"] = get_agg_event_count_for_teams(teams)
-            usage["events_count_new_in_period"] += get_agg_event_count_for_teams_and_period(
-                teams, period_start, period_end
-            )
-            usage["events_count_month_to_date"] += get_agg_event_count_for_teams_and_period(
-                teams, month_start, period_end
-            )
+            if is_clickhouse_enabled():
+                usage["events_count_total"] = get_agg_event_count_for_teams(teams)
+                usage["events_count_new_in_period"] = get_agg_event_count_for_teams_and_period(
+                    teams, period_start, period_end
+                )
+                usage["events_count_month_to_date"] = get_agg_event_count_for_teams_and_period(
+                    teams, month_start, period_end
+                )
+            else:
+                usage["events_count_total"] = Event.objects.filter(team_id__in=teams).count()
+                usage["events_count_new_in_period"] = Event.objects.filter(
+                    team_id__in=teams, timestamp__gte=period_start, timestamp__lte=period_end,
+                ).count()
+                usage["events_count_month_to_date"] = Event.objects.filter(
+                    team_id__in=teams, timestamp__gte=month_start, timestamp__lte=period_end,
+                ).count()
             instance_usage_by_org[org] = usage
 
         except Exception as err:
