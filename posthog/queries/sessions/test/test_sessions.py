@@ -367,6 +367,7 @@ def sessions_test_factory(sessions, event_factory, person_factory):
             cohort = Cohort.objects.create(
                 team=self.team, groups=[{"properties": [{"key": "name", "value": "Jane", "type": "person"}]}],
             )
+            cohort.calculate_people()
             cohort.calculate_people_ch()
 
             with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
