@@ -841,9 +841,7 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadFunnels()
         },
         clearFunnel: async () => {
-            if (!props.syncWithUrl) {
-                insightLogic(props).actions.setAllFilters({})
-            }
+            insightLogic(props).actions.setAllFilters({})
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
             personsModalLogic.actions.loadPeople({
@@ -872,12 +870,12 @@ export const funnelLogic = kea<funnelLogicType>({
     }),
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
-            if (!props.syncWithUrl) {
+            if (props.syncWithUrl) {
                 return ['/insights', values.propertiesForUrl, router.values.hashParams, { replace: true }]
             }
         },
         clearFunnel: () => {
-            if (!props.syncWithUrl) {
+            if (props.syncWithUrl) {
                 return ['/insights', { insight: ViewType.FUNNELS }, router.values.hashParams, { replace: true }]
             }
         },
