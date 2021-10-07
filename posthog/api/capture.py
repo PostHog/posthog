@@ -178,7 +178,10 @@ def get_event(request):
         )
 
     site_url = request.build_absolute_uri("/")[:-1]
-    ip = None if team.anonymize_ips else get_ip_address(request)
+
+    # team cannot be None here
+    # determine_team_from_request_data can return None from team, but this is already handled
+    ip = None if team.anonymize_ips else get_ip_address(request)  # type: ignore
     for event in events:
         parse_and_enqueue_event(
             data,
@@ -202,7 +205,7 @@ def get_event(request):
 
 def parse_and_enqueue_event(
     data, event, site_url, ip, now, sent_at, team, is_test_env, send_to_dead_letter_queue=False, fetch_team_error=""
-):
+) -> None:
     try:
         distinct_id = _get_distinct_id(event)
     except KeyError:
@@ -251,7 +254,7 @@ def parse_and_enqueue_event(
     capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()):
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()) -> None:
     if is_clickhouse_enabled():
         parsed_event = parse_kafka_event_data(
             distinct_id=distinct_id,

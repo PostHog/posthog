@@ -1,5 +1,5 @@
 import re
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from rest_framework import request, status
 from sentry_sdk import capture_exception
@@ -90,7 +90,7 @@ def get_token(data, request) -> Tuple[Optional[str], bool]:
 
 
 # Support test_[apiKey] for users with multiple environments
-def clean_token(token):
+def clean_token(token) -> Tuple[str, bool]:
     is_test_environment = token.startswith("test_")
     token = token[5:] if is_test_environment else token
     return token, is_test_environment
@@ -138,7 +138,9 @@ def extract_data_from_request(request):
     return data, None
 
 
-def determine_team_from_request_data(request, data, token):
+def determine_team_from_request_data(
+    request, data, token
+) -> Tuple[Optional[Team], Optional[bool], Optional[str], Optional[Any]]:
     send_events_to_dead_letter_queue = False
     fetch_team_error = None
     team = None
