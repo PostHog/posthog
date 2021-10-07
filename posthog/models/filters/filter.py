@@ -70,7 +70,7 @@ class Filter(
     FunnelPersonsStepBreakdownMixin,
     FunnelLayoutMixin,
     FunnelTypeMixin,
-    HistogramM(ixin,
+    HistogramMixin,
     FunnelCorrelationMixin,
     SimplifyFilterMixin,
     BaseFilter,
