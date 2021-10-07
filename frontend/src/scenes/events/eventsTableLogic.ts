@@ -38,7 +38,6 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters
     apiUrl?: string // = 'api/event/'
-    live?: boolean // = false
     key?: string
 }
 
@@ -60,12 +59,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     // Set a unique key based on the fixed filters.
     // This way if we move back/forward between /events and /person/ID, the logic is reloaded.
     key: (props) =>
-        [
-            props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all',
-            props.apiUrl || 'events',
-            props.live ? 'live' : '',
-            props.key,
-        ]
+        [props.fixedFilters ? JSON.stringify(props.fixedFilters) : 'all', props.apiUrl || 'events', props.key]
             .filter((keyPart) => !!keyPart)
             .join('-'),
 
@@ -376,7 +370,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
 
             breakpoint()
 
-            if (values.automaticLoadEnabled || props.live) {
+            if (values.automaticLoadEnabled) {
                 actions.prependNewEvents(apiResponse.results)
             } else {
                 actions.pollEventsSuccess(apiResponse.results)
