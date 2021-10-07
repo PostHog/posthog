@@ -1,7 +1,7 @@
 import React from 'react'
 import { Menu, Dropdown } from 'antd'
 import { A, combineUrl, encodeParams } from 'kea-router'
-import { FunnelPathType, ViewType } from '~/types'
+import { FunnelPathType, PathType, ViewType } from '~/types'
 import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'
 
@@ -33,6 +33,7 @@ export function FunnelStepDropdown({
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.before,
                                                     date_from: filterProps.date_from,
+                                                    include_event_types: [PathType.PageView, PathType.CustomEvent],
                                                 },
                                                 '?'
                                             )
@@ -55,6 +56,7 @@ export function FunnelStepDropdown({
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.between,
                                                     date_from: filterProps.date_from,
+                                                    include_event_types: [PathType.PageView, PathType.CustomEvent],
                                                 },
                                                 '?'
                                             )
@@ -76,6 +78,7 @@ export function FunnelStepDropdown({
                                                 insight: ViewType.PATHS,
                                                 funnel_paths: FunnelPathType.after,
                                                 date_from: filterProps.date_from,
+                                                include_event_types: [PathType.PageView, PathType.CustomEvent],
                                             },
                                             '?'
                                         )
@@ -97,6 +100,7 @@ export function FunnelStepDropdown({
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.after,
                                                     date_from: filterProps.date_from,
+                                                    include_event_types: [PathType.PageView, PathType.CustomEvent],
                                                 },
                                                 '?'
                                             )
@@ -119,6 +123,7 @@ export function FunnelStepDropdown({
                                                     insight: ViewType.PATHS,
                                                     funnel_paths: FunnelPathType.before,
                                                     date_from: filterProps.date_from,
+                                                    include_event_types: [PathType.PageView, PathType.CustomEvent],
                                                 },
                                                 '?'
                                             )
