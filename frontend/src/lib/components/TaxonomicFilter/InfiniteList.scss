@@ -20,7 +20,7 @@
         cursor: pointer;
         border: none;
         white-space: nowrap;
-        overflow-x: scroll;
+        overflow-x: auto;
 
         &.hover {
             background: rgba(0, 0, 0, 0.1);
