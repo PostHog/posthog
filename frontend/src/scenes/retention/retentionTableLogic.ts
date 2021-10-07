@@ -189,19 +189,12 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             actions.loadResults()
         },
         setFilters: () => {
+            insightLogic(props).actions.setAllFilters(values.filters)
             actions.loadResults()
         },
         loadResultsSuccess: async () => {
             actions.clearPeople()
-            insightLogic(props).actions.setAllFilters(values.filters)
-            if (!props.dashboardItemId) {
-                const insight = await api.create('api/insight', {
-                    filters: values.filters,
-                })
-                insightLogic(props).actions.setAsSaved(insight)
-            } else {
-                insightLogic(props).actions.updateInsightFilters(values.filters)
-            }
+            insightLogic(props).actions.fetchedResults(values.filters)
         },
         loadMorePeople: async () => {
             if (values.people.next) {

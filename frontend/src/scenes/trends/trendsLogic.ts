@@ -176,7 +176,7 @@ export const trendsLogic = kea<trendsLogicType>({
                                 toAPIParams(filterClientSideParams(values.filters)),
                             cache.abortController.signal
                         )
-                    } else {
+                    } else if ((values.filters?.insight as ViewType) !== 'HISTORY') {
                         response = await api.get(
                             'api/insight/trend/?' +
                                 (refresh ? 'refresh=true&' : '') +
@@ -318,15 +318,7 @@ export const trendsLogic = kea<trendsLogicType>({
             actions.loadResults()
         },
         loadResultsSuccess: async () => {
-            if (!props.dashboardItemId) {
-                const insight = await api.create('api/insight', {
-                    filters: values.filters,
-                    insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
-                })
-                insightLogic(props).actions.setAsSaved(insight)
-            } else {
-                insightLogic(props).actions.updateInsightFilters(values.filters)
-            }
+            insightLogic(props).actions.fetchedResults(values.filters)
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {

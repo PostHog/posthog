@@ -757,14 +757,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 actions.loadCorrelations()
             }
 
-            if (!props.dashboardItemId) {
-                const insight = await api.create('api/insight', {
-                    filters: values.filters,
-                })
-                insightLogic(props).actions.setAsSaved(insight)
-            } else {
-                insightLogic(props).actions.updateInsightFilters(values.filters)
-            }
+            insightLogic(props).actions.fetchedResults(values.filters)
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
             values.visibleStepsWithConversionMetrics?.forEach((step) => {

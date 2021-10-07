@@ -158,22 +158,17 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             actions.setFilter({ exclude_events: exclusions })
         },
         setFilter: () => {
+            insightLogic(props).actions.setAllFilters({
+                ...cleanPathParams(values.filter),
+                properties: values.properties,
+            })
             actions.loadResults(true)
         },
         loadResultsSuccess: async () => {
-            const filters = {
+            insightLogic(props).actions.fetchedResults({
                 ...cleanPathParams(values.filter),
                 properties: values.properties,
-            }
-            insightLogic(props).actions.setAllFilters(filters)
-            if (!props.dashboardItemId) {
-                const insight = await api.create('api/insight', {
-                    filters,
-                })
-                insightLogic(props).actions.setAsSaved(insight)
-            } else {
-                insightLogic(props).actions.updateInsightFilters(filters)
-            }
+            })
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             personsModalLogic.actions.loadPeople({

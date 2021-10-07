@@ -88,7 +88,7 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: true,
         updateInsightFilters: (filters: FilterType) => ({ filters }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
-        setAsSaved: (insight: Partial<DashboardItemType>) => ({ insight }),
+        fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
     }),
     loaders: ({ values, props }) => ({
         insight: [
@@ -109,11 +109,13 @@ export const insightLogic = kea<insightLogicType>({
                               ...insight,
                           }
                         : insight,
-                updateInsightFilters: ({ filters }) => ({ ...values.insight, filters }),
             },
         ],
     }),
     reducers: {
+        insight: {
+            updateInsightFilters: (state, { filters }) => ({ ...state, filters }),
+        },
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
         maybeShowTimeoutMessage: [
             false,
@@ -317,18 +319,32 @@ export const insightLogic = kea<insightLogicType>({
             )
         },
         updateInsightFilters: async ({ filters }) => {
-            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]) {
-                await api.update(`api/insight/${values.insight.id}`, { filters })
+            // This auto-saves new filters into the insight if results were loaded in any of the sub-logics.
+            // Exceptions:
+            // - not saved if saved insights are enabled --> it has its own view/edit modes
+            // - not saved if on the history "insight"
+            // - not saved if came from a dashboard --> there's a separate "save" button for that
+            if (props.dashboardItemId && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]) {
+                if ((filters.insight as ViewType) !== ViewType.HISTORY && !router.values.hashParams.fromDashboard) {
+                    await api.update(`api/insight/${props.dashboardItemId}`, { filters })
+                }
             }
         },
-        setAsSaved: async ({ insight }) => {
-            if (props.syncWithUrl) {
-                router.actions.replace('/insights', router.values.searchParams, {
-                    ...router.values.hashParams,
-                    fromItem: insight.id,
+        fetchedResults: async ({ filters }) => {
+            if (!values.insight.id) {
+                const insight = await api.create('api/insight', {
+                    filters,
                 })
+                actions.setInsight(insight)
+                if (props.syncWithUrl) {
+                    router.actions.replace('/insights', router.values.searchParams, {
+                        ...router.values.hashParams,
+                        fromItem: insight.id,
+                    })
+                }
+            } else {
+                actions.updateInsightFilters(filters)
             }
-            actions.setInsight(insight)
         },
     }),
     actionToUrl: ({ actions, values, props }) => ({
@@ -359,7 +375,9 @@ export const insightLogic = kea<insightLogicType>({
                     actions.updateActiveView(searchParams.insight)
                 }
                 if (hashParams.fromItem) {
-                    actions.loadInsight(hashParams.fromItem)
+                    if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
+                        actions.loadInsight(hashParams.fromItem)
+                    }
                 } else {
                     actions.setInsightMode(ItemMode.Edit, null)
                 }
