@@ -116,7 +116,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/ --cov --cov-report=xml:coverage-postgres.xml
+                  pytest posthog/ --cov --cov-report=xml:coverage-postgres.xml
             - name: Run EE tests
               env:
                   PRIMARY_DB: 'clickhouse'
@@ -173,7 +173,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee" posthog/
+                  pytest posthog/
             - name: Run EE tests
               env:
                   PRIMARY_DB: 'clickhouse'
@@ -266,7 +266,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog --reuse-db -m "not (skip_on_multitenancy or ee)"
+                  pytest posthog --reuse-db -m "not skip_on_multitenancy"
 
             - name: Run cloud tests (posthog-cloud)
               env:
