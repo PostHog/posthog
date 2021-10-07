@@ -45,7 +45,7 @@ describe('insightLogic', () => {
         })
 
         it('has the key set to the id', () => {
-            expect(logic.key).toEqual('42')
+            expect(logic.key).toEqual(42)
         })
     })
 })
