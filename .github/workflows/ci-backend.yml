@@ -116,7 +116,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog/ --cov --cov-report=xml:coverage-postgres.xml
+                  pytest -m "not ee" posthog/ --cov --cov-report=xml:coverage-postgres.xml
             - name: Run EE tests
               env:
                   PRIMARY_DB: 'clickhouse'
@@ -126,6 +126,7 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
                   pytest ee -m "not saml_only" --cov --cov-report=xml:coverage-clickhouse.xml
+                  pytest posthog -m "ee"
             - uses: codecov/codecov-action@v2
               with:
                   files: ./coverage-postgres.xml,./coverage-clickhouse.xml
@@ -173,7 +174,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog/
+                  pytest -m "not ee" posthog/
             - name: Run EE tests
               env:
                   PRIMARY_DB: 'clickhouse'
@@ -183,6 +184,7 @@ jobs:
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
                   pytest ee/
+                  pytest posthog -m "ee"
 
     cloud:
         name: Django tests – Cloud
@@ -266,7 +268,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
-                  pytest posthog --reuse-db -m "not skip_on_multitenancy"
+                  pytest posthog --reuse-db -m "not (skip_on_multitenancy or ee)"
 
             - name: Run cloud tests (posthog-cloud)
               env:
@@ -281,6 +283,7 @@ jobs:
               run: |
                   cd deploy/
                   pytest ee -m "not skip_on_multitenancy"
+                  pytest posthog -m "ee"
 
     foss:
         name: Django tests – FOSS
