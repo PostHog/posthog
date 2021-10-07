@@ -5,7 +5,9 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.property import get_property_string_expr
+from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.funnels.funnel_persons import ClickhouseFunnelPersons
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.sql.person import GET_TEAM_PERSON_DISTINCT_IDS
 from posthog.constants import FunnelCorrelationType
 from posthog.models import Filter, Team
@@ -169,8 +171,15 @@ class FunnelCorrelation:
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
         person_property_expression, _ = get_property_string_expr(
-            "person", cast(str, self._filter.correlation_property_value), "%(property_name)s", "properties"
+            "person",
+            cast(str, self._filter.correlation_property_value),
+            "%(property_name)s",
+            ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
         )
+
+        person_query = ClickhousePersonQuery(
+            self._filter, self._team.pk, ColumnOptimizer(self._filter, self._team.pk)
+        ).get_query()
 
         query = f"""
             WITH 
@@ -181,18 +190,8 @@ class FunnelCorrelation:
                 countDistinctIf(person_id, steps <> target_step) AS failure_count
             FROM (
                 SELECT person_id, funnel_people.steps as steps, {person_property_expression} as prop
-                FROM (
-                    SELECT id,
-                           argMax(properties, person._timestamp) as properties,
-                           -- We get the latest properties of the person, not necessarily the
-                           -- ones they had inside the funnel
-                           max(is_deleted) as is_deleted
-                        FROM person
-                        WHERE team_id = %(team_id)s
-                        GROUP BY id
-                    HAVING is_deleted = 0
-                ) person
-                JOIN ({funnel_persons_query}) AS funnel_people
+                FROM ({funnel_persons_query}) AS funnel_people
+                JOIN ({person_query}) person
                 ON person.id = funnel_people.person_id
             ) person_with_props
             GROUP BY name

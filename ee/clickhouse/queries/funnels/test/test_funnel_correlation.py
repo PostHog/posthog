@@ -97,7 +97,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @test_with_materialized_columns(["$browser"])
+    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
     def test_basic_funnel_correlation_with_properties(self):
         filters = {
             "events": [
@@ -206,7 +206,6 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 )
 
         result = correlation.run()["events"]
-        print(result)
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [3, 1 / 2]

@@ -10,7 +10,7 @@ from django.test import Client
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
-from posthog.constants import FUNNEL_CORRELATION_VALUE
+from posthog.constants import FunnelCorrelationType
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.test.base import BaseTest
@@ -274,7 +274,7 @@ class FunnelCorrelationTest(BaseTest):
                 events=json.dumps([EventPattern(id="user signed up"), EventPattern(id="paid")]),
                 date_to="2020-01-14",
                 date_from="2020-01-01",
-                funnel_correlation_type="properties",
+                funnel_correlation_type=FunnelCorrelationType.PROPERTIES,
                 funnel_correlation_value="$browser",
             ),
         )
@@ -344,7 +344,7 @@ class FunnelCorrelationRequest:
     date_to: str
     funnel_step: Optional[int] = None
     date_from: Optional[str] = None
-    funnel_correlation_type: Optional[str] = None
+    funnel_correlation_type: Optional[FunnelCorrelationType] = None
     funnel_correlation_value: Optional[str] = None
 
 
