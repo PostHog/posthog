@@ -48,7 +48,10 @@ if is_clickhouse_enabled():
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
 
-    def log_event(data: Dict, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
+    def log_event(
+        data: Dict,
+        topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,
+    ) -> None:
         if settings.DEBUG:
             print(f'Logging event {data["event"]} to Kafka topic {topic}')
         KafkaProducer().produce(topic=topic, key=data["ip"], data=data)
@@ -180,8 +183,6 @@ def get_event(request):
 
     site_url = request.build_absolute_uri("/")[:-1]
 
-    # team cannot be None here
-    # determine_team_from_request_data can return None from team, but this is already handled
     ip = None if send_events_to_dead_letter_queue or team.anonymize_ips else get_ip_address(request)  # type: ignore
     for event in events:
         parse_and_enqueue_event(
@@ -199,7 +200,10 @@ def get_event(request):
 
     timer.stop()
     statsd.incr(
-        f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
+        f"posthog_cloud_raw_endpoint_success",
+        tags={
+            "endpoint": "capture",
+        },
     )
     return cors_response(request, JsonResponse({"status": 1}))
 
@@ -280,5 +284,13 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
         celery_app.send_task(
             name=task_name,
             queue=celery_queue,
-            args=[distinct_id, ip, site_url, event, team_id, now.isoformat(), sent_at,],
+            args=[
+                distinct_id,
+                ip,
+                site_url,
+                event,
+                team_id,
+                now.isoformat(),
+                sent_at,
+            ],
         )
