@@ -26,8 +26,8 @@ class TestUtils(BaseTest):
         self.assertEqual(send_events_to_dead_letter_queue, False)
         self.assertEqual(fetch_team_error, None)
         self.assertEqual(type(error_response), JsonResponse)
-        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual("Project API key invalid" in json.loads(error_response.getvalue())["detail"], True)
+        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)  # type: ignore
+        self.assertEqual("Project API key invalid" in json.loads(error_response.getvalue())["detail"], True)  # type: ignore
 
         # project_id exists but is invalid: should look for a personal API key and fail
         team, send_events_to_dead_letter_queue, fetch_team_error, error_response = determine_team_from_request_data(
@@ -38,8 +38,8 @@ class TestUtils(BaseTest):
         self.assertEqual(send_events_to_dead_letter_queue, False)
         self.assertEqual(fetch_team_error, None)
         self.assertEqual(type(error_response), JsonResponse)
-        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(json.loads(error_response.getvalue())["detail"], "Invalid Personal API key.")
+        self.assertEqual(error_response.status_code, status.HTTP_401_UNAUTHORIZED)  # type: ignore
+        self.assertEqual(json.loads(error_response.getvalue())["detail"], "Invalid Personal API key.")  # type: ignore
 
         # Correct token
         team, send_events_to_dead_letter_queue, fetch_team_error, error_response = determine_team_from_request_data(
@@ -64,7 +64,7 @@ class TestUtils(BaseTest):
         self.assertEqual(team, None)
         self.assertEqual(send_events_to_dead_letter_queue, False)
         self.assertEqual(fetch_team_error, None)
-        self.assertEqual(error_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(error_response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)  # type: ignore
 
         get_team_from_token_patcher.stop()
 
@@ -78,7 +78,7 @@ class TestUtils(BaseTest):
         # Valid request with event
         request = HttpRequest()
         request.method = "POST"
-        request.POST = {"data": json.dumps({"event": "some event"})}
+        request.POST = {"data": json.dumps({"event": "some event"})}  # type: ignore
         data, error_response = extract_data_from_request(request)
         self.assertEqual(data, {"event": "some event"})
         self.assertEqual(error_response, None)
