@@ -29,13 +29,13 @@ export function TableConfig({
 }: TableConfigInterface): JSX.Element {
     const { state } = useValues(tableConfigLogic)
     const { setState } = useActions(tableConfigLogic)
-    const columnConfiguratorEnabled = false // to be resolved by issue #1534
+    console.log({ selectedColumns, availableColumns, onColumnUpdate })
     return (
         <>
             <div className="table-options">
                 <div className="rhs-actions">
                     <Space align="baseline">
-                        {columnConfiguratorEnabled && selectedColumns && availableColumns && onColumnUpdate && (
+                        {selectedColumns && availableColumns && onColumnUpdate && (
                             <>
                                 <Button
                                     data-attr="events-table-column-selector"
