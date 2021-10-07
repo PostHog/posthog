@@ -171,7 +171,9 @@ class TestFiltering(
         )
 
         cohort1 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1"
+            team=self.team,
+            groups=[{"properties": [{"type": "person", "key": "$some_prop", "value": "something"}]}],
+            name="cohort1",
         )
 
         person2_distinct_id = "person2"
@@ -179,12 +181,18 @@ class TestFiltering(
             team=self.team, distinct_ids=[person2_distinct_id], properties={"$some_prop": "different"}
         )
         cohort2 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop__is_not": "something"}}], name="cohort2"
+            team=self.team,
+            groups=[
+                {"properties": [{"type": "person", "key": "$some_prop", "value": "something", "operator": "is_not"}]}
+            ],
+            name="cohort2",
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],}, team=self.team)
 
-        prop_clause, prop_clause_params = parse_prop_clauses(filter.properties, self.team.pk)
+        prop_clause, prop_clause_params = parse_prop_clauses(
+            filter.properties, self.team.pk, has_person_id_joined=False
+        )
         query = """
         SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(
@@ -196,7 +204,9 @@ class TestFiltering(
 
         # test cohort2 with negation
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],}, team=self.team)
-        prop_clause, prop_clause_params = parse_prop_clauses(filter.properties, self.team.pk)
+        prop_clause, prop_clause_params = parse_prop_clauses(
+            filter.properties, self.team.pk, has_person_id_joined=False
+        )
         query = """
         SELECT distinct_id FROM person_distinct_id WHERE team_id = %(team_id)s {prop_clause}
         """.format(
