@@ -26,9 +26,9 @@ def org_usage_report(*, dry_run: bool = False) -> Dict[str, Any]:
     }
 
     default_instance_usage: Dict[str, int] = {
-        "events_count_total": 0,
-        "events_count_new_in_period": 0,
-        "events_count_month_to_date": 0,
+        "event_count_lifetime": 0,
+        "event_count_in_period": 0,
+        "event_count_in_month": 0,
     }
 
     instance_usage_by_org: Dict[str, Dict[str, int]] = {}
@@ -50,19 +50,17 @@ def org_usage_report(*, dry_run: bool = False) -> Dict[str, Any]:
                     get_agg_event_count_for_teams_and_period,
                 )
 
-                usage["events_count_total"] = get_agg_event_count_for_teams(teams)
-                usage["events_count_new_in_period"] = get_agg_event_count_for_teams_and_period(
+                usage["event_count_lifetime"] = get_agg_event_count_for_teams(teams)
+                usage["event_count_in_period"] = get_agg_event_count_for_teams_and_period(
                     teams, period_start, period_end
                 )
-                usage["events_count_month_to_date"] = get_agg_event_count_for_teams_and_period(
-                    teams, month_start, period_end
-                )
+                usage["event_count_in_month"] = get_agg_event_count_for_teams_and_period(teams, month_start, period_end)
             else:
-                usage["events_count_total"] = Event.objects.filter(team_id__in=teams).count()
-                usage["events_count_new_in_period"] = Event.objects.filter(
+                usage["event_count_lifetime"] = Event.objects.filter(team_id__in=teams).count()
+                usage["event_count_in_period"] = Event.objects.filter(
                     team_id__in=teams, timestamp__gte=period_start, timestamp__lte=period_end,
                 ).count()
-                usage["events_count_month_to_date"] = Event.objects.filter(
+                usage["event_count_in_month"] = Event.objects.filter(
                     team_id__in=teams, timestamp__gte=month_start, timestamp__lte=period_end,
                 ).count()
             instance_usage_by_org[org] = usage

@@ -42,9 +42,9 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                 org_report = org_usage_report(dry_run=True).get("instance_usage_by_org")[str(self.team.organization.id)]  # type: ignore
 
                 def _test_org_report() -> None:
-                    self.assertEqual(org_report["events_count_total"], 5)
-                    self.assertEqual(org_report["events_count_new_in_period"], 3)
-                    self.assertEqual(org_report["events_count_month_to_date"], 4)
+                    self.assertEqual(org_report["event_count_lifetime"], 5)
+                    self.assertEqual(org_report["event_count_in_period"], 3)
+                    self.assertEqual(org_report["event_count_in_month"], 4)
 
                 _test_org_report()
 
@@ -71,13 +71,11 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
 
                 # Check event totals are updated
                 self.assertEqual(
-                    updated_org_report["events_count_total"], org_report["events_count_total"] + 2,
+                    updated_org_report["event_count_lifetime"], org_report["event_count_lifetime"] + 2,
                 )
 
                 # Check event usage in current period is unchanged
-                self.assertEqual(
-                    updated_org_report["events_count_new_in_period"], org_report["events_count_new_in_period"]
-                )
+                self.assertEqual(updated_org_report["event_count_in_period"], org_report["event_count_in_period"])
 
                 # Create an internal metrics org
                 internal_metrics_team = self.create_new_org_and_team(for_internal_metrics=True)
@@ -94,9 +92,9 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                 # Verify that internal metrics events are not counted
                 self.assertEqual(
                     org_usage_report(dry_run=True).get("instance_usage_by_org")[str(self.team.organization.id)][  # type: ignore
-                        "events_count_total"
+                        "event_count_lifetime"
                     ],
-                    updated_org_report["events_count_total"],
+                    updated_org_report["event_count_lifetime"],
                 )
 
     return TestOrganizationUsageReport  # type: ignore
