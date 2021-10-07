@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Any, Dict, List, Union
 
-from posthog.event_usage import report_org_usage_failure
+from posthog.event_usage import report_org_usage, report_org_usage_failure
 from posthog.models import Event, Team, User
 from posthog.tasks.status_report import get_instance_licenses
 from posthog.utils import get_instance_realm, get_previous_day, is_clickhouse_enabled
@@ -11,7 +11,7 @@ from posthog.version import VERSION
 logger = logging.getLogger(__name__)
 
 
-def event_usage_report() -> Dict[str, Any]:
+def event_usage_report(*, dry_run: bool = False) -> Dict[str, Any]:
     distinct_id = User.objects.first().distinct_id  # type: ignore
     period_start, period_end = get_previous_day()
     month_start = period_start.replace(day=1)
@@ -70,4 +70,6 @@ def event_usage_report() -> Dict[str, Any]:
             report_org_usage_failure(distinct_id, str(err))
 
     report["instance_usage_by_org"] = instance_usage_by_org
+    if not dry_run:
+        report_org_usage(distinct_id, report)
     return report
