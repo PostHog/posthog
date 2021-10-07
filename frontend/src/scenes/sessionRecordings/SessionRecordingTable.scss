@@ -1,0 +1,37 @@
+@import '~/vars';
+
+.session-recordings-table {
+    .session-recording-action-property-filter {
+        margin: 0 0 0 68px;
+        background-color: $antd_table_background_dark;
+        border: $border solid 1px;
+        border-top-width: 0;
+        padding: 0.25rem $default_spacing;
+    }
+    .action-filter-container {
+        margin-bottom: $default_spacing;
+        max-width: 800px;
+    }
+    .time-filter-row {
+        justify-content: flex-end;
+        margin-bottom: $default_spacing;
+        .time-filter {
+            align-items: center;
+            margin-left: $default_spacing;
+            .filter-label {
+                margin-right: 4px;
+            }
+        }
+    }
+    .pagination-control {
+        margin: $default_spacing;
+        justify-content: center;
+    }
+    .filter-row {
+        width: 100%;
+        padding: $default_spacing;
+        border: $border solid 1px;
+        margin-top: $default_spacing;
+        border-radius: $radius;
+    }
+}

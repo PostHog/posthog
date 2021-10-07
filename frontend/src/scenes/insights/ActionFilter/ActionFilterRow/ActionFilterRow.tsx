@@ -75,6 +75,8 @@ export interface ActionFilterRowProps {
               onClose: () => void
           }) => JSX.Element) // Custom suffix element to show in each row
     rowClassName?: string
+    propertyFilterWrapperClassName?: string
+    stripeActionRow?: boolean // Whether or not to alternate the color behind the action rows
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     groupTypes?: TaxonomicFilterGroupType[] // Specify which tabs to show, used in taxonomic filter
@@ -111,6 +113,8 @@ export function ActionFilterRow({
     customRowPrefix,
     customRowSuffix,
     rowClassName,
+    propertyFilterWrapperClassName,
+    stripeActionRow = true,
     hasBreakdown,
     showNestedArrow = false,
     hideDeleteBtn = false,
@@ -281,7 +285,11 @@ export function ActionFilterRow({
     )
 
     return (
-        <div className={`${horizontalUI ? 'action-row-striped' : 'action-row'} ${fullWidth ? 'full-width' : ''}`}>
+        <div
+            className={`${horizontalUI && stripeActionRow ? 'action-row-striped' : 'action-row'} ${
+                fullWidth ? 'full-width' : ''
+            }`}
+        >
             {!horizontalUI && index > 0 && showOr && (
                 <Row align="middle" style={{ marginTop: 12 }}>
                     {orLabel}
@@ -393,7 +401,13 @@ export function ActionFilterRow({
                 )}
 
             {visible && (
-                <div className="mr property-filter-wrapper">
+                <div
+                    className={
+                        propertyFilterWrapperClassName
+                            ? `mr property-filter-wrapper ${propertyFilterWrapperClassName}`
+                            : 'mr property-filter-wrapper'
+                    }
+                >
                     <PropertyFilters
                         pageKey={`${index}-${value}-filter`}
                         propertyFilters={filter.properties}
