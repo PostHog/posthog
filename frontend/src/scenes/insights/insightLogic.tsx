@@ -53,7 +53,7 @@ export const insightLogic = kea<insightLogicType>({
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return props.dashboardItemId || 'new'
+        return `${props.dashboardItemId || 'new'}${props.syncWithUrl ? '-scene' : ''}`
     },
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
