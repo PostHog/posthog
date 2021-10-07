@@ -1,6 +1,6 @@
 import { Button, Card, Col, Input, Row, Space } from 'antd'
 import React, { useEffect, useState } from 'react'
-import { SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
+import { ControlOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
@@ -40,8 +40,10 @@ export function TableConfig({
                                 <Button
                                     data-attr="events-table-column-selector"
                                     onClick={() => setState('columnConfig')}
-                                    icon={<SettingOutlined />}
-                                />
+                                    icon={<ControlOutlined rotate={90} />}
+                                >
+                                    Configure Columns
+                                </Button>
                                 {state === 'columnConfig' && (
                                     <ColumnConfigurator
                                         allColumns={availableColumns}

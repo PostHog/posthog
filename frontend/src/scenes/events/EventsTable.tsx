@@ -280,7 +280,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                   ),
         [columnConfig]
     )
-    console.log({ propertyNames, isOn: featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] })
+    console.log({
+        propertyNames,
+        isOn: featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG],
+        columns,
+        selectedConfigOptions,
+    })
     return (
         <div className="events" data-attr="events-table">
             <PageHeader
@@ -321,16 +326,19 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                         </Tooltip>
                     )}
                 </Col>
+                <Col flex="0">
+                    {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
+                        <TableConfig
+                            selectedColumns={selectedConfigOptions}
+                            availableColumns={propertyNames}
+                            immutableColumns={['event', 'person', 'when']}
+                            defaultColumns={defaultColumns.map((e) => e.key || '')}
+                            onColumnUpdate={setColumnConfig}
+                            saving={columnConfigSaving}
+                        />
+                    )}
+                </Col>
             </Row>
-
-            <TableConfig
-                selectedColumns={selectedConfigOptions}
-                availableColumns={featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] ? propertyNames : undefined}
-                immutableColumns={['event', 'person', 'when']}
-                defaultColumns={defaultColumns.map((e) => e.key || '')}
-                onColumnUpdate={setColumnConfig}
-                saving={columnConfigSaving}
-            />
 
             <div>
                 <ResizableTable
