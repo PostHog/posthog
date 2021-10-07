@@ -31,7 +31,6 @@ from posthog.utils import convert_property_value, flatten
 
 
 class ClickhouseEventsViewSet(EventViewSet):
-
     serializer_class = ClickhouseEventSerializer  # type: ignore
 
     def _get_people(self, query_result: List[Dict], team: Team) -> Dict[str, Any]:
@@ -97,7 +96,7 @@ class ClickhouseEventsViewSet(EventViewSet):
             limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
 
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
 
         query_result = self._query_events_list(filter, team, request, limit=limit)
 
@@ -134,7 +133,7 @@ class ClickhouseEventsViewSet(EventViewSet):
         return Response(res)
 
     @action(methods=["GET"], detail=False)
-    def values(self, request: Request, **kwargs) -> Response:
+    def values(self, request: Request, **kwargs) -> Response:  # type: ignore
         key = request.GET.get("key")
         team = self.team
         result = []
@@ -153,17 +152,17 @@ class ClickhouseEventsViewSet(EventViewSet):
         return Response([{"name": convert_property_value(value)} for value in flatten(flattened)])
 
     @action(methods=["GET"], detail=False)
-    def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        filter = SessionsFilter(request=request)
+    def sessions(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
+        filter = SessionsFilter(request=request, team=self.team)
 
         sessions, pagination = ClickhouseSessionsList.run(team=self.team, filter=filter)
         return Response({"result": sessions, "pagination": pagination})
 
     @action(methods=["GET"], detail=False)
-    def session_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def session_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
         from ee.clickhouse.queries.sessions.events import SessionsListEvents
 
-        filter = SessionEventsFilter(request=request)
+        filter = SessionEventsFilter(request=request, team=self.team)
         return Response({"result": SessionsListEvents().run(filter=filter, team=self.team)})
 
     # ******************************************
@@ -173,7 +172,7 @@ class ClickhouseEventsViewSet(EventViewSet):
     # - save_view: (boolean) save view of the recording
     # ******************************************
     @action(methods=["GET"], detail=False)
-    def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def session_recording(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
         if not request.GET.get("session_recording_id"):
             return Response(
                 {
@@ -185,7 +184,9 @@ class ClickhouseEventsViewSet(EventViewSet):
             )
 
         session_recording = SessionRecording().run(
-            team=self.team, filter=Filter(request=request), session_recording_id=request.GET["session_recording_id"]
+            team=self.team,
+            filter=Filter(request=request, team=self.team),
+            session_recording_id=request.GET["session_recording_id"],
         )
 
         if request.GET.get("save_view"):
@@ -194,3 +195,7 @@ class ClickhouseEventsViewSet(EventViewSet):
             )
 
         return Response({"result": session_recording})
+
+
+class LegacyClickhouseEventsViewSet(ClickhouseEventsViewSet):
+    legacy_team_compatibility = True

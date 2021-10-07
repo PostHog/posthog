@@ -11,6 +11,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { TrendPeople } from 'scenes/trends/types'
+import { cleanPathParams } from 'scenes/paths/pathsLogic'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -22,6 +23,7 @@ export interface PersonModalParams {
     saveOriginal?: boolean
     searchTerm?: string
     funnelStep?: number
+    pathsDropoff?: boolean
 }
 
 export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
@@ -122,6 +124,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     saveOriginal,
                     searchTerm,
                     funnelStep,
+                    pathsDropoff,
                 } = peopleParams
                 const searchTermParam = searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ''
 
@@ -154,6 +157,9 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     const cleanedParams = cleanFunnelParams(params)
                     const funnelParams = toParams(cleanedParams)
                     people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
+                } else if (filters.insight === ViewType.PATHS) {
+                    const cleanedParams = cleanPathParams(filters)
+                    people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
                 } else {
                     const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
@@ -171,6 +177,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     breakdown_value,
                     next: people.next,
                     funnelStep,
+                    pathsDropoff,
                 } as TrendPeople
 
                 eventUsageLogic.actions.reportPersonModalViewed(peopleParams, peopleResult.count, !!people.next)

@@ -17,6 +17,7 @@ import { Papercups } from 'lib/components/Papercups'
 import { appLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -82,12 +83,13 @@ function Models(): null {
 
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { activeScene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
-        (scene ? loadedScenes[scene]?.component : null) || (() => (showingDelayedSpinner ? <SceneLoading /> : null))
+        (activeScene ? loadedScenes[activeScene]?.component : null) ||
+        (() => (showingDelayedSpinner ? <SceneLoading /> : null))
 
     const essentialElements = (
         // Components that should always be mounted inside Layout
@@ -122,9 +124,12 @@ function AppScene(): JSX.Element | null {
                 <MainNavigation />
                 <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
                     {!sceneConfig.hideTopNav && <TopNavigation />}
-                    {scene ? (
+                    {activeScene ? (
                         <Layout.Content className="main-app-content" data-attr="layout-content">
                             {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
+                            {featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT] ? (
+                                <CloudAnnouncement message={String(featureFlags[FEATURE_FLAGS.CLOUD_ANNOUNCEMENT])} />
+                            ) : null}
                             <BillingAlerts />
                             <BackTo />
                             <SceneComponent user={user} {...params} />

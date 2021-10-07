@@ -5,12 +5,14 @@ import { FilterType, PropertyOperator, RecordingDurationFilter, SessionRecording
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
 import dayjs from 'dayjs'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 export type SessionRecordingId = string
 export type PersonUUID = string
 interface Params {
     properties?: any
     sessionRecordingId?: SessionRecordingId
+    source?: RecordingWatchedSource
 }
 
 export interface SessionRecordingsResponse {
@@ -29,7 +31,10 @@ export const sessionRecordingsTableLogic = kea<
     },
     actions: {
         getSessionRecordings: true,
-        openSessionPlayer: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
+        openSessionPlayer: (sessionRecordingId: SessionRecordingId | null, source: RecordingWatchedSource) => ({
+            sessionRecordingId,
+            source,
+        }),
         closeSessionPlayer: true,
         setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
         loadNext: true,
@@ -169,7 +174,7 @@ export const sessionRecordingsTableLogic = kea<
 
         return {
             loadSessionRecordings: () => buildURL({}, true),
-            openSessionPlayer: () => buildURL(),
+            openSessionPlayer: ({ source }) => buildURL({ source }),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
     },
@@ -178,7 +183,7 @@ export const sessionRecordingsTableLogic = kea<
         const urlToAction = (_: any, params: Params): void => {
             const nulledSessionRecordingId = params.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.sessionRecordingId) {
-                actions.openSessionPlayer(nulledSessionRecordingId)
+                actions.openSessionPlayer(nulledSessionRecordingId, RecordingWatchedSource.Direct)
             }
         }
 

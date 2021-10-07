@@ -29,6 +29,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 
 interface Props {
     loadResults: () => void
@@ -53,15 +54,8 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
     } = useValues(router)
     const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
-    const {
-        lastRefresh,
-        isLoading,
-        activeView,
-        allFilters,
-        insightMode,
-        showTimeoutMessage,
-        showErrorMessage,
-    } = useValues(insightLogic)
+    const { lastRefresh, isLoading, activeView, allFilters, insightMode, showTimeoutMessage, showErrorMessage } =
+        useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic)
 
     // Empty states that completely replace the graph
@@ -191,6 +185,9 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                 </div>
             </Card>
             {renderTable()}
+            {preflight?.is_clickhouse_enabled &&
+                activeView === ViewType.FUNNELS &&
+                featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] && <FunnelCorrelationTable filters={allFilters} />}
         </>
     )
 }

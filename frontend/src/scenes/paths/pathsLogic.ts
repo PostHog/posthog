@@ -1,12 +1,15 @@
 import { kea } from 'kea'
-import { toParams, objectsEqual, uuid } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 import api from 'lib/api'
-import { router } from 'kea-router'
+import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
 import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+
+export const DEFAULT_STEP_LIMIT = 5
 
 export const pathOptionsToLabels = {
     [PathType.PageView]: 'Page views (Web)',
@@ -20,13 +23,14 @@ export const pathOptionsToProperty = {
     [PathType.CustomEvent]: 'custom_event',
 }
 
-function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
+export function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
     return {
-        start_point: filters.start_point,
-        end_point: filters.end_point,
+        start_point: filters.start_point || undefined,
+        end_point: filters.end_point || undefined,
+        step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
         // TODO: use FF for path_type undefined
         path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
-        include_event_types: filters.include_event_types || [PathType.PageView],
+        include_event_types: filters.include_event_types || (filters.funnel_filter ? [] : [PathType.PageView]),
         path_groupings: filters.path_groupings || [],
         exclude_events: filters.exclude_events || [],
         ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
@@ -34,6 +38,11 @@ function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
         date_to: filters.date_to,
         insight: ViewType.PATHS,
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+        path_start_key: filters.path_start_key || undefined,
+        path_end_key: filters.path_end_key || undefined,
+        path_dropoff_key: filters.path_dropoff_key || undefined,
+        funnel_filter: filters.funnel_filter || {},
+        funnel_paths: filters.funnel_paths,
     }
 }
 
@@ -64,6 +73,12 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
         showPathEvents: (event) => ({ event }),
         updateExclusions: (filters: AnyPropertyFilter[]) => ({ exclusions: filters.map(({ value }) => value) }),
+        openPersonsModal: (path_start_key?: string, path_end_key?: string, path_dropoff_key?: string) => ({
+            path_start_key,
+            path_end_key,
+            path_dropoff_key,
+        }),
+        viewPathToFunnel: (pathItemCard: any) => ({ pathItemCard }),
     },
     loaders: ({ values, props }) => ({
         results: {
@@ -79,7 +94,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 if (!refresh && (props.cachedResults || props.preventLoading) && values.filter === props.filters) {
                     return { paths: props.cachedResults, filter }
                 }
-                const params = toParams({ ...filter, ...(refresh ? { refresh: true } : {}) })
+                const params = { ...filter, ...(refresh ? { refresh: true } : {}) }
 
                 const queryId = uuid()
                 const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
@@ -90,7 +105,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
 
                 let paths
                 try {
-                    paths = await api.get(`api/insight/path${params ? `/?${params}` : ''}`)
+                    paths = await api.create(`api/insight/path`, params)
                 } catch (e) {
                     breakpoint()
                     insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
@@ -114,9 +129,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         filter: [
             (props.filters
                 ? cleanPathParams(props.filters)
-                : (state: Record<string, any>) => cleanPathParams(router.selectors.searchParams(state))) as Partial<
-                FilterType
-            >,
+                : (state: Record<string, any>) =>
+                      cleanPathParams(router.selectors.searchParams(state))) as Partial<FilterType>,
             {
                 setFilter: (state, filter) => ({ ...state, ...filter }),
                 showPathEvents: (state, { event }) => {
@@ -159,6 +173,52 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     insightLogic.actions.updateInsightFilters(values.filter)
                 }
             }
+        },
+        openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
+            personsModalLogic.actions.loadPeople({
+                action: 'session', // relic from reusing Trend PersonModal
+                label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
+                date_from: '',
+                date_to: '',
+                pathsDropoff: Boolean(path_dropoff_key),
+                filters: { ...values.filter, path_start_key, path_end_key, path_dropoff_key },
+            })
+        },
+        viewPathToFunnel: ({ pathItemCard }) => {
+            const events = []
+            let currentItemCard = pathItemCard
+            while (currentItemCard.targetLinks.length > 0) {
+                const name = currentItemCard.name.includes('http')
+                    ? '$pageview'
+                    : currentItemCard.name.replace(/(^[0-9]+_)/, '')
+                events.push({
+                    id: name,
+                    name: name,
+                    type: 'events',
+                    order: currentItemCard.depth - 1,
+                    ...(currentItemCard.name.includes('http') && {
+                        properties: [
+                            {
+                                key: '$current_url',
+                                operator: 'exact',
+                                type: 'event',
+                                value: currentItemCard.name.replace(/(^[0-9]+_)/, ''),
+                            },
+                        ],
+                    }),
+                })
+                currentItemCard = currentItemCard.targetLinks[0].source
+            }
+            router.actions.push(
+                combineUrl(
+                    '/insights',
+                    encodeParams({
+                        insight: ViewType.FUNNELS,
+                        events,
+                        date_from: values.filter.date_from,
+                    })
+                ).url
+            )
         },
     }),
     selectors: {
@@ -209,6 +269,12 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 return Object.keys(result).length === 0 ? '' : result
             },
         ],
+        wildcards: [
+            (s) => [s.filter],
+            (filter: Partial<FilterType>) => {
+                return filter.path_groupings?.map((name) => ({ name }))
+            },
+        ],
     },
     actionToUrl: ({ values, props }) => ({
         setProperties: () => {
@@ -229,6 +295,10 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     return
                 }
                 const cleanedPathParams = cleanPathParams(searchParams)
+
+                if (cleanedPathParams.funnel_filter && values.filter.date_from) {
+                    cleanedPathParams.funnel_filter.date_from = values.filter.date_from
+                }
 
                 if (!objectsEqual(cleanedPathParams, values.filter)) {
                     actions.setFilter(cleanedPathParams)

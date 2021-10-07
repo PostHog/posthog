@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from ee.models.hook import Hook
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions
+from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
 
 class HookSerializer(serializers.ModelSerializer):
@@ -29,9 +29,9 @@ class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     queryset = Hook.objects.all()
     ordering = "-created_at"
-    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
     serializer_class = HookSerializer
 
     def perform_create(self, serializer):
         user = cast(User, self.request.user)
-        serializer.save(user=user, team=user.team)
+        serializer.save(user=user, team_id=self.team_id)

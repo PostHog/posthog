@@ -58,9 +58,8 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         highlightEvents,
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } = useActions(
-        logic
-    )
+    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } =
+        useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
@@ -342,7 +341,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     key={columnConfig === 'DEFAULT' ? 'default' : columnConfig.join('-')}
                     className="ph-no-capture"
                     locale={{
-                        emptyText: (
+                        emptyText: isLoading ? (
+                            <span>&nbsp;</span>
+                        ) : (
                             <span>
                                 You don't have any items here! If you haven't integrated PostHog yet,{' '}
                                 <Link to="/project/settings">click here to set PostHog up on your app</Link>.

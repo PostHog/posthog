@@ -30,10 +30,10 @@ services:
             - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper
         restart: always
     kafka:
-        image: wurstmeister/kafka
+        image: cfei/kafka
         depends_on:
             - zookeeper
         ports:
@@ -79,7 +79,12 @@ services:
             - '8000:8000'
             - '8234:8234'
     plugins:
-        image: posthog/plugin-server:latest
+        build:
+            context: ../
+            dockerfile: dev.Dockerfile
+        command: ./bin/plugin-server --no-restart-loop
+        volumes:
+            - ..:/code
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'

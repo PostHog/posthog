@@ -119,9 +119,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             },
         ],
         isLoading: [
-            false,
+            true,
             {
-                fetchEvents: (state) => state,
+                fetchEvents: () => true,
                 setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
                 fetchOrPollFailure: () => false,
@@ -153,7 +153,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         ],
         orderBy: ['-timestamp', { flipSort: (state) => (state === 'timestamp' ? '-timestamp' : 'timestamp') }],
         selectedEvent: [
-            (null as unknown) as EventType,
+            null as unknown as EventType,
             {
                 setSelectedEvent: (_, { selectedEvent }) => selectedEvent,
             },

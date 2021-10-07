@@ -51,7 +51,11 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"}
             )
 
-            expected_queries = 3 if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE else 10
+            expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
+            if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
+                # PostHog event, PostHog event, PostHog person, PostHog person distinct ID,
+                # PostHog element group, PostHog element, PostHog element
+                expected_queries += 7
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?distinct_id=2").json()
@@ -74,7 +78,9 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"},
             )
 
-            expected_queries = 3 if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE else 7
+            expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
+            if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
+                expected_queries += 4  # PostHog event, PostHog event, PostHog person, PostHog person distinct ID
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get("/api/event/?event=event_name").json()
@@ -91,7 +97,9 @@ def factory_test_event_api(event_factory, person_factory, _):
                 event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
             )
 
-            expected_queries = 3 if settings.PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE else 7
+            expected_queries = 4  # Django session, PostHog user, PostHog team, PostHog org membership
+            if settings.PRIMARY_DB == AnalyticsDBMS.POSTGRES:
+                expected_queries += 4  # PostHog event, PostHog event, PostHog person, PostHog person distinct ID
 
             with self.assertNumQueries(expected_queries):
                 response = self.client.get(
@@ -550,25 +558,31 @@ def factory_test_event_api(event_factory, person_factory, _):
             self.assertEqual(2, len(response["results"]))
 
         def test_get_events_with_specified_token(self):
-            _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
-
-            assert user.team is not None
+            _, _, user2 = User.objects.bootstrap("Test", "team2@posthog.com", None)
+            assert user2.team is not None
             assert self.team is not None
 
-            self.assertNotEqual(user.team.id, self.team.id)
+            self.assertNotEqual(user2.team.id, self.team.id)
 
             event1 = event_factory(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
-            event2 = event_factory(team=user.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
+            event2 = event_factory(team=user2.team, event="sign up", distinct_id="2", properties={"key": "test_val"})
 
             response_team1 = self.client.get(f"/api/event/{event1.id}/")
             response_team1_token = self.client.get(f"/api/event/{event1.id}/", data={"token": self.team.api_token})
 
-            response_team2_event1 = self.client.get(f"/api/event/{event1.id}/", data={"token": user.team.api_token})
-            response_team2_event2 = self.client.get(f"/api/event/{event2.id}/", data={"token": user.team.api_token})
+            response_team2_event1 = self.client.get(f"/api/event/{event1.id}/", data={"token": user2.team.api_token})
 
+            # The feature being tested here is usually used with personal API token auth,
+            # but logging in works the same way and is more to the point in the test
+            self.client.force_login(user2)
+
+            response_team2_event2 = self.client.get(f"/api/event/{event2.id}/", data={"token": user2.team.api_token})
+
+            self.assertEqual(response_team1.status_code, status.HTTP_200_OK)
+            self.assertEqual(response_team1_token.status_code, status.HTTP_200_OK)
             self.assertEqual(response_team1.json(), response_team1_token.json())
             self.assertNotEqual(response_team1.json(), response_team2_event2.json())
-            self.assertEqual(response_team2_event1.status_code, status.HTTP_404_NOT_FOUND)
+            self.assertEqual(response_team2_event1.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(response_team2_event2.status_code, status.HTTP_200_OK)
 
             response_invalid_token = self.client.get(f"/api/event?token=invalid")

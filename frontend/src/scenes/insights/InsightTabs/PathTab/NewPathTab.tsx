@@ -1,11 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useValues, useActions } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { Button, Checkbox, Col, Row, Select } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Button, Checkbox, Col, Collapse, InputNumber, Row, Select } from 'antd'
+import { InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons'
 import { TestAccountFilter } from '../../TestAccountFilter'
-import { PathType } from '~/types'
+import { PathType, ViewType, FunnelPathType, PathEdgeParameters } from '~/types'
 import './NewPathTab.scss'
 import { GlobalFiltersTitle } from '../../common'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
@@ -15,24 +15,57 @@ import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { CloseButton } from 'lib/components/CloseButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Tooltip } from 'lib/components/Tooltip'
+import { PersonModal } from 'scenes/trends/PersonModal'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { combineUrl, encodeParams, router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function NewPathTab(): JSX.Element {
-    const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
+    const { filter, wildcards } = useValues(pathsLogic({ dashboardItemId: null }))
     const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId: null }))
+
+    const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
+    const { setCohortModalVisible } = useActions(personsModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
+        edge_limit: filter.edge_limit,
+        min_edge_weight: filter.min_edge_weight,
+        max_edge_weight: filter.max_edge_weight,
+    })
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
     const groupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
-        ? filter.include_event_types.map((item) => {
-              if (item === PathType.Screen) {
-                  return TaxonomicFilterGroupType.Screens
-              } else if (item === PathType.CustomEvent) {
-                  return TaxonomicFilterGroupType.CustomEvents
-              } else {
-                  return TaxonomicFilterGroupType.PageviewUrls
-              }
-          })
-        : []
+        ? [
+              ...filter.include_event_types.map((item) => {
+                  if (item === PathType.Screen) {
+                      return TaxonomicFilterGroupType.Screens
+                  } else if (item === PathType.CustomEvent) {
+                      return TaxonomicFilterGroupType.CustomEvents
+                  } else {
+                      return TaxonomicFilterGroupType.PageviewUrls
+                  }
+              }),
+              TaxonomicFilterGroupType.Wildcards,
+          ]
+        : [TaxonomicFilterGroupType.Wildcards]
+
+    const overrideStartInput =
+        filter.funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(filter.funnel_paths)
+    const overrideEndInput =
+        filter.funnel_paths && [FunnelPathType.between, FunnelPathType.before].includes(filter.funnel_paths)
+
+    const updateEdgeParameters = (): void => {
+        if (
+            localEdgeParameters.edge_limit !== filter.edge_limit ||
+            localEdgeParameters.min_edge_weight !== filter.min_edge_weight ||
+            localEdgeParameters.max_edge_weight !== filter.max_edge_weight
+        ) {
+            setFilter({ ...localEdgeParameters })
+        }
+    }
 
     const onClickPathtype = (pathType: PathType): void => {
         if (filter.include_event_types) {
@@ -54,8 +87,80 @@ export function NewPathTab(): JSX.Element {
         }
     }
 
+    function _getStepNameAtIndex(filters: Record<string, any>, index: number): string {
+        const targetEntity =
+            filters.events?.filter((event: Record<string, any>) => {
+                return event.order === index - 1
+            })?.[0] ||
+            filters.actions?.filter((action: Record<string, any>) => {
+                return action.order === index - 1
+            })?.[0]
+
+        return targetEntity?.name || ''
+    }
+
+    function _getStepLabel(funnelFilters?: Record<string, any>, index?: number, shift: number = 0): JSX.Element {
+        if (funnelFilters && index) {
+            return (
+                <div>
+                    <BarChartOutlined />
+                    <span className="label">{`${
+                        index > 0 ? 'Funnel step ' + (index + shift) : 'Funnel dropoff ' + index * -1
+                    }: ${_getStepNameAtIndex(funnelFilters, index > 0 ? index + shift : index * -1)}`}</span>
+                </div>
+            )
+        } else {
+            return <span />
+        }
+    }
+
+    function getStartPointLabel(): JSX.Element {
+        if (filter.funnel_paths) {
+            if (filter.funnel_paths === FunnelPathType.after) {
+                return _getStepLabel(filter.funnel_filter, filter.funnel_filter?.funnel_step)
+            } else if (filter.funnel_paths === FunnelPathType.between) {
+                // funnel_step targets the later of the 2 events when specifying between so the start point index is shifted back 1
+                return _getStepLabel(filter.funnel_filter, filter.funnel_filter?.funnel_step, -1)
+            } else {
+                return <span />
+            }
+        } else {
+            return filter.start_point ? (
+                <span className="label">{filter.start_point}</span>
+            ) : (
+                <span className="label" style={{ color: 'var(--muted)' }}>
+                    Add start point
+                </span>
+            )
+        }
+    }
+
+    function getEndPointLabel(): JSX.Element {
+        if (filter.funnel_paths) {
+            if (filter.funnel_paths === FunnelPathType.before || filter.funnel_paths === FunnelPathType.between) {
+                return _getStepLabel(filter.funnel_filter, filter.funnel_filter?.funnel_step)
+            } else {
+                return <span />
+            }
+        } else {
+            return filter.end_point ? (
+                <span className="label">{filter.end_point}</span>
+            ) : (
+                <span style={{ color: 'var(--muted)' }}>Add end point</span>
+            )
+        }
+    }
+
     return (
         <>
+            <PersonModal
+                visible={showingPeople && !cohortModalVisible}
+                view={ViewType.PATHS}
+                filters={filter}
+                onSaveCohort={() => {
+                    setCohortModalVisible(true)
+                }}
+            />
             <Row>
                 <Col span={12}>
                     <Col className="event-types" style={{ paddingBottom: 16 }}>
@@ -152,37 +257,53 @@ export function NewPathTab(): JSX.Element {
                                         })
                                     }
                                     groupTypes={groupTypes}
+                                    disabled={overrideStartInput || overrideEndInput}
+                                    wildcardOptions={wildcards}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 1}
                                         block={true}
+                                        className="paths-endpoint-field"
                                         style={{
-                                            maxWidth: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            overflow: 'hidden',
+                                            textAlign: 'left',
+                                            backgroundColor:
+                                                overrideStartInput || overrideEndInput
+                                                    ? 'var(--border-light)'
+                                                    : 'white',
                                         }}
+                                        disabled={overrideEndInput && !overrideStartInput}
+                                        onClick={
+                                            filter.funnel_filter && overrideStartInput
+                                                ? () => {
+                                                      router.actions.push(
+                                                          combineUrl(
+                                                              '/insights',
+                                                              encodeParams(
+                                                                  filter.funnel_filter as Record<string, any>,
+                                                                  '?'
+                                                              )
+                                                          ).url
+                                                      )
+                                                  }
+                                                : () => {}
+                                        }
                                     >
-                                        {filter.start_point ? (
-                                            <>
-                                                {filter.start_point}
+                                        <div className="label-container">
+                                            {getStartPointLabel()}
+                                            {filter.start_point || overrideStartInput ? (
                                                 <CloseButton
                                                     onClick={(e: Event) => {
-                                                        setFilter({ start_point: null })
+                                                        setFilter({
+                                                            start_point: undefined,
+                                                            funnel_filter: undefined,
+                                                            funnel_paths: undefined,
+                                                        })
                                                         e.stopPropagation()
                                                     }}
-                                                    style={{
-                                                        cursor: 'pointer',
-                                                        float: 'none',
-                                                        paddingLeft: 8,
-                                                        alignSelf: 'center',
-                                                    }}
+                                                    className="close-button"
                                                 />
-                                            </>
-                                        ) : (
-                                            <span style={{ color: 'var(--muted)' }}>Add start point</span>
-                                        )}
+                                            ) : null}
+                                        </div>
                                     </Button>
                                 </PathItemSelector>
                             </Col>
@@ -202,41 +323,143 @@ export function NewPathTab(): JSX.Element {
                                         })
                                     }
                                     groupTypes={groupTypes}
+                                    disabled={overrideEndInput || overrideStartInput}
+                                    wildcardOptions={wildcards}
                                 >
                                     <Button
                                         data-attr={'new-prop-filter-' + 0}
                                         block={true}
+                                        className="paths-endpoint-field"
                                         style={{
-                                            maxWidth: '100%',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            overflow: 'hidden',
+                                            textAlign: 'left',
+                                            backgroundColor:
+                                                overrideStartInput || overrideEndInput
+                                                    ? 'var(--border-light)'
+                                                    : 'white',
                                         }}
+                                        disabled={overrideStartInput && !overrideEndInput}
+                                        onClick={
+                                            filter.funnel_filter && overrideEndInput
+                                                ? () => {
+                                                      router.actions.push(
+                                                          combineUrl(
+                                                              '/insights',
+                                                              encodeParams(
+                                                                  filter.funnel_filter as Record<string, any>,
+                                                                  '?'
+                                                              )
+                                                          ).url
+                                                      )
+                                                  }
+                                                : () => {}
+                                        }
                                     >
-                                        {filter.end_point ? (
-                                            <>
-                                                {filter.end_point}
+                                        <div className="label-container">
+                                            {getEndPointLabel()}
+                                            {filter.end_point || overrideEndInput ? (
                                                 <CloseButton
                                                     onClick={(e: Event) => {
-                                                        setFilter({ end_point: null })
+                                                        setFilter({
+                                                            end_point: undefined,
+                                                            funnel_filter: undefined,
+                                                            funnel_paths: undefined,
+                                                        })
                                                         e.stopPropagation()
                                                     }}
-                                                    style={{
-                                                        cursor: 'pointer',
-                                                        float: 'none',
-                                                        paddingLeft: 8,
-                                                        alignSelf: 'center',
-                                                    }}
+                                                    className="close-button"
                                                 />
-                                            </>
-                                        ) : (
-                                            <span style={{ color: 'var(--muted)' }}>Add end point</span>
-                                        )}
+                                            ) : null}
+                                        </div>
                                     </Button>
                                 </PathItemSelector>
                             </Col>
                         </Row>
+                        {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI_EDGE_WEIGHTS] && (
+                            <>
+                                <hr />
+                                <Row align="middle">
+                                    <Col span={24}>
+                                        <Collapse expandIconPosition="right">
+                                            <Collapse.Panel header="Advanced Options" key="1">
+                                                <Col>
+                                                    <Row gutter={8} align="middle" className="mt-05">
+                                                        <Col>Maximum number of Paths</Col>
+                                                        <Col>
+                                                            <InputNumber
+                                                                style={{
+                                                                    paddingTop: 2,
+                                                                    width: '80px',
+                                                                    marginLeft: 5,
+                                                                    marginRight: 5,
+                                                                }}
+                                                                size="small"
+                                                                min={0}
+                                                                max={1000}
+                                                                defaultValue={50}
+                                                                onChange={(value): void =>
+                                                                    setLocalEdgeParameters((state) => ({
+                                                                        ...state,
+                                                                        edge_limit: Number(value),
+                                                                    }))
+                                                                }
+                                                                onBlur={updateEdgeParameters}
+                                                                onPressEnter={updateEdgeParameters}
+                                                            />
+                                                        </Col>
+                                                    </Row>
+                                                    <Row gutter={8} align="middle" className="mt-05">
+                                                        <Col>Number of people on each Path between</Col>
+                                                        <Col>
+                                                            <InputNumber
+                                                                style={{
+                                                                    paddingTop: 2,
+                                                                    width: '80px',
+                                                                    marginLeft: 5,
+                                                                    marginRight: 5,
+                                                                }}
+                                                                size="small"
+                                                                min={0}
+                                                                max={100000}
+                                                                onChange={(value): void =>
+                                                                    setLocalEdgeParameters((state) => ({
+                                                                        ...state,
+                                                                        min_edge_weight: Number(value),
+                                                                    }))
+                                                                }
+                                                                onBlur={updateEdgeParameters}
+                                                                onPressEnter={updateEdgeParameters}
+                                                            />
+                                                        </Col>
+                                                        <Col>and</Col>
+                                                        <Col>
+                                                            <InputNumber
+                                                                style={{
+                                                                    paddingTop: 2,
+                                                                    width: '80px',
+                                                                    marginLeft: 5,
+                                                                    marginRight: 5,
+                                                                }}
+                                                                size="small"
+                                                                onChange={(value): void =>
+                                                                    setLocalEdgeParameters((state) => ({
+                                                                        ...state,
+                                                                        max_edge_weight: Number(value),
+                                                                    }))
+                                                                }
+                                                                min={0}
+                                                                max={100000}
+                                                                onBlur={updateEdgeParameters}
+                                                                onPressEnter={updateEdgeParameters}
+                                                            />
+                                                        </Col>
+                                                    </Row>
+                                                </Col>
+                                            </Collapse.Panel>
+                                        </Collapse>
+                                    </Col>
+                                </Row>
+                            </>
+                        )}
                     </Col>
                 </Col>
                 <Col span={12} style={{ marginTop: isSmallScreen ? '2rem' : 0, paddingLeft: 32 }}>
@@ -270,6 +493,7 @@ export function NewPathTab(): JSX.Element {
                             }))
                         }
                         onChange={updateExclusions}
+                        wildcardOptions={wildcards}
                     />
                 </Col>
             </Row>

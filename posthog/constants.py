@@ -115,6 +115,8 @@ FUNNEL_STEP_BREAKDOWN = "funnel_step_breakdown"
 FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
+FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
+FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 BIN_COUNT = "bin_count"
 ENTRANCE_PERIOD_START = "entrance_period_start"
 DROP_OFF = "drop_off"
@@ -122,9 +124,9 @@ FUNNEL_PATHS = "funnel_paths"
 PATHS_INCLUDE_EVENT_TYPES = "include_event_types"
 PATHS_INCLUDE_CUSTOM_EVENTS = "include_custom_events"
 PATHS_EXCLUDE_EVENTS = "exclude_events"
-FUNNEL_PATH_AFTER_STEP = "funneL_path_after_step"
+FUNNEL_PATH_AFTER_STEP = "funnel_path_after_step"
 FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
-FUNNEL_PATH_BETWEEN_STEPS = "funneL_path_between_steps"
+FUNNEL_PATH_BETWEEN_STEPS = "funnel_path_between_steps"
 PATH_GROUPINGS = "path_groupings"
 PATH_START_KEY = "path_start_key"
 PATH_END_KEY = "path_end_key"
@@ -144,6 +146,11 @@ class FunnelVizType(str, Enum):
     TRENDS = "trends"
     TIME_TO_CONVERT = "time_to_convert"
     STEPS = "steps"
+
+
+class FunnelCorrelationType(str, Enum):
+    EVENTS = "events"
+    PROPERTIES = "properties"
 
 
 RETENTION_RECURRING = "retention_recurring"

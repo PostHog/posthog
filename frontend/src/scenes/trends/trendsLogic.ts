@@ -229,9 +229,8 @@ export const trendsLogic = kea<trendsLogicType>({
         filters: [
             (props.filters
                 ? props.filters
-                : (state: Record<string, any>) => cleanFilters(router.selectors.searchParams(state))) as Partial<
-                FilterType
-            >,
+                : (state: Record<string, any>) =>
+                      cleanFilters(router.selectors.searchParams(state))) as Partial<FilterType>,
             {
                 setFilters: (state, { filters, mergeFilters }) => {
                     const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}

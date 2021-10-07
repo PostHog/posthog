@@ -6,6 +6,7 @@ import { userLogic } from './userLogic'
 import { toast } from 'react-toastify'
 import React from 'react'
 import { identifierToHuman, resolveWebhookService } from 'lib/utils'
+import { organizationLogic } from './organizationLogic'
 
 export const teamLogic = kea<teamLogicType>({
     actions: {
@@ -77,6 +78,18 @@ export const teamLogic = kea<teamLogicType>({
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
                 resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
             },
+        ],
+    }),
+    selectors: ({ selectors }) => ({
+        isCurrentTeamUnavailable: [
+            () => [selectors.currentTeam, selectors.currentTeamLoading],
+            // If project has been loaded and is still null, it means the user just doesn't have access.
+            (currentTeam, currentTeamLoading): boolean => !currentTeam && !currentTeamLoading,
+        ],
+        demoOnlyProject: [
+            () => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
+            (currentTeam, currentOrganization): boolean =>
+                (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
         ],
     }),
     listeners: ({ actions }) => ({

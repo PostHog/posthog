@@ -12,6 +12,7 @@ import { LeftOutlined, RightOutlined } from '@ant-design/icons'
 import moment from 'moment'
 import { DurationFilter } from './DurationFilter'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 import './SessionRecordingTable.scss'
 interface SessionRecordingsTableProps {
@@ -165,7 +166,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         onClick: (e) => {
                             // Lets the link to the person open the person's page and not the session recording
                             if (!(e.target as HTMLElement).closest('a')) {
-                                openSessionPlayer(sessionRecording.id)
+                                openSessionPlayer(sessionRecording.id, RecordingWatchedSource.RecordingsList)
                             }
                         },
                     })}

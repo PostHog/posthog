@@ -328,7 +328,8 @@ def sessions_test_factory(sessions, event_factory, person_factory):
                             "session": "dist",
                             FILTER_TEST_ACCOUNTS: True,
                             "events": [{"id": "1st action"},],
-                        }
+                        },
+                        team=self.team,
                     ),
                     self.team,
                 )
@@ -342,7 +343,8 @@ def sessions_test_factory(sessions, event_factory, person_factory):
                             "session": "avg",
                             FILTER_TEST_ACCOUNTS: True,
                             "events": [{"id": "1st action"},],
-                        }
+                        },
+                        team=self.team,
                     ),
                     self.team,
                 )

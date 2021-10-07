@@ -60,8 +60,7 @@ class TestTeamAPI(APIBaseTest):
             self.assertEqual(Team.objects.count(), 1)
 
     def test_retention_invalid_properties(self):
-        org = Organization.objects.create(name="New Org")
-        team = Team.objects.create(organization=org, name="Default Project")
+        _, _, team = Organization.objects.bootstrap(self.user, name="New Org")
 
         properties = "invalid_json"
         response = self.client.get(f"/api/projects/{team.pk}/actions/retention", data={"properties": properties})
@@ -110,10 +109,8 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(team.timezone, "UTC")
 
     def test_filter_permission(self):
-
         response = self.client.patch(
-            "/api/projects/%s/" % (self.user.team.pk if self.user.team else 0),
-            {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
+            f"/api/projects/{self.team.id}/", {"test_account_filters": [{"key": "$current_url", "value": "test"}]},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

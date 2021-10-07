@@ -42,3 +42,29 @@
         padding: 0;
     }
 }
+
+.paths-endpoint-field {
+    .label-container {
+        display: flex;
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .label {
+        margin-left: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .close-button {
+        cursor: pointer;
+        padding-left: 8px;
+        align-self: center;
+
+        &:hover {
+            border-radius: 4px 4px 0px 0px;
+            color: black;
+            z-index: 999;
+        }
+    }
+}
