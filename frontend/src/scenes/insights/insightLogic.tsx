@@ -53,7 +53,7 @@ export const insightLogic = kea<insightLogicType>({
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return `${props.dashboardItemId || 'new'}${props.syncWithUrl ? '-scene' : ''}`
+        return props.syncWithUrl ? 'scene' : props.dashboardItemId || 'new'
     },
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
@@ -325,21 +325,6 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         setAsSaved: async ({ insight }) => {
-            // :TRICKY:
-            // - this logic is mounted with the key as "new", if we save an ID here, the logic will invalidate
-            // - so boot up a new logic with the ID as the key, and preload the results.
-            // - assume it'll take max 5sec for the frontend to switch over to the new logic
-            const logicWithId = insightLogic.build(
-                {
-                    ...props,
-                    dashboardItemId: insight.id,
-                    cachedResults: insight.result,
-                    filters: insight.filters,
-                },
-                false
-            )
-            const unmount = logicWithId.mount()
-            window.setTimeout(() => unmount(), 5000)
             if (props.syncWithUrl) {
                 router.actions.replace('/insights', router.values.searchParams, {
                     ...router.values.hashParams,

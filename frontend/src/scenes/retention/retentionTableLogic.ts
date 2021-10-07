@@ -53,7 +53,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
+        return props.syncWithUrl ? 'scene' : props.dashboardItemId || DEFAULT_RETENTION_LOGIC_KEY
     },
     connect: {
         values: [actionsModel, ['actions']],

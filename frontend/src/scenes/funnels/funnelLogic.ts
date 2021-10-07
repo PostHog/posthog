@@ -99,7 +99,7 @@ export const funnelLogic = kea<funnelLogicType>({
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return props.dashboardItemId || 'insight_funnel'
+        return props.syncWithUrl ? 'scene' : props.dashboardItemId || 'insight_funnel'
     },
 
     actions: () => ({

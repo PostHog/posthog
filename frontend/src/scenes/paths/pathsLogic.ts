@@ -64,7 +64,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
+        return props.syncWithUrl ? 'scene' : props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
     },
     actions: {
         setProperties: (properties) => ({ properties }),

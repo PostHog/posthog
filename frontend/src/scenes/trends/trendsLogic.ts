@@ -124,7 +124,7 @@ export const trendsLogic = kea<trendsLogicType>({
         if (!('dashboardItemId' in props)) {
             throw new Error('Must init with dashboardItemId, even if undefined')
         }
-        return props.dashboardItemId || 'all_trends'
+        return props.syncWithUrl ? 'scene' : props.dashboardItemId || 'all_trends'
     },
 
     connect: {
