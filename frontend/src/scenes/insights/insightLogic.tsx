@@ -38,7 +38,13 @@ interface UrlParams {
     actions?: Entity[]
 }
 
-export const insightLogic = kea<insightLogicType>({
+export interface InsightLogicProps {
+    id?: number
+}
+
+export const insightLogic = kea<insightLogicType<InsightLogicProps>>({
+    props: {} as InsightLogicProps,
+    key: (props) => props.id || 'new',
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
