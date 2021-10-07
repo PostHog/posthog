@@ -12,70 +12,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { FunnelPathType } from '~/types'
-
-function roundedRect(x, y, w, h, r, tl, tr, bl, br) {
-    var retval
-    retval = 'M' + (x + r) + ',' + y
-    retval += 'h' + (w - 2 * r)
-    if (tr) {
-        retval += 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + r
-    } else {
-        retval += 'h' + r
-        retval += 'v' + r
-    }
-    retval += 'v' + (h - 2 * r)
-    if (br) {
-        retval += 'a' + r + ',' + r + ' 0 0 1 ' + -r + ',' + r
-    } else {
-        retval += 'v' + r
-        retval += 'h' + -r
-    }
-    retval += 'h' + (2 * r - w)
-    if (bl) {
-        retval += 'a' + r + ',' + r + ' 0 0 1 ' + -r + ',' + -r
-    } else {
-        retval += 'h' + -r
-        retval += 'v' + -r
-    }
-    retval += 'v' + (2 * r - h)
-    if (tl) {
-        retval += 'a' + r + ',' + r + ' 0 0 1 ' + r + ',' + -r
-    } else {
-        retval += 'v' + -r
-        retval += 'h' + r
-    }
-    retval += 'z'
-    return retval
-}
-
-function pageUrl(d, display) {
-    const incomingUrls = d.targetLinks
-        .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
-        .filter((a) => {
-            try {
-                new URL(a)
-            } catch {
-                return false
-            }
-            return a
-        })
-        .map((a) => new URL(a))
-    const incomingDomains = [...new Set(incomingUrls.map((url) => url.origin))]
-
-    let name = d.name.replace(/(^[0-9]+_)/, '')
-
-    if (!display) {
-        return name
-    }
-
-    try {
-        const url = new URL(name)
-        name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
-    } catch {
-        // discard if invalid url
-    }
-    return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
-}
+import { roundedRect, pageUrl } from './pathUtils'
 
 function NoData() {
     return (
@@ -314,11 +251,18 @@ export function NewPaths({ dashboardItemId = null, filters = null, color = 'whit
                         const dropOffValue = getDropOffValue(pathItemCard)
                         return (
                             <>
-                                <Tooltip title={pageUrl(pathItemCard)}>
+                                <Tooltip title={pageUrl(pathItemCard)} placement="right">
                                     <Dropdown
                                         key={idx}
                                         overlay={
-                                            <Menu className="pathcard-dropdown-info">
+                                            <Menu
+                                                style={{
+                                                    marginTop: -5,
+                                                    border: '1px solid var(--border)',
+                                                    borderRadius: '0px 0px 4px 4px',
+                                                    width: 200,
+                                                }}
+                                            >
                                                 {pathItemCard.sourceLinks.length > 0 && (
                                                     <Menu.Item
                                                         disabled
