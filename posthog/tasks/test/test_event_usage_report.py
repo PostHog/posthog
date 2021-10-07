@@ -38,13 +38,14 @@ def factory_event_usage_report(_create_event: Callable, _create_person: Callable
                 _create_person("new_user2", team=self.team)
                 _create_event("new_user1", "$event1", "$web", now() - relativedelta(days=1, hours=2), team=self.team)
                 _create_event("new_user1", "$event2", "$web", now() - relativedelta(days=1, hours=1), team=self.team)
+                _create_event("new_user1", "$event2", "$web", now() - relativedelta(days=3, hours=1), team=self.team)
                 _create_event("new_user1", "$event2", "$mobile", now() - relativedelta(days=1, hours=1), team=self.team)
                 _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=self.team)
 
-                org_report = event_usage_report().get("instance_usage_by_org")[str(self.team.organization.id)]
+                org_report = event_usage_report().get("instance_usage_by_org")[str(self.team.organization.id)]  # type: ignore
 
                 def _test_org_report() -> None:
-                    self.assertEqual(org_report["events_count_total"], 4)
+                    self.assertEqual(org_report["events_count_total"], 5)
                     self.assertEqual(org_report["events_count_new_in_period"], 3)
                     self.assertEqual(org_report["events_count_month_to_date"], 4)
 
@@ -69,7 +70,7 @@ def factory_event_usage_report(_create_event: Callable, _create_person: Callable
                     "new_user1", "$eventBefore", "$web", now() - relativedelta(days=2, hours=2), team=self.team
                 )
 
-                updated_org_report = event_usage_report().get("instance_usage_by_org")[str(self.team.organization.id)]
+                updated_org_report = event_usage_report().get("instance_usage_by_org")[str(self.team.organization.id)]  # type: ignore
 
                 # Check event totals are updated
                 self.assertEqual(
@@ -95,7 +96,7 @@ def factory_event_usage_report(_create_event: Callable, _create_person: Callable
                 )
                 # Verify that internal metrics events are not counted
                 self.assertEqual(
-                    event_usage_report().get("instance_usage_by_org")[str(self.team.organization.id)][
+                    event_usage_report().get("instance_usage_by_org")[str(self.team.organization.id)][  # type: ignore
                         "events_count_total"
                     ],
                     updated_org_report["events_count_total"],
