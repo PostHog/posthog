@@ -22,7 +22,7 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[Dict[str, Any]]
     month_start = period_start.replace(day=1)
     metadata: Dict[str, Any] = {
         "posthog_version": VERSION,
-        "deployment": os.getenv("DEPLOYMENT", "unknown"),
+        "deployment_infrastructure": os.getenv("DEPLOYMENT", "unknown"),
         "realm": get_instance_realm(),
         "is_clickhouse_enabled": is_clickhouse_enabled(),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
@@ -60,7 +60,11 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[Dict[str, Any]]
 
 
 def get_org_usage(
-    distinct_id: str, team_ids: List[str], period_start: datetime, period_end: datetime, month_start: datetime,
+    distinct_id: str,
+    team_ids: List[Union[str, int]],
+    period_start: datetime,
+    period_end: datetime,
+    month_start: datetime,
 ) -> Dict[str, int]:
     default_usage: Dict[str, int] = {
         "event_count_lifetime": 0,

@@ -23,7 +23,7 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
             all_reports = send_all_org_usage_reports(dry_run=True)
 
             self.assertEqual(all_reports[0]["posthog_version"], VERSION)
-            self.assertEqual(all_reports[0]["deployment"], "tests")
+            self.assertEqual(all_reports[0]["deployment_infrastructure"], "tests")
 
         def test_event_counts(self) -> None:
             with freeze_time("2020-11-02"):

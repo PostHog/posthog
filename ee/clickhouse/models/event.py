@@ -203,16 +203,6 @@ def determine_event_conditions(
     return result, params
 
 
-def get_events_TEST():
-    result = sync_execute(
-        """
-        SELECT *
-        FROM events
-    """
-    )
-    return result
-
-
 def get_event_count_for_team_and_period(
     team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
 ) -> int:
