@@ -228,7 +228,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
             .attr('x1', 0) // x position of the first end of the line
             .attr('y1', 0) // y position of the first end of the line
             .attr('x2', 0) // x position of the second end of the line
-            .attr('y2', 600)
+            .attr('y2', height)
     }
 
     const getDropOffValue = (pathItemCard) => {
