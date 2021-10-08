@@ -60,5 +60,23 @@ describe('pathsLogic', () => {
                     }),
                 })
         })
+
+        it('insightLogic.setFilters updates filter', async () => {
+            await expectLogic(logic, () => {
+                insightLogic(props).actions.setFilters({
+                    step_limit: 999,
+                })
+            })
+                .toMatchValues(logic, {
+                    filter: expect.objectContaining({
+                        step_limit: 999,
+                    }),
+                })
+                .toMatchValues(insightLogic(props), {
+                    filters: expect.objectContaining({
+                        step_limit: 999,
+                    }),
+                })
+        })
     })
 })

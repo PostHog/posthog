@@ -298,5 +298,21 @@ describe('funnelLogic', () => {
                     }),
                 })
         })
+
+        it('insightLogic.setFilters updates filters', async () => {
+            await expectLogic(logic, () => {
+                insightLogic(props).actions.setFilters({ events: [{ id: 42 }] })
+            })
+                .toMatchValues(logic, {
+                    filters: expect.objectContaining({
+                        events: [{ id: 42 }],
+                    }),
+                })
+                .toMatchValues(insightLogic(props), {
+                    filters: expect.objectContaining({
+                        events: [{ id: 42 }],
+                    }),
+                })
+        })
     })
 })
