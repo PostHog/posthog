@@ -41,7 +41,7 @@ export function FunnelPropertyCorrelationTable({
                     <Col>
                         <input
                             // Hardcoded for initial testing
-                            value="$browser, $os. $geoip_country_code"
+                            defaultValue="$browser, $os, $geoip_country_code"
                             onBlur={({ target: { value } }) => loadPropertyCorrelations(value)}
                         />
                     </Col>
@@ -104,7 +104,7 @@ export function FunnelPropertyCorrelationTable({
                                         likely
                                     </b>
                                 </mark>{' '}
-                                to do this event
+                                to have this property value
                             </div>
                         </>
                     )
