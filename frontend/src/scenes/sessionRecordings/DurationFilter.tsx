@@ -1,75 +1,39 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { PropertyOperator, RecordingDurationFilter } from '~/types'
 import { Button, Input, Row, Select, Space } from 'antd'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popup } from 'lib/components/Popup/Popup'
-
-type TimeUnit = 'seconds' | 'hours' | 'minutes'
-
-const multipliers = { seconds: 1, minutes: 60, hours: 3600 }
-
-const durationToSeconds = (value: number, unit: TimeUnit): number => value * multipliers[unit]
-
+import { DurationFilterLogic, TimeUnit } from './DurationFilterLogic'
+import { useActions, useValues } from 'kea'
 interface Props {
-    filterValue: RecordingDurationFilter
+    initialFilter: RecordingDurationFilter
     onChange: (value: RecordingDurationFilter) => void
+    pageKey: string
 }
 
-export function DurationFilter({ filterValue, onChange }: Props): JSX.Element {
-    const [unit, setUnit] = useState<TimeUnit>('minutes')
-    const [duration, setDuration] = useState(Math.floor((filterValue.value as number) / multipliers[unit]))
-    const [open, setOpen] = useState(false)
-
-    const updateOperator = (operator: PropertyOperator): void => {
-        onChange({
-            ...filterValue,
-            operator: operator,
-        })
-    }
-
-    const updateValue = (newValue: number, newUnit: TimeUnit): void => {
-        onChange({
-            ...filterValue,
-            value: durationToSeconds(newValue, newUnit),
-        })
-    }
-
-    const getDurationString = (): string => {
-        let durationString = ''
-        if (filterValue.operator === PropertyOperator.GreaterThan) {
-            durationString += '> '
-        } else {
-            durationString += '< '
-        }
-        durationString += duration
-        if (duration === 1) {
-            durationString += ' ' + unit.slice(0, -1)
-        } else {
-            durationString += ' ' + unit
-        }
-        return durationString
-    }
-
+export function DurationFilter({ initialFilter, onChange, pageKey }: Props): JSX.Element {
+    const DurationFilterLogicInstance = DurationFilterLogic({ initialFilter, onChange, pageKey })
+    const { setTimeValue, setIsOpen, setOperator, setUnit } = useActions(DurationFilterLogicInstance)
+    const { durationString, unit, timeValue, operator, isOpen } = useValues(DurationFilterLogicInstance)
     return (
         <Popup
-            visible={open}
+            visible={isOpen}
             placement={'bottom-end'}
             fallbackPlacements={['bottom-start']}
-            onClickOutside={() => setOpen(false)}
+            onClickOutside={() => setIsOpen(false)}
             overlay={
                 <Row>
                     <Space>
                         <OperatorSelect
-                            operator={filterValue.operator}
+                            operator={operator}
                             operators={[PropertyOperator.GreaterThan, PropertyOperator.LessThan]}
-                            onChange={(operator) => {
-                                updateOperator(operator)
+                            onChange={(newOperator) => {
+                                setOperator(newOperator)
                             }}
                         />
-
                         <Input
                             type="number"
-                            value={duration}
+                            value={timeValue}
                             placeholder="0"
                             min={0}
                             autoFocus
@@ -79,7 +43,6 @@ export function DurationFilter({ filterValue, onChange }: Props): JSX.Element {
                                     value={unit}
                                     onChange={(newUnit: TimeUnit) => {
                                         setUnit(newUnit)
-                                        updateValue(duration, newUnit)
                                     }}
                                 >
                                     <Select.Option value="seconds">Seconds</Select.Option>
@@ -90,8 +53,7 @@ export function DurationFilter({ filterValue, onChange }: Props): JSX.Element {
                             step={1}
                             onChange={(event) => {
                                 const newValue = parseFloat(event.target.value)
-                                setDuration(newValue)
-                                updateValue(newValue, unit)
+                                setTimeValue(newValue)
                             }}
                         />
                     </Space>
@@ -100,10 +62,10 @@ export function DurationFilter({ filterValue, onChange }: Props): JSX.Element {
         >
             <Button
                 onClick={() => {
-                    setOpen(true)
+                    setIsOpen(true)
                 }}
             >
-                {getDurationString()}
+                {durationString}
             </Button>
         </Popup>
     )

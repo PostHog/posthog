@@ -178,7 +178,8 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             onChange={(newFilter) => {
                                 setDurationFilter(newFilter)
                             }}
-                            filterValue={durationFilter}
+                            initialFilter={durationFilter}
+                            pageKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
                         />
                     </Row>
                 </Row>
