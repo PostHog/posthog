@@ -155,9 +155,17 @@ def get_event(request):
 
     ip = None if team.anonymize_ips else get_ip_address(request)  # type: ignore
     for event in events:
-        parse_and_enqueue_event(
-            data, event, site_url, ip, now, sent_at, team, is_test_env,
-        )
+        event_uuid = UUIDT()
+        distinct_id = get_distinct_id(event)
+        if not distinct_id:
+            continue
+
+        event = parse_event(event, distinct_id, team, is_test_env,)
+        if not event:
+            continue
+
+        statsd.incr("posthog_cloud_plugin_server_ingestion")
+        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)
 
     timer.stop()
     statsd.incr(
@@ -166,20 +174,10 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def parse_and_enqueue_event(data, event, site_url, ip, now, sent_at, team, is_test_env) -> None:
-    try:
-        distinct_id = _get_distinct_id(event)
-    except KeyError:
-        statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
-        return
-    except ValueError:
-        statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
-        return
+def parse_event(event, distinct_id, team, is_test_env):
     if not event.get("event"):
         statsd.incr("invalid_event", tags={"error": "missing_event_name"})
         return
-
-    event_uuid = UUIDT()
 
     if not event.get("properties"):
         event["properties"] = {}
@@ -196,8 +194,20 @@ def parse_and_enqueue_event(data, event, site_url, ip, now, sent_at, team, is_te
 
     _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
-    statsd.incr("posthog_cloud_plugin_server_ingestion")
-    capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)
+    return event
+
+
+def get_distinct_id(event):
+    try:
+        distinct_id = _get_distinct_id(event)
+    except KeyError:
+        statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
+        return
+    except ValueError:
+        statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
+        return
+
+    return distinct_id
 
 
 def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()) -> None:
