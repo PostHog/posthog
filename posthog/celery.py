@@ -11,7 +11,6 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from posthog.redis import get_client
-from posthog.tasks.org_usage_report import send_all_org_usage_reports
 from posthog.utils import is_clickhouse_enabled
 
 # set the default Django settings module for the 'celery' program.
@@ -84,7 +83,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         crontab(
             hour=0, minute=randrange(0, 40)
         ),  # every day at a random minute past midnight. Sends data from the preceding whole day.
-        send_all_org_usage_reports.s(),
+        send_org_usage_report.s(),
         name="send event usage report",
     )
 
@@ -283,6 +282,8 @@ def clickhouse_send_license_usage():
 
 @app.task(ignore_result=True)
 def send_org_usage_report():
+    from posthog.tasks.org_usage_report import send_all_org_usage_reports
+
     send_all_org_usage_reports()
 
 
