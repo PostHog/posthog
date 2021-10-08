@@ -161,11 +161,12 @@ def get_event(request):
 
     team, db_error, error_response = get_team(request, data, token)
 
+    if error_response or not team:
+        return error_response
+
     send_events_to_dead_letter_queue = False
     if db_error and is_clickhouse_enabled():
         send_events_to_dead_letter_queue = True
-    elif error_response or not team:
-        return error_response
 
     if isinstance(data, dict):
         if data.get("batch"):  # posthog-python and posthog-ruby

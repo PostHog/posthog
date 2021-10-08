@@ -151,16 +151,17 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[str], Optio
 
         db_error = getattr(e, "message", repr(e))
 
-        error_response = cors_response(
-            request,
-            generate_exception_response(
-                "capture",
-                "Unable to fetch team from database.",
-                type="server_error",
-                code="fetch_team_fail",
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            ),
-        )
+        if not is_clickhouse_enabled():
+            error_response = cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Unable to fetch team from database.",
+                    type="server_error",
+                    code="fetch_team_fail",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ),
+            )
 
         return None, db_error, error_response
 
