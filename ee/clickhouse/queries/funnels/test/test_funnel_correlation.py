@@ -72,7 +72,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         result = correlation.run()["events"]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
-        expected_odds_ratios = [6, 1 / 6]
+        expected_odds_ratios = [11, 1 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
             self.assertAlmostEqual(odds, expected_odds)
@@ -84,14 +84,14 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     "event": "positively_related",
                     "success_count": 5,
                     "failure_count": 0,
-                    # "odds_ratio": 6.0,
+                    # "odds_ratio": 11.0,
                     "correlation_type": "success",
                 },
                 {
                     "event": "negatively_related",
                     "success_count": 0,
                     "failure_count": 5,
-                    # "odds_ratio": 1 / 6,
+                    # "odds_ratio": 1 / 11,
                     "correlation_type": "failure",
                 },
             ],
@@ -154,7 +154,22 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         result = correlation.run()["events"]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
-        expected_odds_ratios = [11 / 2, 2 / 11]
+
+        # Success Total = 11, Failure Total = 11
+        #
+        # Browser::Positive
+        # Success: 10
+        # Failure: 1
+
+        # Browser::Negative
+        # Success: 1
+        # Failure: 10
+
+        prior_count = 1
+        expected_odds_ratios = [
+            ((10 + prior_count) / (1 + prior_count)) * ((11 - 1 + prior_count) / (11 - 10 + prior_count)),
+            ((1 + prior_count) / (10 + prior_count)) * ((11 - 10 + prior_count) / (11 - 1 + prior_count)),
+        ]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
             self.assertAlmostEqual(odds, expected_odds)
@@ -166,14 +181,14 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     "event": "$browser::Positive",
                     "success_count": 10,
                     "failure_count": 1,
-                    # "odds_ratio": 11 / 2,
+                    # "odds_ratio": 121/4,
                     "correlation_type": "success",
                 },
                 {
                     "event": "$browser::Negative",
                     "success_count": 1,
                     "failure_count": 10,
-                    # "odds_ratio": 2 / 11,
+                    # "odds_ratio": 4/121,
                     "correlation_type": "failure",
                 },
             ],
@@ -220,10 +235,13 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     timestamp="2020-01-03T14:00:00Z",
                 )
 
-        result = correlation.run()["events"]
+        results = correlation.run()
+        self.assertFalse(results["skewed"])
+
+        result = results["events"]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
-        expected_odds_ratios = [3, 1 / 2]
+        expected_odds_ratios = [9, 1 / 3]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
             self.assertAlmostEqual(odds, expected_odds)
@@ -235,14 +253,14 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                     "event": "positive",
                     "success_count": 2,
                     "failure_count": 0,
-                    # "odds_ratio": 3.0,
+                    # "odds_ratio": 9.0,
                     "correlation_type": "success",
                 },
                 {
                     "event": "negatively_related",
                     "success_count": 0,
                     "failure_count": 1,
-                    # "odds_ratio": 1 / 2,
+                    # "odds_ratio": 1 / 3,
                     "correlation_type": "failure",
                 },
             ],
@@ -348,12 +366,12 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [
-            (11) / (1) * (7 / 17),
-            (16 / 2) * (7 / 17),
-            (6 / 1) * (7 / 17),
-            (1 / 6) * (7 / 17),
-            (2 / 6) * (7 / 17),
-            (2 / 2) * (7 / 17),
+            (16 / 2) * ((7 - 1) / (17 - 15)),
+            (11 / 1) * ((7 - 0) / (17 - 10)),
+            (6 / 1) * ((7 - 0) / (17 - 5)),
+            (1 / 6) * ((7 - 5) / (17 - 0)),
+            (2 / 6) * ((7 - 5) / (17 - 1)),
+            (2 / 2) * ((7 - 1) / (17 - 1)),
         ]
         # (success + 1) / (failure + 1)
 
@@ -364,45 +382,45 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             result,
             [
                 {
-                    "event": "$nice::not",
-                    "success_count": 10,
-                    "failure_count": 0,
-                    # "odds_ratio": 4.529411764705882,
-                    "correlation_type": "success",
-                },
-                {
                     "event": "$browser::Positive",
                     "success_count": 15,
                     "failure_count": 1,
-                    # "odds_ratio": 3.2941176470588234,
+                    # "odds_ratio": 24,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "$nice::not",
+                    "success_count": 10,
+                    "failure_count": 0,
+                    # "odds_ratio": 11,
                     "correlation_type": "success",
                 },
                 {
                     "event": "$nice::very",
                     "success_count": 5,
                     "failure_count": 0,
-                    # "odds_ratio": 2.4705882352941178,
+                    # "odds_ratio": 3.5,
                     "correlation_type": "success",
                 },
                 {
                     "event": "$nice::smh",
                     "success_count": 0,
                     "failure_count": 5,
-                    # "odds_ratio": 0.06862745098039216,
+                    # "odds_ratio": 0.0196078431372549,
                     "correlation_type": "failure",
                 },
                 {
                     "event": "$browser::Negative",
                     "success_count": 1,
                     "failure_count": 5,
-                    # "odds_ratio": 0.13725490196078433,
+                    # "odds_ratio": 0.041666666666666664,
                     "correlation_type": "failure",
                 },
                 {
                     "event": "$nice::",
                     "success_count": 1,
                     "failure_count": 1,
-                    # "odds_ratio": 0.4117647058823529,
+                    # "odds_ratio": 0.375,
                     "correlation_type": "failure",
                 },
             ],
