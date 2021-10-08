@@ -66,7 +66,7 @@ export const sessionRecordingsTableLogic = kea<
                 has_next: false,
             } as SessionRecordingsResponse,
             {
-                getSessionRecordings: async () => {
+                getSessionRecordings: async (_, breakpoint) => {
                     const params = toParams({
                         person_uuid: props.personUUID ?? '',
                         actions: values.entityFilters.actions,
@@ -77,6 +77,7 @@ export const sessionRecordingsTableLogic = kea<
                         session_recording_duration: values.durationFilter,
                         limit: LIMIT,
                     })
+                    await breakpoint(500) // Debounce for lots of quick filter changes
                     const response = await api.get(`api/projects/@current/session_recordings?${params}`)
                     return response
                 },
