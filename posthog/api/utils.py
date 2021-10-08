@@ -108,7 +108,7 @@ def get_project_id_from_request(data, request) -> Optional[int]:
     return None
 
 
-def extract_data_from_request(request):
+def get_data(request):
     data = None
     try:
         data = load_data_from_request(request)

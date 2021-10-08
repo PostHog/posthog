@@ -12,7 +12,7 @@ from rest_framework import status
 from sentry_sdk import push_scope
 from statshog.defaults.django import statsd
 
-from posthog.api.utils import extract_data_from_request, get_team, get_token
+from posthog.api.utils import get_data, get_team, get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
 from posthog.exceptions import generate_exception_response
@@ -106,7 +106,7 @@ def get_event(request):
     timer = statsd.timer("posthog_cloud_event_endpoint").start()
     now = timezone.now()
 
-    data, error_response = extract_data_from_request(request)
+    data, error_response = get_data(request)
 
     if error_response:
         return error_response

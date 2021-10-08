@@ -6,7 +6,7 @@ from django.http.response import JsonResponse
 from rest_framework import status
 
 from posthog.api.test.test_capture import mocked_get_team_from_token
-from posthog.api.utils import extract_data_from_request, get_team
+from posthog.api.utils import get_data, get_team
 from posthog.test.base import BaseTest
 
 
@@ -51,9 +51,9 @@ class TestUtils(BaseTest):
 
         get_team_from_token_patcher.stop()
 
-    def test_extract_data_from_request(self):
+    def test_get_data(self):
         # No data in request
-        data, error_response = extract_data_from_request(HttpRequest())
+        data, error_response = get_data(HttpRequest())
         self.assertEqual(data, None)
         self.assertEqual(error_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual("No data found" in json.loads(error_response.getvalue())["detail"], True)
@@ -62,6 +62,6 @@ class TestUtils(BaseTest):
         request = HttpRequest()
         request.method = "POST"
         request.POST = {"data": json.dumps({"event": "some event"})}  # type: ignore
-        data, error_response = extract_data_from_request(request)
+        data, error_response = get_data(request)
         self.assertEqual(data, {"event": "some event"})
         self.assertEqual(error_response, None)
