@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
@@ -68,6 +68,15 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         enableEntityFilter,
     } = useActions(sessionRecordingsTableLogicInstance)
     const { tableScrollX } = useIsTableScrolling('lg')
+
+    useEffect(() => {
+        if (showEntityFilter) {
+            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+            if (entityFilterButtons.length > 0) {
+                ;(entityFilterButtons[0] as HTMLElement).click()
+            }
+        }
+    }, [showEntityFilter])
 
     const columns = [
         {
@@ -149,19 +158,13 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
 
                 <Row className="time-filter-row">
                     <Row className="time-filter">
-                        <Typography.Text className="filter-label">Duration</Typography.Text>
-                        <DurationFilter
-                            onChange={(newFilter) => {
-                                setDurationFilter(newFilter)
-                            }}
-                            filterValue={durationFilter}
-                        />
-                    </Row>
-                    <Row className="time-filter">
-                        <Typography.Text className="filter-label">
-                            <CalendarOutlined />
-                        </Typography.Text>
                         <DateFilter
+                            makeLabel={(key) => (
+                                <>
+                                    <CalendarOutlined />
+                                    <span> {key}</span>
+                                </>
+                            )}
                             defaultValue="Last 30 days"
                             bordered={true}
                             dateFrom={fromDate ?? undefined}
@@ -169,6 +172,15 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             onChange={(changedDateFrom, changedDateTo) => {
                                 setDateRange(changedDateFrom, changedDateTo)
                             }}
+                        />
+                    </Row>
+                    <Row className="time-filter">
+                        <Typography.Text className="filter-label">Duration</Typography.Text>
+                        <DurationFilter
+                            onChange={(newFilter) => {
+                                setDurationFilter(newFilter)
+                            }}
+                            filterValue={durationFilter}
                         />
                     </Row>
                 </Row>
