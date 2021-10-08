@@ -87,7 +87,7 @@ class TestDefaultEventName(BaseTest):
 
 
 class TestLoadDataFromRequest(TestCase):
-    @patch("posthog.utils.push_scope")
+    @patch("posthog.utils.configure_scope")
     def test_pushes_request_origin_into_sentry_scope(self, push_scope):
         origin = "potato.io"
 

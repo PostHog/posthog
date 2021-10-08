@@ -37,7 +37,7 @@ from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.request import Request
-from sentry_sdk import push_scope
+from sentry_sdk import configure_scope
 
 from posthog.constants import AnalyticsDBMS, AvailableFeature
 from posthog.exceptions import RequestParsingError
@@ -390,7 +390,7 @@ def load_data_from_request(request):
         return None
 
     # add the data in sentry's scope in case there's an exception
-    with push_scope() as scope:
+    with configure_scope() as scope:
         scope.set_context("data", data)
         scope.set_tag("origin", request.META.get("REMOTE_HOST"))
 
