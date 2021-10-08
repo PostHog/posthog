@@ -100,7 +100,11 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
     } catch {
         // discard if invalid url
     }
-    return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
+    return name.length > 15
+        ? name.substring(0, 6) + '...' + name.slice(-8)
+        : name.length < 4 && d.name.length < 25
+        ? d.name.replace(/(^[0-9]+_)/, '')
+        : name
 }
 
 export const isSelectedPathStartOrEnd = (filter: Partial<FilterType>, pathItemCard: PathNodeData): boolean => {
