@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { errorToast } from 'lib/utils'
+import { errorToast, objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -56,6 +56,7 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
         setAllFilters: (filters) => ({ filters }),
+        _setAllFilters: (filters) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
         endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
             queryId,
@@ -162,7 +163,7 @@ export const insightLogic = kea<insightLogicType>({
         allFilters: [
             {} as FilterType,
             {
-                setAllFilters: (_, { filters }) => filters,
+                _setAllFilters: (_, { filters }) => filters,
             },
         ],
         /*
@@ -213,14 +214,33 @@ export const insightLogic = kea<insightLogicType>({
         updateInsightSuccess: () => {
             actions.setInsightMode(ItemMode.View, null)
         },
-        setAllFilters: async (filters, breakpoint) => {
+        setAllFilters: async ({ filters }, breakpoint) => {
+            const changedKeys = extractObjectDiffKeys(values.allFilters, filters)
+            const changedKeysObj: Record<string, any> = {}
+            changedKeys.forEach((key) => {
+                changedKeysObj[`changed__${key}`] = true
+            })
+            actions._setAllFilters(filters)
+
             const { fromDashboard } = router.values.hashParams
-            eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard))
+            eventUsageLogic.actions.reportInsightViewed(
+                filters,
+                values.isFirstLoad,
+                Boolean(fromDashboard),
+                0,
+                changedKeysObj
+            )
             actions.setNotFirstLoad()
 
             // tests will wait for all breakpoints to finish
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard), 10)
+            eventUsageLogic.actions.reportInsightViewed(
+                filters,
+                values.isFirstLoad,
+                Boolean(fromDashboard),
+                10,
+                changedKeysObj
+            )
         },
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
@@ -393,3 +413,24 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
 })
+
+function extractObjectDiffKeys(oldObj: FilterType, newObj: FilterType): string[] {
+    if (Object.keys(oldObj).length === 0) {
+        return []
+    }
+
+    const changedKeys = []
+    for (const [key, value] of Object.entries(newObj)) {
+        // @ts-ignore
+        if (!objectsEqual(value, oldObj[key])) {
+            if (key === 'events' && value.length === oldObj.events?.length) {
+                changedKeys.push('event_math')
+            } else if (key === 'actions' && value.length === oldObj.events?.length) {
+                changedKeys.push('action_math')
+            } else {
+                changedKeys.push(key)
+            }
+        }
+    }
+    return changedKeys
+}
