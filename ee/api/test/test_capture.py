@@ -7,7 +7,7 @@ from django.test.client import Client
 from rest_framework import status
 
 from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
-from posthog.api.utils import determine_team_from_request_data
+from posthog.api.utils import get_team
 from posthog.test.base import APIBaseTest
 
 
@@ -125,11 +125,7 @@ class TestCaptureAPI(APIBaseTest):
     # unit test the underlying util that handles the DB being down
     @patch("posthog.models.Team.objects.get_team_from_token", side_effect=mocked_get_team_from_token)
     def test_determine_team_from_request_data_ch(self, _):
-        team, send_events_to_dead_letter_queue, fetch_team_error, error_response = determine_team_from_request_data(
-            HttpRequest(), {}, ""
-        )
+        team, db_error, _ = get_team(HttpRequest(), {}, "")
 
         self.assertEqual(team, None)
-        self.assertEqual(send_events_to_dead_letter_queue, True)
-        self.assertEqual(fetch_team_error, "Exception('test exception')")
-        self.assertEqual(error_response, None)
+        self.assertEqual(db_error, "Exception('test exception')")

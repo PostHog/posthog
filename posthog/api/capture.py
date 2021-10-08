@@ -13,7 +13,7 @@ from sentry_sdk import push_scope
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.utils import determine_team_from_request_data, extract_data_from_request, get_token
+from posthog.api.utils import get_data, get_team, get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
 from posthog.exceptions import generate_exception_response
@@ -68,18 +68,21 @@ if is_clickhouse_enabled():
         data["error"] = error_message
         data["elements_chain"] = ""
         data["id"] = str(UUIDT())
-        data["event_uuid"] = event["uuid"]
         data["event"] = event_name
         data["raw_payload"] = json.dumps(raw_payload)
 
+        data["event_uuid"] = event["uuid"]
         del data["uuid"]
+
         try:
             KafkaProducer().produce(topic=topic, data=data)
             statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
         except Exception as e:
             capture_exception(e)
-            print("Failed to produce to events dead letter queue with error:", e)
             statsd.incr("events_dead_letter_queue_produce_error")
+
+            if settings.DEBUG:
+                print("Failed to produce to events dead letter queue with error:", e)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -135,7 +138,7 @@ def get_event(request):
     timer = statsd.timer("posthog_cloud_event_endpoint").start()
     now = timezone.now()
 
-    data, error_response = extract_data_from_request(request)
+    data, error_response = get_data(request)
 
     if error_response:
         return error_response
@@ -156,11 +159,12 @@ def get_event(request):
             ),
         )
 
-    team, send_events_to_dead_letter_queue, fetch_team_error, error_response = determine_team_from_request_data(
-        request, data, token
-    )
+    team, db_error, error_response = get_team(request, data, token)
 
-    if error_response:
+    send_events_to_dead_letter_queue = False
+    if db_error and is_clickhouse_enabled():
+        send_events_to_dead_letter_queue = True
+    elif error_response or not team:
         return error_response
 
     if isinstance(data, dict):
@@ -184,20 +188,40 @@ def get_event(request):
 
     site_url = request.build_absolute_uri("/")[:-1]
 
-    ip = None if send_events_to_dead_letter_queue or team.anonymize_ips else get_ip_address(request)  # type: ignore
+    ip = None if not team or team.anonymize_ips else get_ip_address(request)
     for event in events:
-        parse_and_enqueue_event(
-            data,
-            event,
-            site_url,
-            ip,
-            now,
-            sent_at,
-            team,
-            is_test_env,
-            send_events_to_dead_letter_queue,
-            fetch_team_error,
-        )
+        event_uuid = UUIDT()
+        distinct_id = get_distinct_id(event)
+        if not distinct_id:
+            continue
+
+        event = parse_event(event, distinct_id, team, is_test_env,)
+        if not event:
+            continue
+
+        if send_events_to_dead_letter_queue:
+            kafka_event = parse_kafka_event_data(
+                distinct_id=distinct_id,
+                ip=None,
+                site_url=site_url,
+                team_id=None,
+                now=now,
+                event_uuid=event_uuid,
+                data=event,
+                sent_at=sent_at,
+            )
+
+            log_event_to_dead_letter_queue(
+                data,
+                event["event"],
+                kafka_event,
+                f"Unable to fetch team from Postgres. Error: {db_error}",
+                "django_server_capture_endpoint",
+            )
+            continue
+
+        statsd.incr("posthog_cloud_plugin_server_ingestion")
+        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)
 
     timer.stop()
     statsd.incr(
@@ -206,22 +230,10 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def parse_and_enqueue_event(
-    data, event, site_url, ip, now, sent_at, team, is_test_env, send_to_dead_letter_queue=False, fetch_team_error=""
-) -> None:
-    try:
-        distinct_id = _get_distinct_id(event)
-    except KeyError:
-        statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
-        return
-    except ValueError:
-        statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
-        return
+def parse_event(event, distinct_id, team, is_test_env):
     if not event.get("event"):
         statsd.incr("invalid_event", tags={"error": "missing_event_name"})
         return
-
-    event_uuid = UUIDT()
 
     if not event.get("properties"):
         event["properties"] = {}
@@ -236,31 +248,22 @@ def parse_and_enqueue_event(
         scope.set_tag("library", library)
         scope.set_tag("library.version", library_version)
 
-    if send_to_dead_letter_queue:
-        kafka_event = parse_kafka_event_data(
-            distinct_id=distinct_id,
-            ip=None,
-            site_url=site_url,
-            team_id=None,
-            now=now,
-            event_uuid=event_uuid,
-            data=event,
-            sent_at=sent_at,
-        )
-
-        log_event_to_dead_letter_queue(
-            data,
-            event["event"],
-            kafka_event,
-            f"Unable to fetch team from Postgres. Error: {fetch_team_error}",
-            "django_server_capture_endpoint",
-        )
-        return
-
     _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
-    statsd.incr("posthog_cloud_plugin_server_ingestion")
-    capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)
+    return event
+
+
+def get_distinct_id(event):
+    try:
+        distinct_id = _get_distinct_id(event)
+    except KeyError:
+        statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
+        return
+    except ValueError:
+        statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
+        return
+
+    return distinct_id
 
 
 def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()) -> None:
