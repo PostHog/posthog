@@ -401,7 +401,7 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         },
         [userLogic.actionTypes.updateUserSuccess]: () => {
             actions.setColumnConfigSaving(false)
-            tableConfigLogic.actions.setState(null)
+            tableConfigLogic.actions.setModalVisible(false)
         },
         [userLogic.actionTypes.updateUserFailure]: () => {
             actions.setColumnConfigSaving(false)
