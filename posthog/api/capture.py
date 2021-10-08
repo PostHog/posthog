@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from sentry_sdk import push_scope
+from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.api.utils import get_data, get_team, get_token
@@ -20,11 +21,12 @@ from posthog.helpers.session_recording import preprocess_session_recording_event
 from posthog.models import Team
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
+from posthog.settings import EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC
 from posthog.utils import cors_response, get_ip_address, is_clickhouse_enabled
 
 if is_clickhouse_enabled():
     from ee.kafka_client.client import KafkaProducer
-    from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
+    from ee.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_EVENTS_PLUGIN_INGESTION
 
     def parse_kafka_event_data(
         distinct_id: str,
@@ -47,10 +49,40 @@ if is_clickhouse_enabled():
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
 
-    def log_event(data: Dict, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
+    def log_event(data: Dict, event_name: str, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
         if settings.DEBUG:
-            print(f'Logging event {data["event"]} to Kafka topic {topic}')
-        KafkaProducer().produce(topic=topic, key=data["ip"], data=data)
+            print(f"Logging event {event_name} to Kafka topic {topic}")
+        KafkaProducer().produce(topic=topic, data=data)
+
+    def log_event_to_dead_letter_queue(
+        raw_payload: Dict,
+        event_name: str,
+        event: Dict,
+        error_message: str,
+        error_location: str,
+        topic: str = KAFKA_DEAD_LETTER_QUEUE,
+    ):
+        data = event.copy()
+        data["failure_timestamp"] = datetime.now().isoformat()
+        data["error_location"] = error_location
+        data["error"] = error_message
+        data["elements_chain"] = ""
+        data["id"] = str(UUIDT())
+        data["event"] = event_name
+        data["raw_payload"] = json.dumps(raw_payload)
+
+        data["event_uuid"] = event["uuid"]
+        del data["uuid"]
+
+        try:
+            KafkaProducer().produce(topic=topic, data=data)
+            statsd.incr(EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC)
+        except Exception as e:
+            capture_exception(e)
+            statsd.incr("events_dead_letter_queue_produce_error")
+
+            if settings.DEBUG:
+                print("Failed to produce to events dead letter queue with error:", e)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -127,10 +159,14 @@ def get_event(request):
             ),
         )
 
-    team, error_response = get_team(request, data, token)
+    team, db_error, error_response = get_team(request, data, token)
 
-    if error_response or not team:
+    if error_response:
         return error_response
+
+    send_events_to_dead_letter_queue = False
+    if db_error and is_clickhouse_enabled():
+        send_events_to_dead_letter_queue = True
 
     if isinstance(data, dict):
         if data.get("batch"):  # posthog-python and posthog-ruby
@@ -153,7 +189,7 @@ def get_event(request):
 
     site_url = request.build_absolute_uri("/")[:-1]
 
-    ip = None if team.anonymize_ips else get_ip_address(request)
+    ip = None if not team or team.anonymize_ips else get_ip_address(request)
     for event in events:
         event_uuid = UUIDT()
         distinct_id = get_distinct_id(event)
@@ -164,8 +200,29 @@ def get_event(request):
         if not event:
             continue
 
+        if send_events_to_dead_letter_queue:
+            kafka_event = parse_kafka_event_data(
+                distinct_id=distinct_id,
+                ip=None,
+                site_url=site_url,
+                team_id=None,
+                now=now,
+                event_uuid=event_uuid,
+                data=event,
+                sent_at=sent_at,
+            )
+
+            log_event_to_dead_letter_queue(
+                data,
+                event["event"],
+                kafka_event,
+                f"Unable to fetch team from Postgres. Error: {db_error}",
+                "django_server_capture_endpoint",
+            )
+            continue
+
         statsd.incr("posthog_cloud_plugin_server_ingestion")
-        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)
+        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
 
     timer.stop()
     statsd.incr(
@@ -192,7 +249,8 @@ def parse_event(event, distinct_id, team, is_test_env):
         scope.set_tag("library", library)
         scope.set_tag("library.version", library_version)
 
-    _ensure_web_feature_flags_in_properties(event, team, distinct_id)
+    if team:
+        _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
     return event
 
@@ -222,7 +280,7 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
             sent_at=sent_at,
             event_uuid=event_uuid,
         )
-        log_event(parsed_event)
+        log_event(parsed_event, event["event"])
     else:
         task_name = "posthog.tasks.process_event.process_event_with_plugins"
         celery_queue = settings.PLUGINS_CELERY_QUEUE

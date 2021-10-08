@@ -138,7 +138,8 @@ def get_data(request):
     return data, None
 
 
-def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
+def get_team(request, data, token) -> Tuple[Optional[Team], Optional[str], Optional[Any]]:
+    db_error = None
     team = None
     error_response = None
 
@@ -148,18 +149,21 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
         capture_exception(e)
         statsd.incr("capture_endpoint_fetch_team_fail")
 
-        error_response = cors_response(
-            request,
-            generate_exception_response(
-                "capture",
-                "Unable to fetch team from database.",
-                type="server_error",
-                code="fetch_team_fail",
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            ),
-        )
+        db_error = getattr(e, "message", repr(e))
 
-        return None, error_response
+        if not is_clickhouse_enabled():
+            error_response = cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "Unable to fetch team from database.",
+                    type="server_error",
+                    code="fetch_team_fail",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                ),
+            )
+
+        return None, db_error, error_response
 
     if team is None:
         try:
@@ -171,7 +175,7 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
                     "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
                 ),
             )
-            return None, error_response
+            return None, db_error, error_response
 
         if not project_id:
             error_response = cors_response(
@@ -184,7 +188,7 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
-            return None, error_response
+            return None, db_error, error_response
 
         user = User.objects.get_from_personal_api_key(token)
         if user is None:
@@ -198,7 +202,7 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
-            return None, error_response
+            return None, db_error, error_response
 
         team = user.teams.get(id=project_id)
 
@@ -215,4 +219,4 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
             ),
         )
 
-    return team, error_response
+    return team, db_error, error_response
