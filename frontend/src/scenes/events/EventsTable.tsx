@@ -237,7 +237,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     },
                 },
             ] as ResizableColumnType<EventsTableRowItem>[],
-        [eventFilter, showLinkToPerson, columnConfig]
+        [eventFilter, tableWidth]
     )
 
     const columns = useMemo(

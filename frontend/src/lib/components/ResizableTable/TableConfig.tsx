@@ -39,11 +39,12 @@ export function TableConfig({ availableColumns, immutableColumns, defaultColumns
                             </Button>
                             {modalVisible && (
                                 <ColumnConfigurator
-                                    allColumns={availableColumns || []}
+                                    allColumns={availableColumns}
                                     currentSelection={columnConfig === 'DEFAULT' ? defaultColumns : columnConfig}
                                     onClose={() => setModalVisible(false)}
                                     onColumnUpdate={setColumnConfig}
                                     immutableColumns={immutableColumns}
+                                    defaultColumns={defaultColumns}
                                     saving={columnConfigSaving}
                                 />
                             )}
@@ -65,6 +66,15 @@ interface ColumnConfiguratorInterface {
     defaultColumns?: string[]
 }
 
+const searchFilteredColumns = (searchTerm: string, selectedColumns: string[]): string[] =>
+    searchTerm
+        ? new Fuse(selectedColumns, {
+              threshold: 0.3,
+          })
+              .search(searchTerm)
+              .map(({ item }) => item)
+        : selectedColumns
+
 function ColumnConfigurator({
     currentSelection,
     allColumns,
@@ -79,21 +89,9 @@ function ColumnConfigurator({
     const [scrollSelectedToIndex, setScrollSelectedToIndex] = useState(0)
     const [searchTerm, setSearchTerm] = useState('')
 
-    const selectedColumnsDisplay = searchTerm
-        ? new Fuse(selectedColumns, {
-              threshold: 0.3,
-          })
-              .search(searchTerm)
-              .map(({ item }) => item)
-        : selectedColumns
+    const selectedColumnsDisplay = searchFilteredColumns(searchTerm, selectedColumns)
 
-    const selectableColumnsDisplay = searchTerm
-        ? new Fuse(selectableColumns, {
-              threshold: 0.3,
-          })
-              .search(searchTerm)
-              .map(({ item }) => item)
-        : selectableColumns
+    const selectableColumnsDisplay = searchFilteredColumns(searchTerm, selectableColumns)
 
     useEffect(() => {
         setSelectedColumns(currentSelection)
