@@ -3,6 +3,7 @@ import {
     SessionRecordingsResponse,
     PersonUUID,
     SessionRecordingId,
+    DEFAULT_ENTITY_FILTERS,
 } from './sessionRecordingsTableLogic'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { BuiltLogic } from 'kea'
@@ -18,7 +19,6 @@ describe('sessionRecordingsTableLogic', () => {
     let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId, SessionRecordingsResponse>>
 
     mockAPI(async ({ pathname, searchParams }) => {
-        console.log(searchParams)
         if (pathname === 'api/projects/@current/session_recordings') {
             if (searchParams['events'].length > 0 && searchParams['events'][0]['id'] === '$autocapture') {
                 return {
@@ -90,8 +90,8 @@ describe('sessionRecordingsTableLogic', () => {
         })
 
         describe('entityFilters', () => {
-            it('starts empty', () => {
-                expectLogic(logic).toMatchValues({ entityFilters: { events: [], actions: [] } })
+            it('starts with default values', () => {
+                expectLogic(logic).toMatchValues({ entityFilters: DEFAULT_ENTITY_FILTERS })
             })
 
             it('is set by setEntityFilters and loads filtered results', async () => {
@@ -165,6 +165,61 @@ describe('sessionRecordingsTableLogic', () => {
                     })
                     .toDispatchActions(['setDurationFilter', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
+            })
+        })
+
+        describe('sessionRecording.viewed', () => {
+            it('changes when openSessionRecording is called', () => {
+                expectLogic(logic, () => {
+                    logic.actions.getSessionRecordingsSuccess({
+                        results: [
+                            {
+                                id: 'abc',
+                                viewed: false,
+                                recording_duration: 1,
+                                start_time: '',
+                                end_time: '',
+                            },
+                        ],
+                        has_next: false,
+                    })
+                }).toMatchValues({
+                    sessionRecordings: [
+                        {
+                            id: 'abc',
+                            viewed: false,
+                            recording_duration: 1,
+                            start_time: '',
+                            end_time: '',
+                        },
+                    ],
+                })
+
+                expectLogic(logic, () => {
+                    logic.actions.openSessionPlayer('abc', RecordingWatchedSource.Direct)
+                }).toMatchValues({
+                    sessionRecordings: [
+                        {
+                            id: 'abc',
+                            viewed: true,
+                            recording_duration: 1,
+                            start_time: '',
+                            end_time: '',
+                        },
+                    ],
+                })
+            })
+
+            it('is set by setEntityFilters and loads filtered results', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setEntityFilters({
+                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                    })
+                })
+                    .toDispatchActions(['setEntityFilters', 'getSessionRecordings', 'getSessionRecordingsSuccess'])
+                    .toMatchValues({
+                        sessionRecordings: ['List of recordings filtered by events'],
+                    })
             })
         })
     })

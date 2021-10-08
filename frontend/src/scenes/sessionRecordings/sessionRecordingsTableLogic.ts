@@ -22,7 +22,7 @@ export interface SessionRecordingsResponse {
 
 const LIMIT = 50
 
-const DEFAULT_ENTITY_FILTERS = {
+export const DEFAULT_ENTITY_FILTERS = {
     events: [],
     actions: [],
     new_entity: [
