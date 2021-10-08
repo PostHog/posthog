@@ -222,7 +222,7 @@ def get_event(request):
             continue
 
         statsd.incr("posthog_cloud_plugin_server_ingestion")
-        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)
+        capture_internal(event, distinct_id, ip, site_url, now, sent_at, team.pk, event_uuid)  # type: ignore
 
     timer.stop()
     statsd.incr(
