@@ -198,7 +198,18 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
             return
         }
 
-        const width = canvas.current.offsetWidth
+        const moreThanFive =
+            paths.links.filter((link) => {
+                const linkNum = link.target.name ? link.target.name : link.target
+                return Number(linkNum.match(/[^_]*/)) > 5
+            }).length > 0
+
+        const maxLayer = paths.links.reduce((prev, curr) => {
+            const currNum = curr.target.name ? curr.target.name : curr.target
+            return Math.max(prev || prev, Number(currNum.match(/[^_]*/)))
+        }, 0)
+
+        const width = moreThanFive ? (canvas.current.offsetWidth / 4) * maxLayer : canvas.current.offsetWidth
         const height = canvas.current.offsetHeight
 
         const svg = createCanvas(width, height)
@@ -211,6 +222,13 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
         appendPathNodes(svg, nodes)
         appendDropoffs(svg)
         appendPathLinks(svg, links)
+        svg.append('line') // attach a line
+            .style('stroke', 'var(--border)') // colour the line
+            .attr('stroke-width', 20)
+            .attr('x1', 0) // x position of the first end of the line
+            .attr('y1', 0) // y position of the first end of the line
+            .attr('x2', 0) // x position of the second end of the line
+            .attr('y2', 600)
     }
 
     const getDropOffValue = (pathItemCard) => {
@@ -239,6 +257,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
         <div
             style={{
                 position: 'relative',
+                overflowX: 'scroll',
             }}
             id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
         >
