@@ -40,7 +40,7 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                 _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=self.team)
 
                 all_reports = send_all_org_usage_reports(dry_run=True)
-                org_report = all_reports[0]  # type: ignore
+                org_report = all_reports[0]
 
                 def _test_org_report() -> None:
                     self.assertEqual(org_report["event_count_lifetime"], 5)
@@ -68,7 +68,7 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                     "new_user1", "$eventBefore", "$web", now() - relativedelta(days=2, hours=2), team=self.team
                 )
 
-                updated_org_report = send_all_org_usage_reports(dry_run=True)[0]  # type: ignore
+                updated_org_report = send_all_org_usage_reports(dry_run=True)[0]
 
                 # Check event totals are updated
                 self.assertEqual(
@@ -92,9 +92,7 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                 )
                 # Verify that internal metrics events are not counted
                 self.assertEqual(
-                    send_all_org_usage_reports(dry_run=True)[0][  # type: ignore
-                        "event_count_lifetime"
-                    ],
+                    send_all_org_usage_reports(dry_run=True)[0]["event_count_lifetime"],
                     updated_org_report["event_count_lifetime"],
                 )
 
