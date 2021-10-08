@@ -192,7 +192,7 @@ class QuerySuite:
                 "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
                 **SHORT_DATE_RANGE,
                 "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
-                "funnel_correlation_value": "$browser",
+                "funnel_correlation_names": ["$browser"],
             },
             team=self.team,
         )
@@ -205,7 +205,7 @@ class QuerySuite:
                 "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
                 **SHORT_DATE_RANGE,
                 "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
-                "funnel_correlation_value": "$browser",
+                "funnel_correlation_names": ["$browser"],
             },
             team=self.team,
         )
