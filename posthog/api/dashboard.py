@@ -190,7 +190,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "result",
-            "is_sample",
+            "is_sample",  # only field not in api/insight.py
             "saved",
             "created_at",
             "created_by",
