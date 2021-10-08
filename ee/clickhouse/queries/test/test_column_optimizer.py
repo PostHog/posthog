@@ -13,7 +13,6 @@ PROPERTIES_OF_ALL_TYPES = [
 ]
 
 BASE_FILTER = Filter({"events": [{"id": "$pageview", "type": "events", "order": 0}]})
-FILTER_BY_TEST_ACCOUNTS = BASE_FILTER.with_data({"filter_test_accounts": True})
 FILTER_WITH_PROPERTIES = BASE_FILTER.with_data({"properties": PROPERTIES_OF_ALL_TYPES})
 
 
@@ -27,10 +26,6 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         properties_used_in_filter = lambda filter: ColumnOptimizer(filter, self.team.id).properties_used_in_filter
 
         self.assertEqual(properties_used_in_filter(BASE_FILTER), set())
-        self.assertEqual(
-            properties_used_in_filter(FILTER_BY_TEST_ACCOUNTS),
-            {("event_prop", "event"), ("person_prop", "person"), ("id", "cohort"), ("tag_name", "element")},
-        )
         self.assertEqual(
             properties_used_in_filter(FILTER_WITH_PROPERTIES),
             {("event_prop", "event"), ("person_prop", "person"), ("id", "cohort"), ("tag_name", "element")},
@@ -134,14 +129,6 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         ).should_query_elements_chain_column
 
         self.assertEqual(should_query_elements_chain_column(BASE_FILTER), False)
-
-        self.assertEqual(should_query_elements_chain_column(FILTER_BY_TEST_ACCOUNTS), True)
-
-        self.team.test_account_filters = PROPERTIES_OF_ALL_TYPES[:2]  # Without the element filter
-        self.team.save()
-
-        self.assertEqual(should_query_elements_chain_column(FILTER_BY_TEST_ACCOUNTS), False)
-
         self.assertEqual(should_query_elements_chain_column(FILTER_WITH_PROPERTIES), True)
 
         filter = Filter(

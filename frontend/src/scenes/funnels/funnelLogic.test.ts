@@ -1,6 +1,4 @@
-import { BuiltLogic } from 'kea'
-import { funnelLogic, FunnelLogicProps } from './funnelLogic'
-import { funnelLogicType } from './funnelLogicType'
+import { funnelLogic } from './funnelLogic'
 import { api, mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -13,7 +11,7 @@ import { FunnelAPIResponse, PropertyOperator } from '~/types'
 jest.mock('lib/api')
 
 describe('funnelLogic', () => {
-    let logic: BuiltLogic<funnelLogicType<FunnelLogicProps>>
+    let logic: ReturnType<typeof funnelLogic.build>
 
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname === 'api/insight/funnel/') {
@@ -41,6 +39,7 @@ describe('funnelLogic', () => {
     initKeaTestLogic({
         logic: funnelLogic,
         props: {
+            dashboardItemId: undefined,
             filters: {
                 actions: [
                     { id: '$pageview', order: 0 },
@@ -55,7 +54,7 @@ describe('funnelLogic', () => {
         it('mounts all sorts of logics', async () => {
             await expectLogic(logic).toMount([
                 eventUsageLogic,
-                insightLogic,
+                insightLogic({ dashboardItemId: undefined }),
                 insightHistoryLogic,
                 preflightLogic,
                 funnelsModel,
@@ -117,10 +116,6 @@ describe('funnelLogic', () => {
         beforeEach(async () => await expectLogic(logic).toFinishAllListeners())
 
         it('sets it properly', () => {
-            // insightLogic gets called via insightHistoryLogic to createInsights (and save the insights)
-            // but it's not automatically mounted. TODO: what to do?
-            insightLogic.mount()
-
             expectLogic(logic, () => {
                 logic.actions.setFilters({ actions: [] })
             }).toMatchValues({ areFiltersValid: false })

@@ -57,9 +57,9 @@ class FunnelCorrelationTest(BaseTest):
             # For Calculating Odds Ratio, we add a prior count of 1 to everything
             #
             # So our odds ratio should be
-            #  (success + prior / failure + prior) * (failure_total + prior / success_total + prior)
-            # = ( 1 + 1 / 1 + 1) * ( 1 + 1 / 2 + 1)
-            # = 2/3
+            #  (success + prior / failure + prior) * (failure_total - failure + prior / success_total - success + prior)
+            # = ( 1 + 1 / 1 + 1) * ( 1 - 1 + 1 / 2 - 1 + 1)
+            # = 1 / 2
 
             events = {
                 "Person 1": [
@@ -100,10 +100,11 @@ class FunnelCorrelationTest(BaseTest):
                         "event": "watched video",
                         "success_count": 1,
                         "failure_count": 1,
-                        "odds_ratio": 2 / 3,
+                        "odds_ratio": 1 / 2,
                         "correlation_type": "failure",
                     },
-                ]
+                ],
+                "skewed": False,
             },
         }
 
@@ -204,7 +205,7 @@ class FunnelCorrelationTest(BaseTest):
         assert odds == {
             "is_cached": False,
             "last_refresh": "2020-01-01T00:00:00Z",
-            "result": {"events": []},
+            "result": {"events": [], "skewed": False},
         }
 
     def test_event_correlation_endpoint_does_not_include_funnel_steps(self):
@@ -218,6 +219,12 @@ class FunnelCorrelationTest(BaseTest):
                     {"event": "signup", "timestamp": datetime(2020, 1, 1)},
                     {"event": "some waypoint", "timestamp": datetime(2020, 1, 2)},
                     {"event": "", "timestamp": datetime(2020, 1, 3)},
+                ],
+                # We need atleast 1 success and failure to return a result
+                "Person 2": [
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "some waypoint", "timestamp": datetime(2020, 1, 2)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
                 ],
             }
             # '' is a weird event name to have, but if it exists, our duty to report it
@@ -248,10 +255,11 @@ class FunnelCorrelationTest(BaseTest):
                         "correlation_type": "failure",
                         "event": "",
                         "failure_count": 1,
-                        "odds_ratio": 1.0,
+                        "odds_ratio": 1 / 4,
                         "success_count": 0,
                     }
-                ]
+                ],
+                "skewed": False,
             },
         }
 
@@ -296,10 +304,12 @@ class FunnelCorrelationTest(BaseTest):
             ),
         )
 
+        self.assertFalse(api_response["result"]["skewed"])
+
         result = api_response["result"]["events"]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]
-        expected_odds_ratios = [11, 1 / 11]
+        expected_odds_ratios = [121, 1 / 121]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
             self.assertAlmostEqual(odds, expected_odds)
@@ -311,14 +321,14 @@ class FunnelCorrelationTest(BaseTest):
                     "event": "$browser::Positive",
                     "success_count": 10,
                     "failure_count": 0,
-                    # "odds_ratio": 11.0,
+                    # "odds_ratio": 121.0,
                     "correlation_type": "success",
                 },
                 {
                     "event": "$browser::Negative",
                     "success_count": 0,
                     "failure_count": 10,
-                    # "odds_ratio": 1 / 11,
+                    # "odds_ratio": 1 / 121,
                     "correlation_type": "failure",
                 },
             ],

@@ -3,11 +3,11 @@ import { objectsEqual, uuid } from 'lib/utils'
 import api from 'lib/api'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { SharedInsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
+import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -60,13 +60,9 @@ interface PathNode {
 }
 
 export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
-    props: {} as SharedInsightLogicProps,
-    key: (props) => {
-        return props.dashboardItemId || DEFAULT_PATH_LOGIC_KEY
-    },
-    connect: {
-        actions: [insightHistoryLogic, ['createInsight']],
-    },
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
+
     actions: {
         setProperties: (properties) => ({ properties }),
         setFilter: (filter) => filter,
@@ -97,8 +93,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 const params = { ...filter, ...(refresh ? { refresh: true } : {}) }
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
-                insightLogic.actions.startQuery(queryId)
+                const dashboardItemId = props.dashboardItemId
+                insightLogic(props).actions.startQuery(queryId)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                 }
@@ -108,7 +104,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     paths = await api.create(`api/insight/path`, params)
                 } catch (e) {
                     breakpoint()
-                    insightLogic.actions.endQuery(queryId, ViewType.PATHS, null, e)
+                    insightLogic(props).actions.endQuery(queryId, ViewType.PATHS, null, e)
                     if (dashboardItemId) {
                         dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                     }
@@ -116,7 +112,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                     return { paths: [], filter, error: true }
                 }
                 breakpoint()
-                insightLogic.actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
+                insightLogic(props).actions.endQuery(queryId, ViewType.PATHS, paths.last_refresh)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, paths.last_refresh)
                 }
@@ -162,17 +158,17 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             actions.setFilter({ exclude_events: exclusions })
         },
         setFilter: () => {
+            insightLogic(props).actions.setAllFilters({
+                ...cleanPathParams(values.filter),
+                properties: values.properties,
+            })
             actions.loadResults(true)
         },
-        loadResults: () => {
-            insightLogic.actions.setAllFilters({ ...cleanPathParams(values.filter), properties: values.properties })
-            if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    actions.createInsight({ ...cleanPathParams(values.filter), properties: values.properties })
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filter)
-                }
-            }
+        loadResultsSuccess: async () => {
+            insightLogic(props).actions.fetchedResults({
+                ...cleanPathParams(values.filter),
+                properties: values.properties,
+            })
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             personsModalLogic.actions.loadPeople({
@@ -278,22 +274,19 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     },
     actionToUrl: ({ values, props }) => ({
         setProperties: () => {
-            if (!props.dashboardItemId) {
+            if (props.syncWithUrl) {
                 return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
             }
         },
         setFilter: () => {
-            if (!props.dashboardItemId) {
+            if (props.syncWithUrl) {
                 return ['/insights', values.propertiesForUrl, undefined, { replace: true }]
             }
         },
     }),
-    urlToAction: ({ actions, values, key }) => ({
+    urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams: Partial<FilterType>) => {
-            if (searchParams.insight === ViewType.PATHS) {
-                if (key != DEFAULT_PATH_LOGIC_KEY) {
-                    return
-                }
+            if (props.syncWithUrl && searchParams.insight === ViewType.PATHS) {
                 const cleanedPathParams = cleanPathParams(searchParams)
 
                 if (cleanedPathParams.funnel_filter && values.filter.date_from) {

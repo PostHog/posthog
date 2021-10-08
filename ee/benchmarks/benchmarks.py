@@ -19,8 +19,8 @@ MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
     ("person", "$browser"),
 ]
 
-DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01"}
-SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01"}
+DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01", "interval": "week"}
+SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01", "interval": "week"}
 
 
 class QuerySuite:
@@ -42,14 +42,15 @@ class QuerySuite:
             team = Team.objects.create(id=2, organization=organization, name="The Bakery")
         self.team = team
 
-        self.cohort = Cohort.objects.create(
-            team_id=2,
-            name="benchmarking cohort",
-            groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
-        )
-        self.cohort.calculate_people_ch()
-
-        assert self.cohort.last_calculation is not None
+        cohort = Cohort.objects.filter(name="benchmarking cohort").first()
+        if cohort is None:
+            cohort = Cohort.objects.create(
+                team_id=2,
+                name="benchmarking cohort",
+                groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch()
+        self.cohort = cohort
 
     @benchmark_clickhouse
     def track_trends_no_filter(self):
@@ -140,7 +141,7 @@ class QuerySuite:
                 "properties": [{"key": "id", "value": self.cohort.pk, "type": "cohort"}],
                 **DATE_RANGE,
             },
-            team_id=self.team.pk,
+            team=self.team,
         )
         ClickhouseTrends().run(filter, self.team)
 
@@ -155,7 +156,7 @@ class QuerySuite:
                 "properties": [{"key": "id", "value": self.cohort.pk, "type": "cohort"}],
                 **DATE_RANGE,
             },
-            team_id=self.team.pk,
+            team=self.team,
         )
 
         with no_materialized_columns():
@@ -172,7 +173,7 @@ class QuerySuite:
                 "properties": [{"key": "id", "value": self.cohort.pk, "type": "cohort"}],
                 **DATE_RANGE,
             },
-            team_id=self.team.pk,
+            team=self.team,
         )
 
         ClickhouseTrends().run(filter, self.team)
@@ -192,7 +193,7 @@ class QuerySuite:
                 "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
                 **SHORT_DATE_RANGE,
                 "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
-                "funnel_correlation_value": "$browser",
+                "funnel_correlation_names": ["$browser"],
             },
             team=self.team,
         )
@@ -205,7 +206,7 @@ class QuerySuite:
                 "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
                 **SHORT_DATE_RANGE,
                 "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
-                "funnel_correlation_value": "$browser",
+                "funnel_correlation_names": ["$browser"],
             },
             team=self.team,
         )

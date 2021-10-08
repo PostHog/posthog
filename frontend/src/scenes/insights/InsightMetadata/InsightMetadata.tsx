@@ -1,12 +1,15 @@
 import './InsightMetadata.scss'
 import React from 'react'
-import { DashboardItemType, ItemMode } from '~/types'
+import { AvailableFeature, DashboardItemType, ItemMode } from '~/types'
 import { Button, Input } from 'antd'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { insightMetadataLogic } from 'scenes/insights/InsightMetadata/insightMetadataLogic'
 import { EditOutlined } from '@ant-design/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 function createInsightInputClassName(type: string): string {
     return `insight-metadata-input insight-metadata-${type}`
@@ -19,7 +22,8 @@ interface MetadataProps {
 
 function Title({ insight, insightMode }: MetadataProps): JSX.Element {
     const property = 'name'
-    const logic = insightMetadataLogic({ insight: { [property]: insight?.[property] } })
+    const { insightProps } = useValues(insightLogic)
+    const logic = insightMetadataLogic({ insightProps, insight: { [property]: insight?.[property] } })
     const { editableProps, isEditable } = useValues(logic)
     const { setInsightMetadata, saveInsightMetadata, cancelInsightMetadata, showEditMode } = useActions(logic)
     const placeholder = insight[property] ?? `Insight #${insight.id ?? '...'}`
@@ -80,7 +84,8 @@ function Title({ insight, insightMode }: MetadataProps): JSX.Element {
 
 function Description({ insight, insightMode }: MetadataProps): JSX.Element | null {
     const property = 'description'
-    const logic = insightMetadataLogic({ insight: { [property]: insight?.[property] } })
+    const { insightProps } = useValues(insightLogic)
+    const logic = insightMetadataLogic({ insightProps, insight: { [property]: insight?.[property] } })
     const { editableProps, isEditable } = useValues(logic)
     const { setInsightMetadata, saveInsightMetadata, showEditMode, cancelInsightMetadata } = useActions(logic)
 
@@ -144,7 +149,13 @@ function Description({ insight, insightMode }: MetadataProps): JSX.Element | nul
 function Tags({ insight }: MetadataProps): JSX.Element | null {
     const { saveNewTag, deleteTag } = useActions(insightLogic)
     const { tagLoading } = useValues(insightLogic)
-    const { isEditable } = useValues(insightMetadataLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
+    // TODO: this needs to be put back in insightMetadataLogic, but after out-of-scope refactors
+    const isEditable = !!(
+        featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
+        user?.organization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION)
+    )
 
     if (!isEditable) {
         return null
