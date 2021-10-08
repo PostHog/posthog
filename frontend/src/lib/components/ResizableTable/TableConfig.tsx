@@ -58,14 +58,14 @@ export function TableConfig({ availableColumns, immutableColumns, defaultColumns
     )
 }
 
-const searchFilteredColumns = (searchTerm: string, selectedColumns: string[]): string[] =>
+const searchFilteredColumns = (searchTerm: string, columns: string[]): string[] =>
     searchTerm
-        ? new Fuse(selectedColumns, {
+        ? new Fuse(columns, {
               threshold: 0.3,
           })
               .search(searchTerm)
               .map(({ item }) => item)
-        : selectedColumns
+        : columns
 
 interface ColumnConfiguratorInterface {
     allColumns: string[] // List of all possible columns
