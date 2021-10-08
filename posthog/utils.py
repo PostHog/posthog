@@ -772,7 +772,9 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 
 def should_refresh(request: Request) -> bool:
     key = "refresh"
-    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true"
+    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
+        key, False
+    ) == True
 
 
 def str_to_bool(value: Any) -> bool:
