@@ -1,4 +1,5 @@
 import dataclasses
+from os import stat
 from typing import Any, Dict, List, Literal, Tuple, TypedDict, cast
 
 from rest_framework.exceptions import ValidationError
@@ -32,6 +33,7 @@ class FunnelCorrelationResponse(TypedDict):
     """
 
     events: List[EventOddsRatio]
+    skewed: bool
 
 
 @dataclasses.dataclass
@@ -59,6 +61,9 @@ class EventContingencyTable:
 class FunnelCorrelation:
 
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
+    MIN_PERSON_COUNT = 25
+    MIN_PERSON_PERCENTAGE = 0.02
+    PRIOR_COUNT = 1
 
     def __init__(self, filter: Filter, team: Team) -> None:
         self._filter = filter
@@ -275,12 +280,12 @@ class FunnelCorrelation:
 
 
         Then the odds that a person signs up given they watched the video is 5 /
-        6.
+        1.
         
         And the odds that a person signs up given they didn't watch the video is
-        2 / 12.
+        2 / 10.
 
-        So we say the odds ratio is 5 / 6 over 2 / 12 = 5 . The further away the
+        So we say the odds ratio is 5 / 1 over 2 / 10 = 25 . The further away the
         odds ratio is from 1, the greater the correlation.
 
         Requirements:
@@ -312,9 +317,25 @@ class FunnelCorrelation:
         query, params = self.get_contingency_table_query()
         results_with_total = sync_execute(query, params)
 
-        event_contingency_tables = self.get_partial_event_contingency_tables(results_with_total)
+        event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables(
+            results_with_total
+        )
 
-        odds_ratios = [get_entity_odds_ratio(event_stats) for event_stats in event_contingency_tables]
+        if not success_total or not failure_total:
+            return {"events": [], "skewed": True}
+
+        skewed_totals = False
+
+        # If the ratio is greater than 1:10, then we have a skewed result, so we should
+        # warn the user.
+        if success_total / failure_total > 10 or failure_total / success_total > 10:
+            skewed_totals = True
+
+        odds_ratios = [
+            get_entity_odds_ratio(event_stats, FunnelCorrelation.PRIOR_COUNT)
+            for event_stats in event_contingency_tables
+            if not FunnelCorrelation.are_results_insignificant(event_stats)
+        ]
 
         positively_correlated_events = sorted(
             [odds_ratio for odds_ratio in odds_ratios if odds_ratio["correlation_type"] == "success"],
@@ -329,9 +350,14 @@ class FunnelCorrelation:
         )
 
         # Return the top ten positively correlated events, and top then negatively correlated events
-        return {"events": positively_correlated_events[:10] + negatively_correlated_events[:10]}
+        return {
+            "events": positively_correlated_events[:10] + negatively_correlated_events[:10],
+            "skewed": skewed_totals,
+        }
 
-    def get_partial_event_contingency_tables(self, results_with_total: list) -> List[EventContingencyTable]:
+    def get_partial_event_contingency_tables(
+        self, results_with_total: list
+    ) -> Tuple[List[EventContingencyTable], int, int]:
         """
         For each event a person that started going through the funnel, gets stats
         for how many of these users are sucessful and how many are unsuccessful.
@@ -349,15 +375,19 @@ class FunnelCorrelation:
 
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
-        return [
-            EventContingencyTable(
-                event=result[0],
-                visited=EventStats(success_count=result[1], failure_count=result[2]),
-                success_total=success_total,
-                failure_total=failure_total,
-            )
-            for result in results
-        ]
+        return (
+            [
+                EventContingencyTable(
+                    event=result[0],
+                    visited=EventStats(success_count=result[1], failure_count=result[2]),
+                    success_total=success_total,
+                    failure_total=failure_total,
+                )
+                for result in results
+            ],
+            success_total,
+            failure_total,
+        )
 
     def get_funnel_persons_cte(self) -> Tuple[str, Dict[str, Any]]:
         funnel_persons_generator = ClickhouseFunnelPersons(
@@ -378,22 +408,33 @@ class FunnelCorrelation:
             funnel_persons_generator.params,
         )
 
+    @staticmethod
+    def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:
+        """
+        Check if the results are insignificant, i.e. if the success/failure counts are
+        significantly different from the total counts
+        """
 
-def get_entity_odds_ratio(event_contingency_table: EventContingencyTable) -> EventOddsRatio:
+        total_count = event_contingency_table.success_total + event_contingency_table.failure_total
+
+        if event_contingency_table.visited.success_count + event_contingency_table.visited.failure_count < min(
+            FunnelCorrelation.MIN_PERSON_COUNT, FunnelCorrelation.MIN_PERSON_PERCENTAGE * total_count
+        ):
+            return True
+
+        return False
+
+
+def get_entity_odds_ratio(event_contingency_table: EventContingencyTable, prior_counts: int) -> EventOddsRatio:
 
     # Add 1 to all values to prevent divide by zero errors, and introduce a [prior](https://en.wikipedia.org/wiki/Prior_probability)
-
-    prior_counts = 1
-    if event_contingency_table.success_total and event_contingency_table.failure_total:
-        odds_ratio = (
-            (event_contingency_table.visited.success_count + prior_counts)
-            * (event_contingency_table.failure_total + prior_counts)
-        ) / (
-            (event_contingency_table.success_total + prior_counts)
-            * (event_contingency_table.visited.failure_count + prior_counts)
-        )
-    else:
-        odds_ratio = 1
+    odds_ratio = (
+        (event_contingency_table.visited.success_count + prior_counts)
+        * (event_contingency_table.failure_total - event_contingency_table.visited.failure_count + prior_counts)
+    ) / (
+        (event_contingency_table.success_total - event_contingency_table.visited.success_count + prior_counts)
+        * (event_contingency_table.visited.failure_count + prior_counts)
+    )
 
     return EventOddsRatio(
         event=event_contingency_table.event,
