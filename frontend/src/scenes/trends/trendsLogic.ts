@@ -1,28 +1,19 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { autocorrectInterval, objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
+import { objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
-import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
-import {
-    ActionFilter,
-    ChartDisplayType,
-    InsightLogicProps,
-    EntityTypes,
-    FilterType,
-    PropertyFilter,
-    TrendResult,
-    ViewType,
-} from '~/types'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
+import { insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
+import { ActionFilter, InsightLogicProps, FilterType, PropertyFilter, TrendResult, ViewType } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { IndexedTrendResult, TrendResponse } from 'scenes/trends/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 interface PeopleParamType {
     action: ActionFilter | 'session'
@@ -32,22 +23,6 @@ interface PeopleParamType {
     breakdown_value?: string | number
     target_date?: number | string
     lifecycle_type?: string | number
-}
-
-function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {
-    return {
-        insight: ViewType.TRENDS,
-        ...filters,
-        interval: autocorrectInterval(filters),
-        display:
-            filters.session && filters.session === 'dist'
-                ? ChartDisplayType.ActionsTable
-                : filters.display || ChartDisplayType.ActionsLineGraphLinear,
-        actions: Array.isArray(filters.actions) ? filters.actions : undefined,
-        events: Array.isArray(filters.events) ? filters.events : undefined,
-        properties: filters.properties || [],
-        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-    }
 }
 
 function filterClientSideParams(filters: Partial<FilterType>): Partial<FilterType> {
@@ -99,32 +74,14 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     return toAPIParams({ ...params, ...restParams })
 }
 
-function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterType> {
-    if (!currentFilters.actions?.length && !currentFilters.events?.length) {
-        const event = getDefaultEventName()
-
-        const defaultFilters = {
-            [EntityTypes.EVENTS]: [
-                {
-                    id: event,
-                    name: event,
-                    type: EntityTypes.EVENTS,
-                    order: 0,
-                },
-            ],
-        }
-        return defaultFilters
-    }
-    return {}
-}
-
 export const trendsLogic = kea<trendsLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('all_trends'),
 
-    connect: {
-        values: [actionsModel, ['actions']],
-    },
+    connect: (props: InsightLogicProps) => ({
+        values: [insightLogic(props), ['filters'], actionsModel, ['actions']], // TODO: is this "actions" used?
+        actions: [insightLogic(props), ['setFilters']],
+    }),
 
     actions: () => ({
         setFilters: (filters: Partial<FilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
@@ -342,7 +299,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 ...newFilter,
             }
             if (!objectsEqual(values.filters, mergedFilter)) {
-                actions.setFilters(mergedFilter, true)
+                actions.setFilters(mergedFilter)
             }
         },
     }),
@@ -381,69 +338,12 @@ export const trendsLogic = kea<trendsLogicType>({
             ) {
                 const cleanSearchParams = cleanFilters(searchParams)
 
-                const keys = Object.keys(searchParams)
-
-                if (keys.length === 0 || (!searchParams.actions && !searchParams.events)) {
-                    cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
-                }
-
-                // TODO: Deprecated; should be removed once backend is updated
-                if (searchParams.insight === ViewType.STICKINESS) {
-                    cleanSearchParams['shown_as'] = ShownAsValue.STICKINESS
-                }
-                if (searchParams.insight === ViewType.LIFECYCLE) {
-                    cleanSearchParams['shown_as'] = ShownAsValue.LIFECYCLE
-                }
-
-                if (searchParams.insight === ViewType.SESSIONS && !searchParams.session) {
-                    cleanSearchParams['session'] = 'avg'
-                }
-
-                if (searchParams.date_from === 'all' || searchParams.insight === ViewType.LIFECYCLE) {
-                    cleanSearchParams['compare'] = false
-                }
-
-                Object.assign(cleanSearchParams, getDefaultFilters(cleanSearchParams))
-
                 if (!objectsEqual(cleanSearchParams, values.loadedFilters)) {
-                    actions.setFilters(cleanSearchParams, false)
+                    actions.setFilters(cleanSearchParams, false) /* TODO: FILTERMARKER */
                 } else {
                     insightLogic(props).actions.setFilters(values.filters)
                 }
-
-                handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
             }
         },
     }),
 })
-
-const handleLifecycleDefault = (
-    params: Partial<FilterType>,
-    callback: (filters: Partial<FilterType>) => void
-): void => {
-    if (params.insight === ViewType.LIFECYCLE) {
-        if (params.events?.length) {
-            callback({
-                ...params,
-                events: [
-                    {
-                        ...params.events[0],
-                        math: 'total',
-                    },
-                ],
-                actions: [],
-            })
-        } else if (params.actions?.length) {
-            callback({
-                ...params,
-                events: [],
-                actions: [
-                    {
-                        ...params.actions[0],
-                        math: 'total',
-                    },
-                ],
-            })
-        }
-    }
-}

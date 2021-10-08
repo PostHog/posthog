@@ -7,7 +7,6 @@ import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
 import {
-    EntityTypes,
     FilterType,
     FunnelVizType,
     FunnelResult,
@@ -49,10 +48,10 @@ import {
 } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
-import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
     const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
@@ -260,14 +259,7 @@ export const funnelLogic = kea<funnelLogicType>({
             (props.filters || {}) as FilterType,
             {
                 setFilters: (state, { filters, mergeWithExisting }) => {
-                    // make sure exclusion steps are clamped within new step range
-                    const newFilters = {
-                        ...filters,
-                        ...getClampedStepRangeFilter({ filters: { ...state, ...filters } }),
-                        exclusions: (filters.exclusions || state.exclusions || []).map((e) =>
-                            getClampedStepRangeFilter({ stepRange: e, filters })
-                        ),
-                    }
+                    const newFilters = cleanFilters(filters)
                     return mergeWithExisting ? { ...state, ...newFilters } : newFilters
                 },
                 setEventExclusionFilters: (state, { filters }) => ({
@@ -873,18 +865,8 @@ export const funnelLogic = kea<funnelLogicType>({
                 return
             }
             if (searchParams.insight === ViewType.FUNNELS) {
-                const cleanedParams = cleanFunnelParams(searchParams)
-                if (isStepsEmpty(cleanedParams)) {
-                    const event = getDefaultEventName()
-                    cleanedParams.events = [
-                        {
-                            id: event,
-                            name: event,
-                            type: EntityTypes.EVENTS,
-                            order: 0,
-                        },
-                    ]
-                }
+                const cleanedParams = cleanFilters(searchParams)
+                // TODO: FILTERMARKER
                 actions.setFilters(cleanedParams, true, false)
             }
         },

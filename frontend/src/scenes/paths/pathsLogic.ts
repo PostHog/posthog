@@ -8,6 +8,7 @@ import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyP
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -21,29 +22,6 @@ export const pathOptionsToProperty = {
     [PathType.PageView]: '$current_url',
     [PathType.Screen]: '$screen_name',
     [PathType.CustomEvent]: 'custom_event',
-}
-
-export function cleanPathParams(filters: Partial<FilterType>): Partial<FilterType> {
-    return {
-        start_point: filters.start_point || undefined,
-        end_point: filters.end_point || undefined,
-        step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
-        // TODO: use FF for path_type undefined
-        path_type: filters.path_type ? filters.path_type || PathType.PageView : undefined,
-        include_event_types: filters.include_event_types || (filters.funnel_filter ? [] : [PathType.PageView]),
-        path_groupings: filters.path_groupings || [],
-        exclude_events: filters.exclude_events || [],
-        ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
-        date_from: filters.date_from,
-        date_to: filters.date_to,
-        insight: ViewType.PATHS,
-        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-        path_start_key: filters.path_start_key || undefined,
-        path_end_key: filters.path_end_key || undefined,
-        path_dropoff_key: filters.path_dropoff_key || undefined,
-        funnel_filter: filters.funnel_filter || {},
-        funnel_paths: filters.funnel_paths,
-    }
 }
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
@@ -123,10 +101,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     }),
     reducers: ({ props }) => ({
         filter: [
-            (props.filters
-                ? cleanPathParams(props.filters)
-                : (state: Record<string, any>) =>
-                      cleanPathParams(router.selectors.searchParams(state))) as Partial<FilterType>,
+            (state: Record<string, any>) =>
+                cleanFilters(props.filters || router.selectors.searchParams(state), { setDefault: true }),
             {
                 setFilter: (state, { filter }) => ({ ...state, ...filter }),
                 showPathEvents: (state, { event }) => {
@@ -159,14 +135,14 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         },
         setFilter: () => {
             insightLogic(props).actions.setFilters({
-                ...cleanPathParams(values.filter),
+                ...cleanFilters(values.filter),
                 properties: values.properties,
             })
             actions.loadResults(true)
         },
         loadResultsSuccess: async () => {
             insightLogic(props).actions.fetchedResults({
-                ...cleanPathParams(values.filter),
+                ...cleanFilters(values.filter),
                 properties: values.properties,
             })
         },
@@ -287,11 +263,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams: Partial<FilterType>) => {
             if (props.syncWithUrl && searchParams.insight === ViewType.PATHS) {
-                const cleanedPathParams = cleanPathParams(searchParams)
-
-                if (cleanedPathParams.funnel_filter && values.filter.date_from) {
-                    cleanedPathParams.funnel_filter.date_from = values.filter.date_from
-                }
+                const cleanedPathParams = cleanFilters(searchParams)
 
                 if (!objectsEqual(cleanedPathParams, values.filter)) {
                     actions.setFilter(cleanedPathParams)

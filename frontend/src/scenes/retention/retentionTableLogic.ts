@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { toParams, objectsEqual, uuid } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
-import { ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, InsightLogicProps, FilterType, ViewType } from '~/types'
 import {
@@ -15,6 +15,7 @@ import {
 } from 'scenes/retention/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -30,23 +31,6 @@ export const retentionOptionDescriptions = {
 }
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
-export function defaultFilters(filters: Record<string, any>): Record<string, any> {
-    return {
-        target_entity: filters.target_entity || {
-            id: '$pageview',
-            name: '$pageview',
-            type: 'events',
-        },
-        returning_entity: filters.returning_entity || { id: '$pageview', type: 'events', name: '$pageview' },
-        date_to: filters.date_to,
-        period: filters.period || 'Day',
-        retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
-        display: filters.display || ACTIONS_TABLE,
-        properties: filters.properties || [],
-        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-        insight: ViewType.RETENTION,
-    }
-}
 
 export const retentionTableLogic = kea<retentionTableLogicType>({
     props: {} as InsightLogicProps,
@@ -113,9 +97,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     }),
     reducers: ({ props }) => ({
         filters: [
-            props.filters
-                ? defaultFilters(props.filters as Record<string, any>)
-                : (state: any) => defaultFilters(router.selectors.searchParams(state)),
+            (state: any) => cleanFilters(props.filters || router.selectors.searchParams(state), { setDefault: true }),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -167,7 +149,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams) => {
             if (props.syncWithUrl && searchParams.insight === ViewType.RETENTION) {
-                const cleanSearchParams = searchParams
+                const cleanSearchParams = cleanFilters(searchParams)
                 const cleanedFilters = values.filters
 
                 if (cleanSearchParams.display !== cleanedFilters.display) {

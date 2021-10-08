@@ -92,7 +92,10 @@ export function FunnelTab(): JSX.Element {
                             </Row>
                             <ActionFilter
                                 filters={filters}
-                                setFilters={(newFilters: Record<string, any>): void => setFilters(newFilters, false)}
+                                setFilters={
+                                    (newFilters: Record<string, any>): void =>
+                                        setFilters(newFilters, false) /* TODO: FILTERMARKER */
+                                }
                                 typeKey={`EditFunnel-action`}
                                 hideMathSelector={true}
                                 buttonCopy="Add funnel step"
