@@ -138,7 +138,7 @@ def extract_data_from_request(request):
     return data, None
 
 
-def determine_team_from_request_data(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
+def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
     team = None
     error_response = None
 

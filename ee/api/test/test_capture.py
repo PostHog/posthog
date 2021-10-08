@@ -7,7 +7,7 @@ from django.test.client import Client
 from rest_framework import status
 
 from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
-from posthog.api.utils import determine_team_from_request_data
+from posthog.api.utils import get_team
 from posthog.test.base import APIBaseTest
 
 

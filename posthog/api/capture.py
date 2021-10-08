@@ -12,7 +12,7 @@ from rest_framework import status
 from sentry_sdk import push_scope
 from statshog.defaults.django import statsd
 
-from posthog.api.utils import determine_team_from_request_data, extract_data_from_request, get_token
+from posthog.api.utils import extract_data_from_request, get_team, get_token
 from posthog.celery import app as celery_app
 from posthog.constants import ENVIRONMENT_TEST
 from posthog.exceptions import generate_exception_response
@@ -127,7 +127,7 @@ def get_event(request):
             ),
         )
 
-    team, error_response = determine_team_from_request_data(request, data, token)
+    team, error_response = get_team(request, data, token)
 
     if error_response:
         return error_response
