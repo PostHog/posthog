@@ -806,7 +806,7 @@ export const funnelLogic = kea<funnelLogicType>({
             ) {
                 actions.loadCorrelations()
                 // Hardcoded for initial testing
-                actions.loadPropertyCorrelations('$browser, $os. $geoip_country_code')
+                actions.loadPropertyCorrelations('$browser, $os, $geoip_country_code')
             }
 
             insightLogic(props).actions.fetchedResults(values.filters)
