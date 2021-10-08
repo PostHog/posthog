@@ -3,14 +3,17 @@ from typing import Any, Dict, Optional, cast
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
+from django.contrib.auth.tokens import default_token_generator
 from django.http import JsonResponse
 from django.shortcuts import redirect
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.email import EmailMessage
 from posthog.event_usage import report_user_logged_in
 from posthog.models import User
 
@@ -68,15 +71,53 @@ class LoginSerializer(serializers.Serializer):
         return user
 
 
-class LoginViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
+class CreateStandardResponseMixin:
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+            Method `create()` is overridden to send a more appropriate HTTP status code.
+            """
+        response = super().create(request, *args, **kwargs)
+        response.status_code = status.HTTP_200_OK
+        return response
+
+
+class LoginViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet, CreateStandardResponseMixin):
     queryset = User.objects.none()
     serializer_class = LoginSerializer
     permission_classes = (permissions.AllowAny,)
 
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Method `create()` is overridden to send a more appropriate HTTP status code.
-        """
-        response = super().create(request, *args, **kwargs)
-        response.status_code = status.HTTP_200_OK
-        return response
+
+class PasswordResetSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def create(self, validated_data):
+        email = validated_data.pop("email")
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            user = None
+
+        if user:
+            token = default_token_generator.make_token(user)
+
+            message = EmailMessage(
+                campaign_key=f"password-reset-{user.uuid}-{timezone.now()}",
+                subject=f"Reset your PostHog password",
+                template_name="password_reset",
+                template_context={
+                    "preheader": "Please follow the link inside to reset your password.",
+                    "link": f"/reset/{token}",
+                    "cloud": settings.MULTI_TENANCY,
+                    "site_url": settings.SITE_URL,
+                },
+            )
+            message.add_recipient(email)
+            message.send()
+
+        return {"email": email}
+
+
+class PasswordResetViewSet(CreateStandardResponseMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
+    queryset = User.objects.none()
+    serializer_class = PasswordResetSerializer
+    permission_classes = (permissions.AllowAny,)

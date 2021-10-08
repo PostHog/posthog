@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from django.contrib.auth.tokens import default_token_generator
+from django.core import mail
 from rest_framework import status
 
 from posthog.models import User
@@ -112,3 +114,36 @@ class TestAuthenticationAPI(APIBaseTest):
                     "attr": None,
                 },
             )
+
+
+class TestPasswordResetAPI(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    @patch("posthoganalytics.capture")
+    def test_anonymous_user_can_request_password_reset(self, mock_capture):
+        with self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
+        ):
+            response = self.client.post("/api/reset", {"email": self.CONFIG_EMAIL})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"email": self.CONFIG_EMAIL})
+
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, set([self.CONFIG_EMAIL]))
+
+        self.assertEqual(
+            mail.outbox[0].subject, "Reset your PostHog password",
+        )
+        self.assertEqual(
+            mail.outbox[0].body, "",
+        )  # no plain-text version support yet
+
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        self.validate_basic_html(
+            html_message, "https://my.posthog.net", preheader="Please follow the link inside to reset your password.",
+        )
+
+        link_index = html_message.find("https://my.posthog.net/reset")
+        reset_link = html_message[link_index : html_message.find('"', link_index)]
+
+        # validate reset token
+        default_token_generator.check_token(self.user, reset_link.replace("https://my.posthog.net/reset/", ""))
