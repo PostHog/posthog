@@ -11,8 +11,7 @@ import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
-import { FunnelPathType } from '~/types'
-import { roundedRect, pageUrl } from './pathUtils'
+import { roundedRect, pageUrl, isSelectedPathStartOrEnd, getContinuingValue, getDropOffValue } from './pathUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 function NoData() {
@@ -84,7 +83,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
                         }
                     }
                 }
-                if (isSelectedPathStartOrEnd(d)) {
+                if (isSelectedPathStartOrEnd(filter, d)) {
                     return d3.color('purple')
                 }
                 const startNodeColor = d3.color(c)
@@ -233,28 +232,6 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
         appendDropoffs(svg)
         appendPathLinks(svg, links)
         addChartAxisLines(svg, height, nodes, maxLayer)
-    }
-
-    const getDropOffValue = (pathItemCard) => {
-        return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
-    }
-
-    const getContinuingValue = (sourceLinks) => {
-        return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
-    }
-
-    const isSelectedPathStartOrEnd = (pathItemCard) => {
-        const cardName = pageUrl(pathItemCard)
-        const isPathStart = pathItemCard.targetLinks.length === 0
-        const isPathEnd = pathItemCard.sourceLinks.length === 0
-        return (
-            (filter.start_point === cardName && isPathStart) ||
-            (filter.end_point === cardName && isPathEnd) ||
-            (filter.funnel_paths === FunnelPathType.between &&
-                ((cardName === filter.funnel_filter.events[filter.funnel_filter.funnel_step - 1].name && isPathEnd) ||
-                    (cardName === filter.funnel_filter.events[filter.funnel_filter.funnel_step - 2].name &&
-                        isPathStart)))
-        )
     }
 
     return (
@@ -411,7 +388,9 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
                                             background: 'white',
                                             width: 200,
                                             border: `1px solid ${
-                                                isSelectedPathStartOrEnd(pathItemCard) ? 'purple' : 'var(--border)'
+                                                isSelectedPathStartOrEnd(filter, pathItemCard)
+                                                    ? 'purple'
+                                                    : 'var(--border)'
                                             }`,
                                             padding: 4,
                                             justifyContent: 'space-between',

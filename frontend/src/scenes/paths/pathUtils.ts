@@ -1,4 +1,5 @@
 import { RGBColor } from 'd3'
+import { FilterType, FunnelPathType } from '~/types'
 
 export interface PathTargetLink {
     average_conversion_time: number
@@ -73,7 +74,7 @@ export function roundedRect(
     return retval
 }
 
-export function pageUrl(d: PathNodeData, display: boolean): string {
+export function pageUrl(d: PathNodeData, display?: boolean): string {
     const incomingUrls = d.targetLinks
         .map((l) => l?.source?.name?.replace(/(^[0-9]+_)/, ''))
         .filter((a) => {
@@ -100,4 +101,25 @@ export function pageUrl(d: PathNodeData, display: boolean): string {
         // discard if invalid url
     }
     return name.length > 15 ? name.substring(0, 6) + '...' + name.slice(-8) : name
+}
+
+export const isSelectedPathStartOrEnd = (filter: Partial<FilterType>, pathItemCard: PathNodeData): boolean => {
+    const cardName = pageUrl(pathItemCard)
+    const isPathStart = pathItemCard.targetLinks.length === 0
+    const isPathEnd = pathItemCard.sourceLinks.length === 0
+    return (
+        (filter.start_point === cardName && isPathStart) ||
+        (filter.end_point === cardName && isPathEnd) ||
+        (filter.funnel_paths === FunnelPathType.between &&
+            ((cardName === filter.funnel_filter?.events[filter.funnel_filter.funnel_step - 1].name && isPathEnd) ||
+                (cardName === filter.funnel_filter?.events[filter.funnel_filter.funnel_step - 2].name && isPathStart)))
+    )
+}
+
+export const getDropOffValue = (pathItemCard: PathNodeData): number => {
+    return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
+}
+
+export const getContinuingValue = (sourceLinks: PathTargetLink[]): number => {
+    return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
 }
