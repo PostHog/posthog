@@ -47,12 +47,13 @@ def get_breakdown_prop_values(
     else:
         value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
 
-    person_join_clauses = ""
+    person_join_clauses, person_join_params = "", {}
     person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer)
     if person_query.is_used:
+        person_subquery, person_join_params = person_query.get_query()
         person_join_clauses = f"""
             INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON e.distinct_id = pdi.distinct_id
-            INNER JOIN ({person_query.get_query()}) person ON pdi.person_id = person.id
+            INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
         """
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
@@ -74,6 +75,7 @@ def get_breakdown_prop_values(
             "offset": filter.offset,
             **prop_filter_params,
             **entity_params,
+            **person_join_params,
             **extra_params,
         },
     )[0][0]

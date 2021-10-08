@@ -106,5 +106,10 @@ class ColumnOptimizer:
         return counter
 
     def _used_properties_with_type(self, property_type: PropertyType) -> Counter[Tuple[PropertyName, PropertyType]]:
-        # :TODO: Filter properly
-        return set((name, type) for name, type in self.properties_used_in_filter if type == property_type)
+        return Counter(
+            {
+                (name, type): count
+                for (name, type), count in self.properties_used_in_filter.items()
+                if type == property_type
+            }
+        )

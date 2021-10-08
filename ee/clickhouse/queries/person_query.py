@@ -1,11 +1,22 @@
-from typing import List, Optional, Union
+from typing import (
+    Dict,
+    Generator,
+    List,
+    Literal,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
+from ee.clickhouse.models.property import extract_tables_and_properties, parse_prop_clauses, prop_filter_json_extract
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
+from posthog.constants import FunnelCorrelationType
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.property import Property
+from posthog.models.property import Property, PropertyName, PropertyType, TableWithProperties
 
 
 class ClickhousePersonQuery:
@@ -30,31 +41,49 @@ class ClickhousePersonQuery:
         self._extra_fields = extra_fields
 
     def get_query(self) -> str:
-        fields = (
-            "id"
-            + (
-                f", argMax(properties, _timestamp) AS {self.PERSON_PROPERTIES_ALIAS}"
-                if self._column_optimizer.should_query_person_properties_column
-                or self.PERSON_PROPERTIES_ALIAS in self._extra_fields
-                else ""
-            )
-            + " ".join(
-                f", argMax({column_name}, _timestamp) as {column_name}"
-                for column_name in self._column_optimizer.materialized_person_columns_to_query
-            )
-            + " ".join(
-                f", argMax({column_name}, _timestamp) as {self.ALIASES.get(column_name, column_name)}"
-                for column_name in set(self._extra_fields) - {self.PERSON_PROPERTIES_ALIAS}
-            )
+        fields = "id" + " ".join(
+            f", argMax({column_name}, _timestamp) as {alias}" for column_name, alias in self.get_fields()
         )
 
-        return f"""
+        person_filters, params = self.get_person_filters()
+
+        return (
+            f"""
             SELECT {fields}
             FROM person
             WHERE team_id = %(team_id)s
             GROUP BY id
-            HAVING max(is_deleted) = 0
-        """
+            HAVING max(is_deleted) = 0 {person_filters}
+        """,
+            params,
+        )
+
+    def get_fields(self) -> List[Tuple[str, str]]:
+        properties_to_query = self._column_optimizer._used_properties_with_type("person")
+        properties_to_query -= extract_tables_and_properties(self._filter.properties)
+
+        columns = self._column_optimizer.columns_to_query("person", set(properties_to_query)) | set(self._extra_fields)
+
+        return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in columns]
+
+    def get_person_filters(self) -> Tuple[str, Dict]:
+        conditions, params = [""], {}
+        for index, property in enumerate(self._filter.properties):
+            if property.type != "person":
+                continue
+
+            expr, prop_params = prop_filter_json_extract(
+                property,
+                index,
+                prepend="personquery",
+                allow_denormalized_props=True,
+                transform_expression=lambda column_name: f"argMax({column_name}, _timestamp)",
+            )
+
+            conditions.append(expr)
+            params.update(prop_params)
+
+        return " ".join(conditions), params
 
     @property
     def is_used(self):
@@ -64,10 +93,7 @@ class ClickhousePersonQuery:
         if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.properties):
             return True
 
-        return (
-            self._column_optimizer.should_query_person_properties_column
-            or len(self._column_optimizer.materialized_person_columns_to_query) > 0
-        )
+        return len(self._column_optimizer.person_columns_to_query) > 0
 
     def _uses_person_id(self, prop: Property) -> bool:
         return prop.type in ("person", "static-cohort", "precalculated-cohort")

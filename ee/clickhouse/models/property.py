@@ -1,6 +1,7 @@
 import re
 from typing import (
     Any,
+    Callable,
     Counter,
     Dict,
     List,
@@ -117,12 +118,20 @@ def parse_prop_clauses(
 
 
 def prop_filter_json_extract(
-    prop: Property, idx: int, prepend: str = "", prop_var: str = "properties", allow_denormalized_props: bool = False
+    prop: Property,
+    idx: int,
+    prepend: str = "",
+    prop_var: str = "properties",
+    allow_denormalized_props: bool = False,
+    transform_expression: Optional[Callable[[str], str]] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     property_expr, is_denormalized = get_property_string_expr(
         property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
     )
+    if transform_expression:
+        property_expr = transform_expression(property_expr)
+
     operator = prop.operator
     params: Dict[str, Any] = {}
 

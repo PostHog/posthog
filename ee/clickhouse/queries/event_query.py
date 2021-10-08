@@ -124,14 +124,16 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
 
     def _get_person_query(self) -> str:
         if self._should_join_persons:
-            return f"""
-            INNER JOIN (
-                {self._person_query.get_query()}
-            ) {self.PERSON_TABLE_ALIAS}
+            person_query, params = self._person_query.get_query()
+            return (
+                f"""
+            INNER JOIN ({person_query}) {self.PERSON_TABLE_ALIAS}
             ON {self.PERSON_TABLE_ALIAS}.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
-            """
+            """,
+                params,
+            )
         else:
-            return ""
+            return "", {}
 
     def _get_date_filter(self) -> Tuple[str, Dict]:
 

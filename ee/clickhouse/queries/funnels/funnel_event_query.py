@@ -48,10 +48,13 @@ class FunnelEventQuery(ClickhouseEventQuery):
 
         self.params.update(entity_params)
 
+        person_query, person_params = self._get_person_query()
+        self.params.update(person_params)
+
         query = f"""
             SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_disintct_id_query()}
-            {self._get_person_query()}
+            {person_query}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}

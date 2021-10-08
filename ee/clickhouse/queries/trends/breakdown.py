@@ -95,14 +95,15 @@ class ClickhouseTrendsBreakdown:
                 lambda _: [],
             )
 
-        self.params = {**self.params, **_params}
+        person_join_condition, person_join_params = self._person_join_condition()
+        self.params = {**self.params, **_params, **person_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if self.filter.display in TRENDS_DISPLAY_BY_VALUE:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
             content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                 breakdown_filter=breakdown_filter,
-                event_join=self._person_join_condition,
+                event_join=person_join_condition,
                 aggregate_operation=aggregate_operation,
                 breakdown_value=breakdown_value,
             )
@@ -125,7 +126,7 @@ class ClickhouseTrendsBreakdown:
                 )
                 inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
-                    event_join=self._person_join_condition,
+                    event_join=person_join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -137,7 +138,7 @@ class ClickhouseTrendsBreakdown:
             else:
                 inner_sql = BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
-                    event_join=self._person_join_condition,
+                    event_join=person_join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -245,17 +246,20 @@ class ClickhouseTrendsBreakdown:
         else:
             return str(value) or "none"
 
-    @property
     def _person_join_condition(self) -> str:
         person_query = ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer)
         if person_query.is_used:
-            return f"""
+            query, params = person_query.get_query()
+            return (
+                f"""
             {EVENT_JOIN_PERSON_SQL}
-            INNER JOIN ({person_query.get_query()}) person
+            INNER JOIN ({query}) person
             ON person.id = pdi.person_id
-            """
+            """,
+                params,
+            )
         elif self.entity.math == "dau":
             # Only join distinct_ids
-            return EVENT_JOIN_PERSON_SQL
+            return EVENT_JOIN_PERSON_SQL, {}
         else:
-            return ""
+            return "", {}
