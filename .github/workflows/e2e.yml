@@ -1,7 +1,10 @@
 name: E2E
 
 on:
-    - pull_request
+    pull_request:
+    push:
+        branches:
+            - master
 
 jobs:
     cypress:
@@ -71,7 +74,7 @@ jobs:
                       ~/.cache/Cypress
                   key: ${{ runner.os }}-cypress-node-modules-2-${{ hashFiles('**/yarn.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-cypress-node-modules-2
+                      ${{ runner.os }}-cypress-node-modules-2-
             - name: Yarn install deps
               if: steps.cypress-node-modules-cache-2.outputs.cache-hit != 'true'
               run: |
