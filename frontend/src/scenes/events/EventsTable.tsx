@@ -57,7 +57,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         exportUrl,
         highlightEvents,
     } = useValues(logic)
-    const { tableWidth, columnConfigSaving, columnConfig } = useValues(tableConfigLogic)
+    const { tableWidth, columnConfig } = useValues(tableConfigLogic)
 
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
@@ -323,7 +323,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                             availableColumns={propertyNames}
                             immutableColumns={['event', 'person', 'when']}
                             defaultColumns={defaultColumns.map((e) => e.key || '')}
-                            saving={columnConfigSaving}
                         />
                     )}
                 </Col>
