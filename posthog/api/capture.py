@@ -49,10 +49,10 @@ if is_clickhouse_enabled():
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
 
-    def log_event(data: Dict, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
+    def log_event(data: Dict, event_name: str, topic: str = KAFKA_EVENTS_PLUGIN_INGESTION,) -> None:
         if settings.DEBUG:
-            print(f'Logging event {data["event"]} to Kafka topic {topic}')
-        KafkaProducer().produce(topic=topic, key=data["ip"], data=data)
+            print(f"Logging event {event_name} to Kafka topic {topic}")
+        KafkaProducer().produce(topic=topic, data=data)
 
     def log_event_to_dead_letter_queue(
         raw_payload: Dict,
@@ -279,7 +279,7 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
             sent_at=sent_at,
             event_uuid=event_uuid,
         )
-        log_event(parsed_event)
+        log_event(parsed_event, event["event"])
     else:
         task_name = "posthog.tasks.process_event.process_event_with_plugins"
         celery_queue = settings.PLUGINS_CELERY_QUEUE
