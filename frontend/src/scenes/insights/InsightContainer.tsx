@@ -31,6 +31,7 @@ import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
+import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
 
 interface Props {
     loadResults: () => void
@@ -195,9 +196,15 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                 </div>
             </Card>
             {renderTable()}
+
             {preflight?.is_clickhouse_enabled &&
-                activeView === ViewType.FUNNELS &&
-                featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] && <FunnelCorrelationTable />}
+            activeView === ViewType.FUNNELS &&
+            featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
+                <>
+                    <FunnelCorrelationTable />
+                    <FunnelPropertyCorrelationTable />
+                </>
+            ) : null}
         </>
     )
 }
