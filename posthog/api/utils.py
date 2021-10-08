@@ -96,7 +96,7 @@ def clean_token(token) -> Tuple[str, bool]:
     return token, is_test_environment
 
 
-def get_project_id_from_request(data, request) -> Optional[int]:
+def get_project_id(data, request) -> Optional[int]:
     if request.GET.get("project_id"):
         return int(request.POST["project_id"])
     if request.POST.get("project_id"):
@@ -115,7 +115,7 @@ def get_data(request):
     except RequestParsingError as error:
         capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
         return (
-            data,
+            None,
             cors_response(
                 request,
                 generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
@@ -124,7 +124,7 @@ def get_data(request):
 
     if not data:
         return (
-            data,
+            None,
             cors_response(
                 request,
                 generate_exception_response(
@@ -159,11 +159,11 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
             ),
         )
 
-        return team, error_response
+        return None, error_response
 
     if team is None:
         try:
-            project_id = get_project_id_from_request(data, request)
+            project_id = get_project_id(data, request)
         except ValueError:
             error_response = cors_response(
                 request,
@@ -171,7 +171,7 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
                     "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
                 ),
             )
-            return team, error_response
+            return None, error_response
 
         if not project_id:
             error_response = cors_response(
@@ -184,7 +184,7 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
-            return team, error_response
+            return None, error_response
 
         user = User.objects.get_from_personal_api_key(token)
         if user is None:
@@ -198,7 +198,7 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[Any]]:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
-            return team, error_response
+            return None, error_response
 
         team = user.teams.get(id=project_id)
 
