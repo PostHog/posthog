@@ -1,5 +1,5 @@
 import React from 'react'
-import { Col, Row, Table } from 'antd'
+import { Col, Input, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
@@ -39,7 +39,7 @@ export function FunnelPropertyCorrelationTable({
                         <b>Correlation Analysis for:</b>
                     </Col>
                     <Col>
-                        <input
+                        <Input
                             // Hardcoded for initial testing
                             defaultValue="$browser, $os, $geoip_country_code"
                             onBlur={({ target: { value } }) => loadPropertyCorrelations(value)}
