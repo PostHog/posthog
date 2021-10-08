@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
@@ -69,15 +69,6 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
     } = useActions(sessionRecordingsTableLogicInstance)
     const { tableScrollX } = useIsTableScrolling('lg')
 
-    useEffect(() => {
-        if (showEntityFilter) {
-            const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-            if (entityFilterButtons.length > 0) {
-                ;(entityFilterButtons[0] as HTMLElement).click()
-            }
-        }
-    }, [showEntityFilter])
-
     const columns = [
         {
             title: 'Start time',
@@ -123,38 +114,45 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
     return (
         <div className="session-recordings-table" data-attr="session-recordings-table">
             <Row className="filter-row">
-                {showEntityFilter ? (
-                    <div className="action-filter-container">
-                        <Typography.Text strong>
-                            {`Filter by events or actions `}
-                            <Tooltip title="Show recordings where all of the events or actions listed below happen.">
-                                <InfoCircleOutlined className="info-icon" />
-                            </Tooltip>
-                        </Typography.Text>
-                        <ActionFilter
-                            fullWidth={true}
-                            filters={entityFilters}
-                            setFilters={(payload) => {
-                                setEntityFilters(payload)
-                            }}
-                            typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
-                            hideMathSelector={true}
-                            buttonCopy="Add another filter"
-                            horizontalUI
-                            stripeActionRow={false}
-                            propertyFilterWrapperClassName="session-recording-action-property-filter"
-                            customRowPrefix=""
-                            hideRename
-                            showOr
-                            renderRow={(props) => <FilterRow {...props} />}
-                            showNestedArrow={false}
-                        />
-                    </div>
-                ) : (
-                    <Button onClick={enableEntityFilter}>
-                        <FilterOutlined /> Filter by events and actions
-                    </Button>
-                )}
+                <div className="action-filter-container" style={{ display: showEntityFilter ? undefined : 'none' }}>
+                    <Typography.Text strong>
+                        {`Filter by events or actions `}
+                        <Tooltip title="Show recordings where all of the events or actions listed below happen.">
+                            <InfoCircleOutlined className="info-icon" />
+                        </Tooltip>
+                    </Typography.Text>
+                    <ActionFilter
+                        fullWidth={true}
+                        filters={entityFilters}
+                        setFilters={(payload) => {
+                            setEntityFilters(payload)
+                        }}
+                        typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
+                        hideMathSelector={true}
+                        buttonCopy="Add another filter"
+                        horizontalUI
+                        stripeActionRow={false}
+                        propertyFilterWrapperClassName="session-recording-action-property-filter"
+                        customRowPrefix=""
+                        hideRename
+                        showOr
+                        renderRow={(props) => <FilterRow {...props} />}
+                        showNestedArrow={false}
+                    />
+                </div>
+                <Button
+                    style={{ display: showEntityFilter ? 'none' : undefined }}
+                    onClick={() => {
+                        enableEntityFilter()
+
+                        const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
+                        if (entityFilterButtons.length > 0) {
+                            ;(entityFilterButtons[0] as HTMLElement).click()
+                        }
+                    }}
+                >
+                    <FilterOutlined /> Filter by events and actions
+                </Button>
 
                 <Row className="time-filter-row">
                     <Row className="time-filter">

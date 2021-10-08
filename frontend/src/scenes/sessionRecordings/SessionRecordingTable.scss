@@ -7,7 +7,7 @@
         margin-bottom: $default_spacing;
     }
     .action-filter-container {
-        max-width: 600px;
+        max-width: 700px;
         padding: $default_spacing;
         border: $border solid 1px;
         flex: 1;
@@ -21,6 +21,7 @@
         padding: 0.25rem $default_spacing;
     }
     .time-filter-row {
+        margin-top: $default_spacing;
         justify-content: flex-end;
         align-items: flex-end;
         .time-filter {
