@@ -407,6 +407,26 @@ class TestCapture(BaseTest):
         )
 
     @patch("posthog.api.capture.celery_app.send_task")
+    def test_batch_with_invalid_event(self, patch_process_event_with_plugins):
+        data = [
+            {"type": "capture", "event": "event1", "distinct_id": "2"},
+            {"type": "capture", "event": "event2"},  # invalid
+            {"type": "capture", "event": "event3", "distinct_id": "2"},
+            {"type": "capture", "event": "event4", "distinct_id": "2"},
+            {"type": "capture", "event": "event5", "distinct_id": "2"},
+        ]
+        response = self.client.post(
+            "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json",
+        )
+
+        # We should return a 200 but not process the invalid event
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_process_event_with_plugins.call_count, 4)
+
+        events_processed = [call.kwargs["args"][3]["event"] for call in patch_process_event_with_plugins.call_args_list]
+        self.assertEqual(events_processed, ["event1", "event3", "event4", "event5"])  # event2 not processed
+
+    @patch("posthog.api.capture.celery_app.send_task")
     def test_batch_gzip_header(self, patch_process_event_with_plugins):
         data = {
             "api_key": self.team.api_token,

@@ -129,7 +129,7 @@ def get_event(request):
 
     team, error_response = get_team(request, data, token)
 
-    if error_response:
+    if error_response or not team:
         return error_response
 
     if isinstance(data, dict):
@@ -153,7 +153,7 @@ def get_event(request):
 
     site_url = request.build_absolute_uri("/")[:-1]
 
-    ip = None if team.anonymize_ips else get_ip_address(request)  # type: ignore
+    ip = None if team.anonymize_ips else get_ip_address(request)
     for event in events:
         event_uuid = UUIDT()
         distinct_id = get_distinct_id(event)
