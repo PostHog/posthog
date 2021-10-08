@@ -185,7 +185,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             actions.loadResults()
         },
         setFilters: () => {
-            insightLogic(props).actions.setAllFilters(values.filters)
+            insightLogic(props).actions.setFilters(values.filters)
             actions.loadResults()
         },
         loadResultsSuccess: async () => {

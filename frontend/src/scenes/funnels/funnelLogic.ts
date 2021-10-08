@@ -806,7 +806,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
-            insightLogic(props).actions.setAllFilters(cleanedParams)
+            insightLogic(props).actions.setFilters(cleanedParams)
             insightLogic(props).actions.setLastRefresh(null)
         },
         setEventExclusionFilters: () => {
@@ -828,7 +828,7 @@ export const funnelLogic = kea<funnelLogicType>({
             actions.loadFunnels()
         },
         clearFunnel: async () => {
-            insightLogic(props).actions.setAllFilters({})
+            insightLogic(props).actions.setFilters({})
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
             personsModalLogic.actions.loadPeople({

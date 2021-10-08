@@ -34,7 +34,7 @@ export function Insights(): JSX.Element {
     } = useValues(router)
 
     const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
-    const { insightProps, activeView, allFilters, controlsCollapsed, insight, insightMode } = useValues(logic)
+    const { insightProps, activeView, filters, controlsCollapsed, insight, insightMode } = useValues(logic)
     const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight } = useActions(logic)
     const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
@@ -105,7 +105,7 @@ export function Insights(): JSX.Element {
                                 }}
                                 item={{
                                     entity: {
-                                        filters: insight.filters || allFilters,
+                                        filters: insight.filters || filters,
                                         annotations: annotationsToCreate,
                                     },
                                 }}
@@ -130,9 +130,9 @@ export function Insights(): JSX.Element {
                     <SaveCohortModal
                         visible={cohortModalVisible}
                         onOk={(title: string) => {
-                            saveCohortWithFilters(title, allFilters)
+                            saveCohortWithFilters(title, filters)
                             setCohortModalVisible(false)
-                            reportCohortCreatedFromPersonModal(allFilters)
+                            reportCohortCreatedFromPersonModal(filters)
                         }}
                         onCancel={() => setCohortModalVisible(false)}
                     />
@@ -172,7 +172,7 @@ export function Insights(): JSX.Element {
                                         }}
                                         item={{
                                             entity: {
-                                                filters: insight.filters || allFilters,
+                                                filters: insight.filters || filters,
                                                 annotations: annotationsToCreate,
                                             },
                                         }}

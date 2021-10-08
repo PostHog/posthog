@@ -55,7 +55,7 @@ export const insightLogic = kea<insightLogicType>({
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
-        setAllFilters: (filters) => ({ filters }),
+        setFilters: (filters: Partial<FilterType>) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
         endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
             queryId,
@@ -156,13 +156,11 @@ export const insightLogic = kea<insightLogicType>({
                 setIsLoading: (_, { isLoading }) => isLoading,
             },
         ],
-        /*
-        allfilters is passed to components that are shared between the different insight features
-        */
-        allFilters: [
-            {} as FilterType,
+        /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
+        filters: [
+            {} as Partial<FilterType>,
             {
-                setAllFilters: (_, { filters }) => filters,
+                setFilters: (_, { filters }) => filters,
             },
         ],
         /*
@@ -213,7 +211,7 @@ export const insightLogic = kea<insightLogicType>({
         updateInsightSuccess: () => {
             actions.setInsightMode(ItemMode.View, null)
         },
-        setAllFilters: async (filters, breakpoint) => {
+        setFilters: async (filters, breakpoint) => {
             const { fromDashboard } = router.values.hashParams
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard))
             actions.setNotFirstLoad()
@@ -354,10 +352,10 @@ export const insightLogic = kea<insightLogicType>({
 
                 const urlParams: UrlParams = {
                     insight: type,
-                    properties: values.allFilters.properties,
+                    properties: values.filters.properties,
                     filter_test_accounts: defaultFilterTestAccounts(),
-                    events: (values.allFilters.events || []) as Entity[],
-                    actions: (values.allFilters.actions || []) as Entity[],
+                    events: (values.filters.events || []) as Entity[],
+                    actions: (values.filters.actions || []) as Entity[],
                 }
 
                 if (type === ViewType.FUNNELS) {

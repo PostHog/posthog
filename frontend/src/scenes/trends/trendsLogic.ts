@@ -127,7 +127,7 @@ export const trendsLogic = kea<trendsLogicType>({
     },
 
     actions: () => ({
-        setFilters: (filters, mergeFilters = true) => ({ filters, mergeFilters }),
+        setFilters: (filters: Partial<FilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
         toggleVisibility: (index: number) => ({ index }),
         setVisibilityById: (entry: Record<number, boolean>) => ({ entry }),
@@ -314,7 +314,7 @@ export const trendsLogic = kea<trendsLogicType>({
             actions.setFilters({ display })
         },
         setFilters: async () => {
-            insightLogic(props).actions.setAllFilters(values.filters)
+            insightLogic(props).actions.setFilters(values.filters)
             actions.loadResults()
         },
         loadResultsSuccess: async () => {
@@ -408,7 +408,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 if (!objectsEqual(cleanSearchParams, values.loadedFilters)) {
                     actions.setFilters(cleanSearchParams, false)
                 } else {
-                    insightLogic(props).actions.setAllFilters(values.filters)
+                    insightLogic(props).actions.setFilters(values.filters)
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))

@@ -65,7 +65,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
 
     actions: {
         setProperties: (properties) => ({ properties }),
-        setFilter: (filter) => filter,
+        setFilter: (filter: Partial<FilterType>) => ({ filter }),
         setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
         showPathEvents: (event) => ({ event }),
         updateExclusions: (filters: AnyPropertyFilter[]) => ({ exclusions: filters.map(({ value }) => value) }),
@@ -128,7 +128,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
                 : (state: Record<string, any>) =>
                       cleanPathParams(router.selectors.searchParams(state))) as Partial<FilterType>,
             {
-                setFilter: (state, filter) => ({ ...state, ...filter }),
+                setFilter: (state, { filter }) => ({ ...state, ...filter }),
                 showPathEvents: (state, { event }) => {
                     if (state.include_event_types) {
                         const include_event_types = state.include_event_types.includes(event)
@@ -158,7 +158,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
             actions.setFilter({ exclude_events: exclusions })
         },
         setFilter: () => {
-            insightLogic(props).actions.setAllFilters({
+            insightLogic(props).actions.setFilters({
                 ...cleanPathParams(values.filter),
                 properties: values.properties,
             })

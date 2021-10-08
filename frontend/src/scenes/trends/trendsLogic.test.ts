@@ -4,6 +4,7 @@ import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { trendsLogicType } from 'scenes/trends/trendsLogicType'
 import { PropertyOperator, TrendResult } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 jest.mock('lib/api')
 
@@ -159,6 +160,36 @@ describe('trendsLogic', () => {
                         }),
                     })
             })
+        })
+    })
+
+    describe('syncs with insightLogic', () => {
+        const props = { dashboardItemId: 123 }
+        initKeaTestLogic({
+            logic: trendsLogic,
+            props,
+            onLogic: (l) => (logic = l),
+        })
+
+        it('setFilters calls insightLogic.setFilters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ events: [{ id: 42 }] })
+            })
+                .toDispatchActions([
+                    (action) =>
+                        action.type === insightLogic(props).actionTypes.setFilters &&
+                        action.payload.filters?.events?.[0]?.id === 42,
+                ])
+                .toMatchValues(logic, {
+                    filters: expect.objectContaining({
+                        events: [{ id: 42 }],
+                    }),
+                })
+                .toMatchValues(insightLogic(props), {
+                    filters: expect.objectContaining({
+                        events: [{ id: 42 }],
+                    }),
+                })
         })
     })
 })

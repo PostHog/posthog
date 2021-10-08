@@ -269,4 +269,34 @@ describe('funnelLogic', () => {
             })
         })
     })
+
+    describe('syncs with insightLogic', () => {
+        const props = { dashboardItemId: 123 }
+        initKeaTestLogic({
+            logic: funnelLogic,
+            props,
+            onLogic: (l) => (logic = l),
+        })
+
+        it('setFilters calls insightLogic.setFilters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ events: [{ id: 42 }] })
+            })
+                .toDispatchActions([
+                    (action) =>
+                        action.type === insightLogic(props).actionTypes.setFilters &&
+                        action.payload.filters?.events?.[0]?.id === 42,
+                ])
+                .toMatchValues(logic, {
+                    filters: expect.objectContaining({
+                        events: [{ id: 42 }],
+                    }),
+                })
+                .toMatchValues(insightLogic(props), {
+                    filters: expect.objectContaining({
+                        events: [{ id: 42 }],
+                    }),
+                })
+        })
+    })
 })
