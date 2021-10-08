@@ -317,11 +317,9 @@ class FunnelCorrelation:
         query, params = self.get_contingency_table_query()
         results_with_total = sync_execute(query, params)
 
-        # Get the total success/failure counts from the results
-        results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]
-        _, success_total, failure_total = [
-            result for result in results_with_total if result[0] == self.TOTAL_IDENTIFIER
-        ][0]
+        event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables(
+            results_with_total
+        )
 
         if not success_total or not failure_total:
             return {"events": [], "skewed": True}
@@ -332,8 +330,6 @@ class FunnelCorrelation:
         # warn the user.
         if success_total / failure_total > 10 or failure_total / success_total > 10:
             skewed_totals = True
-
-        event_contingency_tables = self.get_partial_event_contingency_tables(results, success_total, failure_total)
 
         odds_ratios = [
             get_entity_odds_ratio(event_stats, FunnelCorrelation.PRIOR_COUNT)
@@ -360,8 +356,8 @@ class FunnelCorrelation:
         }
 
     def get_partial_event_contingency_tables(
-        self, results: list, success_total: int, failure_total: int
-    ) -> List[EventContingencyTable]:
+        self, results_with_total: list
+    ) -> Tuple[List[EventContingencyTable], int, int]:
         """
         For each event a person that started going through the funnel, gets stats
         for how many of these users are sucessful and how many are unsuccessful.
@@ -371,17 +367,27 @@ class FunnelCorrelation:
         for us to calculate the odds ratio.
         """
 
+        # Get the total success/failure counts from the results
+        results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]
+        _, success_total, failure_total = [
+            result for result in results_with_total if result[0] == self.TOTAL_IDENTIFIER
+        ][0]
+
         # Add a little structure, and keep it close to the query definition so it's
         # obvious what's going on with result indices.
-        return [
-            EventContingencyTable(
-                event=result[0],
-                visited=EventStats(success_count=result[1], failure_count=result[2]),
-                success_total=success_total,
-                failure_total=failure_total,
-            )
-            for result in results
-        ]
+        return (
+            [
+                EventContingencyTable(
+                    event=result[0],
+                    visited=EventStats(success_count=result[1], failure_count=result[2]),
+                    success_total=success_total,
+                    failure_total=failure_total,
+                )
+                for result in results
+            ],
+            success_total,
+            failure_total,
+        )
 
     def get_funnel_persons_cte(self) -> Tuple[str, Dict[str, Any]]:
         funnel_persons_generator = ClickhouseFunnelPersons(
