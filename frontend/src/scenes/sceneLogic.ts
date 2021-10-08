@@ -49,6 +49,7 @@ export enum Scene {
     Signup = 'signup',
     InviteSignup = 'inviteSignup',
     PasswordReset = 'passwordReset',
+    PasswordResetComplete = 'passwordResetComplete',
     PreflightCheck = 'preflightCheck',
     Ingestion = 'ingestion',
     Personalization = 'personalization', // DEPRECATED
@@ -108,6 +109,8 @@ export const scenes: Record<Scene, () => any> = {
     [Scene.Home]: () => import(/* webpackChunkName: 'home' */ './onboarding/home/Home'),
     [Scene.SavedInsights]: () => import(/* webpackChunkName: 'savedInsights' */ './saved-insights/SavedInsights'),
     [Scene.PasswordReset]: () => import(/* webpackChunkName: 'passwordReset' */ './authentication/PasswordReset'),
+    [Scene.PasswordResetComplete]: () =>
+        import(/* webpackChunkName: 'passwordResetComplete' */ './authentication/PasswordResetComplete'),
 }
 
 interface LoadedScene {
@@ -228,6 +231,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.PasswordReset]: {
         allowUnauthenticated: true,
     },
+    [Scene.PasswordResetComplete]: {
+        allowUnauthenticated: true,
+    },
     [Scene.InviteSignup]: {
         allowUnauthenticated: true,
         plain: true,
@@ -279,6 +285,7 @@ export const urls = {
     signup: () => '/signup',
     inviteSignup: (id: string) => `/signup/${id}`,
     passwordReset: () => '/reset',
+    passwordResetComplete: (token: string) => `/reset/${token}`,
     preflight: () => '/preflight',
     personalization: () => '/personalization',
     ingestion: () => '/ingestion',
@@ -321,6 +328,7 @@ export const routes: Record<string, Scene> = {
     [urls.signup()]: Scene.Signup,
     [urls.inviteSignup(':id')]: Scene.InviteSignup,
     [urls.passwordReset()]: Scene.PasswordReset,
+    [urls.passwordResetComplete(':token')]: Scene.PasswordResetComplete,
     [urls.personalization()]: Scene.Personalization,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,

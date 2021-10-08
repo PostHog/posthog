@@ -12,10 +12,10 @@ import successState from './reset-success.json'
 
 // some metadata and optional parameters
 export default {
-    title: 'PostHog/Authentication/Password reset',
+    title: 'PostHog/Authentication/Password reset/Request',
 } as Meta
 
 // export more stories with different state
+export const NoSMTP = keaStory(PasswordReset, noEmailState)
 export const Initial = keaStory(PasswordReset, initialState)
-export const NoEmail = keaStory(PasswordReset, noEmailState)
 export const Success = keaStory(PasswordReset, successState)

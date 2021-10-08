@@ -1,13 +1,17 @@
+/*
+Scene to request a password reset email.
+*/
 import { Col, Row, Form, Input, Button, Skeleton, Divider } from 'antd'
 import { ErrorMessage } from 'lib/components/ErrorMessage/ErrorMessage'
 import React from 'react'
 import { WelcomeLogo } from './WelcomeLogo'
-import { ExclamationCircleFilled } from '@ant-design/icons'
+import { ExclamationCircleFilled, CheckCircleOutlined } from '@ant-design/icons'
 import './PasswordReset.scss'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { passwordResetLogic } from './passwordResetLogic'
+import { router } from 'kea-router'
 
 export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)
@@ -19,6 +23,11 @@ export function PasswordReset(): JSX.Element {
                 <Col span={24} className="auth-main-content">
                     <WelcomeLogo view="login" />
                     <div className="inner">
+                        {resetResponse?.success && (
+                            <div className="text-center">
+                                <CheckCircleOutlined style={{ color: 'var(--success)', fontSize: '4em' }} />
+                            </div>
+                        )}
                         <h2 className="subtitle" style={{ justifyContent: 'center' }}>
                             Reset password
                         </h2>
@@ -58,8 +67,8 @@ function EmailUnavailable(): JSX.Element {
                     </li>
                     <li>To reset the password manually, run the following command in your instance.</li>
                 </ul>
-                <CodeSnippet language={Language.Bash} hideCopyButton>
-                    {'python manage.py changepassword [email]'}
+                <CodeSnippet language={Language.Bash} wrap>
+                    {'python manage.py changepassword [account email]'}
                 </CodeSnippet>
             </div>
         </div>
@@ -130,12 +139,13 @@ function ResetForm(): JSX.Element {
 
 function ResetSuccess(): JSX.Element {
     const { resetResponse } = useValues(passwordResetLogic)
+    const { push } = useActions(router)
     return (
-        <div>
+        <div className="text-center">
             Request received successfully! If the email <b>{resetResponse?.email || 'you typed'}</b> exists, you’ll
             receive an email with a reset link soon.
             <div className="mt">
-                <Button className="btn-bridge" data-attr="back-to-login" block>
+                <Button className="btn-bridge" data-attr="back-to-login" block onClick={() => push('/login')}>
                     Back to login
                 </Button>
             </div>
