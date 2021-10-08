@@ -30,8 +30,6 @@ export function TableConfig({ availableColumns, immutableColumns, defaultColumns
     const { modalVisible } = useValues(tableConfigLogic)
     const { setModalVisible } = useActions(tableConfigLogic)
 
-    const { columnConfig } = useValues(tableConfigLogic)
-
     return (
         <>
             <div className="table-options">
@@ -48,7 +46,6 @@ export function TableConfig({ availableColumns, immutableColumns, defaultColumns
                             {modalVisible && (
                                 <ColumnConfigurator
                                     allColumns={availableColumns}
-                                    currentSelection={columnConfig === 'DEFAULT' ? defaultColumns : columnConfig}
                                     immutableColumns={immutableColumns}
                                     defaultColumns={defaultColumns}
                                 />
@@ -71,14 +68,12 @@ const searchFilteredColumns = (searchTerm: string, selectedColumns: string[]): s
         : selectedColumns
 
 interface ColumnConfiguratorInterface {
-    currentSelection: string[] // List of currently selected columns
     allColumns: string[] // List of all possible columns
     immutableColumns?: string[]
-    defaultColumns?: string[]
+    defaultColumns: string[]
 }
 
 function ColumnConfigurator({
-    currentSelection,
     allColumns,
     immutableColumns,
     defaultColumns,
@@ -92,8 +87,10 @@ function ColumnConfigurator({
 
     const selectableColumnsDisplay = searchFilteredColumns(searchTerm, selectableColumns)
 
-    const { columnConfigSaving } = useValues(tableConfigLogic)
+    const { columnConfigSaving, columnConfig } = useValues(tableConfigLogic)
     const { setColumnConfig, setModalVisible } = useActions(tableConfigLogic)
+
+    const currentSelection = columnConfig === 'DEFAULT' ? defaultColumns : columnConfig
 
     useEffect(() => {
         setSelectedColumns(currentSelection)
