@@ -1,5 +1,7 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
+import { successToast } from 'lib/utils'
 import { passwordResetLogicType } from './passwordResetLogicType'
 
 interface ResponseType {
@@ -72,7 +74,11 @@ export const passwordResetLogic = kea<
                         }
                     }
                     try {
-                        await api.create('api/reset/complete', { password, token: values.validatedResetToken.token })
+                        // TODO: await api.create('api/reset/complete', { password, token: values.validatedResetToken.token })
+                        successToast(
+                            'Password changed successfully',
+                            'Your password was successfully changed. Redirecting you...'
+                        )
                         return { success: true }
                     } catch (e) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
@@ -81,6 +87,14 @@ export const passwordResetLogic = kea<
             },
         ],
     }),
+    listeners: {
+        updatePasswordSuccess: async ({ newPasswordResponse }, breakpoint) => {
+            if (newPasswordResponse.success) {
+                await breakpoint(3000)
+                router.actions.push('/')
+            }
+        },
+    },
     urlToAction: ({ actions }) => ({
         '/reset/:token': ({ token }) => {
             if (token) {
