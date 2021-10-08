@@ -7,6 +7,9 @@ import { sessionsTableLogicType } from './sessionsTableLogicType'
 import { EventType, PropertyFilter, SessionsPropertyFilter, SessionType } from '~/types'
 import { router } from 'kea-router'
 import { sessionsFiltersLogic } from 'scenes/sessions/filters/sessionsFiltersLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 type SessionRecordingId = string
 
@@ -20,6 +23,7 @@ interface Params {
     properties?: any
     sessionRecordingId?: SessionRecordingId
     filters?: Array<SessionsPropertyFilter>
+    source?: RecordingWatchedSource
 }
 
 export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>>({
@@ -63,7 +67,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             properties,
             selectedDate,
         }),
-        setSessionRecordingId: (sessionRecordingId: SessionRecordingId | null) => ({ sessionRecordingId }),
+        setSessionRecordingId: (sessionRecordingId: SessionRecordingId | null, source?: RecordingWatchedSource) => ({
+            sessionRecordingId,
+            source,
+        }),
         closeSessionPlayer: true,
         loadSessionEvents: (session: SessionType) => ({ session }),
         addSessionEvents: (session: SessionType, events: EventType[]) => ({ session, events }),
@@ -272,7 +279,7 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
         return {
             setFilters: () => buildURL({}, true),
             loadSessions: () => buildURL({}, true),
-            setSessionRecordingId: () => buildURL(),
+            setSessionRecordingId: ({ source }) => buildURL({ source }),
             closeSessionPlayer: () => buildURL({ sessionRecordingId: undefined }),
         }
     },
@@ -291,7 +298,10 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
             }
 
             if (params.sessionRecordingId !== values.sessionRecordingId) {
-                actions.setSessionRecordingId(params.sessionRecordingId ?? null)
+                actions.setSessionRecordingId(
+                    params.sessionRecordingId ?? null,
+                    params.source || RecordingWatchedSource.Direct
+                )
             }
 
             if (JSON.stringify(params.filters || {}) !== JSON.stringify(values.filters)) {
@@ -302,7 +312,14 @@ export const sessionsTableLogic = kea<sessionsTableLogicType<SessionRecordingId>
 
         return {
             '/sessions': urlToAction,
-            '/person/*': urlToAction,
+            '/person/*': (_: any, params: Params) => {
+                // Needed while the REMOVE_SESSIONS feature flag exists. Otherwise, this logic and
+                // the sessionRecordingsLogic both try to set the sessionRecordingId
+                // query param, and we end up with multiple navigations to the player page
+                if (!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]) {
+                    urlToAction(_, params)
+                }
+            },
         }
     },
 })

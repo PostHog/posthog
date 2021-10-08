@@ -392,6 +392,7 @@ def load_data_from_request(request):
     # add the data in sentry's scope in case there's an exception
     with push_scope() as scope:
         scope.set_context("data", data)
+        scope.set_tag("origin", request.META.get("REMOTE_HOST"))
 
     compression = (
         request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
@@ -399,6 +400,11 @@ def load_data_from_request(request):
     compression = compression.lower()
 
     if compression == "gzip" or compression == "gzip-js":
+        if data == b"undefined":
+            raise RequestParsingError(
+                "data being loaded from the request body for decompression is the literal string 'undefined'"
+            )
+
         try:
             data = gzip.decompress(data)
         except (EOFError, OSError) as error:
@@ -766,7 +772,9 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 
 def should_refresh(request: Request) -> bool:
     key = "refresh"
-    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true"
+    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
+        key, False
+    ) == True
 
 
 def str_to_bool(value: Any) -> bool:

@@ -6,6 +6,9 @@ import { personsLogicType } from './personsLogicType'
 import { CohortType, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/sceneLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 interface PersonPaginatedResponse {
     next: string | null
@@ -18,6 +21,7 @@ const FILTER_ALLOWLIST: string[] = ['is_identified', 'search', 'cohort']
 export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
     },
     actions: {
         setListFilters: (payload) => ({ payload }),
@@ -40,7 +44,7 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
             },
         ],
         activeTab: [
-            PersonsTabType.EVENTS as PersonsTabType,
+            null as PersonsTabType | null,
             {
                 navigateToTab: (_, { tab }) => tab,
             },
@@ -49,9 +53,39 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
     selectors: {
         exampleEmail: [
             (s) => [s.persons],
-            (persons: PersonPaginatedResponse): string => {
+            (persons) => {
                 const match = persons && persons.results.find((person) => person.properties?.email)
                 return match?.properties?.email || 'example@gmail.com'
+            },
+        ],
+        showSessionRecordings: [
+            (s) => [s.featureFlags, s.currentTeam],
+            (featureFlags, currentTeam) => {
+                return !!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] && currentTeam?.session_recording_opt_in
+            },
+        ],
+        showTabs: [
+            (s) => [s.featureFlags, s.showSessionRecordings],
+            (featureFlags, showSessionRecordings) => {
+                return !featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] || showSessionRecordings
+            },
+        ],
+        currentTab: [
+            (s) => [s.activeTab, s.showSessionRecordings, s.featureFlags],
+            (activeTab, showSessionRecordings, featureFlags) => {
+                // Ensure the activeTab reflects a valid tab given the available tabs
+                if (
+                    !activeTab ||
+                    (activeTab === PersonsTabType.SESSIONS && !!featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS])
+                ) {
+                    return showSessionRecordings ? PersonsTabType.SESSION_RECORDINGS : PersonsTabType.EVENTS
+                }
+                if (activeTab === PersonsTabType.SESSION_RECORDINGS && !showSessionRecordings) {
+                    return !featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS]
+                        ? PersonsTabType.SESSIONS
+                        : PersonsTabType.EVENTS
+                }
+                return activeTab
             },
         ],
     },
@@ -204,7 +238,11 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse>>({
         },
         '/person/*': ({ _: person }, { sessionRecordingId }, { activeTab }) => {
             if (sessionRecordingId) {
-                actions.navigateToTab(PersonsTabType.SESSIONS)
+                if (values.showSessionRecordings) {
+                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
+                } else {
+                    actions.navigateToTab(PersonsTabType.SESSIONS)
+                }
             } else if (activeTab && values.activeTab !== activeTab) {
                 actions.navigateToTab(activeTab as PersonsTabType)
             }

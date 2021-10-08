@@ -9,7 +9,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, configure_scope
 from statshog.defaults.django import statsd
 
 from posthog.api.utils import get_token
@@ -50,7 +50,7 @@ if is_clickhouse_enabled():
             "now": now.isoformat(),
             "sent_at": sent_at.isoformat() if sent_at else "",
         }
-        KafkaProducer().produce(topic=topic, data=data)
+        KafkaProducer().produce(topic=topic, key=ip, data=data)
 
 
 def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
@@ -246,6 +246,13 @@ def get_event(request):
         # Support test_[apiKey] for users with multiple environments
         if event["properties"].get("$environment") is None and is_test_environment:
             event["properties"]["$environment"] = ENVIRONMENT_TEST
+
+        library = event["properties"].get("$lib", "unknown")
+        library_version = event["properties"].get("$lib_version", "unknown")
+
+        with configure_scope() as scope:
+            scope.set_tag("library", library)
+            scope.set_tag("library.version", library_version)
 
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 

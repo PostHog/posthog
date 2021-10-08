@@ -2,7 +2,8 @@
 nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
 style files without adding already imported styles.
 
-Font weights: only `normal` (400), `medium` (500) or `bold` (700) should be used.
+Font weights: only `normal` (400), `$medium` (500) or `bold` (700) should be used.
+NOTE: $medium is a SCSS var; not a keyword
 
 */
 
@@ -151,6 +152,10 @@ Font weights: only `normal` (400), `medium` (500) or `bold` (700) should be used
     color: $text_muted_alt;
 }
 
+.primary {
+    color: $primary;
+}
+
 code.code {
     // Temporary: .code class to transition legacy elements
     color: $danger;
@@ -282,16 +287,20 @@ code.code {
     background-color: $primary;
 }
 
+.text-primary {
+    color: var(--primary) !important;
+}
+
 .text-success {
-    color: $success !important;
+    color: var(--success) !important;
 }
 
 .text-danger {
-    color: $danger !important;
+    color: var(--danger) !important;
 }
 
 .text-warning {
-    color: $warning !important;
+    color: var(--warning) !important;
 }
 
 // Random general styles
@@ -447,8 +456,8 @@ code.code {
     }
 }
 
-.ant-form-item-label {
-    font-weight: medium;
+.ant-form-item-label label {
+    font-weight: $medium;
 }
 
 // Button styles

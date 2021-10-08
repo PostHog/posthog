@@ -20,7 +20,11 @@ from posthog.celery import app as celery_app
 from posthog.models import Plugin, PluginAttachment, PluginConfig, Team
 from posthog.models.organization import Organization
 from posthog.models.plugin import update_validated_data_from_url
-from posthog.permissions import OrganizationMemberPermissions, ProjectMembershipNecessaryPermissions
+from posthog.permissions import (
+    OrganizationMemberPermissions,
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins
 
@@ -287,11 +291,14 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
 
 class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, OrganizationMemberPermissions]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        OrganizationMemberPermissions,
+        TeamMemberAccessPermission,
+    ]
 
     def get_queryset(self):
         if not can_configure_plugins(self.team.organization_id):
@@ -353,3 +360,7 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
     # A set of keys for config fields that have secret = true
     secret_fields = set([field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]])
     return secret_fields
+
+
+class LegacyPluginConfigViewSet(PluginConfigViewSet):
+    legacy_team_compatibility = True

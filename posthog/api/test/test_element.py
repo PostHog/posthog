@@ -76,7 +76,9 @@ def factory_test_element(create_event: Callable) -> Callable:
                 elements=[Element(tag_name="img")],
             )
 
-            with self.assertNumQueries(6):
+            with self.assertNumQueries(7):
+                # Django session, PostHog user, PostHog team, PostHog org membership, PostHog event aggregated,
+                # PostHog element group, PostHog element
                 response = self.client.get("/api/element/stats/").json()
             self.assertEqual(response[0]["count"], 2)
             self.assertEqual(response[0]["hash"], event1.elements_hash)

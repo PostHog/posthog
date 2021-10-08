@@ -8,9 +8,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import PropertyDefinition
-from posthog.permissions import OrganizationMemberPermissions
-
-_MT = TypeVar("_MT", bound=models.Model)
+from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
 
 
 class PropertyDefinitionSerializer(serializers.ModelSerializer):
@@ -35,7 +33,7 @@ class PropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = PropertyDefinitionSerializer
-    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
+    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
@@ -67,7 +65,7 @@ class PropertyDefinitionViewSet(
                     WHERE team_id = %(team_id)s {name_filter} {search_query}
                     ORDER BY name
                     """,
-                    params={"names": names, "team_id": self.request.user.team.id, **search_kwargs},  # type: ignore
+                    params={"names": names, "team_id": self.team_id, **search_kwargs},
                 )
                 return ee_property_definitions
 

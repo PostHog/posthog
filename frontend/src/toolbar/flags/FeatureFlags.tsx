@@ -9,9 +9,8 @@ import { PostHog } from 'posthog-js'
 
 export function FeatureFlags(): JSX.Element {
     const { userFlagsWithCalculatedInfo, showLocalFeatureFlagWarning } = useValues(featureFlagsLogic)
-    const { setOverriddenUserFlag, deleteOverriddenUserFlag, setShowLocalFeatureFlagWarning } = useActions(
-        featureFlagsLogic
-    )
+    const { setOverriddenUserFlag, deleteOverriddenUserFlag, setShowLocalFeatureFlagWarning } =
+        useActions(featureFlagsLogic)
     return (
         <div className="toolbar-block">
             {showLocalFeatureFlagWarning ? (

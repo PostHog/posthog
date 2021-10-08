@@ -61,9 +61,8 @@ export function SessionsPlay(): JSX.Element {
         shownPlayerEvents,
         shouldLoadSessionEvents,
     } = useValues(sessionsPlayLogic)
-    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious, loadSessionEvents } = useActions(
-        sessionsPlayLogic
-    )
+    const { toggleAddingTagShown, setAddingTag, createTag, goToNext, goToPrevious, loadSessionEvents } =
+        useActions(sessionsPlayLogic)
     const addTagInput = useRef<Input>(null)
 
     const [playerTime, setCurrentPlayerTime] = useState(0)

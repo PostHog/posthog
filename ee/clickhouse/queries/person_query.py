@@ -4,20 +4,22 @@ from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.property import Property
 
 
 class ClickhousePersonQuery:
     PERSON_PROPERTIES_ALIAS = "person_props"
     ALIASES = {"properties": "person_props"}
 
-    _filter: Union[Filter, PathFilter]
+    _filter: Union[Filter, PathFilter, RetentionFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _extra_fields: List[ColumnName]
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter],
+        filter: Union[Filter, PathFilter, RetentionFilter],
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
         extra_fields: List[ColumnName] = [],
@@ -57,7 +59,15 @@ class ClickhousePersonQuery:
     @property
     def is_used(self):
         "Returns whether properties or any other columns are actually being queried"
+        if any(self._uses_person_id(prop) for prop in self._filter.properties):
+            return True
+        if any(self._uses_person_id(prop) for entity in self._filter.entities for prop in entity.properties):
+            return True
+
         return (
             self._column_optimizer.should_query_person_properties_column
             or len(self._column_optimizer.materialized_person_columns_to_query) > 0
         )
+
+    def _uses_person_id(self, prop: Property) -> bool:
+        return prop.type in ("person", "static-cohort", "precalculated-cohort")

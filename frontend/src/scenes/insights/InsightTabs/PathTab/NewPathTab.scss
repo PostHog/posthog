@@ -1,0 +1,70 @@
+@import '~/vars';
+
+.event-types {
+    .ant-row {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 2px;
+        padding-bottom: 2px;
+    }
+}
+
+.tab-btn {
+    padding-top: 20px;
+    padding-bottom: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    &.left {
+        border-top-right-radius: 0px;
+        border-bottom-right-radius: 0px;
+    }
+
+    &.center {
+        border-radius: 0px;
+    }
+
+    &.right {
+        border-top-left-radius: 0px;
+        border-bottom-left-radius: 0px;
+    }
+}
+
+.path-filters {
+    .ant-collapse > .ant-collapse-item > .ant-collapse-header {
+        padding-left: 0;
+        color: $primary-alt;
+        font-weight: 600;
+    }
+
+    .ant-collapse-content > .ant-collapse-content-box {
+        padding: 0;
+    }
+}
+
+.paths-endpoint-field {
+    .label-container {
+        display: flex;
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .label {
+        margin-left: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .close-button {
+        cursor: pointer;
+        padding-left: 8px;
+        align-self: center;
+
+        &:hover {
+            border-radius: 4px 4px 0px 0px;
+            color: black;
+            z-index: 999;
+        }
+    }
+}

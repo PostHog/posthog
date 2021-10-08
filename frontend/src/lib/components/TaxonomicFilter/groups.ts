@@ -7,8 +7,9 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { actionsModel } from '~/models/actionsModel'
+import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 
-type SimpleOption = {
+export type SimpleOption = {
     name: string
 }
 
@@ -67,5 +68,36 @@ export const groups: TaxonomicFilterGroup[] = [
         value: 'cohortsWithAllUsers',
         getName: (cohort: CohortType): string => cohort.name || `Cohort ${cohort.id}`,
         getValue: (cohort: CohortType): TaxonomicFilterValue => cohort.id,
+    },
+    {
+        name: 'Pageview Urls',
+        type: TaxonomicFilterGroupType.PageviewUrls,
+        endpoint: 'api/event/values/?key=$current_url',
+        searchAlias: 'value',
+        getName: ({ name }: { name: string }): string => name,
+        getValue: ({ name }: { name: string }): TaxonomicFilterValue => name,
+    },
+    {
+        name: 'Screens',
+        type: TaxonomicFilterGroupType.Screens,
+        endpoint: 'api/event/values/?key=$screen_name',
+        searchAlias: 'value',
+        getName: ({ name }: { name: string }): string => name,
+        getValue: ({ name }: { name: string }): TaxonomicFilterValue => name,
+    },
+    {
+        name: 'Custom Events',
+        type: TaxonomicFilterGroupType.CustomEvents,
+        logic: eventDefinitionsModel,
+        value: 'customEvents',
+        getName: (eventDefinition: EventDefinition): string => eventDefinition.name,
+        getValue: (eventDefinition: EventDefinition): TaxonomicFilterValue => eventDefinition.name,
+    },
+    {
+        name: 'Wildcards',
+        type: TaxonomicFilterGroupType.Wildcards,
+        // Populated via optionsFromProp
+        getName: (option: SimpleOption): string => option.name,
+        getValue: (option: SimpleOption): TaxonomicFilterValue => option.name,
     },
 ]

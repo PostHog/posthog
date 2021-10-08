@@ -81,8 +81,9 @@ export function SelectBox({
         if (selectedItemKey) {
             const allSources = data.map((item) => item.dataSource).flat()
             setSelectedItem(allSources.filter((item) => item.key === selectedItemKey)[0] || null)
-            const offset = document.querySelector<HTMLElement>('.search-list [datakey="' + selectedItemKey + '"]')
-                ?.offsetTop
+            const offset = document.querySelector<HTMLElement>(
+                '.search-list [datakey="' + selectedItemKey + '"]'
+            )?.offsetTop
             const searchListSelector = document.querySelector<HTMLElement>('.search-list')
             if (offset && searchListSelector) {
                 searchListSelector.scrollTop = offset

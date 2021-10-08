@@ -48,7 +48,7 @@ export function MetricsChart({ plugin }: { plugin: PluginTypeWithConfig }): JSX.
 
     return (
         <div className="metrics-chart-wrapper">
-            <ActionsLineGraph view={ViewType.TRENDS} filters={filters} showPersonsModal={false} />
+            <ActionsLineGraph filters={filters} showPersonsModal={false} />
         </div>
     )
 }

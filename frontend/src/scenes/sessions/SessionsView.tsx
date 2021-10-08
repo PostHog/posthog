@@ -13,16 +13,13 @@ import {
     CaretRightOutlined,
     PoweroffOutlined,
     QuestionCircleOutlined,
-    ArrowLeftOutlined,
     PlayCircleOutlined,
 } from '@ant-design/icons'
 import { SessionRecordingsButton, sessionPlayerUrl } from './SessionRecordingsButton'
-import { SessionsPlay } from './SessionsPlay'
 import { LinkButton } from 'lib/components/LinkButton'
 import { SessionsFilterBox } from 'scenes/sessions/filters/SessionsFilterBox'
 import { EditFiltersPanel } from 'scenes/sessions/filters/EditFiltersPanel'
 import { SearchAllBox } from 'scenes/sessions/filters/SearchAllBox'
-import { Drawer } from 'lib/components/Drawer'
 import { Tooltip } from 'lib/components/Tooltip'
 
 import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
@@ -34,26 +31,14 @@ import { ExpandIcon } from 'lib/components/ExpandIcon'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from '../sceneLogic'
+import { SessionPlayerDrawer } from 'scenes/sessionRecordings/SessionPlayerDrawer'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 interface SessionsTableProps {
     personIds?: string[]
     isPersonPage?: boolean
-}
-
-function SessionPlayerDrawer({ isPersonPage = false }: { isPersonPage: boolean }): JSX.Element {
-    const { closeSessionPlayer } = useActions(sessionsTableLogic)
-    return (
-        <Drawer destroyOnClose visible width="100%" onClose={closeSessionPlayer}>
-            <>
-                <a onClick={closeSessionPlayer}>
-                    <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'sessions'}
-                </a>
-                <SessionsPlay />
-            </>
-        </Drawer>
-    )
 }
 
 function getSessionRecordingsDurationSum(session: SessionType): number {
@@ -87,6 +72,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
         toggleExpandSessionRows,
         onExpandedRowsChange,
         setShowOnlyMatches,
+        closeSessionPlayer,
     } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -167,7 +153,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             ),
             render: function RenderEndPoint(session: SessionType) {
                 return session.session_recordings.length ? (
-                    <SessionRecordingsButton sessionRecordings={session.session_recordings} />
+                    <SessionRecordingsButton
+                        sessionRecordings={session.session_recordings}
+                        source={RecordingWatchedSource.SessionsList}
+                    />
                 ) : null
             },
             span: 4,
@@ -239,7 +228,11 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                         }
                     >
                         <LinkButton
-                            to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
+                            to={
+                                firstRecordingId
+                                    ? sessionPlayerUrl(firstRecordingId, RecordingWatchedSource.SessionsListPlayAll)
+                                    : '#'
+                            }
                             type="primary"
                             data-attr="play-all-recordings"
                             disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled
@@ -309,7 +302,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     ...expandedRowKeysProps,
                 }}
             />
-            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} />}
+            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} onClose={closeSessionPlayer} />}
             <div style={{ marginTop: '5rem' }} />
             <div
                 style={{

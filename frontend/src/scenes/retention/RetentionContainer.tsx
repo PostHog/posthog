@@ -4,6 +4,7 @@ import { useValues } from 'kea'
 import { RetentionLineGraph } from './RetentionLineGraph'
 import { ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { RetentionTable } from './RetentionTable'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function RetentionContainer(props: {
     dashboardItemId?: number
@@ -11,7 +12,8 @@ export function RetentionContainer(props: {
     color?: string
     inSharedMode?: boolean
 }): JSX.Element {
-    const logic = retentionTableLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
+    const { insightProps } = useValues(insightLogic)
+    const logic = retentionTableLogic(insightProps)
     const { filters } = useValues(logic)
     return (
         <div

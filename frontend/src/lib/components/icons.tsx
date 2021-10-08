@@ -475,3 +475,33 @@ export function Infinity({ style }: { style?: CSSProperties }): JSX.Element {
         </svg>
     )
 }
+
+export function PathsCompletedArrow(): JSX.Element {
+    return (
+        <svg width="16" height="8" viewBox="0 0 16 8" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 4L12 0V3H0V5H12V8L16 4Z" fill="#77B96C" />
+        </svg>
+    )
+}
+
+export function PathsDropoffArrow(): JSX.Element {
+    return (
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M14.6569 14.6568V8.99993L12.5356 11.1212L4.05031 2.63597L2.6361 4.05018L11.1214 12.5355L9.00006 14.6568H14.6569Z"
+                fill="#F96132"
+            />
+        </svg>
+    )
+}
+
+export function TrendUp({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="1em" height="1em" viewBox="0 0 81 60" fill="none" style={style} xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M78.4688 50H10.125V2.5C10.125 1.11875 8.99227 0 7.59375 0H2.53125C1.13273 0 0 1.11875 0 2.5V55C0 57.7609 2.26705 60 5.0625 60H78.4688C79.8673 60 81 58.8812 81 57.5V52.5C81 51.1188 79.8673 50 78.4688 50ZM73.4062 5H54.7288C51.3464 5 49.6521 9.03906 52.0441 11.4016L57.1699 16.4641L45.5625 27.9297L33.9551 16.4656C31.9776 14.5125 28.7724 14.5125 26.7964 16.4656L15.9295 27.1984C14.9407 28.175 14.9407 29.7578 15.9295 30.7344L19.508 34.2688C20.4968 35.2453 22.0994 35.2453 23.0882 34.2688L30.375 27.0703L41.9824 38.5344C43.9599 40.4875 47.1651 40.4875 49.1411 38.5344L64.3286 23.5344L69.4543 28.5969C71.8464 30.9594 75.9359 29.2859 75.9359 25.9453V7.5C75.9375 6.11875 74.8048 5 73.4062 5Z"
+                fill="currentcolor"
+            />
+        </svg>
+    )
+}

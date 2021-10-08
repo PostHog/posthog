@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -37,7 +37,7 @@ class Group(object):
         event_id: Optional[str] = None,
         days: Optional[int] = None,
         count: Optional[int] = None,
-        count_operator: Optional[str] = None,
+        count_operator: Optional[Literal["eq", "lte", "gte"]] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         label: Optional[str] = None,
@@ -71,6 +71,7 @@ class CohortManager(models.Manager):
 
 class Cohort(models.Model):
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    description: models.CharField = models.CharField(max_length=1000, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     deleted: models.BooleanField = models.BooleanField(default=False)
     groups: models.JSONField = models.JSONField(default=list)

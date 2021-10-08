@@ -5,15 +5,15 @@ import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { ChartParams } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelLineGraph({
-    filters: defaultFilters,
     dashboardItemId,
-    cachedResults,
     inSharedMode,
     color = 'white',
 }: Omit<ChartParams, 'view'>): JSX.Element | null {
-    const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
     const { steps, filters } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
     const {
@@ -28,7 +28,7 @@ export function FunnelLineGraph({
             datasets={steps}
             labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId || fromItem}
+            dashboardItemId={dashboardItemId || fromItem /* used only for annotations, not to init any other logic */}
             inSharedMode={inSharedMode}
             percentage={true}
             onClick={

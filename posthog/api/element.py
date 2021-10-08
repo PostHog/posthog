@@ -1,15 +1,15 @@
 from typing import cast
 
-from django.db.models import Count, Prefetch, QuerySet
-from rest_framework import authentication, exceptions, request, response, serializers, viewsets
+from django.db.models import Count, Prefetch
+from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.models import Element, ElementGroup, Event, Filter, Team
+from posthog.models import Element, ElementGroup, Event, Filter
 from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.base import properties_to_Q
 
 
@@ -30,7 +30,6 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()
@@ -41,12 +40,12 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         team_id = self.team_id
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
 
         events = (
             Event.objects.filter(team_id=team_id, event="$autocapture")
@@ -98,7 +97,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             """
             SELECT
                 value, COUNT(1) as id
-            FROM ( 
+            FROM (
                 SELECT
                     ("posthog_element"."{key}") as "value"
                 FROM
@@ -120,3 +119,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
         return response.Response([{"name": value.value} for value in values])
+
+
+class LegacyElementViewSet(ElementViewSet):
+    legacy_team_compatibility = True

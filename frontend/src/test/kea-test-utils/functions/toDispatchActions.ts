@@ -1,6 +1,5 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
 import { ActionToDispatch, ExpectFunction, testUtilsContext } from '~/test/kea-test-utils'
-import { Action as ReduxAction } from 'redux'
 import { delay, objectsEqual } from 'lib/utils'
 import { waitForAction, waitForCondition } from 'kea-waitfor'
 
@@ -24,7 +23,15 @@ export const toDispatchActions: ExpectFunction<ActionToDispatch[]> = {
             if (notFound) {
                 await Promise.race([
                     delay(ASYNC_ACTION_WAIT_TIMEOUT).then(() => {
-                        throw new Error(`Timed out waiting for action: ${notFound} in logic ${logic?.pathString}`)
+                        const { recordedHistory } = testUtilsContext()
+                        throw new Error(
+                            `Timed out waiting for action: ${JSON.stringify(notFound)} in logic ${
+                                logic?.pathString
+                            }\n At timeout had received these actions: ${recordedHistory
+                                .map((x) => ({ type: x.action.type, payload: x.action.payload }))
+                                .map((x) => JSON.stringify(x))
+                                .join('\n')}`
+                        )
                     }),
                     typeof notFound === 'string'
                         ? waitForAction(logic.actionTypes[notFound] || notFound)
@@ -39,10 +46,7 @@ export const toDispatchActions: ExpectFunction<ActionToDispatch[]> = {
     },
 }
 
-function tryToSearchActions(
-    logic: LogicWrapper | BuiltLogic,
-    actions: ActionToDispatch[]
-): (string | ReduxAction | ((action: ReduxAction) => boolean))[] {
+export function tryToSearchActions(logic: LogicWrapper | BuiltLogic, actions: ActionToDispatch[]): ActionToDispatch[] {
     const actionsToSearch = [...actions]
     const { recordedHistory, historyIndex } = testUtilsContext()
     const actionPointer = historyIndex || -1

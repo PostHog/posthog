@@ -344,7 +344,8 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                         "insight": INSIGHT_FUNNELS,
                         FILTER_TEST_ACCOUNTS: True,
                         "funnel_window_days": 14,
-                    }
+                    },
+                    team=self.team,
                 ),
                 team=self.team,
             ).run()

@@ -38,7 +38,7 @@ from posthog.models import (
 from posthog.models.event import EventManager
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import base, retention, stickiness, trends
 from posthog.tasks.calculate_action import calculate_action
 from posthog.utils import generate_cache_key, get_safe_cache, should_refresh
@@ -182,7 +182,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -205,7 +205,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function
     def _calculate_trends(self, request: request.Request) -> List[Dict[str, Any]]:
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
             stickiness_filter = StickinessFilter(
@@ -238,7 +238,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             data.update({"entites": [Entity({"id": entity_data["id"], "type": entity_data["type"]})]})
 
         data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data)
+        filter = RetentionFilter(data=data, team=self.team)
 
         result = retention.Retention().run(filter, team)
         return Response({"data": result})
@@ -249,8 +249,8 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         refresh = should_refresh(request)
         dashboard_id = request.GET.get("from_dashboard", None)
 
-        filter = Filter(request=request)
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
+        filter = Filter(request=request, team=self.team)
+        cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
         result = {"loading": True}
 
         if refresh:
@@ -282,7 +282,7 @@ class ActionViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def get_people(self, request: request.Request) -> Union[Dict[str, Any], List]:
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         entity = get_target_entity(request)
 
         events = filter_by_type(entity=entity, team=team, filter=filter)

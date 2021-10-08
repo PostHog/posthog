@@ -16,11 +16,11 @@ def cache_for(cache_time: timedelta):
                 return fn(*args)
 
             current_time = now()
-            if args not in memoized_fn.__cache or current_time - memoized_fn.__cache[args][0] > cache_time:
-                memoized_fn.__cache[args] = (current_time, fn(*args))
-            return memoized_fn.__cache[args][1]
+            if args not in memoized_fn._cache or current_time - memoized_fn._cache[args][0] > cache_time:
+                memoized_fn._cache[args] = (current_time, fn(*args))
+            return memoized_fn._cache[args][1]
 
-        memoized_fn.__cache = {}
+        memoized_fn._cache = {}
         return memoized_fn
 
     return wrapper

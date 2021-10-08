@@ -1,7 +1,7 @@
 import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function PHPConfigSnippet(): JSX.Element {
     return (
@@ -20,10 +20,11 @@ function PHPInstallSnippet(): JSX.Element {
 }
 
 function PHPSetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <CodeSnippet language={Language.PHP}>
-            {`PostHog::init('${user?.team?.api_token}',
+            {`PostHog::init('${currentTeam?.api_token}',
     array('host' => '${window.location.origin}')
 );`}
         </CodeSnippet>

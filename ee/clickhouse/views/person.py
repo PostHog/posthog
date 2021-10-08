@@ -1,3 +1,4 @@
+import json
 from typing import Callable, Dict, Optional, Tuple
 
 from rest_framework.decorators import action
@@ -22,14 +23,13 @@ from posthog.models.filters.path_filter import PathFilter
 
 
 class ClickhousePersonViewSet(PersonViewSet):
-
     lifecycle_class = ClickhouseLifecycle
     retention_class = ClickhouseRetention
     stickiness_class = ClickhouseStickiness
 
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: Request, **kwargs) -> Response:
-        if request.user.is_anonymous or not request.user.team:
+        if request.user.is_anonymous or not self.team:
             return Response(data=[])
 
         results_package = self.calculate_funnel_persons(request)
@@ -51,17 +51,16 @@ class ClickhousePersonViewSet(PersonViewSet):
 
     @cached_function
     def calculate_funnel_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
-        if request.user.is_anonymous or not request.user.team:
+        if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None)}
 
-        team = request.user.team
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         funnel_class: Callable = ClickhouseFunnelPersons
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
             funnel_class = ClickhouseFunnelTrendsPersons
 
-        people, should_paginate = funnel_class(filter, team).run()
+        people, should_paginate = funnel_class(filter, self.team).run()
         limit = filter.limit if filter.limit else 100
         next_url = format_offset_absolute_url(request, filter.offset + limit) if should_paginate else None
         initial_url = format_offset_absolute_url(request, 0)
@@ -75,7 +74,7 @@ class ClickhousePersonViewSet(PersonViewSet):
 
     @action(methods=["GET", "POST"], detail=False)
     def path(self, request: Request, **kwargs) -> Response:
-        if request.user.is_anonymous or not request.user.team:
+        if request.user.is_anonymous or not self.team:
             return Response(data=[])
 
         results_package = self.calculate_path_persons(request)
@@ -97,13 +96,19 @@ class ClickhousePersonViewSet(PersonViewSet):
 
     @cached_function
     def calculate_path_persons(self, request: Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
-        if request.user.is_anonymous or not request.user.team:
+        if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None)}
 
-        team = request.user.team
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
 
-        people, should_paginate = ClickhousePathsPersons(filter, team).run()
+        funnel_filter = None
+        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
+        if funnel_filter_data:
+            if isinstance(funnel_filter_data, str):
+                funnel_filter_data = json.loads(funnel_filter_data)
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
+
+        people, should_paginate = ClickhousePathsPersons(filter, self.team, funnel_filter=funnel_filter).run()
         limit = filter.limit or 100
         next_url = format_offset_absolute_url(request, filter.offset + limit) if should_paginate else None
         initial_url = format_offset_absolute_url(request, 0)
@@ -124,3 +129,7 @@ class ClickhousePersonViewSet(PersonViewSet):
             return Response(status=204)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
+
+
+class LegacyClickhousePersonViewSet(ClickhousePersonViewSet):
+    legacy_team_compatibility = True

@@ -193,6 +193,29 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(insight.name, "insight new name")
             self.assertEqual(insight.tags, ["official", "engineering"])
 
+        def test_update_insight_filters(self):
+            insight = DashboardItem.objects.create(
+                team=self.team,
+                name="insight with custom filters",
+                created_by=self.user,
+                filters={"events": [{"id": "$pageview"}]},
+            )
+
+            for custom_name, expected_name in zip(
+                ["Custom filter", 100, "", "  ", None], ["Custom filter", "100", None, None, None]
+            ):
+                response = self.client.patch(
+                    f"/api/insight/{insight.id}",
+                    {"filters": {"events": [{"id": "$pageview", "custom_name": custom_name}]}},
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                response_data = response.json()
+                self.assertEqual(response_data["filters"]["events"][0]["custom_name"], expected_name)
+                insight.refresh_from_db()
+                self.assertEqual(insight.filters["events"][0]["custom_name"], expected_name)
+
         def test_save_new_funnel(self):
 
             dashboard = Dashboard.objects.create(name="My Dashboard", team=self.team)
@@ -344,14 +367,40 @@ def insight_test_factory(event_factory, person_factory):
         def test_insight_paths_basic(self):
             person_factory(team=self.team, distinct_ids=["person_1"])
             event_factory(
-                properties={"$current_url": "/"}, distinct_id="person_1", event="$pageview", team=self.team,
+                properties={"$current_url": "/", "test": "val"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
             )
             event_factory(
-                properties={"$current_url": "/about"}, distinct_id="person_1", event="$pageview", team=self.team,
+                properties={"$current_url": "/about", "test": "val"},
+                distinct_id="person_1",
+                event="$pageview",
+                team=self.team,
             )
 
-            response = self.client.get("/api/insight/path",).json()
-            self.assertEqual(len(response["result"]), 1)
+            person_factory(team=self.team, distinct_ids=["dontcount"])
+            event_factory(
+                properties={"$current_url": "/", "test": "val"},
+                distinct_id="dontcount",
+                event="$pageview",
+                team=self.team,
+            )
+            event_factory(
+                properties={"$current_url": "/about", "test": "val"},
+                distinct_id="dontcount",
+                event="$pageview",
+                team=self.team,
+            )
+
+            get_response = self.client.get(
+                "/api/insight/path", data={"properties": json.dumps([{"key": "test", "value": "val"}]),}
+            ).json()
+            post_response = self.client.post(
+                "/api/insight/path", {"properties": [{"key": "test", "value": "val"}],}
+            ).json()
+            self.assertEqual(len(get_response["result"]), 1)
+            self.assertEqual(len(post_response["result"]), 1)
 
         def test_insight_funnels_basic_post(self):
             person_factory(team=self.team, distinct_ids=["1"])
@@ -415,12 +464,12 @@ def insight_test_factory(event_factory, person_factory):
             self.assertEqual(len(response["result"]), 11)
 
         def test_insight_with_specified_token(self):
-            _, _, user = User.objects.bootstrap("Test", "team2@posthog.com", None)
-            assert user.team is not None
+            _, _, user2 = User.objects.bootstrap("Test", "team2@posthog.com", None)
+            assert user2.team is not None
             assert self.team is not None
             assert self.user.team is not None
 
-            self.assertNotEqual(user.team.id, self.team.id)
+            self.assertNotEqual(user2.team.id, self.team.id)
             self.client.force_login(self.user)
 
             person_factory(team=self.team, distinct_ids=["person1"], properties={"email": "person1@test.com"})
@@ -434,14 +483,19 @@ def insight_test_factory(event_factory, person_factory):
             )
 
             events_filter = json.dumps([{"id": "$pageview"}])
+
             response_team1 = self.client.get(f"/api/insight/trend/?events={events_filter}")
             response_team1_token = self.client.get(
                 f"/api/insight/trend/?events={events_filter}&token={self.user.team.api_token}"
             )
+
+            self.client.force_login(user2)
             response_team2 = self.client.get(
-                f"/api/insight/trend/?events={events_filter}", data={"token": user.team.api_token}
+                f"/api/insight/trend/?events={events_filter}", data={"token": user2.team.api_token}
             )
 
+            self.assertEqual(response_team1.status_code, 200)
+            self.assertEqual(response_team2.status_code, 200)
             self.assertEqual(response_team1.json()["result"], response_team1_token.json()["result"])
             self.assertNotEqual(len(response_team1.json()["result"]), len(response_team2.json()["result"]))
 

@@ -16,7 +16,7 @@ import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
-import { EventFormattedType, ViewType } from '~/types'
+import { EventsTableRowItem, EventType, ViewType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EventName } from 'scenes/actions/EventName'
@@ -30,7 +30,7 @@ import clsx from 'clsx'
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
 
-interface FixedFilters {
+export interface FixedFilters {
     person_id?: string | number
     distinct_ids?: string[]
 }
@@ -58,9 +58,8 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         highlightEvents,
     } = useValues(logic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } = useActions(
-        logic
-    )
+    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } =
+        useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id
@@ -79,14 +78,14 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             },
         }
     }
-    const defaultColumns: ResizableColumnType<EventFormattedType>[] = useMemo(
+    const defaultColumns: ResizableColumnType<EventsTableRowItem>[] = useMemo(
         () =>
             [
                 {
                     title: `Event${eventFilter ? ` (${eventFilter})` : ''}`,
                     key: 'event',
                     span: 4,
-                    render: function render(item: EventFormattedType) {
+                    render: function render(item: EventsTableRowItem) {
                         if (!item.event) {
                             return newEventsRender(item, columnConfig === 'DEFAULT' ? 7 : columnConfig.length)
                         }
@@ -100,7 +99,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     key: 'person',
                     ellipsis: true,
                     span: 4,
-                    render: function renderPerson({ event }: EventFormattedType) {
+                    render: function renderPerson({ event }: EventsTableRowItem) {
                         if (!event) {
                             return { props: { colSpan: 0 } }
                         }
@@ -118,7 +117,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     key: 'url',
                     eventProperties: ['$current_url', '$screen_name'],
                     span: 4,
-                    render: function renderURL({ event }: EventFormattedType) {
+                    render: function renderURL({ event }: EventsTableRowItem) {
                         if (!event) {
                             return { props: { colSpan: 0 } }
                         }
@@ -128,7 +127,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                                 <FilterPropertyLink
                                     className="ph-no-capture"
                                     property={param}
-                                    value={event.properties[param]}
+                                    value={event.properties[param] as string}
                                     filters={{ properties }}
                                 />
                             )
@@ -142,7 +141,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     key: 'source',
                     eventProperties: ['$lib'],
                     span: 2,
-                    render: function renderSource({ event }: EventFormattedType) {
+                    render: function renderSource({ event }: EventsTableRowItem) {
                         if (!event) {
                             return { props: { colSpan: 0 } }
                         }
@@ -150,7 +149,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                             return (
                                 <FilterPropertyLink
                                     property="$lib"
-                                    value={event.properties['$lib']}
+                                    value={event.properties['$lib'] as string}
                                     filters={{ properties }}
                                 />
                             )
@@ -162,7 +161,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     title: 'When',
                     key: 'when',
                     span: 3,
-                    render: function renderWhen({ event }: EventFormattedType) {
+                    render: function renderWhen({ event }: EventsTableRowItem) {
                         if (!event) {
                             return { props: { colSpan: 0 } }
                         }
@@ -174,7 +173,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     title: 'Usage',
                     key: 'usage',
                     span: 2,
-                    render: function renderWhen({ event }: EventFormattedType) {
+                    render: function renderWhen({ event }: EventsTableRowItem) {
                         if (!event) {
                             return { props: { colSpan: 0 } }
                         }
@@ -236,12 +235,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                         )
                     },
                 },
-            ] as ResizableColumnType<EventFormattedType>[],
+            ] as ResizableColumnType<EventsTableRowItem>[],
         [eventFilter, showLinkToPerson, columnConfig]
     )
 
     const selectedConfigOptions = useMemo(
-        () => (columnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key) : columnConfig),
+        () => (columnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key || 'unknown-key') : columnConfig),
         [columnConfig]
     )
 
@@ -250,12 +249,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
             columnConfig === 'DEFAULT'
                 ? defaultColumns
                 : columnConfig.map(
-                      (e: string, index: number): ResizableColumnType<EventFormattedType> =>
+                      (e: string, index: number): ResizableColumnType<EventsTableRowItem> =>
                           defaultColumns.find((d) => d.key === e) || {
                               title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
                               key: e,
                               span: 2,
-                              render: function render(item: EventFormattedType) {
+                              render: function render(item: EventsTableRowItem) {
                                   const { event } = item
                                   if (!event) {
                                       if (index === 0) {
@@ -269,7 +268,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                                           <FilterPropertyLink
                                               className="ph-no-capture "
                                               property={e}
-                                              value={event.properties[e]}
+                                              value={event.properties[e] as string}
                                               filters={{ properties }}
                                           />
                                       )
@@ -315,7 +314,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 </Col>
                 <Col flex="0">
                     {exportUrl && (
-                        <Tooltip title="Export up to 100,000 latest events." placement="left">
+                        <Tooltip title="Export up to 10,000 latest events." placement="left">
                             <Button icon={<DownloadOutlined />} href={exportUrl}>
                                 Export events
                             </Button>
@@ -339,10 +338,12 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     loading={isLoading}
                     columns={columns}
                     size="small"
-                    key={columnConfig === 'DEFAULT' ? 'default' : columnConfig}
+                    key={columnConfig === 'DEFAULT' ? 'default' : columnConfig.join('-')}
                     className="ph-no-capture"
                     locale={{
-                        emptyText: (
+                        emptyText: isLoading ? (
+                            <span>&nbsp;</span>
+                        ) : (
                             <span>
                                 You don't have any items here! If you haven't integrated PostHog yet,{' '}
                                 <Link to="/project/settings">click here to set PostHog up on your app</Link>.
@@ -356,7 +357,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     rowClassName={(row) => {
                         return clsx({
                             'event-row': row.event,
-                            'highlight-new-row': row.event && highlightEvents[row.event.id],
+                            'highlight-new-row': row.event && highlightEvents[(row.event as EventType).id],
                             'event-row-is-exception': row.event && row.event.event === '$exception',
                             'event-day-separator': row.date_break,
                             'event-row-new': row.new_events,

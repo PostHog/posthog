@@ -1,6 +1,6 @@
 import './DashboardItems.scss'
 import { Link } from 'lib/components/Link'
-import { BuiltLogic, Logic, useActions, useValues } from 'kea'
+import { useActions, useValues, BindLogic } from 'kea'
 import { Dropdown, Menu, Alert, Skeleton } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { deleteWithUndo, Loading } from 'lib/utils'
@@ -20,7 +20,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
-import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType } from '~/types'
+import { DashboardItemType, DashboardMode, DashboardType, ChartDisplayType, ViewType, FilterType } from '~/types'
 import { ActionsBarValueGraph } from 'scenes/trends/viz'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -153,6 +153,18 @@ export const displayMap: Record<DisplayedType, DisplayProps> = {
     },
 }
 
+export function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
+    return (
+        filters.insight === ViewType.RETENTION
+            ? 'RetentionContainer'
+            : filters.insight === ViewType.PATHS
+            ? 'PathsViz'
+            : filters.insight === ViewType.FUNNELS
+            ? 'FunnelViz'
+            : filters.display || 'ActionsLineGraph'
+    ) as DisplayedType
+}
+
 const dashboardDiveLink = (dive_dashboard: number, dive_source_id: number): string => {
     return combineUrl(`/dashboard/${dive_dashboard}`, { dive_source_id: dive_source_id.toString() }).url
 }
@@ -184,14 +196,7 @@ export function DashboardItem({
     const { renameDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const _type =
-        item.filters.insight === ViewType.RETENTION
-            ? 'RetentionContainer'
-            : item.filters.insight === ViewType.PATHS
-            ? 'PathsViz'
-            : item.filters.insight === ViewType.FUNNELS
-            ? 'FunnelViz'
-            : item.filters.display || 'ActionsLineGraph'
+    const _type = getDisplayedType(item.filters)
 
     const insightTypeDisplayName =
         item.filters.insight === ViewType.RETENTION
@@ -228,13 +233,13 @@ export function DashboardItem({
         cachedResults: (item as any).result,
         preventLoading,
     }
-    const { showTimeoutMessage, showErrorMessage } = useValues(insightLogic)
+    const { insightProps, showTimeoutMessage, showErrorMessage } = useValues(insightLogic(logicProps))
+
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { loadResults } = useActions(getLogicFromInsight(item.filters.insight, logicProps))
-    const { results, resultsLoading, isLoading } = useValues(getLogicFromInsight(item.filters.insight, logicProps))
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(
-        funnelLogic(logicProps) as Logic & BuiltLogic
-    )
+    const activeInsightLogic = getLogicFromInsight(item.filters.insight, insightProps)
+    const { loadResults } = useActions(activeInsightLogic)
+    const { results, resultsLoading, isLoading } = useValues(activeInsightLogic)
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
     const previousLoading = usePrevious(resultsLoading)
     const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
@@ -279,7 +284,7 @@ export function DashboardItem({
         return null
     })()
 
-    return (
+    const response = (
         <div
             key={item.id}
             className={`dashboard-item ${item.color || 'white'} di-width-${layout?.w || 0} di-height-${
@@ -628,5 +633,11 @@ export function DashboardItem({
                 />
             )}
         </div>
+    )
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            {response}
+        </BindLogic>
     )
 }

@@ -41,6 +41,7 @@
 
     &.horizontal-ui {
         width: unset !important;
+        min-width: 120px;
         margin-top: 0;
 
         .ant-select-selector,

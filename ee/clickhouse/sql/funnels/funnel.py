@@ -5,7 +5,7 @@ FROM (
 )
 WHERE {persons_steps}
 ORDER BY person_id
-LIMIT %(limit)s
+{limit}
 OFFSET {offset}
 SETTINGS allow_experimental_window_functions = 1
 """

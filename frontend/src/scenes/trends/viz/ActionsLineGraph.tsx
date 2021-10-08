@@ -8,22 +8,16 @@ import { ChartParams } from '~/types'
 import { ViewType } from '~/types'
 import { router } from 'kea-router'
 import { personsModalLogic } from '../personsModalLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function ActionsLineGraph({
     dashboardItemId,
     color = 'white',
-    filters: filtersParam,
-    cachedResults,
     inSharedMode = false,
     showPersonsModal = true,
-    view,
 }: ChartParams): JSX.Element | null {
-    const logic = trendsLogic({
-        dashboardItemId,
-        view: view || filtersParam?.insight,
-        filters: filtersParam,
-        cachedResults,
-    })
+    const { insightProps } = useValues(insightLogic)
+    const logic = trendsLogic(insightProps)
     const { filters, indexedResults, visibilityMap } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
     const [{ fromItem }] = useState(router.values.hashParams)
@@ -39,7 +33,7 @@ export function ActionsLineGraph({
             visibilityMap={visibilityMap}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
             isInProgress={!filters.date_to}
-            dashboardItemId={dashboardItemId || fromItem}
+            dashboardItemId={dashboardItemId || fromItem /* used only for annotations, not to init any other logic */}
             inSharedMode={inSharedMode}
             interval={filters.interval}
             showPersonsModal={showPersonsModal}

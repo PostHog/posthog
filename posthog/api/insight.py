@@ -28,7 +28,7 @@ from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import paths, retention, stickiness, trends
 from posthog.queries.sessions.sessions import Sessions
 from posthog.utils import generate_cache_key, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
@@ -129,11 +129,9 @@ class InsightSerializer(InsightBasicSerializer):
 
 
 class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = DashboardItem.objects.all()
     serializer_class = InsightSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
 
@@ -203,14 +201,14 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def trend(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_trends(request)
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         next = format_next_url(request, filter.offset, 20) if len(result["result"]) > 20 else None
         return Response({**result, "next": next})
 
     @cached_function
     def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             earliest_timestamp_func = lambda team_id: Event.objects.earliest_timestamp(team_id)
             stickiness_filter = StickinessFilter(
@@ -237,7 +235,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @cached_function
     def calculate_session(self, request: request.Request) -> Dict[str, Any]:
-        result = Sessions().run(filter=SessionsFilter(request=request), team=self.team)
+        result = Sessions().run(filter=SessionsFilter(request=request, team=self.team), team=self.team)
         return {"result": result}
 
     # ******************************************
@@ -313,7 +311,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     # - request_type: (string: $pageview, $autocapture, $screen, custom_event) specifies the path type
     # - **shared filter types
     # ******************************************
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET", "POST"], detail=False)
     def path(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         result = self.calculate_path(request)
         return Response(result)
@@ -321,7 +319,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function
     def calculate_path(self, request: request.Request) -> Dict[str, Any]:
         team = self.team
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
+        filter = PathFilter(request=request, data={**request.data, "insight": INSIGHT_PATHS})
         resp = paths.Paths().run(filter=filter, team=team)
         return {"result": resp}
 
@@ -330,3 +328,7 @@ class InsightViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         dashboard_id = request.GET.get(FROM_DASHBOARD, None)
         if dashboard_id:
             DashboardItem.objects.filter(pk=dashboard_id).update(last_refresh=now())
+
+
+class LegacyInsightViewSet(InsightViewSet):
+    legacy_team_compatibility = True

@@ -2,7 +2,7 @@ import React from 'react'
 import { Dropdown, Menu, Skeleton, Table } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
-import { IndexedTrendResult, trendsLogic } from 'scenes/trends/trendsLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import { getChartColors } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -16,7 +16,10 @@ import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
-import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE, ACTIONS_PIE_CHART, ACTIONS_TABLE, FEATURE_FLAGS } from 'lib/constants'
+import { IndexedTrendResult } from 'scenes/trends/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface InsightsTableProps {
     isLegend?: boolean // `true` -> Used as a supporting legend at the bottom of another graph; `false` -> used as it's own display
@@ -30,8 +33,9 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
 }
 
 export function InsightsTable({ isLegend = true, showTotalCount = false }: InsightsTableProps): JSX.Element | null {
-    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic)
-    const { toggleVisibility } = useActions(trendsLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { indexedResults, visibilityMap, filters, resultsLoading } = useValues(trendsLogic(insightProps))
+    const { toggleVisibility } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
     const hasMathUniqueFilter = !!(
@@ -40,6 +44,8 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
     const logic = insightsTableLogic({ hasMathUniqueFilter })
     const { calcColumnState } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const isSingleEntity = indexedResults.length === 1
     const colorList = getChartColors('white')
@@ -118,6 +124,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                         breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
                         hideBreakdown
                         hideIcon
+                        useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
                     />
                 </SeriesToggleWrapper>
             )
@@ -143,6 +150,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
             render: function RenderPeriod({}, item: IndexedTrendResult) {
                 return maybeAddCommasToInteger(item.data[index])
             },
+            sorter: (a, b) => a.data[index] - b.data[index],
             align: 'center',
         }))
 
@@ -183,7 +191,7 @@ export function InsightsTable({ isLegend = true, showTotalCount = false }: Insig
                 )
             },
             defaultSortOrder: 'descend',
-            sorter: (a, b) => a.count - b.count,
+            sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
             fixed: 'right',
             width: 120,

@@ -1,14 +1,15 @@
 import './ActionFilter.scss'
 import React, { useEffect } from 'react'
-import { useActions, useValues } from 'kea'
+import { useActions, useValues, BindLogic } from 'kea'
 import { entityFilterLogic, toFilters, LocalFilter } from './entityFilterLogic'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { Button } from 'antd'
 import { PlusCircleOutlined } from '@ant-design/icons'
-import posthog from 'posthog-js'
 import { ActionFilter as ActionFilterType, FilterType, FunnelStepRangeEntityFilter, Optional } from '~/types'
 import { SortableContainer, SortableActionFilterRow } from './Sortable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { RenameModal } from 'scenes/insights/ActionFilter/RenameModal'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -25,6 +26,7 @@ export interface ActionFilterProps {
     seriesIndicatorType?: 'alpha' | 'numeric' // Series badge shows A, B, C | 1, 2, 3
     showOr?: boolean // Whether to show the "OR" label after each filter
     hideFilter?: boolean // Hide local filtering (currently used for retention insight)
+    hideRename?: boolean // Hides the rename option
     customRowPrefix?:
         | string
         | JSX.Element
@@ -76,6 +78,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             seriesIndicatorType = 'alpha',
             showOr = false,
             hideFilter = false,
+            hideRename = false,
             horizontalUI = false,
             fullWidth = false,
             customRowPrefix,
@@ -90,9 +93,10 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         ref
     ): JSX.Element => {
         const logic = entityFilterLogic({ setFilters, filters, typeKey, addFilterDefaultOptions })
+        const { reportFunnelStepReordered } = useActions(eventUsageLogic)
 
         const { localFilters } = useValues(logic)
-        const { addFilter, setLocalFilters } = useActions(logic)
+        const { addFilter, setLocalFilters, showModal } = useActions(logic)
 
         // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
         // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
@@ -108,7 +112,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             }
             setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
             if (oldIndex !== newIndex) {
-                posthog.capture('funnel step reordered')
+                reportFunnelStepReordered()
             }
         }
 
@@ -127,10 +131,20 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             hideDeleteBtn,
             disabled,
             renderRow,
+            hideRename,
+            onRenameClick: showModal,
         }
 
         return (
             <div ref={ref}>
+                {!hideRename && (
+                    <BindLogic
+                        logic={entityFilterLogic}
+                        props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}
+                    >
+                        <RenameModal view={filters.insight} typeKey={typeKey} />
+                    </BindLogic>
+                )}
                 {localFilters ? (
                     sortable ? (
                         <SortableContainer onSortEnd={onSortEnd} lockAxis="y" distance={5}>

@@ -18,7 +18,7 @@ from posthog.models.event import Event
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.user import User
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.stickiness import (
     stickiness_fetch_people,
     stickiness_format_intervals,
@@ -38,6 +38,7 @@ class CohortSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "description",
             "groups",
             "deleted",
             "is_calculating",
@@ -126,6 +127,7 @@ class CohortSerializer(serializers.ModelSerializer):
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         cohort.name = validated_data.get("name", cohort.name)
+        cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         deleted_state = validated_data.get("deleted", None)
@@ -164,11 +166,9 @@ class CohortSerializer(serializers.ModelSerializer):
 
 
 class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -177,3 +177,7 @@ class CohortViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         queryset = queryset.annotate(count=Count("people"))
         return queryset.select_related("created_by").order_by("id")
+
+
+class LegacyCohortViewSet(CohortViewSet):
+    legacy_team_compatibility = True

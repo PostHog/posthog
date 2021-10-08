@@ -155,6 +155,7 @@ class Organization(UUIDModel):
             "person_count": sum((team.person_set.count() for team in self.teams.all())),
             "setup_section_2_completed": self.setup_section_2_completed,
             "personalization": self.personalization,
+            "name": self.name,
         }
 
 
@@ -162,11 +163,6 @@ class Organization(UUIDModel):
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
         instance.update_available_features()
-
-
-@receiver(models.signals.pre_delete, sender=Organization)
-def organization_about_to_be_deleted(sender, instance, **kwargs):
-    instance.teams.all().delete()
 
 
 class OrganizationMembership(UUIDModel):

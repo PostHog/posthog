@@ -89,12 +89,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     }
 
                     const url = combineUrl(remoteEndpoint, {
-                        search: searchQuery,
+                        [`${values.group?.searchAlias || 'search'}`]: searchQuery,
                         limit,
                         offset,
                     }).url
 
-                    let response: EventDefinitionStorage
+                    let response
 
                     if (apiCache[url]) {
                         response = apiCache[url]
@@ -111,10 +111,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     const queryChanged = values.items.searchQuery !== values.searchQuery
 
                     return {
-                        results: appendAtIndex(queryChanged ? [] : values.items.results, response.results, offset),
+                        results: appendAtIndex(
+                            queryChanged ? [] : values.items.results,
+                            response.results || response,
+                            offset
+                        ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count: response.count,
+                        count: response.count || response.length,
                     }
                 },
             },
@@ -171,6 +175,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     }
                     if (group?.options) {
                         return group.options
+                    }
+                    if (props.optionsFromProp && Object.keys(props.optionsFromProp).includes(props.listGroupType)) {
+                        return props.optionsFromProp[props.listGroupType]
                     }
                     return null
                 },

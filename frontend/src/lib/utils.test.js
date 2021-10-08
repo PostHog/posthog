@@ -16,6 +16,7 @@ import {
     colonDelimitedDuration,
     areObjectValuesEmpty,
     toParams,
+    ensureStringIsNotBlank,
 } from './utils'
 
 describe('toParams', () => {
@@ -24,6 +25,12 @@ describe('toParams', () => {
         expect(toParams([])).toEqual('')
         expect(toParams(undefined)).toEqual('')
         expect(toParams(null)).toEqual('')
+    })
+
+    it('is tolerant of empty objects', () => {
+        const left = toParams({ a: 'b', ...{}, b: 'c' })
+        const right = toParams({ a: 'b', ...{}, ...{}, b: 'c' })
+        expect(left).toEqual(right)
     })
 })
 
@@ -290,5 +297,22 @@ describe('areObjectValuesEmpty()', () => {
         expect(areObjectValuesEmpty({ a: true, b: 'hello' })).toEqual(false)
         expect(areObjectValuesEmpty('hello')).toEqual(false)
         expect(areObjectValuesEmpty(null)).toEqual(false)
+    })
+})
+
+describe('ensureStringIsNotBlank()', () => {
+    it('handles unusual input', () => {
+        expect(ensureStringIsNotBlank(null)).toEqual(null)
+        expect(ensureStringIsNotBlank({})).toEqual(null)
+        expect(ensureStringIsNotBlank(undefined)).toEqual(null)
+        expect(ensureStringIsNotBlank(true)).toEqual(null)
+    })
+    it('handles blank strings as expected', () => {
+        expect(ensureStringIsNotBlank('')).toEqual(null)
+        expect(ensureStringIsNotBlank('    ')).toEqual(null)
+    })
+    it('handles happy case', () => {
+        expect(ensureStringIsNotBlank('happyboy')).toEqual('happyboy')
+        expect(ensureStringIsNotBlank('  happy boy  ')).toEqual('  happy boy  ')
     })
 })

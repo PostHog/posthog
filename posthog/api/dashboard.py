@@ -19,7 +19,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, PublicTokenAuthentication
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardItem, Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.tasks.update_cache import update_dashboard_item_cache, update_dashboard_items_cache
 from posthog.utils import get_safe_cache, render_template, str_to_bool
 
@@ -106,6 +106,7 @@ class DashboardSerializer(serializers.ModelSerializer):
 
         if self.context["request"].GET.get("refresh"):
             update_dashboard_items_cache(dashboard)
+            dashboard.refresh_from_db()
 
         items = dashboard.items.filter(deleted=False).order_by("order").all()
         self.context.update({"dashboard": dashboard})
@@ -118,8 +119,6 @@ class DashboardSerializer(serializers.ModelSerializer):
 
 
 class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = Dashboard.objects.all()
     serializer_class = DashboardSerializer
     authentication_classes = [
@@ -128,8 +127,7 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
-    # Empty list means we can allow users to not be authenticated.
-    permission_classes = []  # type: ignore
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset().order_by("name")
@@ -138,14 +136,17 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(
             Prefetch("items", queryset=DashboardItem.objects.filter(deleted=False).order_by("order"),)
         )
+        # See get_permissions() for share_token mechanics
         if self.request.GET.get("share_token"):
             return queryset.filter(share_token=self.request.GET["share_token"])
-        elif self.request.user.is_authenticated and not self.request.user.team:
-            raise NotFound()
-        elif not self.request.user.is_authenticated or "team_id" not in self.get_parents_query_dict():
-            raise AuthenticationFailed(detail="You're not logged in, but also not using add share_token.")
-
         return queryset
+
+    def get_permissions(self):
+        # Allow unauthenticated requests if share_token is provided
+        # but make sure that get_queryset() filters on share_token then!
+        if self.request.GET.get("share_token"):
+            return []
+        return super().get_permissions()
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         pk = kwargs["pk"]
@@ -157,9 +158,13 @@ class DashboardsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response(serializer.data)
 
     def get_parents_query_dict(self) -> Dict[str, Any]:  # to be moved to a separate Legacy*ViewSet Class
-        if not self.request.user.is_authenticated or "share_token" in self.request.GET or not self.request.user.team:
+        if not self.request.user.is_authenticated or "share_token" in self.request.GET or not self.team_id:
             return {}
-        return {"team_id": self.request.user.team.id}
+        return {"team_id": self.team_id}
+
+
+class LegacyDashboardsViewSet(DashboardsViewSet):
+    legacy_team_compatibility = True
 
 
 class DashboardItemSerializer(serializers.ModelSerializer):
@@ -185,7 +190,7 @@ class DashboardItemSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "result",
-            "is_sample",
+            "is_sample",  # only field not in api/insight.py
             "saved",
             "created_at",
             "created_by",
@@ -222,33 +227,33 @@ class DashboardItemSerializer(serializers.ModelSerializer):
         if not dashboard_item.filters_hash:
             return None
 
-        if self.context["request"].GET.get("refresh"):
-            update_dashboard_item_cache(dashboard_item, None)
-
         result = get_safe_cache(dashboard_item.filters_hash)
         if not result or result.get("task_id", None):
             return None
         return result.get("result")
 
     def get_last_refresh(self, dashboard_item: DashboardItem):
-        if self.get_result(dashboard_item):
+        result = self.get_result(dashboard_item)
+        if result is not None:
             return dashboard_item.last_refresh
         dashboard_item.last_refresh = None
         dashboard_item.save()
         return None
 
     def to_representation(self, instance):
+        if self.context["request"].GET.get("refresh"):
+            update_dashboard_item_cache(instance, None)
+            instance.refresh_from_db()
+
         representation = super().to_representation(instance)
         representation["filters"] = instance.dashboard_filters(dashboard=self.context.get("dashboard"))
         return representation
 
 
 class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
     queryset = DashboardItem.objects.all()
     serializer_class = DashboardItemSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -263,6 +268,13 @@ class DashboardItemsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.order_by("order")
 
         return queryset
+
+    def get_permissions(self):
+        # Layouts are accessible without permissions,
+        # as they are not sensitive while being required for shared dashboards
+        if self.action == "layouts":
+            return []
+        return super().get_permissions()
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -304,3 +316,7 @@ def shared_dashboard(request: HttpRequest, share_token: str):
     return render_template(
         "shared_dashboard.html", request=request, context={"dashboard": dashboard, "team_name": dashboard.team.name},
     )
+
+
+class LegacyDashboardItemsViewSet(DashboardItemsViewSet):
+    legacy_team_compatibility = True

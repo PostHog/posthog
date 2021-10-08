@@ -17,23 +17,27 @@ import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 
 interface Props {
-    id: string
+    id?: string
     shareToken?: string
     internal?: boolean
 }
 
 export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken, internal }}>
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, internal }}>
             <DashboardView />
         </BindLogic>
     )
 }
 
 function DashboardView(): JSX.Element {
-    const { dashboard, allItemsLoading: loadingFirstTime, items, filters: dashboardFilters, dashboardMode } = useValues(
-        dashboardLogic
-    )
+    const {
+        dashboard,
+        allItemsLoading: loadingFirstTime,
+        items,
+        filters: dashboardFilters,
+        dashboardMode,
+    } = useValues(dashboardLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
 

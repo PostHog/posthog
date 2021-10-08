@@ -29,6 +29,10 @@ import { ChartParams, StepOrderValue, FunnelStepWithConversionMetrics } from '~/
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { getActionFilterFromFunnelStep } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
+import { FunnelStepDropdown } from './FunnelStepDropdown'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface BarProps {
     percentage: number
@@ -74,6 +78,7 @@ interface BreakdownBarGroupProps {
     showLabels: boolean
     onBarClick?: (breakdown_value: string | undefined | number) => void
     isClickable: boolean
+    isSingleSeries?: boolean
 }
 
 export function BreakdownVerticalBarGroup({
@@ -83,6 +88,7 @@ export function BreakdownVerticalBarGroup({
     showLabels,
     onBarClick,
     isClickable,
+    isSingleSeries = false,
 }: BreakdownBarGroupProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const [, height] = useSize(ref)
@@ -95,7 +101,8 @@ export function BreakdownVerticalBarGroup({
                 const currentBarHeight = (height * breakdown.count) / basisBreakdownCount
                 const previousBarHeight =
                     (height * (previousStep?.nested_breakdown?.[breakdownIndex]?.count ?? 0)) / basisBreakdownCount
-                const color = getSeriesColor(breakdown.order) as string
+                const color = getSeriesColor(breakdown.order, isSingleSeries)
+
                 const popoverMetrics = [
                     {
                         title: 'Completed step',
@@ -153,10 +160,9 @@ export function BreakdownVerticalBarGroup({
                                     altTitle={
                                         <div style={{ wordWrap: 'break-word' }}>
                                             <PropertyKeyInfo value={currentStep.name} />
-                                            {' • '}
                                             {(breakdown.breakdown_value === 'Baseline'
-                                                ? 'None'
-                                                : breakdown.breakdown) ?? 'Other'}
+                                                ? ''
+                                                : ` • ${breakdown.breakdown}`) ?? ' • Other'}
                                         </div>
                                     }
                                 >
@@ -213,7 +219,8 @@ function Bar({
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
     const [labelVisible, setLabelVisible] = useState(true)
     const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
-    const { clickhouseFeaturesEnabled } = useValues(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const cursorType = clickhouseFeaturesEnabled && !disabled ? 'pointer' : ''
     const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
     const shouldShowLabel = !isBreakdown || (hasBreakdownSum && labelVisible)
@@ -429,12 +436,9 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph({
-    filters: _filters,
-    dashboardItemId,
-    color = 'white',
-}: Omit<ChartParams, 'view'>): JSX.Element {
-    const logic = funnelLogic({ dashboardItemId, filters: _filters })
+export function FunnelBarGraph({ dashboardItemId, color = 'white' }: Omit<ChartParams, 'view'>): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
     const {
         filters,
         visibleStepsWithConversionMetrics: steps,
@@ -493,6 +497,8 @@ export function FunnelBarGraph({
                                 <div className="funnel-step-title">
                                     {filters.funnel_order_type === StepOrderValue.UNORDERED ? (
                                         <span>Completed {humanizeOrder(step.order)} steps</span>
+                                    ) : featureFlags[FEATURE_FLAGS.RENAME_FILTERS] ? (
+                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     ) : (
                                         <PropertyKeyInfo value={step.name} style={{ maxWidth: '100%' }} />
                                     )}
@@ -501,6 +507,7 @@ export function FunnelBarGraph({
                                     filters.funnel_order_type !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
+                                {featureFlags[FEATURE_FLAGS.NEW_PATHS_UI] && <FunnelStepDropdown index={stepIndex} />}
                             </div>
                             <div className={`funnel-step-metadata funnel-time-metadata ${layout}`}>
                                 {step.average_conversion_time && step.average_conversion_time >= 0 + Number.EPSILON ? (

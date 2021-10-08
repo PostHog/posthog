@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, List, Optional
 
-from django.http.request import HttpRequest
+from rest_framework.request import Request
 
 from posthog.constants import (
     DISTINCT_ID_FILTER,
@@ -96,6 +96,6 @@ class SessionsFiltersMixin(BaseParamMixin):
 class UserIdMixin(BaseFilter):
     user_id: Optional[int]
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         self.user_id = request.user.pk if request else (data or {}).get("user_id")
-        super().__init__(data, request)
+        super().__init__(data, request, **kwargs)

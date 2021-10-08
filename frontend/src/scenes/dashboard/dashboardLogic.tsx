@@ -19,9 +19,9 @@ export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 export const dashboardLogic = kea<dashboardLogicType>({
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
 
-    props: {} as { id: number; shareToken?: string; internal?: boolean },
+    props: {} as { id?: number; shareToken?: string; internal?: boolean },
 
-    key: (props) => props.id,
+    key: (props) => props.id || 'dashboardLogic',
 
     actions: {
         addNewDashboard: true,
@@ -64,6 +64,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     refresh,
                     dive_source_id,
                 }: { refresh?: boolean; dive_source_id?: number } = {}) => {
+                    if (!props.id) {
+                        console.warn('Called `loadDashboardItems` but ID is not set.')
+                        return
+                    }
+
                     try {
                         const dashboard = await api.get(
                             `api/dashboard/${props.id}/?${toParams({
@@ -177,7 +182,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     return {
                         ...state,
                         items:
-                            item.dashboard === parseInt(props.id.toString())
+                            props.id && item.dashboard === parseInt(props.id.toString())
                                 ? [...(state?.items || []), item]
                                 : state?.items,
                     } as DashboardType
@@ -263,11 +268,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
         ],
         dashboard: [
             () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.dashboards],
-            (sharedDashboards, dashboards) => {
-                if (sharedDashboards && !!sharedDashboards[props.id]) {
+            (sharedDashboards, dashboards): DashboardType | null => {
+                if (sharedDashboards && props.id && !!sharedDashboards[props.id]) {
                     return sharedDashboards[props.id]
                 }
-                return dashboards.find((d) => d.id === props.id)
+                return dashboards.find((d) => d.id === props.id) ?? null
             },
         ],
         breakpoints: [() => [], () => ({ lg: 1600, sm: 940, xs: 480, xxs: 0 } as Record<DashboardLayoutSize, number>)],
@@ -385,10 +390,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
-            actions.loadDashboardItems({
-                refresh: props.internal,
-                dive_source_id: dashboardsModel.values.diveSourceId ?? undefined,
-            })
+            if (props.id) {
+                // When the scene is initially loaded, the dashboard ID is undefined
+                actions.loadDashboardItems({
+                    refresh: props.internal,
+                    dive_source_id: dashboardsModel.values.diveSourceId ?? undefined,
+                })
+            }
+
             if (props.shareToken) {
                 actions.setDashboardMode(
                     props.internal ? DashboardMode.Internal : DashboardMode.Public,

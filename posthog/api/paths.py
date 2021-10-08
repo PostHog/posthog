@@ -7,15 +7,13 @@ from rest_framework.response import Response
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Event
 from posthog.models.filters.path_filter import PathFilter
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries import paths
 from posthog.utils import dict_from_cursor_fetchall, request_to_date_query
 
 
 class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
-
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
 
     @action(methods=["GET"], detail=False)
     def elements(self, request: request.Request, **kwargs):
@@ -55,3 +53,7 @@ class PathsViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             filter=filter, start_point=start_point, date_query=date_query, request_type=request_type, team=team,
         )
         return resp
+
+
+class LegacyPathsViewSet(PathsViewSet):
+    legacy_team_compatibility = True

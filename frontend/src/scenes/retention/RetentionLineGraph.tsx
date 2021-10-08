@@ -9,6 +9,7 @@ import { PersonsTable } from 'scenes/persons/PersonsTable'
 import { PersonType } from '~/types'
 import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
 import { router } from 'kea-router'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface RetentionLineGraphProps {
     dashboardItemId?: number | null
@@ -21,9 +22,9 @@ export function RetentionLineGraph({
     dashboardItemId = null,
     color = 'white',
     inSharedMode = false,
-    filters: filtersParams = {},
 }: RetentionLineGraphProps): JSX.Element | null {
-    const logic = retentionTableLogic({ dashboardItemId: dashboardItemId, filters: filtersParams })
+    const { insightProps } = useValues(insightLogic)
+    const logic = retentionTableLogic(insightProps)
     const { filters, results: _results, people: _people, peopleLoading, loadingMore } = useValues(logic)
     const results = _results as RetentionTrendPayload[]
     const people = _people as RetentionTrendPeoplePayload
@@ -50,7 +51,9 @@ export function RetentionLineGraph({
                 datasets={results}
                 labels={(results[0] && results[0].labels) || []}
                 isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId || fromItem}
+                dashboardItemId={
+                    dashboardItemId || fromItem /* used only for annotations, not to init any other logic */
+                }
                 inSharedMode={inSharedMode}
                 percentage={true}
                 onClick={

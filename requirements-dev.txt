@@ -33,6 +33,8 @@ coreapi==2.3.3
     # via djangorestframework-stubs
 coreschema==0.0.4
     # via coreapi
+coverage==5.5
+    # via pytest-cov
 django-stubs-ext==0.2.0
     # via django-stubs
 django-stubs==1.8.0
@@ -118,6 +120,8 @@ pyflakes==2.3.1
     # via flake8
 pyparsing==2.4.7
     # via packaging
+pytest-cov==2.12.1
+    # via -r requirements-dev.in
 pytest-django==4.1.0
     # via -r requirements-dev.in
 pytest-mock==3.5.1
@@ -125,6 +129,7 @@ pytest-mock==3.5.1
 pytest==6.2.2
     # via
     #   -r requirements-dev.in
+    #   pytest-cov
     #   pytest-django
     #   pytest-mock
 python-dateutil==2.8.1
@@ -164,6 +169,7 @@ toml==0.10.1
     # via
     #   black
     #   pytest
+    #   pytest-cov
 typed-ast==1.4.1
     # via
     #   black

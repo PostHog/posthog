@@ -1,0 +1,10 @@
+[run]
+source = 
+    posthog/
+    ee/
+
+branch = true
+
+omit =
+   */migrations/*
+   manage.py

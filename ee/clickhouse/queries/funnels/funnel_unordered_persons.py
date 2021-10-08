@@ -12,6 +12,7 @@ class ClickhouseFunnelUnorderedPersons(ClickhouseFunnelUnordered):
             steps_per_person_query=self.get_step_counts_query(),
             persons_steps=self._get_funnel_person_step_condition(),
             extra_fields=self._get_timestamp_outer_select(),
+            limit="" if self._no_person_limit else "LIMIT %(limit)s",
         )
 
     def _format_results(self, results):

@@ -10,11 +10,12 @@ import { IconSize, InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
-import { humanFriendlyDuration } from 'lib/utils'
+import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils'
 import { ChartParams, FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import {
     EmptyValue,
+    getActionFilterFromFunnelStep,
     getStepColor,
     isBreakdownChildType,
     renderColumnTitle,
@@ -23,9 +24,11 @@ import {
 } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import './FunnelStepTable.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element | null {
-    const logic = funnelLogic({ dashboardItemId, _filters })
+export function FunnelStepTable({ dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
     const {
         stepsWithCount,
         flattenedSteps,
@@ -47,6 +50,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
     function getColumns(): ColumnsType<FlattenedFunnelStep> | ColumnsType<FlattenedFunnelStepByBreakdown> {
         if (isNewVertical) {
             const _columns: ColumnsType<FlattenedFunnelStepByBreakdown> = []
+            const useCustomName = !!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]
+            const isOnlySeries = flattenedBreakdowns.length === 1
 
             _columns.push({
                 render: function RenderCheckbox({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
@@ -56,11 +61,13 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 getVisibilityIndex(visibleStepsWithConversionMetrics?.[0], b.breakdown_value)
                             ]
                     )
+                    const color = getSeriesColor(breakdown?.breakdownIndex, isOnlySeries)
 
                     return renderGraphAndHeader(
                         rowIndex,
                         0,
                         <PHCheckbox
+                            color={color}
                             checked={
                                 !hiddenLegendKeys[
                                     getVisibilityIndex(
@@ -72,6 +79,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             onChange={() => toggleVisibilityByBreakdown(breakdown.breakdown_value)}
                         />,
                         <PHCheckbox
+                            color={isOnlySeries ? 'var(--primary)' : undefined}
                             checked={checked}
                             indeterminate={flattenedBreakdowns?.some(
                                 (b) =>
@@ -95,7 +103,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         />,
                         showLabels,
                         undefined,
-                        dashboardItemId
+                        dashboardItemId,
+                        useCustomName
                     )
                 },
                 fixed: 'left',
@@ -105,14 +114,17 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
 
             _columns.push({
                 render: function RenderLabel({}, breakdown: FlattenedFunnelStepByBreakdown, rowIndex) {
-                    const color = getSeriesColor(breakdown?.breakdownIndex) || 'var(--text-default)'
+                    const color = getSeriesColor(breakdown?.breakdownIndex, isOnlySeries)
 
                     return renderGraphAndHeader(
                         rowIndex,
                         1,
                         <InsightLabel
                             seriesColor={color}
-                            fallbackName={formatBreakdownLabel(breakdown.breakdown_value, cohorts)}
+                            fallbackName={formatBreakdownLabel(
+                                isOnlySeries ? 'Persons' : breakdown.breakdown_value,
+                                cohorts
+                            )}
                             hasMultipleSeries={steps.length > 1}
                             breakdownValue={breakdown.breakdown_value}
                             hideBreakdown
@@ -123,7 +135,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         renderColumnTitle('Breakdown'),
                         showLabels,
                         undefined,
-                        dashboardItemId
+                        dashboardItemId,
+                        useCustomName
                     )
                 },
                 fixed: 'left',
@@ -137,10 +150,11 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         rowIndex,
                         2,
                         <span>{formatDisplayPercentage(breakdown?.conversionRates?.total ?? 0)}%</span>,
-                        renderSubColumnTitle('Comp. rate'),
+                        renderSubColumnTitle('Rate'),
                         showLabels,
                         undefined,
-                        dashboardItemId
+                        dashboardItemId,
+                        useCustomName
                     )
                 },
                 fixed: 'left',
@@ -177,7 +191,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             renderSubColumnTitle('Completed'),
                             showLabels,
                             step,
-                            dashboardItemId
+                            dashboardItemId,
+                            useCustomName
                         )
                     },
                     width: 80,
@@ -202,7 +217,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             renderSubColumnTitle('Rate'),
                             showLabels,
                             step,
-                            dashboardItemId
+                            dashboardItemId,
+                            useCustomName
                         )
                     },
                     width: 80,
@@ -236,7 +252,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 renderSubColumnTitle('Dropped'),
                                 showLabels,
                                 step,
-                                dashboardItemId
+                                dashboardItemId,
+                                useCustomName
                             )
                         },
                         width: 80,
@@ -261,7 +278,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 renderSubColumnTitle('Rate'),
                                 showLabels,
                                 step,
-                                dashboardItemId
+                                dashboardItemId,
+                                useCustomName
                             )
                         },
                         width: 80,
@@ -275,9 +293,9 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 (stepIndex - 1) * 5 + 9,
                                 breakdown.steps?.[step.order]?.average_conversion_time != undefined ? (
                                     <span>
-                                        {humanFriendlyDuration(
+                                        {colonDelimitedDuration(
                                             breakdown.steps?.[step.order]?.average_conversion_time,
-                                            2
+                                            3
                                         )}
                                     </span>
                                 ) : (
@@ -286,7 +304,8 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                 renderSubColumnTitle('Avg. time'),
                                 showLabels,
                                 step,
-                                dashboardItemId
+                                dashboardItemId,
+                                useCustomName
                             )
                         },
                         width: 80,
@@ -333,9 +352,9 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                                     )
                                     setHiddenById(
                                         Object.fromEntries(
-                                            (
-                                                flattenedSteps?.filter((s) => s.breakdownIndex !== undefined) ?? []
-                                            ).map(({ rowKey }) => [rowKey, !currentState])
+                                            (flattenedSteps?.filter((s) => s.breakdownIndex !== undefined) ?? []).map(
+                                                ({ rowKey }) => [rowKey, !currentState]
+                                            )
                                         )
                                     )
                                 }}
@@ -361,6 +380,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
             render: function RenderLabel({}, step: FlattenedFunnelStep): JSX.Element {
                 const isBreakdownChild = !!filters.breakdown && !step.isBreakdownParent
                 const color = getStepColor(step, !!filters.breakdown)
+
                 return (
                     <InsightLabel
                         seriesColor={color}
@@ -368,6 +388,11 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                             isBreakdownChild && isBreakdownChildType(step.breakdown)
                                 ? formatBreakdownLabel(step.breakdown, cohorts)
                                 : step.name
+                        }
+                        action={
+                            isBreakdownChild && isBreakdownChildType(step.breakdown)
+                                ? undefined
+                                : getActionFilterFromFunnelStep(step)
                         }
                         hasMultipleSeries={steps.length > 1}
                         breakdownValue={
@@ -382,6 +407,7 @@ export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<Cha
                         iconStyle={{ marginRight: 12 }}
                         hideIcon={!isBreakdownChild}
                         allowWrap
+                        useCustomName={!!featureFlags[FEATURE_FLAGS.RENAME_FILTERS]}
                     />
                 )
             },
