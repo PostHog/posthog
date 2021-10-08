@@ -215,6 +215,10 @@ export const insightLogic = kea<insightLogicType>({
             actions.setInsightMode(ItemMode.View, null)
         },
         setAllFilters: async ({ filters }, breakpoint) => {
+            if (objectsEqual(values.allFilters, filters)) {
+                return
+            }
+
             const changedKeys = extractObjectDiffKeys(values.allFilters, filters)
             const changedKeysObj: Record<string, any> = {}
             changedKeys.forEach((key) => {
