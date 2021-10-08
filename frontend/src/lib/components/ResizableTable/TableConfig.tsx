@@ -12,17 +12,25 @@ import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
 
 interface TableConfigInterface {
-    availableColumns: string[] // List of all available columns (should include selectedColumns too for simplicity)
-    immutableColumns?: string[] // List of columns that cannot be removed
-    defaultColumns: string[] // To enable resetting to default
+    availableColumns: string[]
+    immutableColumns?: string[]
+    defaultColumns: string[]
 }
 
+/**
+ * A scene that contains a ResizableTable with many possible columns
+ * can use this to let the user choose which columns they see
+ *
+ * @param availableColumns the full set of column titles in the table's data
+ * @param immutableColumns the titles of the columns that are always displayed
+ * @param defaultColumns the titles of the set of columns to show when there is no user choice
+ * @constructor
+ */
 export function TableConfig({ availableColumns, immutableColumns, defaultColumns }: TableConfigInterface): JSX.Element {
     const { modalVisible } = useValues(tableConfigLogic)
     const { setModalVisible } = useActions(tableConfigLogic)
 
-    const { columnConfig, columnConfigSaving } = useValues(tableConfigLogic)
-    const { setColumnConfig } = useActions(tableConfigLogic)
+    const { columnConfig } = useValues(tableConfigLogic)
 
     return (
         <>
@@ -41,11 +49,8 @@ export function TableConfig({ availableColumns, immutableColumns, defaultColumns
                                 <ColumnConfigurator
                                     allColumns={availableColumns}
                                     currentSelection={columnConfig === 'DEFAULT' ? defaultColumns : columnConfig}
-                                    onClose={() => setModalVisible(false)}
-                                    onColumnUpdate={setColumnConfig}
                                     immutableColumns={immutableColumns}
                                     defaultColumns={defaultColumns}
-                                    saving={columnConfigSaving}
                                 />
                             )}
                         </>
@@ -54,16 +59,6 @@ export function TableConfig({ availableColumns, immutableColumns, defaultColumns
             </div>
         </>
     )
-}
-
-interface ColumnConfiguratorInterface {
-    currentSelection: string[] // List of currently selected columns
-    allColumns: string[] // List of all possible columns
-    immutableColumns?: string[]
-    onClose: () => void
-    onColumnUpdate: (selectedColumns: string[]) => void
-    saving?: boolean
-    defaultColumns?: string[]
 }
 
 const searchFilteredColumns = (searchTerm: string, selectedColumns: string[]): string[] =>
@@ -75,13 +70,17 @@ const searchFilteredColumns = (searchTerm: string, selectedColumns: string[]): s
               .map(({ item }) => item)
         : selectedColumns
 
+interface ColumnConfiguratorInterface {
+    currentSelection: string[] // List of currently selected columns
+    allColumns: string[] // List of all possible columns
+    immutableColumns?: string[]
+    defaultColumns?: string[]
+}
+
 function ColumnConfigurator({
     currentSelection,
     allColumns,
     immutableColumns,
-    onClose,
-    onColumnUpdate,
-    saving,
     defaultColumns,
 }: ColumnConfiguratorInterface): JSX.Element {
     const [selectableColumns, setSelectableColumns] = useState([] as string[]) // Stores the actual state of columns that could be selected
@@ -92,6 +91,9 @@ function ColumnConfigurator({
     const selectedColumnsDisplay = searchFilteredColumns(searchTerm, selectedColumns)
 
     const selectableColumnsDisplay = searchFilteredColumns(searchTerm, selectableColumns)
+
+    const { columnConfigSaving } = useValues(tableConfigLogic)
+    const { setColumnConfig, setModalVisible } = useActions(tableConfigLogic)
 
     useEffect(() => {
         setSelectedColumns(currentSelection)
@@ -117,7 +119,7 @@ function ColumnConfigurator({
     }
 
     function AvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = saving
+        const disabled = columnConfigSaving
         return (
             <div
                 className={`column-display-item${disabled ? ' disabled' : ''}`}
@@ -132,7 +134,7 @@ function ColumnConfigurator({
     }
 
     function SelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = immutableColumns?.includes(selectedColumnsDisplay[index]) || saving
+        const disabled = immutableColumns?.includes(selectedColumnsDisplay[index]) || columnConfigSaving
 
         return (
             <div
@@ -152,18 +154,18 @@ function ColumnConfigurator({
             centered
             visible
             title="Toggle column visibility"
-            confirmLoading={saving}
-            onOk={() => onColumnUpdate(selectedColumns)}
+            confirmLoading={columnConfigSaving}
+            onOk={() => setColumnConfig(selectedColumns)}
             width={700}
             className="column-configurator-modal"
             okButtonProps={{
                 // @ts-ignore
                 'data-attr': 'items-selector-confirm',
-                loading: saving,
+                loading: columnConfigSaving,
                 icon: <SaveOutlined />,
             }}
             okText="Save preferences"
-            onCancel={onClose}
+            onCancel={() => setModalVisible(false)}
         >
             {defaultColumns && (
                 <div className="text-right mb">
