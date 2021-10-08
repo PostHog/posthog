@@ -4,14 +4,13 @@ import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ChartParams, FunnelCorrelation, FunnelCorrelationType } from '~/types'
+import { FunnelCorrelation, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function FunnelPropertyCorrelationTable({
-    filters: _filters,
-    dashboardItemId,
-}: Omit<ChartParams, 'view'>): JSX.Element | null {
-    const logic = funnelLogic({ dashboardItemId, _filters })
+export function FunnelPropertyCorrelationTable(): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
     const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes } = useValues(logic)
     const { setCorrelationTypes, loadPropertyCorrelations } = useActions(logic)
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {

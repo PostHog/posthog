@@ -202,7 +202,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
                 <>
                     <FunnelCorrelationTable />
-                    <FunnelPropertyCorrelationTable filters={allFilters} />
+                    <FunnelPropertyCorrelationTable />
                 </>
             ) : null}
         </>
