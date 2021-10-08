@@ -28,6 +28,7 @@ import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import clsx from 'clsx'
 
 const EVENT_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == EVENT_MATH_TYPE)
 const PROPERTY_MATH_ENTRIES = Object.entries(MATHS).filter(([, item]) => item.type == PROPERTY_MATH_TYPE)
@@ -286,9 +287,11 @@ export function ActionFilterRow({
 
     return (
         <div
-            className={`${horizontalUI && stripeActionRow ? 'action-row-striped' : 'action-row'} ${
-                fullWidth ? 'full-width' : ''
-            }`}
+            className={clsx({
+                'action-row-striped': horizontalUI && stripeActionRow,
+                'action-row': !horizontalUI || !stripeActionRow,
+                'full-width': fullWidth,
+            })}
         >
             {!horizontalUI && index > 0 && showOr && (
                 <Row align="middle" style={{ marginTop: 12 }}>
