@@ -187,6 +187,22 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
             })
     }
 
+    const addChartAxisLines = (svg, height, nodes, maxLayer) => {
+        if (maxLayer > 5) {
+            const arr = [...Array(maxLayer)]
+            const minWidthApart = nodes[1].x0 - nodes[0].x0
+            arr.forEach((layer, i) => {
+                svg.append('line')
+                    .style('stroke', 'var(--border)')
+                    .attr('stroke-width', 1)
+                    .attr('x1', minWidthApart * (i + 1) - 20)
+                    .attr('y1', 0)
+                    .attr('x2', minWidthApart * (i + 1) - 20)
+                    .attr('y2', height)
+            })
+        }
+    }
+
     function renderPaths() {
         const elements = document
             .getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)
@@ -198,18 +214,12 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
             return
         }
 
-        const moreThanFive =
-            paths.links.filter((link) => {
-                const linkNum = link.target.name ? link.target.name : link.target
-                return Number(linkNum.match(/[^_]*/)) > 5
-            }).length > 0
-
         const maxLayer = paths.links.reduce((prev, curr) => {
             const currNum = curr.target.name ? curr.target.name : curr.target
             return Math.max(prev || prev, Number(currNum.match(/[^_]*/)))
         }, 0)
 
-        const width = moreThanFive ? (canvas.current.offsetWidth / 4) * maxLayer : canvas.current.offsetWidth
+        const width = maxLayer > 5 ? (canvas.current.offsetWidth / 5) * maxLayer : canvas.current.offsetWidth
         const height = canvas.current.offsetHeight
 
         const svg = createCanvas(width, height)
@@ -222,13 +232,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
         appendPathNodes(svg, nodes)
         appendDropoffs(svg)
         appendPathLinks(svg, links)
-        svg.append('line') // attach a line
-            .style('stroke', 'var(--border)') // colour the line
-            .attr('stroke-width', 20)
-            .attr('x1', 0) // x position of the first end of the line
-            .attr('y1', 0) // y position of the first end of the line
-            .attr('x2', 0) // x position of the second end of the line
-            .attr('y2', height)
+        addChartAxisLines(svg, height, nodes, maxLayer)
     }
 
     const getDropOffValue = (pathItemCard) => {
@@ -269,242 +273,232 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
                         const continuingValue = getContinuingValue(pathItemCard.sourceLinks)
                         const dropOffValue = getDropOffValue(pathItemCard)
                         return (
-                            <>
-                                <Tooltip title={pageUrl(pathItemCard)} placement="right">
-                                    <Dropdown
-                                        key={idx}
-                                        overlay={
-                                            <Menu
-                                                style={{
-                                                    marginTop: -5,
-                                                    border: '1px solid var(--border)',
-                                                    borderRadius: '0px 0px 4px 4px',
-                                                    width: 200,
-                                                }}
-                                            >
-                                                {pathItemCard.sourceLinks.length > 0 && (
-                                                    <Menu.Item
-                                                        disabled
-                                                        className="pathcard-dropdown-info-option text-small"
-                                                        style={{
-                                                            borderBottom: `${
-                                                                dropOffValue > 0 || pathItemCard.targetLinks.length > 0
-                                                                    ? '1px solid var(--border)'
-                                                                    : ''
-                                                            }`,
-                                                        }}
-                                                    >
-                                                        <span className="text-small">
-                                                            <span style={{ paddingRight: 8 }}>
-                                                                <PathsCompletedArrow />
-                                                            </span>{' '}
-                                                            Continuing
-                                                        </span>{' '}
-                                                        <span className="primary text-small">
-                                                            <ValueInspectorButton
-                                                                style={{ paddingRight: 0, fontSize: 12 }}
-                                                                onClick={() => openPersonsModal(pathItemCard.name)}
-                                                            >
-                                                                {continuingValue}
-                                                                <span
-                                                                    className="text-muted-alt"
-                                                                    style={{ paddingLeft: 4 }}
-                                                                >
-                                                                    (
-                                                                    {(
-                                                                        (continuingValue / pathItemCard.value) *
-                                                                        100
-                                                                    ).toFixed(1)}
-                                                                    %)
-                                                                </span>
-                                                            </ValueInspectorButton>
-                                                        </span>
-                                                    </Menu.Item>
-                                                )}
-                                                {dropOffValue > 0 && (
-                                                    <Menu.Item
-                                                        disabled
-                                                        className="pathcard-dropdown-info-option text-small"
-                                                        style={{
-                                                            borderBottom: '1px solid var(--border)',
-                                                        }}
-                                                    >
-                                                        <span className="text-small" style={{ display: 'flex' }}>
-                                                            <span
-                                                                style={{
-                                                                    paddingRight: 8,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                }}
-                                                            >
-                                                                <PathsDropoffArrow />
-                                                            </span>{' '}
-                                                            Dropping off
-                                                        </span>{' '}
-                                                        <span className="primary">
-                                                            <ValueInspectorButton
-                                                                style={{ paddingRight: 0, fontSize: 12 }}
-                                                                onClick={() =>
-                                                                    openPersonsModal(
-                                                                        undefined,
-                                                                        undefined,
-                                                                        pathItemCard.name
-                                                                    )
-                                                                }
-                                                            >
-                                                                {dropOffValue}{' '}
-                                                                <span
-                                                                    className="text-muted-alt text-small"
-                                                                    style={{ paddingLeft: 4 }}
-                                                                >
-                                                                    (
-                                                                    {(
-                                                                        (dropOffValue / pathItemCard.value) *
-                                                                        100
-                                                                    ).toFixed(1)}
-                                                                    %)
-                                                                </span>
-                                                            </ValueInspectorButton>
-                                                        </span>
-                                                    </Menu.Item>
-                                                )}
-                                                {pathItemCard.targetLinks.length > 0 && (
-                                                    <Menu.Item
-                                                        disabled
-                                                        className="pathcard-dropdown-info-option"
-                                                        style={{
-                                                            padding: '5px 8px',
-                                                            fontWeight: 500,
-                                                            fontSize: 12,
-                                                        }}
-                                                    >
-                                                        <ClockCircleOutlined
-                                                            style={{ color: 'var(--muted)', fontSize: 16 }}
-                                                        />
-                                                        <span
-                                                            className="text-small"
-                                                            style={{
-                                                                wordWrap: 'break-word',
-                                                                whiteSpace: 'normal',
-                                                                paddingLeft: 8,
-                                                            }}
-                                                        >
-                                                            Average time from previous step{' '}
-                                                        </span>
-                                                        {humanFriendlyDuration(
-                                                            pathItemCard.targetLinks[0].average_conversion_time / 1000
-                                                        )}
-                                                    </Menu.Item>
-                                                )}
-                                            </Menu>
-                                        }
-                                        placement="bottomCenter"
-                                    >
-                                        <Button
-                                            key={idx}
+                            <Tooltip key={idx} title={pageUrl(pathItemCard)} placement="right">
+                                <Dropdown
+                                    key={idx}
+                                    overlay={
+                                        <Menu
                                             style={{
-                                                position: 'absolute',
-                                                left:
-                                                    pathItemCard.sourceLinks.length === 0
-                                                        ? pathItemCard.x0 - (200 - 7)
-                                                        : pathItemCard.x0 + 7,
-                                                top:
-                                                    pathItemCard.sourceLinks.length > 0
-                                                        ? pathItemCard.y0 + 5
-                                                        : pathItemCard.y0 + (pathItemCard.y1 - pathItemCard.y0) / 2,
-                                                background: 'white',
+                                                marginTop: -5,
+                                                border: '1px solid var(--border)',
+                                                borderRadius: '0px 0px 4px 4px',
                                                 width: 200,
-                                                border: `1px solid ${
-                                                    isSelectedPathStartOrEnd(pathItemCard) ? 'purple' : 'var(--border)'
-                                                }`,
-                                                padding: 4,
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center',
-                                                display: `${pathItemCard.visible ? 'flex' : 'none'}`,
                                             }}
                                         >
-                                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                <span
-                                                    className="text-muted"
+                                            {pathItemCard.sourceLinks.length > 0 && (
+                                                <Menu.Item
+                                                    disabled
+                                                    className="pathcard-dropdown-info-option text-small"
                                                     style={{
-                                                        fontSize: 10,
-                                                        fontWeight: 600,
-                                                        marginRight: 4,
-                                                        lineHeight: '10px',
+                                                        borderBottom: `${
+                                                            dropOffValue > 0 || pathItemCard.targetLinks.length > 0
+                                                                ? '1px solid var(--border)'
+                                                                : ''
+                                                        }`,
                                                     }}
-                                                >{`0${pathItemCard.name[0]}`}</span>{' '}
-                                                <span style={{ fontSize: 12, fontWeight: 600 }}>
-                                                    {pageUrl(pathItemCard, true)}
-                                                </span>
-                                            </div>
-                                            <Row style={{ alignSelf: 'center' }}>
-                                                <span
-                                                    onClick={() => openPersonsModal(undefined, pathItemCard.name)}
-                                                    className="primary text-small"
-                                                    style={{ alignSelf: 'center', paddingRight: 4, fontWeight: 500 }}
                                                 >
-                                                    {continuingValue + dropOffValue}
-                                                </span>
-                                                <Dropdown
-                                                    trigger={['click']}
-                                                    overlay={
-                                                        <Menu className="paths-options-dropdown">
-                                                            <Menu.Item
-                                                                onClick={() =>
-                                                                    setFilter({ start_point: pageUrl(pathItemCard) })
-                                                                }
-                                                            >
-                                                                Set as path start
-                                                            </Menu.Item>
-                                                            <Menu.Item
-                                                                onClick={() =>
-                                                                    setFilter({ end_point: pageUrl(pathItemCard) })
-                                                                }
-                                                            >
-                                                                Set as path end
-                                                            </Menu.Item>
-                                                            <Menu.Item
-                                                                onClick={() => {
-                                                                    if (
-                                                                        filter &&
-                                                                        filter.exclude_events &&
-                                                                        filter.exclude_events.length > 0
-                                                                    ) {
-                                                                        const exclusionEvents =
-                                                                            filter.exclude_events.map((event) => ({
-                                                                                value: event,
-                                                                            }))
-                                                                        updateExclusions([
-                                                                            ...exclusionEvents,
-                                                                            { value: pageUrl(pathItemCard) },
-                                                                        ])
-                                                                    } else {
-                                                                        updateExclusions([
-                                                                            { value: pageUrl(pathItemCard) },
-                                                                        ])
-                                                                    }
-                                                                }}
-                                                            >
-                                                                Exclude path item
-                                                            </Menu.Item>
-                                                            <Menu.Item onClick={() => viewPathToFunnel(pathItemCard)}>
-                                                                View funnel
-                                                            </Menu.Item>
-                                                            <Menu.Item
-                                                                onClick={() => copyToClipboard(pageUrl(pathItemCard))}
-                                                            >
-                                                                Copy path item name
-                                                            </Menu.Item>
-                                                        </Menu>
-                                                    }
+                                                    <span className="text-small">
+                                                        <span style={{ paddingRight: 8 }}>
+                                                            <PathsCompletedArrow />
+                                                        </span>{' '}
+                                                        Continuing
+                                                    </span>{' '}
+                                                    <span className="primary text-small">
+                                                        <ValueInspectorButton
+                                                            style={{ paddingRight: 0, fontSize: 12 }}
+                                                            onClick={() => openPersonsModal(pathItemCard.name)}
+                                                        >
+                                                            {continuingValue}
+                                                            <span className="text-muted-alt" style={{ paddingLeft: 4 }}>
+                                                                (
+                                                                {((continuingValue / pathItemCard.value) * 100).toFixed(
+                                                                    1
+                                                                )}
+                                                                %)
+                                                            </span>
+                                                        </ValueInspectorButton>
+                                                    </span>
+                                                </Menu.Item>
+                                            )}
+                                            {dropOffValue > 0 && (
+                                                <Menu.Item
+                                                    disabled
+                                                    className="pathcard-dropdown-info-option text-small"
+                                                    style={{
+                                                        borderBottom: '1px solid var(--border)',
+                                                    }}
                                                 >
-                                                    <div className="paths-dropdown-ellipsis">...</div>
-                                                </Dropdown>
-                                            </Row>
-                                        </Button>
-                                    </Dropdown>
-                                </Tooltip>
-                            </>
+                                                    <span className="text-small" style={{ display: 'flex' }}>
+                                                        <span
+                                                            style={{
+                                                                paddingRight: 8,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                            }}
+                                                        >
+                                                            <PathsDropoffArrow />
+                                                        </span>{' '}
+                                                        Dropping off
+                                                    </span>{' '}
+                                                    <span className="primary">
+                                                        <ValueInspectorButton
+                                                            style={{ paddingRight: 0, fontSize: 12 }}
+                                                            onClick={() =>
+                                                                openPersonsModal(
+                                                                    undefined,
+                                                                    undefined,
+                                                                    pathItemCard.name
+                                                                )
+                                                            }
+                                                        >
+                                                            {dropOffValue}{' '}
+                                                            <span
+                                                                className="text-muted-alt text-small"
+                                                                style={{ paddingLeft: 4 }}
+                                                            >
+                                                                (
+                                                                {((dropOffValue / pathItemCard.value) * 100).toFixed(1)}
+                                                                %)
+                                                            </span>
+                                                        </ValueInspectorButton>
+                                                    </span>
+                                                </Menu.Item>
+                                            )}
+                                            {pathItemCard.targetLinks.length > 0 && (
+                                                <Menu.Item
+                                                    disabled
+                                                    className="pathcard-dropdown-info-option"
+                                                    style={{
+                                                        padding: '5px 8px',
+                                                        fontWeight: 500,
+                                                        fontSize: 12,
+                                                    }}
+                                                >
+                                                    <ClockCircleOutlined
+                                                        style={{ color: 'var(--muted)', fontSize: 16 }}
+                                                    />
+                                                    <span
+                                                        className="text-small"
+                                                        style={{
+                                                            wordWrap: 'break-word',
+                                                            whiteSpace: 'normal',
+                                                            paddingLeft: 8,
+                                                        }}
+                                                    >
+                                                        Average time from previous step{' '}
+                                                    </span>
+                                                    {humanFriendlyDuration(
+                                                        pathItemCard.targetLinks[0].average_conversion_time / 1000
+                                                    )}
+                                                </Menu.Item>
+                                            )}
+                                        </Menu>
+                                    }
+                                    placement="bottomCenter"
+                                >
+                                    <Button
+                                        key={idx}
+                                        style={{
+                                            position: 'absolute',
+                                            left:
+                                                pathItemCard.sourceLinks.length === 0
+                                                    ? pathItemCard.x0 - (200 - 7)
+                                                    : pathItemCard.x0 + 7,
+                                            top:
+                                                pathItemCard.sourceLinks.length > 0
+                                                    ? pathItemCard.y0 + 5
+                                                    : pathItemCard.y0 + (pathItemCard.y1 - pathItemCard.y0) / 2,
+                                            background: 'white',
+                                            width: 200,
+                                            border: `1px solid ${
+                                                isSelectedPathStartOrEnd(pathItemCard) ? 'purple' : 'var(--border)'
+                                            }`,
+                                            padding: 4,
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            display: `${pathItemCard.visible ? 'flex' : 'none'}`,
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                                            <span
+                                                className="text-muted"
+                                                style={{
+                                                    fontSize: 10,
+                                                    fontWeight: 600,
+                                                    marginRight: 4,
+                                                    lineHeight: '10px',
+                                                }}
+                                            >{`0${pathItemCard.name[0]}`}</span>{' '}
+                                            <span style={{ fontSize: 12, fontWeight: 600 }}>
+                                                {pageUrl(pathItemCard, true)}
+                                            </span>
+                                        </div>
+                                        <Row style={{ alignSelf: 'center' }}>
+                                            <span
+                                                onClick={() => openPersonsModal(undefined, pathItemCard.name)}
+                                                className="primary text-small"
+                                                style={{ alignSelf: 'center', paddingRight: 4, fontWeight: 500 }}
+                                            >
+                                                {continuingValue + dropOffValue}
+                                            </span>
+                                            <Dropdown
+                                                trigger={['click']}
+                                                overlay={
+                                                    <Menu className="paths-options-dropdown">
+                                                        <Menu.Item
+                                                            onClick={() =>
+                                                                setFilter({ start_point: pageUrl(pathItemCard) })
+                                                            }
+                                                        >
+                                                            Set as path start
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() =>
+                                                                setFilter({ end_point: pageUrl(pathItemCard) })
+                                                            }
+                                                        >
+                                                            Set as path end
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() => {
+                                                                if (
+                                                                    filter &&
+                                                                    filter.exclude_events &&
+                                                                    filter.exclude_events.length > 0
+                                                                ) {
+                                                                    const exclusionEvents = filter.exclude_events.map(
+                                                                        (event) => ({
+                                                                            value: event,
+                                                                        })
+                                                                    )
+                                                                    updateExclusions([
+                                                                        ...exclusionEvents,
+                                                                        { value: pageUrl(pathItemCard) },
+                                                                    ])
+                                                                } else {
+                                                                    updateExclusions([{ value: pageUrl(pathItemCard) }])
+                                                                }
+                                                            }}
+                                                        >
+                                                            Exclude path item
+                                                        </Menu.Item>
+                                                        <Menu.Item onClick={() => viewPathToFunnel(pathItemCard)}>
+                                                            View funnel
+                                                        </Menu.Item>
+                                                        <Menu.Item
+                                                            onClick={() => copyToClipboard(pageUrl(pathItemCard))}
+                                                        >
+                                                            Copy path item name
+                                                        </Menu.Item>
+                                                    </Menu>
+                                                }
+                                            >
+                                                <div className="paths-dropdown-ellipsis">...</div>
+                                            </Dropdown>
+                                        </Row>
+                                    </Button>
+                                </Dropdown>
+                            </Tooltip>
                         )
                     })}
             </div>
