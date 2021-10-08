@@ -13,7 +13,11 @@ def event_entity_to_query(entity: Entity, team: Team, prepend="event_entity") ->
         from ee.clickhouse.models.property import parse_prop_clauses
 
         prop_query, prop_params = parse_prop_clauses(
-            entity.properties, team_id=team.pk, prepend="{}_props".format(prepend), allow_denormalized_props=False
+            entity.properties,
+            team_id=team.pk,
+            prepend="{}_props".format(prepend),
+            allow_denormalized_props=False,
+            has_person_id_joined=False,
         )
         event_query += prop_query
         params = {**params, **prop_params}
