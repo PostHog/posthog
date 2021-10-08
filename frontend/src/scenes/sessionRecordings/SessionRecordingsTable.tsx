@@ -2,18 +2,18 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration, humanFriendlyDetailedTime } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { Button, Card, Col, DatePicker, Row, Table, Typography } from 'antd'
+import { Button, Card, Col, Row, Table, Typography } from 'antd'
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
-import { PlayCircleOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined, CalendarOutlined, InfoCircleOutlined, FilterOutlined } from '@ant-design/icons'
 import { useIsTableScrolling } from 'lib/components/Table/utils'
 import { SessionPlayerDrawer } from './SessionPlayerDrawer'
 import { ActionFilter } from 'scenes/insights/ActionFilter/ActionFilter'
 import { LeftOutlined, RightOutlined } from '@ant-design/icons'
-import moment from 'moment'
 import { DurationFilter } from './DurationFilter'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { Tooltip } from 'lib/components/Tooltip'
 import './SessionRecordingTable.scss'
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -33,7 +33,7 @@ function FilterRow({
     isVertical?: boolean
 }): JSX.Element {
     return (
-        <Row className="filter-row" wrap={false} align="middle">
+        <Row className="entity-filter-row" wrap={false} align="middle">
             <Col flex="1" className="mr">
                 <Row align="middle">{filter}</Row>
             </Col>
@@ -55,6 +55,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         fromDate,
         toDate,
         durationFilter,
+        showEntityFilter,
     } = useValues(sessionRecordingsTableLogicInstance)
     const {
         openSessionPlayer,
@@ -64,6 +65,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         loadPrev,
         setDateRange,
         setDurationFilter,
+        enableEntityFilter,
     } = useActions(sessionRecordingsTableLogicInstance)
     const { tableScrollX } = useIsTableScrolling('lg')
 
@@ -94,63 +96,81 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
 
         {
             key: 'play',
-            render: function RenderPlayButton() {
-                return <PlayCircleOutlined size={16} />
+            render: function RenderPlayButton(sessionRecording: SessionRecordingType) {
+                return (
+                    <div className="play-button-container">
+                        <Button
+                            className={sessionRecording.viewed ? 'play-button viewed' : 'play-button'}
+                            data-attr="session-recordings-button"
+                            icon={<PlayCircleOutlined />}
+                        >
+                            Watch session
+                        </Button>
+                    </div>
+                )
             },
-            width: 32,
         },
     ]
     return (
         <div className="session-recordings-table" data-attr="session-recordings-table">
-            <div className="action-filter-container">
-                <Typography.Text strong>Filter by events or actions:</Typography.Text>
-                <ActionFilter
-                    fullWidth={true}
-                    filters={entityFilters}
-                    setFilters={(payload) => {
-                        setEntityFilters(payload)
-                    }}
-                    typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
-                    hideMathSelector={true}
-                    buttonCopy="Add event or action filter"
-                    horizontalUI
-                    stripeActionRow={false}
-                    propertyFilterWrapperClassName="session-recording-action-property-filter"
-                    customRowPrefix=""
-                    hideRename
-                    showOr
-                    renderRow={(props) => <FilterRow {...props} />}
-                    showNestedArrow={false}
-                />
-            </div>
-            <Row className="time-filter-row">
-                <Row className="time-filter">
-                    <Typography.Text className="filter-label" strong>
-                        Duration
-                    </Typography.Text>
-                    <DurationFilter
-                        onChange={(newFilter) => {
-                            setDurationFilter(newFilter)
-                        }}
-                        filterValue={durationFilter}
-                    />
-                </Row>
-                <Row className="time-filter">
-                    <Typography.Text className="filter-label" strong>
-                        Start Time
-                    </Typography.Text>
-                    <DatePicker.RangePicker
-                        ranges={{
-                            'Last 7 Days': [moment().subtract(7, 'd'), null],
-                            'Last 30 Days': [moment().subtract(30, 'd'), null],
-                            'Last 90 Days': [moment().subtract(90, 'd'), null],
-                        }}
-                        onChange={(_, dateStrings) => {
-                            setDateRange(dateStrings[0], dateStrings[1])
-                        }}
-                        value={[fromDate ? moment(fromDate) : null, toDate ? moment(toDate) : null]}
-                        allowEmpty={[true, true]}
-                    />
+            <Row className="filter-row">
+                {showEntityFilter ? (
+                    <div className="action-filter-container">
+                        <Typography.Text strong>
+                            {`Filter by events or actions `}
+                            <Tooltip title="Show recordings where all of the events or actions listed below happen.">
+                                <InfoCircleOutlined className="info-icon" />
+                            </Tooltip>
+                        </Typography.Text>
+                        <ActionFilter
+                            fullWidth={true}
+                            filters={entityFilters}
+                            setFilters={(payload) => {
+                                setEntityFilters(payload)
+                            }}
+                            typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
+                            hideMathSelector={true}
+                            buttonCopy="Add another filter"
+                            horizontalUI
+                            stripeActionRow={false}
+                            propertyFilterWrapperClassName="session-recording-action-property-filter"
+                            customRowPrefix=""
+                            hideRename
+                            showOr
+                            renderRow={(props) => <FilterRow {...props} />}
+                            showNestedArrow={false}
+                        />
+                    </div>
+                ) : (
+                    <Button onClick={enableEntityFilter}>
+                        <FilterOutlined /> Filter by events and actions
+                    </Button>
+                )}
+
+                <Row className="time-filter-row">
+                    <Row className="time-filter">
+                        <Typography.Text className="filter-label">Duration</Typography.Text>
+                        <DurationFilter
+                            onChange={(newFilter) => {
+                                setDurationFilter(newFilter)
+                            }}
+                            filterValue={durationFilter}
+                        />
+                    </Row>
+                    <Row className="time-filter">
+                        <Typography.Text className="filter-label">
+                            <CalendarOutlined />
+                        </Typography.Text>
+                        <DateFilter
+                            defaultValue="Last 30 days"
+                            bordered={true}
+                            dateFrom={fromDate ?? undefined}
+                            dateTo={toDate ?? undefined}
+                            onChange={(changedDateFrom, changedDateTo) => {
+                                setDateRange(changedDateFrom, changedDateTo)
+                            }}
+                        />
+                    </Row>
                 </Row>
             </Row>
             <Card>

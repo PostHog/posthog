@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { FilterType, PropertyOperator, RecordingDurationFilter, SessionRecordingType } from '~/types'
+import { EntityTypes, FilterType, PropertyOperator, RecordingDurationFilter, SessionRecordingType } from '~/types'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { router } from 'kea-router'
 import dayjs from 'dayjs'
@@ -22,6 +22,19 @@ export interface SessionRecordingsResponse {
 
 const LIMIT = 50
 
+const DEFAULT_ENTITY_FILTERS = {
+    events: [],
+    actions: [],
+    new_entity: [
+        {
+            id: null,
+            type: EntityTypes.EVENTS,
+            order: 0,
+            name: null,
+        },
+    ],
+}
+
 export const sessionRecordingsTableLogic = kea<
     sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId, SessionRecordingsResponse>
 >({
@@ -39,7 +52,8 @@ export const sessionRecordingsTableLogic = kea<
         setEntityFilters: (filters: Partial<FilterType>) => ({ filters }),
         loadNext: true,
         loadPrev: true,
-        setDateRange: (incomingFromDate: string | null, incomingToDate: string | null) => ({
+        enableEntityFilter: true,
+        setDateRange: (incomingFromDate: string | undefined, incomingToDate: string | undefined) => ({
             incomingFromDate,
             incomingToDate,
         }),
@@ -75,6 +89,34 @@ export const sessionRecordingsTableLogic = kea<
         },
     }),
     reducers: {
+        entityFilterEnabled: [
+            false,
+            {
+                enableEntityFilter: () => true,
+            },
+        ],
+        sessionRecordings: [
+            [],
+            {
+                getSessionRecordingsSuccess: (_, { sessionRecordingsResponse }) => {
+                    return [...sessionRecordingsResponse.results]
+                },
+                openSessionPlayer: (sessionRecordings, { sessionRecordingId }) => {
+                    return [
+                        ...sessionRecordings.map((sessionRecording) => {
+                            if (sessionRecording.id === sessionRecordingId) {
+                                return {
+                                    ...sessionRecording,
+                                    viewed: true,
+                                }
+                            } else {
+                                return { ...sessionRecording }
+                            }
+                        }),
+                    ]
+                },
+            },
+        ],
         sessionRecordingId: [
             null as SessionRecordingId | null,
             {
@@ -83,10 +125,7 @@ export const sessionRecordingsTableLogic = kea<
             },
         ],
         entityFilters: [
-            {
-                events: [],
-                actions: [],
-            } as FilterType,
+            DEFAULT_ENTITY_FILTERS as FilterType,
             {
                 setEntityFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -112,13 +151,13 @@ export const sessionRecordingsTableLogic = kea<
         fromDate: [
             dayjs().subtract(30, 'days').format('YYYY-MM-DD') as null | string,
             {
-                setDateRange: (_, { incomingFromDate }) => incomingFromDate,
+                setDateRange: (_, { incomingFromDate }) => incomingFromDate ?? null,
             },
         ],
         toDate: [
-            null as null | string,
+            null as string | null,
             {
-                setDateRange: (_, { incomingToDate }) => incomingToDate,
+                setDateRange: (_, { incomingToDate }) => incomingToDate ?? null,
             },
         ],
     },
@@ -140,14 +179,16 @@ export const sessionRecordingsTableLogic = kea<
         },
     }),
     selectors: {
-        sessionRecordings: [
-            (s) => [s.sessionRecordingsResponse],
-            (sessionRecordingsResponse) => sessionRecordingsResponse.results,
-        ],
         hasPrev: [(s) => [s.offset], (offset) => offset > 0],
         hasNext: [
             (s) => [s.sessionRecordingsResponse],
             (sessionRecordingsResponse) => sessionRecordingsResponse.has_next,
+        ],
+        showEntityFilter: [
+            (s) => [s.entityFilterEnabled, s.entityFilters],
+            (entityFilterEnabled, entityFilters) => {
+                return entityFilterEnabled || entityFilters !== DEFAULT_ENTITY_FILTERS
+            },
         ],
     },
     actionToUrl: ({ values }) => {
