@@ -15,7 +15,6 @@ import { router } from 'kea-router'
 export function PasswordResetComplete(): JSX.Element {
     const { validatedResetToken, validatedResetTokenLoading } = useValues(passwordResetLogic)
     const invalidLink = !validatedResetTokenLoading && !validatedResetToken?.success
-
     return (
         <div className="bridge-page password-reset-complete">
             <Row>
@@ -31,7 +30,7 @@ export function PasswordResetComplete(): JSX.Element {
                             {invalidLink ? 'Unable to reset' : 'Set a new password'}
                         </h2>
                         {validatedResetTokenLoading ? (
-                            <Skeleton paragraph={{ rows: 4 }} />
+                            <Skeleton paragraph={{ rows: 2 }} />
                         ) : !validatedResetToken?.token ? (
                             <ResetInvalid />
                         ) : (
