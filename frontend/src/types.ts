@@ -725,7 +725,7 @@ export interface FilterType {
     shown_as?: ShownAsType
     session?: string
     period?: string
-    retentionType?: RetentionType
+    retention_type?: RetentionType
     new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>

@@ -40,7 +40,7 @@ export function defaultFilters(filters: Record<string, any>): Record<string, any
         returning_entity: filters.returning_entity || { id: '$pageview', type: 'events', name: '$pageview' },
         date_to: filters.date_to,
         period: filters.period || 'Day',
-        retention_type: filters.retention_type || RETENTION_FIRST_TIME,
+        retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
         display: filters.display || ACTIONS_TABLE,
         properties: filters.properties || [],
         ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
