@@ -6,6 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/sceneLogic'
+import { ArrowRightOutlined } from '@ant-design/icons'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -19,20 +20,19 @@ export function SessionsRecordings(): JSX.Element {
             </Row>
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <Alert
-                    style={{ marginBottom: 16 }}
-                    message="Session recordings are not enabled for this project"
+                    style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}
+                    message="Session recordings are not yet enabled for this project"
                     description="To use this feature, please go to your project settings and enable it."
                     type="info"
                     showIcon
                     action={
                         <Button
-                            size="large"
                             type="primary"
                             onClick={() => {
                                 router.actions.push(urls.projectSettings(), {}, 'session-recording')
                             }}
                         >
-                            Project settings
+                            Go to settings <ArrowRightOutlined />
                         </Button>
                     }
                 />
