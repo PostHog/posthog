@@ -24,9 +24,11 @@ import {
 } from 'scenes/insights/InsightTabs/FunnelTab/funnelStepTableUtils'
 import './FunnelStepTable.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function FunnelStepTable({ filters: _filters, dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element | null {
-    const logic = funnelLogic({ dashboardItemId, _filters })
+export function FunnelStepTable({ dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
     const {
         stepsWithCount,
         flattenedSteps,

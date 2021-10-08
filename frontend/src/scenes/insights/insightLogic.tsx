@@ -1,9 +1,18 @@
 import { kea } from 'kea'
-import { toParams, fromParams, errorToast } from 'lib/utils'
+import { errorToast } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
-import { DashboardItemType, Entity, FilterType, FunnelVizType, ItemMode, PropertyFilter, ViewType } from '~/types'
+import {
+    DashboardItemType,
+    Entity,
+    FilterType,
+    FunnelVizType,
+    InsightLogicProps,
+    ItemMode,
+    PropertyFilter,
+    ViewType,
+} from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
@@ -13,6 +22,7 @@ import React from 'react'
 import { Link } from 'lib/components/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -39,10 +49,12 @@ interface UrlParams {
 }
 
 export const insightLogic = kea<insightLogicType>({
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('new'),
+
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
-        setCachedUrl: (type: ViewType, url: string) => ({ type, url }),
         setAllFilters: (filters) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
         endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
@@ -76,29 +88,34 @@ export const insightLogic = kea<insightLogicType>({
         saveInsight: true,
         updateInsightFilters: (filters: FilterType) => ({ filters }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
+        fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
     }),
-    loaders: ({ values }) => ({
-        insight: {
-            __default: { tags: [] } as Partial<DashboardItemType>,
-            loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
-            updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
-                if (!Object.entries(payload).length) {
-                    return
-                }
-                await breakpoint(300)
-                return await api.update(`api/insight/${values.insight.id}`, payload)
+    loaders: ({ values, props }) => ({
+        insight: [
+            (props.cachedResults || { tags: [] }) as Partial<DashboardItemType>,
+            {
+                loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
+                updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
+                    if (!Object.entries(payload).length) {
+                        return
+                    }
+                    await breakpoint(300)
+                    return await api.update(`api/insight/${values.insight.id}`, payload)
+                },
             },
-            setInsight: ({ insight, shouldMergeWithExisting }) =>
+        ],
+    }),
+    reducers: {
+        insight: {
+            setInsight: (state, { insight, shouldMergeWithExisting }) =>
                 shouldMergeWithExisting
                     ? {
-                          ...values.insight,
+                          ...state,
                           ...insight,
                       }
                     : insight,
-            updateInsightFilters: ({ filters }) => ({ ...values.insight, filters }),
+            updateInsightFilters: (state, { filters }) => ({ ...state, filters }),
         },
-    }),
-    reducers: {
         showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
         maybeShowTimeoutMessage: [
             false,
@@ -117,12 +134,6 @@ export const insightLogic = kea<insightLogicType>({
                 endQuery: (_, { exception }) => exception?.status >= 400,
                 startQuery: () => false,
                 setActiveView: () => false,
-            },
-        ],
-        cachedUrls: [
-            {} as Record<string, string>,
-            {
-                setCachedUrl: (state, { type, url }) => ({ ...state, [type]: url }),
             },
         ],
         activeView: [
@@ -195,9 +206,10 @@ export const insightLogic = kea<insightLogicType>({
         ],
     },
     selectors: {
+        insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
     },
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         updateInsightSuccess: () => {
             actions.setInsightMode(ItemMode.View, null)
         },
@@ -298,6 +310,7 @@ export const insightLogic = kea<insightLogicType>({
                 saved: true,
             })
             actions.setInsight(savedInsight)
+            actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             toast(
                 <div data-attr="success-toast">
                     Insight saved!&nbsp;
@@ -306,48 +319,68 @@ export const insightLogic = kea<insightLogicType>({
             )
         },
         updateInsightFilters: async ({ filters }) => {
-            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]) {
-                api.update(`api/insight/${values.insight.id}`, { filters })
+            // This auto-saves new filters into the insight if results were loaded in any of the sub-logics.
+            // Exceptions:
+            // - not saved if saved insights are enabled --> it has its own view/edit modes
+            // - not saved if on the history "insight"
+            // - not saved if came from a dashboard --> there's a separate "save" button for that
+            if (props.dashboardItemId && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]) {
+                if ((filters.insight as ViewType) !== ViewType.HISTORY && !router.values.hashParams.fromDashboard) {
+                    await api.update(`api/insight/${props.dashboardItemId}`, { filters })
+                }
             }
         },
-    }),
-    actionToUrl: ({ actions, values }) => ({
-        setActiveView: ({ type }) => {
-            const params = fromParams()
-            const { properties, ...restParams } = params
-
-            actions.setCachedUrl(values.activeView, window.location.pathname + '?' + toParams(restParams))
-            const cachedUrl = values.cachedUrls[type]
-            actions.updateActiveView(type)
-
-            if (cachedUrl) {
-                return cachedUrl + '&' + toParams({ properties })
-            }
-
-            const urlParams: UrlParams = {
-                insight: type,
-                properties: values.allFilters.properties,
-                filter_test_accounts: defaultFilterTestAccounts(),
-                events: (values.allFilters.events || []) as Entity[],
-                actions: (values.allFilters.actions || []) as Entity[],
-            }
-
-            if (type === ViewType.FUNNELS) {
-                urlParams.funnel_viz_type = FunnelVizType.Steps
-                urlParams.display = 'FunnelViz'
-            }
-            return ['/insights', urlParams]
-        },
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
-            if (searchParams.insight && searchParams.insight !== values.activeView) {
-                actions.updateActiveView(searchParams.insight)
-            }
-            if (hashParams.fromItem) {
-                actions.loadInsight(hashParams.fromItem)
+        fetchedResults: async ({ filters }) => {
+            if (!values.insight.id) {
+                const insight = await api.create('api/insight', {
+                    filters,
+                })
+                actions.setInsight(insight)
+                if (props.syncWithUrl) {
+                    router.actions.replace('/insights', router.values.searchParams, {
+                        ...router.values.hashParams,
+                        fromItem: insight.id,
+                    })
+                }
             } else {
-                actions.setInsightMode(ItemMode.Edit, null)
+                actions.updateInsightFilters(filters)
+            }
+        },
+    }),
+    actionToUrl: ({ actions, values, props }) => ({
+        setActiveView: ({ type }) => {
+            if (props.syncWithUrl) {
+                actions.updateActiveView(type)
+
+                const urlParams: UrlParams = {
+                    insight: type,
+                    properties: values.allFilters.properties,
+                    filter_test_accounts: defaultFilterTestAccounts(),
+                    events: (values.allFilters.events || []) as Entity[],
+                    actions: (values.allFilters.actions || []) as Entity[],
+                }
+
+                if (type === ViewType.FUNNELS) {
+                    urlParams.funnel_viz_type = FunnelVizType.Steps
+                    urlParams.display = 'FunnelViz'
+                }
+                return ['/insights', urlParams, { ...router.values.hashParams, fromItem: values.insight.id || null }]
+            }
+        },
+    }),
+    urlToAction: ({ actions, values, props }) => ({
+        '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
+            if (props.syncWithUrl) {
+                if (searchParams.insight && searchParams.insight !== values.activeView) {
+                    actions.updateActiveView(searchParams.insight)
+                }
+                if (hashParams.fromItem) {
+                    if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
+                        actions.loadInsight(hashParams.fromItem)
+                    }
+                } else {
+                    actions.setInsightMode(ItemMode.Edit, null)
+                }
             }
         },
     }),

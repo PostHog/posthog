@@ -1,8 +1,8 @@
 import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { Link } from 'lib/components/Link'
+import { teamLogic } from 'scenes/teamLogic'
 
 function JSInstallSnippet(): JSX.Element {
     return (
@@ -13,13 +13,14 @@ function JSInstallSnippet(): JSX.Element {
 }
 
 function JSSetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <CodeSnippet language={Language.JavaScript}>
             {[
                 "import posthog from 'posthog-js'",
                 '',
-                `posthog.init('${user?.team?.api_token}', { api_host: '${window.location.origin}' })`,
+                `posthog.init('${currentTeam?.api_token}', { api_host: '${window.location.origin}' })`,
             ].join('\n')}
         </CodeSnippet>
     )

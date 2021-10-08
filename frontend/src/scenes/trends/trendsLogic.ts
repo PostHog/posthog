@@ -6,11 +6,10 @@ import { actionsModel } from '~/models/actionsModel'
 import { router } from 'kea-router'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE, ShownAsValue } from 'lib/constants'
 import { defaultFilterTestAccounts, insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
-import { insightHistoryLogic } from '../insights/InsightHistoryPanel/insightHistoryLogic'
 import {
     ActionFilter,
     ChartDisplayType,
-    SharedInsightLogicProps,
+    InsightLogicProps,
     EntityTypes,
     FilterType,
     PropertyFilter,
@@ -23,6 +22,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { IndexedTrendResult, TrendResponse } from 'scenes/trends/types'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 interface PeopleParamType {
     action: ActionFilter | 'session'
@@ -119,11 +119,8 @@ function getDefaultFilters(currentFilters: Partial<FilterType>): Partial<FilterT
 }
 
 export const trendsLogic = kea<trendsLogicType>({
-    props: {} as SharedInsightLogicProps,
-
-    key: (props) => {
-        return props.dashboardItemId || 'all_trends'
-    },
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('all_trends'),
 
     connect: {
         values: [actionsModel, ['actions']],
@@ -162,8 +159,8 @@ export const trendsLogic = kea<trendsLogicType>({
                 cache.abortController = new AbortController()
 
                 const queryId = uuid()
-                const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
-                insightLogic.actions.startQuery(queryId)
+                const dashboardItemId = props.dashboardItemId
+                insightLogic(props).actions.startQuery(queryId)
                 if (dashboardItemId) {
                     dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                 }
@@ -179,7 +176,7 @@ export const trendsLogic = kea<trendsLogicType>({
                                 toAPIParams(filterClientSideParams(values.filters)),
                             cache.abortController.signal
                         )
-                    } else {
+                    } else if ((values.filters?.insight as ViewType) !== 'HISTORY') {
                         response = await api.get(
                             'api/insight/trend/?' +
                                 (refresh ? 'refresh=true&' : '') +
@@ -189,7 +186,7 @@ export const trendsLogic = kea<trendsLogicType>({
                     }
                 } catch (e) {
                     if (e.name === 'AbortError') {
-                        insightLogic.actions.abortQuery(
+                        insightLogic(props).actions.abortQuery(
                             queryId,
                             (values.filters.insight as ViewType) || ViewType.TRENDS,
                             scene,
@@ -198,7 +195,7 @@ export const trendsLogic = kea<trendsLogicType>({
                     }
                     breakpoint()
                     cache.abortController = null
-                    insightLogic.actions.endQuery(
+                    insightLogic(props).actions.endQuery(
                         queryId,
                         (values.filters.insight as ViewType) || ViewType.TRENDS,
                         null,
@@ -211,7 +208,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 }
                 breakpoint()
                 cache.abortController = null
-                insightLogic.actions.endQuery(
+                insightLogic(props).actions.endQuery(
                     queryId,
                     (values.filters.insight as ViewType) || ViewType.TRENDS,
                     response.last_refresh
@@ -317,22 +314,11 @@ export const trendsLogic = kea<trendsLogicType>({
             actions.setFilters({ display })
         },
         setFilters: async () => {
-            if (!props.dashboardItemId) {
-                insightLogic.actions.setAllFilters(values.filters)
-            }
+            insightLogic(props).actions.setAllFilters(values.filters)
             actions.loadResults()
         },
-        loadResultsSuccess: () => {
-            if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    insightHistoryLogic.actions.createInsight({
-                        ...values.filters,
-                        insight: values.filters.session ? ViewType.SESSIONS : values.filters.insight,
-                    })
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filters)
-                }
-            }
+        loadResultsSuccess: async () => {
+            insightLogic(props).actions.fetchedResults(values.filters)
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {
@@ -375,16 +361,15 @@ export const trendsLogic = kea<trendsLogicType>({
 
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
-            if (props.dashboardItemId) {
-                return // don't use the URL if on the dashboard
+            if (props.syncWithUrl) {
+                return ['/insights', values.filters, router.values.hashParams, { replace: true }]
             }
-            return ['/insights', values.filters, router.values.hashParams, { replace: true }]
         },
     }),
 
     urlToAction: ({ actions, values, props }) => ({
         '/insights': ({}, searchParams: Partial<FilterType>) => {
-            if (props.dashboardItemId) {
+            if (!props.syncWithUrl) {
                 return
             }
             if (
@@ -423,7 +408,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 if (!objectsEqual(cleanSearchParams, values.loadedFilters)) {
                     actions.setFilters(cleanSearchParams, false)
                 } else {
-                    insightLogic.actions.setAllFilters(values.filters)
+                    insightLogic(props).actions.setAllFilters(values.filters)
                 }
 
                 handleLifecycleDefault(cleanSearchParams, (params) => actions.setFilters(params, false))
