@@ -1,7 +1,8 @@
 from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import PersonPropertiesMode, parse_prop_clauses
+from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.util import PersonPropertiesMode
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.entity import Entity
 

@@ -3,7 +3,8 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
-from ee.clickhouse.models.property import PersonPropertiesMode, get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
@@ -34,7 +35,7 @@ def get_breakdown_prop_values(
         team_id,
         table_name="e",
         prepend="e_brkdwn",
-        person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        person_properties_mode=PersonPropertiesMode.EXCLUDE,
         allow_denormalized_props=True,
     )
 
@@ -47,7 +48,8 @@ def get_breakdown_prop_values(
     else:
         value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
 
-    person_join_clauses, person_join_params = "", {}
+    person_join_clauses = ""
+    person_join_params = {}
     person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer)
     if person_query.is_used:
         person_subquery, person_join_params = person_query.get_query()

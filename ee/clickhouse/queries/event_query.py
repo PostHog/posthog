@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple, Union
 from ee.clickhouse.materialized_columns.columns import ColumnName
 from ee.clickhouse.models.cohort import format_person_query, format_precalculated_cohort_query, is_precalculated_query
 from ee.clickhouse.models.property import parse_prop_clauses
+from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
@@ -161,7 +162,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                     self._team_id,
                     prepend=f"global_{idx}",
                     allow_denormalized_props=True,
-                    person_properties_column=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
+                    person_properties_mode=PersonPropertiesMode.EXCLUDE,
                 )
                 final.append(filter_query)
                 params.update(filter_params)

@@ -1,7 +1,8 @@
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ee.clickhouse.models.action import format_action_filter
-from ee.clickhouse.models.property import PersonPropertiesMode, get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
     format_breakdown_cohort_join_query,
@@ -47,10 +48,7 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*self.filter.properties, *self.entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter,
-            self.team_id,
-            table_name="e",
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            props_to_filter, self.team_id, table_name="e", person_properties_mode=PersonPropertiesMode.EXCLUDE,
         )
         aggregate_operation, _, math_params = process_math(self.entity)
 

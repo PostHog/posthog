@@ -1,5 +1,4 @@
 import re
-from enum import Enum, auto
 from typing import (
     Any,
     Callable,
@@ -21,7 +20,7 @@ from ee.clickhouse.models.cohort import (
     format_precalculated_cohort_query,
     format_static_cohort_query,
 )
-from ee.clickhouse.models.util import is_json
+from ee.clickhouse.models.util import PersonPropertiesMode, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
@@ -29,11 +28,6 @@ from posthog.models.event import Selector
 from posthog.models.property import NEGATED_OPERATORS, OperatorType, Property, PropertyName, PropertyType
 from posthog.models.team import Team
 from posthog.utils import is_valid_regex, relative_date_parse
-
-
-class PersonPropertiesMode(Enum):
-    INCLUDE_USING_SUBQUERY = auto()
-    USING_PERSON_PROPERTIES_COLUMN = auto()
 
 
 def parse_prop_clauses(
@@ -64,7 +58,7 @@ def parse_prop_clauses(
                 final.append(
                     "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
                 )
-        elif prop.type == "person":
+        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.EXCLUDE:
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
