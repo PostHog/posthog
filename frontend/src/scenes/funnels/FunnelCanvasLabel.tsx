@@ -8,17 +8,17 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
-import { FunnelVizType } from '~/types'
+import { FunnelVizType, ViewType } from '~/types'
 import { formatDisplayPercentage } from './funnelUtils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepsPicker'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { insightProps, allFilters } = useValues(insightLogic)
+    const { insightProps, allFilters, activeView } = useValues(insightLogic)
     const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic)
 
-    if (allFilters.insight !== 'FUNNELS') {
+    if (activeView !== ViewType.FUNNELS) {
         return null
     }
 
