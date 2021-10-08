@@ -249,7 +249,8 @@ def parse_event(event, distinct_id, team, is_test_env):
         scope.set_tag("library", library)
         scope.set_tag("library.version", library_version)
 
-    _ensure_web_feature_flags_in_properties(event, team, distinct_id)
+    if team:
+        _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
     return event
 
