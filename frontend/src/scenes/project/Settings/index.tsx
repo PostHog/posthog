@@ -220,7 +220,7 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                 <p>
                     Watch replays to see how users interact with your app and find out what can be improved. Recordings
                     are found in the{' '}
-                    <Link to="/sessions">
+                    <Link to={featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? '/recordings' : '/sessions'}>
                         {featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? 'recordings' : 'sessions'} page
                     </Link>
                     . Please note <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the
