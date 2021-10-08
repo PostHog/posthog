@@ -58,7 +58,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         highlightEvents,
     } = useValues(logic)
     const { tableWidth, columnConfigSaving, columnConfig } = useValues(tableConfigLogic)
-    const { setColumnConfig } = useActions(tableConfigLogic)
+
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -240,11 +240,6 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         [eventFilter, showLinkToPerson, columnConfig]
     )
 
-    const selectedConfigOptions = useMemo(
-        () => (columnConfig === 'DEFAULT' ? defaultColumns.map((e) => e.key || 'unknown-key') : columnConfig),
-        [columnConfig]
-    )
-
     const columns = useMemo(
         () =>
             columnConfig === 'DEFAULT'
@@ -325,11 +320,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 <Col flex="0">
                     {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
                         <TableConfig
-                            selectedColumns={selectedConfigOptions}
                             availableColumns={propertyNames}
                             immutableColumns={['event', 'person', 'when']}
                             defaultColumns={defaultColumns.map((e) => e.key || '')}
-                            onColumnUpdate={setColumnConfig}
                             saving={columnConfigSaving}
                         />
                     )}

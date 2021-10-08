@@ -12,48 +12,42 @@ import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
 
 interface TableConfigInterface {
-    selectedColumns?: string[] // Allows column visibility customization
-    availableColumns?: string[] // List of all available columns (should include selectedColumns too for simplicity)
+    availableColumns: string[] // List of all available columns (should include selectedColumns too for simplicity)
     immutableColumns?: string[] // List of columns that cannot be removed
-    defaultColumns?: string[] // To enable resetting to default
-    onColumnUpdate?: (selectedColumns: string[]) => void
+    defaultColumns: string[] // To enable resetting to default
     saving?: boolean // Whether the saving routine is in process (i.e. loading indicators should be shown)
 }
 
-export function TableConfig({
-    selectedColumns,
-    availableColumns,
-    onColumnUpdate,
-    ...props
-}: TableConfigInterface): JSX.Element {
+export function TableConfig({ availableColumns, defaultColumns, ...props }: TableConfigInterface): JSX.Element {
     const { modalVisible } = useValues(tableConfigLogic)
     const { setModalVisible } = useActions(tableConfigLogic)
+
+    const { columnConfig } = useValues(tableConfigLogic)
+    const { setColumnConfig } = useActions(tableConfigLogic)
 
     return (
         <>
             <div className="table-options">
                 <div className="rhs-actions">
                     <Space align="baseline">
-                        {selectedColumns && availableColumns && onColumnUpdate && (
-                            <>
-                                <Button
-                                    data-attr="events-table-column-selector"
-                                    onClick={() => setModalVisible(true)}
-                                    icon={<ControlOutlined rotate={90} />}
-                                >
-                                    Configure Columns
-                                </Button>
-                                {modalVisible && (
-                                    <ColumnConfigurator
-                                        allColumns={availableColumns}
-                                        currentSelection={selectedColumns}
-                                        onClose={() => setModalVisible(false)}
-                                        onColumnUpdate={onColumnUpdate}
-                                        {...props}
-                                    />
-                                )}
-                            </>
-                        )}
+                        <>
+                            <Button
+                                data-attr="events-table-column-selector"
+                                onClick={() => setModalVisible(true)}
+                                icon={<ControlOutlined rotate={90} />}
+                            >
+                                Configure Columns
+                            </Button>
+                            {modalVisible && (
+                                <ColumnConfigurator
+                                    allColumns={availableColumns || []}
+                                    currentSelection={columnConfig === 'DEFAULT' ? defaultColumns : columnConfig}
+                                    onClose={() => setModalVisible(false)}
+                                    onColumnUpdate={setColumnConfig}
+                                    {...props}
+                                />
+                            )}
+                        </>
                     </Space>
                 </div>
             </div>
