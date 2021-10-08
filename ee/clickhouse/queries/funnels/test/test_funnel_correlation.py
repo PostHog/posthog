@@ -1,14 +1,15 @@
+import unittest
 from uuid import uuid4
 
 from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.models.event import create_event
-from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
+from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
 from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, BaseTest, test_with_materialized_columns
 
 
 def _create_person(**kwargs):
@@ -425,3 +426,162 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+    def test_discarding_insignificant_events(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "events",
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="positively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                )
+            if i % 10 == 0:
+                _create_event(
+                    team=self.team,
+                    event="low_sig_positively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:20:00Z",
+                )
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        for i in range(10, 20):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="negatively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                )
+            if i % 5 == 0:
+                _create_event(
+                    team=self.team,
+                    event="low_sig_negatively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                )
+
+        #  Total 10 positive, 10 negative
+        # low sig count = 1 and 2, high sig count >= 5
+        # Thus, to discard the low sig count, % needs to be >= 10%, or count >= 2
+
+        # Discard both due to %
+        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.11
+        FunnelCorrelation.MIN_PERSON_COUNT = 25
+        result = correlation.run()["events"]
+        self.assertEqual(len(result), 2)
+
+
+class TestCorrelationFunctions(unittest.TestCase):
+    def test_are_results_insignificant(self):
+        # Same setup as above test: test_discarding_insignificant_events
+        contingency_tables = [
+            EventContingencyTable(
+                event="negatively_related",
+                visited=EventStats(success_count=0, failure_count=5),
+                success_total=10,
+                failure_total=10,
+            ),
+            EventContingencyTable(
+                event="positively_related",
+                visited=EventStats(success_count=5, failure_count=0),
+                success_total=10,
+                failure_total=10,
+            ),
+            EventContingencyTable(
+                event="low_sig_negatively_related",
+                visited=EventStats(success_count=0, failure_count=2),
+                success_total=10,
+                failure_total=10,
+            ),
+            EventContingencyTable(
+                event="low_sig_positively_related",
+                visited=EventStats(success_count=1, failure_count=0),
+                success_total=10,
+                failure_total=10,
+            ),
+        ]
+
+        # Discard both low_sig due to %
+        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.11
+        FunnelCorrelation.MIN_PERSON_COUNT = 25
+        result = [
+            1
+            for contingency_table in contingency_tables
+            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+        ]
+        self.assertEqual(len(result), 2)
+
+        # Discard one low_sig due to %
+        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.051
+        FunnelCorrelation.MIN_PERSON_COUNT = 25
+        result = [
+            1
+            for contingency_table in contingency_tables
+            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+        ]
+        self.assertEqual(len(result), 3)
+
+        # Discard both due to count
+        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.5
+        FunnelCorrelation.MIN_PERSON_COUNT = 3
+        result = [
+            1
+            for contingency_table in contingency_tables
+            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+        ]
+        self.assertEqual(len(result), 2)
+
+        # Discard one due to count
+        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.5
+        FunnelCorrelation.MIN_PERSON_COUNT = 2
+        result = [
+            1
+            for contingency_table in contingency_tables
+            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+        ]
+        self.assertEqual(len(result), 3)
+
+        # Discard everything due to %
+        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.5
+        FunnelCorrelation.MIN_PERSON_COUNT = 100
+        result = [
+            1
+            for contingency_table in contingency_tables
+            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+        ]
+        self.assertEqual(len(result), 0)
+
+        # Discard everything due to count
+        FunnelCorrelation.MIN_PERSON_PERCENTAGE = 0.5
+        FunnelCorrelation.MIN_PERSON_COUNT = 6
+        result = [
+            1
+            for contingency_table in contingency_tables
+            if not FunnelCorrelation.are_results_insignificant(contingency_table)
+        ]
+        self.assertEqual(len(result), 0)

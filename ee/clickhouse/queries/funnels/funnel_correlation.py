@@ -1,4 +1,5 @@
 import dataclasses
+from os import stat
 from typing import Any, Dict, List, Literal, Tuple, TypedDict, cast
 
 from rest_framework.exceptions import ValidationError
@@ -337,7 +338,7 @@ class FunnelCorrelation:
         odds_ratios = [
             get_entity_odds_ratio(event_stats, FunnelCorrelation.PRIOR_COUNT)
             for event_stats in event_contingency_tables
-            if not self.are_results_insignificant(event_stats)
+            if not FunnelCorrelation.are_results_insignificant(event_stats)
         ]
 
         positively_correlated_events = sorted(
@@ -401,7 +402,8 @@ class FunnelCorrelation:
             funnel_persons_generator.params,
         )
 
-    def are_results_insignificant(self, event_contingency_table: EventContingencyTable) -> bool:
+    @staticmethod
+    def are_results_insignificant(event_contingency_table: EventContingencyTable) -> bool:
         """
         Check if the results are insignificant, i.e. if the success/failure counts are
         significantly different from the total counts
