@@ -161,7 +161,7 @@ def get_event(request):
 
     team, db_error, error_response = get_team(request, data, token)
 
-    if error_response or not team:
+    if error_response:
         return error_response
 
     send_events_to_dead_letter_queue = False
