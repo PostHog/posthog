@@ -77,8 +77,8 @@ export const sessionRecordingsTableLogic = kea<
                         session_recording_duration: values.durationFilter,
                         limit: LIMIT,
                     })
-                    await breakpoint(500) // Debounce for lots of quick filter changes
                     const response = await api.get(`api/projects/@current/session_recordings?${params}`)
+                    await breakpoint(100) // Debounce for lots of quick filter changes
                     return response
                 },
             },
