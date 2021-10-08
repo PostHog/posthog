@@ -26,6 +26,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
+import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -43,6 +44,7 @@ interface EventsTable {
 
 export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: EventsTable): JSX.Element {
     const logic = eventsTableLogic({ fixedFilters, key: pageKey })
+
     const {
         properties,
         eventsFormatted,
@@ -51,16 +53,14 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         isLoadingNext,
         newEvents,
         eventFilter,
-        columnConfig,
-        columnConfigSaving,
         automaticLoadEnabled,
         exportUrl,
         highlightEvents,
-        tableWidth,
     } = useValues(logic)
+    const { tableWidth, columnConfigSaving, columnConfig } = useValues(tableConfigLogic)
+    const { setColumnConfig } = useActions(tableConfigLogic)
     const { propertyNames } = useValues(propertyDefinitionsModel)
-    const { fetchNextEvents, prependNewEvents, setColumnConfig, setEventFilter, toggleAutomaticLoad } =
-        useActions(logic)
+    const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showLinkToPerson = !fixedFilters?.person_id

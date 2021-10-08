@@ -3,11 +3,9 @@ import { errorToast, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import dayjs from 'dayjs'
-import { userLogic } from 'scenes/userLogic'
 
 import { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter } from '~/types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 const POLL_TIMEOUT = 5000
@@ -78,8 +76,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 return { properties: [properties] }
             }
         },
-        setColumnConfig: (columnConfig: string[]) => ({ columnConfig }),
-        setColumnConfigSaving: (saving: boolean) => ({ saving }),
         fetchEvents: (nextParams = null) => ({ nextParams }),
         fetchEventsSuccess: (apiResponse: OnFetchEventsSuccess) => apiResponse,
         fetchNextEvents: true,
@@ -177,12 +173,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 setPollTimeout: (_, payload) => payload.pollTimeout,
             },
         ],
-        columnConfigSaving: [
-            false,
-            {
-                setColumnConfigSaving: (_, { saving }) => saving,
-            },
-        ],
         automaticLoadEnabled: [
             false,
             {
@@ -195,18 +185,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
         eventsFormatted: [
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents),
-        ],
-        columnConfig: [
-            () => [userLogic.selectors.user],
-            (user) => {
-                return user?.events_column_config?.active || 'DEFAULT'
-            },
-        ],
-        tableWidth: [
-            () => [selectors.columnConfig],
-            (columnConfig: [] | 'DEFAULT'): number => {
-                return columnConfig === 'DEFAULT' ? 7 : columnConfig.length + 1
-            },
         ],
         exportUrl: [
             () => [selectors.eventFilter, selectors.orderBy, selectors.properties],
@@ -291,10 +269,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
     }),
 
     listeners: ({ actions, values, props }) => ({
-        setColumnConfig: ({ columnConfig }) => {
-            actions.setColumnConfigSaving(true)
-            userLogic.actions.updateUser({ events_column_config: { active: columnConfig } })
-        },
         setProperties: () => actions.fetchEvents(),
         flipSort: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),
@@ -398,13 +372,6 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
                 error.statusText,
                 error.status
             )
-        },
-        [userLogic.actionTypes.updateUserSuccess]: () => {
-            actions.setColumnConfigSaving(false)
-            tableConfigLogic.actions.setModalVisible(false)
-        },
-        [userLogic.actionTypes.updateUserFailure]: () => {
-            actions.setColumnConfigSaving(false)
         },
         toggleAutomaticLoad: ({ automaticLoadEnabled }) => {
             if (automaticLoadEnabled && values.newEvents.length > 0) {
