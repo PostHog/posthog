@@ -3,7 +3,7 @@ import gzip
 import json
 from datetime import timedelta
 from typing import Any, Dict, List, Union
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
@@ -12,6 +12,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.constants import ENVIRONMENT_TEST
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
@@ -86,10 +87,10 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.api.capture.push_scope")
+    @patch("posthog.api.capture.configure_scope")
     @patch("posthog.api.capture.celery_app.send_task", MagicMock())
-    def test_capture_event_adds_library_to_sentry(self, patch_push_scope):
-        mock_set_tag = self.mock_sentry_context(patch_push_scope)
+    def test_capture_event_adds_library_to_sentry(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
         data = {
             "event": "$autocapture",
@@ -111,10 +112,10 @@ class TestCapture(BaseTest):
 
         mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
 
-    @patch("posthog.api.capture.push_scope")
+    @patch("posthog.api.capture.configure_scope")
     @patch("posthog.api.capture.celery_app.send_task", MagicMock())
-    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patch_push_scope):
-        mock_set_tag = self.mock_sentry_context(patch_push_scope)
+    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
         data = {
             "event": "$autocapture",
@@ -133,18 +134,6 @@ class TestCapture(BaseTest):
             )
 
         mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
-
-    @staticmethod
-    def mock_sentry_context(push_scope):
-        mock_scope = Mock()
-        mock_set_tag = Mock()
-        mock_scope.set_context = Mock()
-        mock_scope.set_tag = mock_set_tag
-        mock_context_manager = Mock()
-        mock_context_manager.__enter__ = Mock(return_value=mock_scope)
-        mock_context_manager.__exit__ = Mock(return_value=None)
-        push_scope.return_value = mock_context_manager
-        return mock_set_tag
 
     @patch("posthog.models.team.TEAM_CACHE", {})
     @patch("posthog.api.capture.celery_app.send_task")

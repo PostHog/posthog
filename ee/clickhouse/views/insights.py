@@ -43,7 +43,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     @cached_function
     def calculate_trends(self, request: Request) -> Dict[str, Any]:
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
 
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             stickiness_filter = StickinessFilter(
@@ -61,21 +61,22 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def calculate_session(self, request: Request) -> Dict[str, Any]:
         return {
             "result": ClickhouseSessions().run(
-                team=self.team, filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS})
+                team=self.team,
+                filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS}, team=self.team),
             )
         }
 
     @cached_function
     def calculate_path(self, request: Request) -> Dict[str, Any]:
         team = self.team
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
 
         funnel_filter = None
         funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
         if funnel_filter_data:
             if isinstance(funnel_filter_data, str):
                 funnel_filter_data = json.loads(funnel_filter_data)
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data})
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
         #  backwards compatibility
         if filter.path_type:
@@ -87,7 +88,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     @cached_function
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
         funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
         if filter.funnel_order_type == FunnelOrderType.UNORDERED:
@@ -137,7 +138,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         data = {}
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data, request=request)
+        filter = RetentionFilter(data=data, request=request, team=self.team)
         result = ClickhouseRetention().run(filter, team)
         return {"result": result}
 

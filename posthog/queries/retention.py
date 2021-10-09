@@ -100,9 +100,7 @@ class Retention(BaseQuery):
         trunc, fields = self._get_trunc_func("timestamp", period)
 
         if is_first_time_retention:
-            filtered_events = events.filter(
-                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
-            )
+            filtered_events = events.filter(properties_to_Q(filter.properties, team_id=team.pk))
             first_date = (
                 filtered_events.filter(entity_condition)
                 .values("person_id", "event", "action")
@@ -118,7 +116,7 @@ class Retention(BaseQuery):
             )
         else:
             filtered_events = events.filter(filter.date_filter_Q).filter(
-                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+                properties_to_Q(filter.properties, team_id=team.pk)
             )
             first_date = (
                 filtered_events.filter(entity_condition)
@@ -206,14 +204,12 @@ class Retention(BaseQuery):
         events = Event.objects.filter(team_id=team.pk).add_person_id(team.pk)
 
         filtered_events = events.filter(filter.recurring_date_filter_Q()).filter(
-            properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
+            properties_to_Q(filter.properties, team_id=team.pk)
         )
 
         inner_events = (
             Event.objects.filter(team_id=team.pk)
-            .filter(
-                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
-            )
+            .filter(properties_to_Q(filter.properties, team_id=team.pk))
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)
@@ -224,9 +220,7 @@ class Retention(BaseQuery):
             if is_first_time_retention
             else Event.objects.filter(team_id=team.pk)
             .filter(filter.reference_date_filter_Q())
-            .filter(
-                properties_to_Q(filter.properties, team_id=team.pk, filter_test_accounts=filter.filter_test_accounts)
-            )
+            .filter(properties_to_Q(filter.properties, team_id=team.pk))
             .add_person_id(team.pk)
             .filter(**{"person_id": OuterRef("id")})
             .filter(entity_condition)

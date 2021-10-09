@@ -11,7 +11,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { TrendPeople } from 'scenes/trends/types'
-import { cleanPathParams } from 'scenes/paths/pathsLogic'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -158,7 +158,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                     const funnelParams = toParams(cleanedParams)
                     people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === ViewType.PATHS) {
-                    const cleanedParams = cleanPathParams(filters)
+                    const cleanedParams = cleanFilters(filters)
                     people = await api.create(`api/person/path/?${searchTermParam}`, cleanedParams)
                 } else {
                     const filterParams = parsePeopleParams(

@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 from uuid import uuid4
 
 import pytest
@@ -10,6 +10,7 @@ from django.test import Client
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
+from posthog.constants import FunnelCorrelationType
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.test.base import BaseTest
@@ -53,6 +54,12 @@ class FunnelCorrelationTest(BaseTest):
             # | did not watched  | 1        | 0        | 1        |
             # | total            | 2        | 1        | 3        |
             #
+            # For Calculating Odds Ratio, we add a prior count of 1 to everything
+            #
+            # So our odds ratio should be
+            #  (success + prior / failure + prior) * (failure_total - failure + prior / success_total - success + prior)
+            # = ( 1 + 1 / 1 + 1) * ( 1 - 1 + 1 / 2 - 1 + 1)
+            # = 1 / 2
 
             events = {
                 "Person 1": [
@@ -93,10 +100,11 @@ class FunnelCorrelationTest(BaseTest):
                         "event": "watched video",
                         "success_count": 1,
                         "failure_count": 1,
-                        "odds_ratio": 0.5,
+                        "odds_ratio": 1 / 2,
                         "correlation_type": "failure",
                     },
-                ]
+                ],
+                "skewed": False,
             },
         }
 
@@ -197,10 +205,10 @@ class FunnelCorrelationTest(BaseTest):
         assert odds == {
             "is_cached": False,
             "last_refresh": "2020-01-01T00:00:00Z",
-            "result": {"events": []},
+            "result": {"events": [], "skewed": False},
         }
 
-    def test_event_correlation_endpoint_does_not_funnel_steps(self):
+    def test_event_correlation_endpoint_does_not_include_funnel_steps(self):
         with freeze_time("2020-01-01"):
             self.client.force_login(self.user)
 
@@ -212,7 +220,14 @@ class FunnelCorrelationTest(BaseTest):
                     {"event": "some waypoint", "timestamp": datetime(2020, 1, 2)},
                     {"event": "", "timestamp": datetime(2020, 1, 3)},
                 ],
+                # We need atleast 1 success and failure to return a result
+                "Person 2": [
+                    {"event": "signup", "timestamp": datetime(2020, 1, 1)},
+                    {"event": "some waypoint", "timestamp": datetime(2020, 1, 2)},
+                    {"event": "view insights", "timestamp": datetime(2020, 1, 3)},
+                ],
             }
+            # '' is a weird event name to have, but if it exists, our duty to report it
 
             create_events(events_by_person=events, team=self.team)
 
@@ -234,8 +249,90 @@ class FunnelCorrelationTest(BaseTest):
         assert odds == {
             "is_cached": False,
             "last_refresh": "2020-01-01T00:00:00Z",
-            "result": {"events": []},
+            "result": {
+                "events": [
+                    {
+                        "correlation_type": "failure",
+                        "event": "",
+                        "failure_count": 1,
+                        "odds_ratio": 1 / 4,
+                        "success_count": 0,
+                    }
+                ],
+                "skewed": False,
+            },
         }
+
+    def test_correlation_endpoint_with_properties(self):
+        self.client.force_login(self.user)
+
+        for i in range(10):
+            create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team, event="paid", distinct_id=f"user_{i}", timestamp="2020-01-04T14:00:00Z",
+            )
+
+        for i in range(10, 20):
+            create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
+            _create_event(
+                team=self.team, event="user signed up", distinct_id=f"user_{i}", timestamp="2020-01-02T14:00:00Z",
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="negatively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                )
+
+        # We need to make sure we clear the cache other tests that have run
+        # done interfere with this test
+        cache.clear()
+
+        api_response = get_funnel_correlation_ok(
+            client=self.client,
+            team_id=self.team.pk,
+            request=FunnelCorrelationRequest(
+                events=json.dumps([EventPattern(id="user signed up"), EventPattern(id="paid")]),
+                date_to="2020-01-14",
+                date_from="2020-01-01",
+                funnel_correlation_type=FunnelCorrelationType.PROPERTIES,
+                funnel_correlation_names=json.dumps(["$browser"]),
+            ),
+        )
+
+        self.assertFalse(api_response["result"]["skewed"])
+
+        result = api_response["result"]["events"]
+
+        odds_ratios = [item.pop("odds_ratio") for item in result]
+        expected_odds_ratios = [121, 1 / 121]
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "$browser::Positive",
+                    "success_count": 10,
+                    "failure_count": 0,
+                    # "odds_ratio": 121.0,
+                    "correlation_type": "success",
+                },
+                {
+                    "event": "$browser::Negative",
+                    "success_count": 0,
+                    "failure_count": 10,
+                    # "odds_ratio": 1 / 121,
+                    "correlation_type": "failure",
+                },
+            ],
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -274,6 +371,9 @@ class FunnelCorrelationRequest:
     date_to: str
     funnel_step: Optional[int] = None
     date_from: Optional[str] = None
+    funnel_correlation_type: Optional[FunnelCorrelationType] = None
+    # Needs to be json encoded list of `str`s
+    funnel_correlation_names: Optional[str] = None
 
 
 def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelationRequest):

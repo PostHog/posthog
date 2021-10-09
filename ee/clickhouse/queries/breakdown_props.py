@@ -34,7 +34,6 @@ def get_breakdown_prop_values(
         team_id,
         table_name="e",
         prepend="e_brkdwn",
-        filter_test_accounts=filter.filter_test_accounts,
         person_properties_column="person_props",
         allow_denormalized_props=True,
     )

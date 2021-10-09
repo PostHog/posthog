@@ -9,7 +9,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from sentry_sdk import capture_exception, push_scope
+from sentry_sdk import capture_exception, configure_scope
 from statshog.defaults.django import statsd
 
 from posthog.api.utils import get_token
@@ -249,7 +249,8 @@ def get_event(request):
 
         library = event["properties"].get("$lib", "unknown")
         library_version = event["properties"].get("$lib_version", "unknown")
-        with push_scope() as scope:
+
+        with configure_scope() as scope:
             scope.set_tag("library", library)
             scope.set_tag("library.version", library_version)
 

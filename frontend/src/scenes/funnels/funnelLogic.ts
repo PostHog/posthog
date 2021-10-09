@@ -50,8 +50,8 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
     const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
@@ -131,7 +131,10 @@ export const funnelLogic = kea<funnelLogicType>({
         toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+
+        // Correlation related actions
         setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
     }),
 
     connect: {
@@ -252,6 +255,25 @@ export const funnelLogic = kea<funnelLogicType>({
                 },
             },
         ],
+        propertyCorrelations: [
+            {
+                events: [],
+            } as Record<'events', FunnelCorrelation[]>,
+            {
+                loadPropertyCorrelations: async (propertyCorrelationName) => {
+                    return (
+                        await api.create('api/insight/funnel/correlation', {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'properties',
+                            // Name is comma separated list of property names
+                            funnel_correlation_names: propertyCorrelationName
+                                .split(',')
+                                .map((name: string) => name.trim()),
+                        })
+                    ).result
+                },
+            },
+        ],
     }),
 
     reducers: ({ props }) => ({
@@ -323,6 +345,12 @@ export const funnelLogic = kea<funnelLogicType>({
             [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
             {
                 setCorrelationTypes: (_, { types }) => types,
+            },
+        ],
+        propertyCorrelationTypes: [
+            [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
+            {
+                setPropertyCorrelationTypes: (_, { types }) => types,
             },
         ],
     }),
@@ -723,6 +751,25 @@ export const funnelLogic = kea<funnelLogicType>({
                     })
             },
         ],
+        propertyCorrelationValues: [
+            () => [selectors.propertyCorrelations, selectors.propertyCorrelationTypes],
+            (propertyCorrelations, propertyCorrelationTypes): FunnelCorrelation[] => {
+                return propertyCorrelations.events
+                    ?.filter((correlation) => propertyCorrelationTypes.includes(correlation.correlation_type))
+                    .map((value) => {
+                        return {
+                            ...value,
+                            odds_ratio:
+                                value.correlation_type === FunnelCorrelationType.Success
+                                    ? value.odds_ratio
+                                    : 1 / value.odds_ratio,
+                        }
+                    })
+                    .sort((first, second) => {
+                        return second.odds_ratio - first.odds_ratio
+                    })
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -745,8 +792,13 @@ export const funnelLogic = kea<funnelLogicType>({
             }
 
             // load correlation table after funnel. Maybe parallel?
-            if (featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS]) {
+            if (
+                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
+                values.clickhouseFeaturesEnabled
+            ) {
                 actions.loadCorrelations()
+                // Hardcoded for initial testing
+                actions.loadPropertyCorrelations('$browser, $os, $geoip_country_code')
             }
 
             insightLogic(props).actions.fetchedResults(values.filters)

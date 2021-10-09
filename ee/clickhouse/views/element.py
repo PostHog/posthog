@@ -13,7 +13,7 @@ from posthog.models.filters import Filter
 class ClickhouseElementViewSet(ElementViewSet):
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:  # type: ignore
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
 
         date_from, date_to, _ = parse_timestamps(filter, team_id=self.team.pk)
 

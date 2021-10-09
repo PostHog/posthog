@@ -23,6 +23,10 @@ class BaseFilter(BaseParamMixin):
         self._data = data
         self.kwargs = kwargs
 
+        if "team" in kwargs and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
+            simplified_filter = getattr(self, "simplify")(kwargs["team"])
+            self._data = simplified_filter._data
+
     def to_dict(self) -> Dict[str, Any]:
         ret = {}
 
