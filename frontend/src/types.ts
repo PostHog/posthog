@@ -923,6 +923,11 @@ export interface LoadedRawFunnelResults {
     filters: Partial<FilterType>
 }
 
+export enum FunnelStepReference {
+    total = 'total',
+    previous = 'previous',
+}
+
 export interface FunnelStepWithConversionMetrics extends FunnelStep {
     droppedOffFromPrevious: number
     conversionRates: {

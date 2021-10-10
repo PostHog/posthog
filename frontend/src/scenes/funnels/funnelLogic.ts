@@ -28,10 +28,10 @@ import {
     FunnelAPIResponse,
     FunnelCorrelation,
     FunnelCorrelationType,
+    FunnelStepReference,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import {
     aggregateBreakdownResult,
     cleanBinResult,
