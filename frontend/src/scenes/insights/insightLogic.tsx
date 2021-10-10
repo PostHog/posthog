@@ -100,7 +100,12 @@ export const insightLogic = kea<insightLogicType>({
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
-            (props.cachedResults || { tags: [] }) as Partial<DashboardItemType>,
+            {
+                id: undefined,
+                tags: [],
+                filters: props.filters || {},
+                result: props.cachedResults || null,
+            } as Partial<DashboardItemType>,
             {
                 loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
                 updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
@@ -523,9 +528,12 @@ export const insightLogic = kea<insightLogicType>({
     }),
     events: ({ actions, cache, props, values }) => ({
         afterMount: () => {
-            if (props.dashboardItemId) {
-                // loadResults gets called in urlToAction for non-dashboard insights
-                actions.loadResults()
+            if (!props.cachedResults) {
+                if (props.dashboardItemId && !props.filters) {
+                    actions.loadInsight(props.dashboardItemId)
+                } else {
+                    actions.loadResults()
+                }
             }
         },
         beforeUnmount: () => {
