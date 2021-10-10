@@ -80,7 +80,6 @@ export const trendsLogic = kea<trendsLogicType>({
 
     connect: (props: InsightLogicProps) => ({
         values: [insightLogic(props), ['filters'], actionsModel, ['actions']], // TODO: is this "actions" used?
-        actions: [insightLogic(props), ['setFilters']],
     }),
 
     actions: () => ({
@@ -293,7 +292,7 @@ export const trendsLogic = kea<trendsLogicType>({
             actions.setBreakdownValuesLoading(false)
         },
         [eventDefinitionsModel.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            const newFilter = getDefaultFilters(values.filters)
+            const newFilter = cleanFilters(values.filters)
             const mergedFilter: Partial<FilterType> = {
                 ...values.filters,
                 ...newFilter,
