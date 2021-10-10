@@ -127,7 +127,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
             .attr('stop-color', color === 'white' ? '#fff' : 'var(--item-background)')
     }
 
-    const appendPathLinks = (svg, links) => {
+    const appendPathLinks = (svg, links, nodes) => {
         const link = svg
             .append('g')
             .attr('fill', 'none')
@@ -149,13 +149,34 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
                     return
                 }
                 let nodesToColor = [data.source]
+                const pathCardsToShow = []
                 while (nodesToColor.length > 0) {
                     let _node = nodesToColor.pop()
                     _node.targetLinks.forEach((_link) => {
                         svg.select(`#path-${_link.index}`).attr('stroke', 'blue')
                         nodesToColor.push(_link.source)
+                        pathCardsToShow.push(_link.source.index)
                     })
                 }
+                let pathCards = [data.target]
+                pathCardsToShow.push(data.target.index, data.source.index)
+                while (pathCards.length > 0) {
+                    let node = pathCards.pop()
+                    node.sourceLinks.forEach((l) => {
+                        pathCards.push(l.target)
+                        pathCardsToShow.push(l.target.index)
+                    })
+                }
+                setPathItemCards(
+                    nodes.map((node) => ({
+                        ...node,
+                        ...{
+                            visible: pathCardsToShow.includes(node.index)
+                                ? true
+                                : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
+                        },
+                    }))
+                )
             })
             .on('mouseleave', () => {
                 svg.selectAll('path').attr('stroke', 'var(--primary)')
@@ -193,7 +214,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
             arr.forEach((layer, i) => {
                 svg.append('line')
                     .style('stroke', 'var(--border)')
-                    .attr('stroke-width', 1)
+                    .attr('stroke-width', 2)
                     .attr('x1', minWidthApart * (i + 1) - 20)
                     .attr('y1', 0)
                     .attr('x2', minWidthApart * (i + 1) - 20)
@@ -230,7 +251,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
 
         appendPathNodes(svg, nodes)
         appendDropoffs(svg)
-        appendPathLinks(svg, links)
+        appendPathLinks(svg, links, nodes)
         addChartAxisLines(svg, height, nodes, maxLayer)
     }
 
