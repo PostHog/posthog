@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { errorToast } from 'lib/utils'
+import { errorToast, objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
@@ -23,6 +23,7 @@ import { Link } from 'lib/components/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -346,6 +347,11 @@ export const insightLogic = kea<insightLogicType>({
         },
     }),
     actionToUrl: ({ actions, values, props }) => ({
+        setFilters: () => {
+            if (props.syncWithUrl) {
+                return ['/insights', values.filters, router.values.hashParams, { replace: true }]
+            }
+        },
         setActiveView: ({ type }) => {
             if (props.syncWithUrl) {
                 actions.updateActiveView(type)
@@ -369,6 +375,11 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
+                const cleanSearchParams = cleanFilters(searchParams)
+                if (!objectsEqual(cleanSearchParams, values.filters)) {
+                    actions.setFilters(cleanSearchParams)
+                }
+
                 if (searchParams.insight && searchParams.insight !== values.activeView) {
                     actions.updateActiveView(searchParams.insight)
                 }
