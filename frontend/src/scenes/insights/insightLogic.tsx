@@ -26,6 +26,7 @@ import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/in
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
+import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -101,7 +102,7 @@ export const insightLogic = kea<insightLogicType>({
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
             {
-                id: undefined,
+                id: props.dashboardItemId,
                 tags: [],
                 filters: props.filters || {},
                 result: props.cachedResults || null,
@@ -276,6 +277,10 @@ export const insightLogic = kea<insightLogicType>({
             () => props.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (_, { filters }) => filters,
+                loadInsightSuccess: (state, { insight }) =>
+                    Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
+                loadResultsSuccess: (state, { insight }) =>
+                    Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
             },
         ],
         /*
@@ -319,39 +324,46 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     selectors: {
+        loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
+        clickhouseFeaturesEnabled: [
+            () => [preflightLogic.selectors.preflight],
+            (preflight) => !!preflight?.is_clickhouse_enabled,
+        ],
     },
     listeners: ({ actions, values, props }) => ({
         updateInsightSuccess: () => {
             actions.setInsightMode(ItemMode.View, null)
         },
-        setFilters: async (filters, breakpoint) => {
+        setFilters: async ({ filters }, breakpoint) => {
             const { fromDashboard } = router.values.hashParams
-            eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard))
+            eventUsageLogic.actions.reportInsightViewed(filters, values.isFirstLoad, Boolean(fromDashboard))
             actions.setNotFirstLoad()
 
-            // TODO: not always needed to load results, the following is used for funnels
-            // // No calculate button on Clickhouse, but query performance is suboptimal on psql
-            // const { clickhouseFeaturesEnabled } = values
-            // // If user started from empty state (<2 steps) and added a new step
-            // const filterLength = (filters: Partial<FilterType>): number =>
-            //     (filters?.events?.length || 0) + (filters?.actions?.length || 0)
-            // const justAddedSecondFilter = filterLength(values.filters) === 2 && filterLength(values.loadedFilters) === 1
-            // // If layout or visibility is the only thing that changes
-            // const onlyLayoutOrVisibilityChanged = equal(
-            //     Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
-            //     Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
-            // )
-            //
-            // if (!onlyLayoutOrVisibilityChanged && (clickhouseFeaturesEnabled || justAddedSecondFilter)) {
-            //     actions.loadResults()
-            // }
-            actions.loadResults()
+            const filterLength = (filter?: Partial<FilterType>): number =>
+                (filter?.events?.length || 0) + (filter?.actions?.length || 0)
+
+            const backendFilterChanged = objectsEqual(
+                Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
+                Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
+            )
+
+            // Auto-reload when setting filters
+            if (
+                backendFilterChanged &&
+                (values.filters.insight !== ViewType.FUNNELS ||
+                    // Auto-reload on funnels if with clickhouse
+                    values.clickhouseFeaturesEnabled ||
+                    // If user started from empty state (<2 steps) and added a new step
+                    (filterLength(values.loadedFilters) === 1 && filterLength(values.filters) === 2))
+            ) {
+                actions.loadResults()
+            }
 
             // tests will wait for all breakpoints to finish
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard), 10)
+            eventUsageLogic.actions.reportInsightViewed(filters, values.isFirstLoad, Boolean(fromDashboard), 10)
         },
         startQuery: () => {
             actions.setShowTimeoutMessage(false)
