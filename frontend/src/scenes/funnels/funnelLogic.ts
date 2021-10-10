@@ -46,7 +46,6 @@ import {
     pollFunnel,
 } from './funnelUtils'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import { router } from 'kea-router'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -790,25 +789,27 @@ export const funnelLogic = kea<funnelLogicType>({
                 },
             })
         },
-        setFilters: ({ refresh }) => {
+        setFilters: () => {
+            const cleanedParams = cleanFilters(values.filters)
+            insightLogic(props).actions.setFilters(cleanedParams)
+            insightLogic(props).actions.setLastRefresh(null)
+        },
+        [insightLogic(props).actionTypes.setFilters]: () => {
             // No calculate button on Clickhouse, but query performance is suboptimal on psql
             const { clickhouseFeaturesEnabled } = values
             // If user started from empty state (<2 steps) and added a new step
             const filterLength = (filters: Partial<FilterType>): number =>
                 (filters?.events?.length || 0) + (filters?.actions?.length || 0)
-            const shouldRefresh = filterLength(values.filters) === 2 && filterLength(values.loadedFilters) === 1
+            const justAddedSecondFilter = filterLength(values.filters) === 2 && filterLength(values.loadedFilters) === 1
             // If layout or visibility is the only thing that changes
             const onlyLayoutOrVisibilityChanged = equal(
                 Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
                 Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
             )
 
-            if (!onlyLayoutOrVisibilityChanged && (refresh || shouldRefresh || clickhouseFeaturesEnabled)) {
+            if (!onlyLayoutOrVisibilityChanged && (clickhouseFeaturesEnabled || justAddedSecondFilter)) {
                 actions.loadResults()
             }
-            const cleanedParams = cleanFilters(values.filters)
-            insightLogic(props).actions.setFilters(cleanedParams)
-            insightLogic(props).actions.setLastRefresh(null)
         },
         setEventExclusionFilters: () => {
             if (!equal(values.filters.exclusions || [], values.loadedFilters.exclusions || [])) {
@@ -854,30 +855,6 @@ export const funnelLogic = kea<funnelLogicType>({
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
-        },
-    }),
-    actionToUrl: ({ values, props }) => ({
-        setFilters: () => {
-            if (props.syncWithUrl) {
-                return ['/insights', values.propertiesForUrl, router.values.hashParams, { replace: true }]
-            }
-        },
-        clearFunnel: () => {
-            if (props.syncWithUrl) {
-                return ['/insights', { insight: ViewType.FUNNELS }, router.values.hashParams, { replace: true }]
-            }
-        },
-    }),
-    urlToAction: ({ actions, props }) => ({
-        '/insights': (_, searchParams: Partial<FilterType>) => {
-            if (!props.syncWithUrl) {
-                return
-            }
-            if (searchParams.insight === ViewType.FUNNELS) {
-                const cleanedParams = cleanFilters(searchParams)
-                // TODO: FILTERMARKER
-                actions.setFilters(cleanedParams, true, false)
-            }
         },
     }),
     events: ({ actions, values }) => ({
