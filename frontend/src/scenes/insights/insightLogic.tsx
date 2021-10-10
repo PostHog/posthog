@@ -104,7 +104,7 @@ export const insightLogic = kea<insightLogicType>({
             {
                 id: props.dashboardItemId,
                 tags: [],
-                filters: props.filters || {},
+                filters: props.cachedResults ? props.filters || {} : {},
                 result: props.cachedResults || null,
             } as Partial<DashboardItemType>,
             {
@@ -276,7 +276,7 @@ export const insightLogic = kea<insightLogicType>({
         filters: [
             () => props.filters || ({} as Partial<FilterType>),
             {
-                setFilters: (_, { filters }) => filters,
+                setFilters: (_, { filters }) => cleanFilters(filters),
                 loadInsightSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
                 loadResultsSuccess: (state, { insight }) =>
@@ -344,7 +344,7 @@ export const insightLogic = kea<insightLogicType>({
             const filterLength = (filter?: Partial<FilterType>): number =>
                 (filter?.events?.length || 0) + (filter?.actions?.length || 0)
 
-            const backendFilterChanged = objectsEqual(
+            const backendFilterChanged = !objectsEqual(
                 Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
                 Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
             )

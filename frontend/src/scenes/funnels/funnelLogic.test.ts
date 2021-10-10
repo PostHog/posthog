@@ -74,13 +74,15 @@ describe('funnelLogic', () => {
                 })
         })
 
-        it('sets filters in rawResults after load if valid', async () => {
+        it('sets filters after load if valid', async () => {
             await expectLogic(logic)
+                .toDispatchActions(['loadResults'])
                 .toMatchValues({
-                    insight: {
+                    insight: expect.objectContaining({
+                        id: undefined,
                         filters: {},
-                        result: [],
-                    },
+                        result: null,
+                    }),
                     filters: {
                         actions: [
                             { id: '$pageview', order: 0 },
@@ -91,7 +93,7 @@ describe('funnelLogic', () => {
                 })
                 .toDispatchActions(['loadResultsSuccess'])
                 .toMatchValues({
-                    insight: {
+                    insight: expect.objectContaining({
                         filters: {
                             actions: [
                                 { id: '$pageview', order: 0 },
@@ -99,7 +101,7 @@ describe('funnelLogic', () => {
                             ],
                         },
                         result: ['result from api'],
-                    },
+                    }),
                     filters: {
                         actions: [
                             { id: '$pageview', order: 0 },
@@ -137,7 +139,7 @@ describe('funnelLogic', () => {
         })
     })
 
-    it("Load results, don't send breakdown if old visualisation is shown", async () => {
+    it("load results, don't send breakdown if old visualisation is shown", async () => {
         // wait for clickhouse features to be enabled, otherwise this won't call "loadResults"
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
 
