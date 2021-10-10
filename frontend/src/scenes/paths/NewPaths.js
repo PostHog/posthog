@@ -13,6 +13,7 @@ import './Paths.scss'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { FunnelPathType } from '~/types'
 import { roundedRect, pageUrl } from './pathUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 function NoData() {
     return (
@@ -26,13 +27,12 @@ function NoData() {
 const DEFAULT_PATHS_ID = 'default_paths'
 const HIDE_PATH_CARD_HEIGHT = 30
 
-export function NewPaths({ dashboardItemId = null, filters = null, color = 'white' }) {
+export function NewPaths({ dashboardItemId = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
-    const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic({ dashboardItemId, filters }))
-    const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(
-        pathsLogic({ dashboardItemId, filters })
-    )
+    const { insightProps } = useValues(insightLogic)
+    const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic(insightProps))
+    const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(pathsLogic(insightProps))
     const [pathItemCards, setPathItemCards] = useState([])
     useEffect(() => {
         setPathItemCards([])
