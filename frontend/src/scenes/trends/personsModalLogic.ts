@@ -3,14 +3,15 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import { ActionFilter, FilterType, ViewType, FunnelVizType } from '~/types'
+import { ActionFilter, FilterType, ViewType, FunnelVizType, PropertyFilter } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
-import { parsePeopleParams } from './trendsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cohortLogic } from 'scenes/cohorts/cohortLogic'
 import { TrendPeople } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
+import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
 
 export interface PersonModalParams {
     action: ActionFilter | 'session' // todo, refactor this session string param out
@@ -23,6 +24,54 @@ export interface PersonModalParams {
     searchTerm?: string
     funnelStep?: number
     pathsDropoff?: boolean
+}
+
+interface PeopleParamType {
+    action: ActionFilter | 'session'
+    label: string
+    date_to?: string | number
+    date_from?: string | number
+    breakdown_value?: string | number
+    target_date?: number | string
+    lifecycle_type?: string | number
+}
+
+export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
+    const { action, date_from, date_to, breakdown_value, ...restParams } = peopleParams
+    const params = filterTrendsClientSideParams({
+        ...filters,
+        entity_id: (action !== 'session' && action.id) || filters?.events?.[0]?.id || filters?.actions?.[0]?.id,
+        entity_type: (action !== 'session' && action.type) || filters?.events?.[0]?.type || filters?.actions?.[0]?.type,
+        entity_math: (action !== 'session' && action.math) || undefined,
+        breakdown_value,
+    })
+
+    // casting here is not the best
+    if (filters.insight === ViewType.STICKINESS) {
+        params.stickiness_days = date_from as number
+    } else if (params.display === ACTIONS_LINE_GRAPH_CUMULATIVE) {
+        params.date_to = date_from as string
+    } else if (filters.insight === ViewType.LIFECYCLE) {
+        params.date_from = filters.date_from
+        params.date_to = filters.date_to
+    } else {
+        params.date_from = date_from as string
+        params.date_to = date_to as string
+    }
+
+    // If breakdown type is cohort, we use breakdown_value
+    // If breakdown type is event, we just set another filter
+    if (breakdown_value && filters.breakdown_type != 'cohort' && filters.breakdown_type != 'person') {
+        params.properties = [
+            ...(params.properties || []),
+            { key: params.breakdown, value: breakdown_value, type: 'event' } as PropertyFilter,
+        ]
+    }
+    if (action !== 'session' && action.properties) {
+        params.properties = [...(params.properties || []), ...action.properties]
+    }
+
+    return toParams({ ...params, ...restParams })
 }
 
 export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({

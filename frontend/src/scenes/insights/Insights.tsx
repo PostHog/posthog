@@ -9,11 +9,10 @@ import { annotationsLogic } from '~/lib/components/Annotations'
 import { router } from 'kea-router'
 import { FunnelTab, PathTab, RetentionTab, SessionTab, TrendTab } from './InsightTabs'
 import { insightLogic } from './insightLogic'
-import { getLogicFromInsight } from './utils'
 import { InsightHistoryPanel } from './InsightHistoryPanel'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import { insightCommandLogic } from './insightCommandLogic'
-import { HotKeys, ItemMode, ViewType, InsightType } from '~/types'
+import { HotKeys, ItemMode, ViewType } from '~/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
@@ -45,10 +44,6 @@ export function Insights(): JSX.Element {
 
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
     const verticalLayout = activeView === ViewType.FUNNELS && !featureFlags[FEATURE_FLAGS.FUNNEL_HORIZONTAL_UI] // Whether to display the control tab on the side instead of on top
-
-    const logicFromInsight = getLogicFromInsight(activeView as InsightType, insightProps)
-    const { loadResults } = useActions(logicFromInsight)
-    const { resultsLoading } = useValues(logicFromInsight)
 
     const handleHotkeyNavigation = (view: ViewType, hotkey: HotKeys): void => {
         setActiveView(view)
@@ -122,7 +117,7 @@ export function Insights(): JSX.Element {
                     <InsightMetadata.Description insight={insight} insightMode={insightMode} />
                     <InsightMetadata.Tags insight={insight} insightMode={insightMode} />
                     <Col span={24} style={{ marginTop: 16 }}>
-                        <InsightContainer loadResults={loadResults} resultsLoading={resultsLoading} />
+                        <InsightContainer />
                     </Col>
                 </div>
             ) : (
@@ -245,7 +240,7 @@ export function Insights(): JSX.Element {
                                     </Card>
                                 </Col>
                                 <Col span={24} xl={verticalLayout ? 16 : undefined}>
-                                    <InsightContainer loadResults={loadResults} resultsLoading={resultsLoading} />
+                                    <InsightContainer />
                                 </Col>
                             </>
                         )}

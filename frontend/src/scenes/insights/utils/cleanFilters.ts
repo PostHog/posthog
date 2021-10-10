@@ -5,6 +5,7 @@ import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
 import { BinCountAuto, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
+import { isTrendsInsight } from 'scenes/insights/sharedUtils'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -104,13 +105,7 @@ export function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> 
             funnel_filter: filters.funnel_filter || { date_from: filters.date_from },
             funnel_paths: filters.funnel_paths,
         }
-    } else if (
-        filters.insight === ViewType.TRENDS ||
-        filters.insight === ViewType.SESSIONS ||
-        filters.insight === ViewType.STICKINESS ||
-        filters.insight === ViewType.LIFECYCLE ||
-        !filters.insight
-    ) {
+    } else if (isTrendsInsight(filters.insight) || !filters.insight) {
         const cleanSearchParams: Partial<FilterType> = {
             insight: ViewType.TRENDS,
             ...filters,

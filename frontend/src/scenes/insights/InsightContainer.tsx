@@ -33,11 +33,6 @@ import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelatio
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
 
-interface Props {
-    loadResults: () => void
-    resultsLoading: boolean
-}
-
 const VIEW_MAP = {
     [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
     [`${ViewType.STICKINESS}`]: <TrendInsight view={ViewType.STICKINESS} />,
@@ -48,7 +43,7 @@ const VIEW_MAP = {
     [`${ViewType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.Element {
+export function InsightContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -65,7 +60,9 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
         insightMode,
         showTimeoutMessage,
         showErrorMessage,
+        insightLoading,
     } = useValues(insightLogic)
+    const { loadResults } = useActions(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
@@ -78,7 +75,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionFiltersEmptyState />
             }
-            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+            if (!isValidFunnel && !(insightLoading || isLoading)) {
                 return <FunnelEmptyState />
             }
         }
@@ -96,7 +93,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
 
     // Empty states that can coexist with the graph (e.g. Loading)
     const CoexistingEmptyState = (() => {
-        if (isLoading || resultsLoading) {
+        if (isLoading || insightLoading) {
             return <Loading />
         }
         return null

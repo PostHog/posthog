@@ -543,6 +543,7 @@ export interface DashboardItemType {
     result: any | null
     updated_at: string
     tags: string[]
+    next?: string // only used in the frontend to store the next breakdown url
 }
 
 export interface DashboardType {
