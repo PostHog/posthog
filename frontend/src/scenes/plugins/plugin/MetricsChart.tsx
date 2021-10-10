@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react'
-import { useActions } from 'kea'
+import React from 'react'
+import { BindLogic } from 'kea'
 import { ActionsLineGraph } from 'scenes/trends/viz'
 import './styles/metrics-drawer.scss'
 import { PluginTypeWithConfig } from '../types'
@@ -40,16 +40,11 @@ export function MetricsChart({ plugin }: { plugin: PluginTypeWithConfig }): JSX.
         properties: [pluginNameFilter, pluginTagFilter],
     } as Partial<FilterType>
 
-    // TODO: verify this works fine
-    const { loadResults } = useActions(insightLogic({ filters, dashboardItemId: null }))
-
-    useEffect(() => {
-        loadResults()
-    }, [plugin])
-
     return (
         <div className="metrics-chart-wrapper">
-            <ActionsLineGraph filters={filters} showPersonsModal={false} />
+            <BindLogic logic={insightLogic} props={{ filters, dashboardItemId: null, doNotPersist: true }}>
+                <ActionsLineGraph filters={filters} showPersonsModal={false} />
+            </BindLogic>
         </div>
     )
 }
