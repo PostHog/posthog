@@ -183,12 +183,12 @@ class ClickhouseEventsViewSet(EventViewSet):
                 status=400,
             )
 
-        session_recording = SessionRecording().run(
+        session_recording = SessionRecording(
             request=request,
             team=self.team,
             filter=Filter(request=request, team=self.team),
             session_recording_id=request.GET["session_recording_id"],
-        )
+        ).run()
 
         if request.GET.get("save_view"):
             SessionRecordingViewed.objects.get_or_create(

@@ -5,7 +5,6 @@ from typing import Any, Callable, List, Optional, Tuple
 from ee.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.queries.base import BaseQuery
 from posthog.queries.sessions.session_recording import DistinctId
 from posthog.queries.sessions.session_recording import SessionRecording as BaseSessionRecording
 from posthog.queries.sessions.session_recording import Snapshots
@@ -50,16 +49,20 @@ SESSIONS_IN_RANGE_QUERY_COLUMNS = ["session_id", "distinct_id", "start_time", "e
 
 
 class SessionRecording(BaseSessionRecording):
-    def query_recording_snapshots(
-        self, team: Team, session_id: str, limit: int, offset: int
-    ) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots, bool]:
+    def query_recording_snapshots(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots, bool]:
         response = sync_execute(
-            SINGLE_RECORDING_QUERY, {"team_id": team.id, "session_id": session_id, "limit": limit, "offset": offset}
+            SINGLE_RECORDING_QUERY,
+            {
+                "team_id": self._team.id,
+                "session_id": self._session_recording_id,
+                "limit": self._limit,
+                "offset": self._offset,
+            },
         )
         if len(response) == 0:
             return None, None, [], False
         snapshots = [json.loads(snapshot_data) for _, _, snapshot_data in response]
-        return response[0][0], response[0][1], snapshots, len(snapshots) > limit - 1
+        return response[0][0], response[0][1], snapshots, len(snapshots) > self._limit - 1
 
 
 def join_with_session_recordings(team: Team, sessions_results: List[Any], filter: SessionsFilter) -> List[Any]:
