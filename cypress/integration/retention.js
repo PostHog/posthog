@@ -13,9 +13,6 @@ describe('Retention', () => {
         cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr=retention-table').should('exist')
 
-        // wait for results to change before clicking on a cell
-        cy.wait(200)
-
         cy.get('.percentage-cell').last().click()
 
         cy.get('[data-attr=retention-person-link]').its('length').should('eq', 1)
