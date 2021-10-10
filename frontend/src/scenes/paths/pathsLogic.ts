@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, AnyPropertyFilter } from '~/types'
+import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -46,7 +46,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         setFilter: (filter: Partial<FilterType>) => ({ filter }),
         setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
         showPathEvents: (event) => ({ event }),
-        updateExclusions: (filters: AnyPropertyFilter[]) => ({ exclusions: filters.map(({ value }) => value) }),
+        updateExclusions: (exclusions: string[]) => ({ exclusions }),
         openPersonsModal: (path_start_key?: string, path_end_key?: string, path_dropoff_key?: string) => ({
             path_start_key,
             path_end_key,
@@ -101,8 +101,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     }),
     reducers: ({ props }) => ({
         filter: [
-            (state: Record<string, any>) =>
-                cleanFilters(props.filters || router.selectors.searchParams(state), { setDefault: true }),
+            (state: Record<string, any>) => cleanFilters(props.filters || router.selectors.searchParams(state)),
             {
                 setFilter: (state, { filter }) => ({ ...state, ...filter }),
                 showPathEvents: (state, { event }) => {

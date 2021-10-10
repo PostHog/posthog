@@ -97,7 +97,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     }),
     reducers: ({ props }) => ({
         filters: [
-            (state: any) => cleanFilters(props.filters || router.selectors.searchParams(state), { setDefault: true }),
+            (state: any) => cleanFilters(props.filters || router.selectors.searchParams(state)),
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
