@@ -55,6 +55,10 @@ export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps('new'),
 
+    connect: {
+        logic: [eventUsageLogic, dashboardsModel],
+    },
+
     actions: () => ({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
@@ -156,8 +160,6 @@ export const insightLogic = kea<insightLogicType>({
                         } else {
                             throw new Error(`Can not load insight of type ${insight}`)
                         }
-                        // console.log({ response })
-                        // debugger
                     } catch (e) {
                         if (e.name === 'AbortError') {
                             actions.abortQuery(queryId, insight, scene, e)
@@ -167,6 +169,16 @@ export const insightLogic = kea<insightLogicType>({
                         actions.endQuery(queryId, insight, null, e)
                         if (dashboardItemId) {
                             dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
+                        }
+                        if (filters.insight === ViewType.FUNNELS) {
+                            eventUsageLogic.actions.reportFunnelCalculated(
+                                filters.events?.length || 0,
+                                filters.actions?.length || 0,
+                                filters.interval || '',
+                                filters.funnel_viz_type,
+                                false,
+                                e.message
+                            )
                         }
                         return values.insight
                     }
@@ -182,6 +194,15 @@ export const insightLogic = kea<insightLogicType>({
                             dashboardItemId,
                             false,
                             response.last_refresh
+                        )
+                    }
+                    if (filters.insight === ViewType.FUNNELS) {
+                        eventUsageLogic.actions.reportFunnelCalculated(
+                            filters.events?.length || 0,
+                            filters.actions?.length || 0,
+                            filters.interval || '',
+                            filters.funnel_viz_type,
+                            true
                         )
                     }
 
@@ -306,6 +327,22 @@ export const insightLogic = kea<insightLogicType>({
             eventUsageLogic.actions.reportInsightViewed(filters.filters, values.isFirstLoad, Boolean(fromDashboard))
             actions.setNotFirstLoad()
 
+            // TODO: not always needed to load results, the following is used for funnels
+            // // No calculate button on Clickhouse, but query performance is suboptimal on psql
+            // const { clickhouseFeaturesEnabled } = values
+            // // If user started from empty state (<2 steps) and added a new step
+            // const filterLength = (filters: Partial<FilterType>): number =>
+            //     (filters?.events?.length || 0) + (filters?.actions?.length || 0)
+            // const justAddedSecondFilter = filterLength(values.filters) === 2 && filterLength(values.loadedFilters) === 1
+            // // If layout or visibility is the only thing that changes
+            // const onlyLayoutOrVisibilityChanged = equal(
+            //     Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
+            //     Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
+            // )
+            //
+            // if (!onlyLayoutOrVisibilityChanged && (clickhouseFeaturesEnabled || justAddedSecondFilter)) {
+            //     actions.loadResults()
+            // }
             actions.loadResults()
 
             // tests will wait for all breakpoints to finish

@@ -28,9 +28,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelTab(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { loadResults } = useActions(insightLogic)
     useMountedLogic(funnelCommandLogic)
     const { isStepsEmpty, filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
-    const { loadResults, clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
+    const { clearFunnel, setFilters, saveFunnelInsight } = useActions(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const [savingModal, setSavingModal] = useState<boolean>(false)
     const screens = useBreakpoint()
