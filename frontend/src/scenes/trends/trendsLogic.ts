@@ -3,9 +3,8 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { objectsEqual, toParams as toAPIParams, uuid } from 'lib/utils'
 import { actionsModel } from '~/models/actionsModel'
-import { router } from 'kea-router'
 import { ACTIONS_LINE_GRAPH_CUMULATIVE } from 'lib/constants'
-import { insightLogic, TRENDS_BASED_INSIGHTS } from '../insights/insightLogic'
+import { insightLogic } from '../insights/insightLogic'
 import { ActionFilter, InsightLogicProps, FilterType, PropertyFilter, TrendResult, ViewType } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
@@ -178,23 +177,7 @@ export const trendsLogic = kea<trendsLogicType>({
         },
     }),
 
-    reducers: ({ props }) => ({
-        filters: [
-            (props.filters
-                ? props.filters
-                : (state: Record<string, any>) =>
-                      cleanFilters(router.selectors.searchParams(state))) as Partial<FilterType>,
-            {
-                setFilters: (state, { filters, mergeFilters }) => {
-                    const newState = state?.insight && TRENDS_BASED_INSIGHTS.includes(state.insight) ? state : {}
-                    return cleanFilters({
-                        ...(mergeFilters ? newState : {}),
-                        ...filters,
-                    })
-                },
-                setCachedResults: (_, { filters }) => filters,
-            },
-        ],
+    reducers: {
         toggledLifecycles: [
             ['new', 'resurrecting', 'returning', 'dormant'],
             {
@@ -242,7 +225,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 setBreakdownValuesLoading: (_, { loading }) => loading,
             },
         ],
-    }),
+    },
 
     selectors: () => ({
         loadedFilters: [(selectors) => [selectors._results], (response) => response.filters],
@@ -267,10 +250,12 @@ export const trendsLogic = kea<trendsLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         setDisplay: async ({ display }) => {
-            actions.setFilters({ display })
+            insightLogic(props).actions.setFilters({ ...values.filters, display })
         },
-        setFilters: async () => {
-            insightLogic(props).actions.setFilters(values.filters)
+        setFilters: async ({ filters, mergeFilters }) => {
+            insightLogic(props).actions.setFilters(mergeFilters ? { ...values.filters, ...filters } : filters)
+        },
+        [insightLogic(props).actionTypes.setFilters]: () => {
             actions.loadResults()
         },
         loadResultsSuccess: async () => {
@@ -298,7 +283,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 ...newFilter,
             }
             if (!objectsEqual(values.filters, mergedFilter)) {
-                actions.setFilters(mergedFilter)
+                insightLogic(props).actions.setFilters(mergedFilter)
             }
         },
     }),
@@ -312,37 +297,6 @@ export const trendsLogic = kea<trendsLogicType>({
         },
         beforeUnmount: () => {
             cache.abortController?.abort()
-        },
-    }),
-
-    actionToUrl: ({ values, props }) => ({
-        setFilters: () => {
-            if (props.syncWithUrl) {
-                return ['/insights', values.filters, router.values.hashParams, { replace: true }]
-            }
-        },
-    }),
-
-    urlToAction: ({ actions, values, props }) => ({
-        '/insights': ({}, searchParams: Partial<FilterType>) => {
-            if (!props.syncWithUrl) {
-                return
-            }
-            if (
-                !searchParams.insight ||
-                searchParams.insight === ViewType.TRENDS ||
-                searchParams.insight === ViewType.SESSIONS ||
-                searchParams.insight === ViewType.STICKINESS ||
-                searchParams.insight === ViewType.LIFECYCLE
-            ) {
-                const cleanSearchParams = cleanFilters(searchParams)
-
-                if (!objectsEqual(cleanSearchParams, values.loadedFilters)) {
-                    actions.setFilters(cleanSearchParams, false) /* TODO: FILTERMARKER */
-                } else {
-                    insightLogic(props).actions.setFilters(values.filters)
-                }
-            }
         },
     }),
 })
