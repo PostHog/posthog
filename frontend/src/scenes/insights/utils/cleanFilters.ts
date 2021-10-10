@@ -1,9 +1,8 @@
-import { ChartDisplayType, Entity, EntityTypes, FilterType, PathType, ViewType } from '~/types'
-import { getClampedStepRangeFilter, isStepsEmpty } from 'scenes/funnels/funnelUtils'
+import { ChartDisplayType, Entity, EntityTypes, FilterType, FunnelVizType, PathType, ViewType } from '~/types'
+import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
 import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
-import { RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
+import { BinCountAuto, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 
@@ -17,11 +16,7 @@ export function getDefaultEvent(): Entity {
     }
 }
 
-interface CleanFilterOptions {
-    setDefault?: boolean
-}
-
-export function cleanFilters(filters: Partial<FilterType>, options: CleanFilterOptions = {}): Partial<FilterType> {
+export function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {
     if (filters.insight === ViewType.RETENTION) {
         return {
             target_entity: filters.target_entity || {
@@ -39,10 +34,45 @@ export function cleanFilters(filters: Partial<FilterType>, options: CleanFilterO
             insight: ViewType.RETENTION,
         }
     } else if (filters.insight === ViewType.FUNNELS) {
-        const cleanedParams = cleanFunnelParams(filters)
+        const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
+        const cleanedParams: Partial<FilterType> = {
+            ...(filters.date_from ? { date_from: filters.date_from } : {}),
+            ...(filters.date_to ? { date_to: filters.date_to } : {}),
+            ...(filters.actions ? { actions: filters.actions } : {}),
+            ...(filters.events ? { events: filters.events } : {}),
+            ...(filters.display ? { display: filters.display } : {}),
+            ...(filters.layout ? { layout: filters.layout } : {}),
+            ...(filters.interval ? { interval: filters.interval } : {}),
+            ...(filters.properties ? { properties: filters.properties } : {}),
+            ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+            ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
+            ...(filters.funnel_viz_type
+                ? { funnel_viz_type: filters.funnel_viz_type }
+                : { funnel_viz_type: FunnelVizType.Steps }),
+            ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
+            ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
+            ...(filters.drop_off ? { drop_off: filters.drop_off } : {}),
+            ...(filters.funnel_step_breakdown !== undefined
+                ? { funnel_step_breakdown: filters.funnel_step_breakdown }
+                : {}),
+            ...(filters.bin_count && filters.bin_count !== BinCountAuto ? { bin_count: filters.bin_count } : {}),
+            ...(filters.funnel_window_interval_unit
+                ? { funnel_window_interval_unit: filters.funnel_window_interval_unit }
+                : {}),
+            ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
+            ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
+            ...(filters.hiddenLegendKeys ? { hiddenLegendKeys: filters.hiddenLegendKeys } : {}),
+            exclusions: deepCleanFunnelExclusionEvents(filters),
+            interval: autocorrectInterval(filters),
+            breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
+            breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
+            insight: ViewType.FUNNELS,
+        }
 
-        if (isStepsEmpty(cleanedParams) && options.setDefault) {
+        // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`
+        if (isStepsUndefined(cleanedParams)) {
             cleanedParams.events = [getDefaultEvent()]
+            cleanedParams.actions = []
         }
 
         // make sure exclusion steps are clamped within new step range
@@ -135,8 +165,9 @@ export function cleanFilters(filters: Partial<FilterType>, options: CleanFilterO
             }
         }
 
-        if (isStepsEmpty(cleanSearchParams) && options.setDefault) {
+        if (isStepsUndefined(cleanSearchParams)) {
             cleanSearchParams.events = [getDefaultEvent()]
+            cleanSearchParams.actions = []
         }
 
         return cleanSearchParams

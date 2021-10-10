@@ -3,7 +3,6 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { errorToast, toParams } from 'lib/utils'
-import { cleanFunnelParams } from 'scenes/funnels/funnelLogic'
 import { ActionFilter, FilterType, ViewType, FunnelVizType } from '~/types'
 import { personsModalLogicType } from './personsModalLogicType'
 import { parsePeopleParams } from './trendsLogic'
@@ -154,7 +153,7 @@ export const personsModalLogic = kea<personsModalLogicType<PersonModalParams>>({
                             ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
                         }
                     }
-                    const cleanedParams = cleanFunnelParams(params)
+                    const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
                     people = await api.create(`api/person/funnel/?${funnelParams}${searchTermParam}`)
                 } else if (filters.insight === ViewType.PATHS) {

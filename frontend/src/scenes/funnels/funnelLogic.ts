@@ -2,7 +2,7 @@ import { isBreakpoint, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, sum, uuid } from 'lib/utils'
+import { sum, uuid } from 'lib/utils'
 import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
@@ -35,7 +35,6 @@ import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/Funne
 import {
     aggregateBreakdownResult,
     cleanBinResult,
-    deepCleanFunnelExclusionEvents,
     formatDisplayPercentage,
     getClampedStepRangeFilter,
     getLastFilledStep,
@@ -52,46 +51,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-
-export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
-    const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
-
-    return {
-        // Use "discardFiltersNotUsedByFunnels" to get funnel params that you can compare.
-        ...(discardFiltersNotUsedByFunnels ? {} : filters),
-        ...(filters.date_from ? { date_from: filters.date_from } : {}),
-        ...(filters.date_to ? { date_to: filters.date_to } : {}),
-        ...(filters.actions ? { actions: filters.actions } : {}),
-        ...(filters.events ? { events: filters.events } : {}),
-        ...(filters.display ? { display: filters.display } : {}),
-        ...(filters.layout ? { layout: filters.layout } : {}),
-        ...(filters.interval ? { interval: filters.interval } : {}),
-        ...(filters.properties ? { properties: filters.properties } : {}),
-        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-        ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
-        ...(filters.funnel_viz_type
-            ? { funnel_viz_type: filters.funnel_viz_type }
-            : { funnel_viz_type: FunnelVizType.Steps }),
-        ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
-        ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
-        ...(filters.drop_off ? { drop_off: filters.drop_off } : {}),
-        ...(filters.funnel_step_breakdown !== undefined
-            ? { funnel_step_breakdown: filters.funnel_step_breakdown }
-            : {}),
-        ...(filters.bin_count && filters.bin_count !== BinCountAuto ? { bin_count: filters.bin_count } : {}),
-        ...(filters.funnel_window_interval_unit
-            ? { funnel_window_interval_unit: filters.funnel_window_interval_unit }
-            : {}),
-        ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
-        ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
-        ...(filters.hiddenLegendKeys ? { hiddenLegendKeys: filters.hiddenLegendKeys } : {}),
-        exclusions: deepCleanFunnelExclusionEvents(filters),
-        interval: autocorrectInterval(filters),
-        breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
-        breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
-        insight: ViewType.FUNNELS,
-    }
-}
 
 export const funnelLogic = kea<funnelLogicType>({
     props: {} as InsightLogicProps,
@@ -155,7 +114,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     if (
                         !refresh &&
                         (props.cachedResults || props.preventLoading) &&
-                        equal(cleanFunnelParams(values.filters, true), cleanFunnelParams(props.filters || {}, true))
+                        equal(cleanFilters(values.filters), cleanFilters(props.filters || {}))
                     ) {
                         return { results: props.cachedResults, filters }
                     }
@@ -281,8 +240,7 @@ export const funnelLogic = kea<funnelLogicType>({
             (props.filters || {}) as FilterType,
             {
                 setFilters: (state, { filters, mergeWithExisting }) => {
-                    const newFilters = cleanFilters(filters)
-                    return mergeWithExisting ? { ...state, ...newFilters } : newFilters
+                    return cleanFilters(mergeWithExisting ? { ...state, ...filters } : filters)
                 },
                 setEventExclusionFilters: (state, { filters }) => ({
                     ...state,
@@ -357,6 +315,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
     selectors: ({ selectors }) => ({
         isLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
+        loadedFilters: [(s) => [s.rawResults], (rawResults) => rawResults.filters],
         results: [(s) => [s.rawResults], (rawResults) => rawResults.results],
         resultsLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
         stepResults: [
@@ -374,7 +333,6 @@ export const funnelLogic = kea<funnelLogicType>({
                     : null
             },
         ],
-        lastAppliedFilters: [(s) => [s.rawResults], (rawResults) => rawResults.filters],
         peopleSorted: [
             () => [selectors.stepsWithCount, selectors.people],
             (steps, people) => {
@@ -391,7 +349,7 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
-        propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
+        propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFilters(filters)],
         isValidFunnel: [
             () => [selectors.filters, selectors.stepsWithCount, selectors.histogramGraphData],
             (filters, stepsWithCount, histogramGraphData) => {
@@ -408,9 +366,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         filtersDirty: [
-            () => [selectors.filters, selectors.lastAppliedFilters],
-            (filters, lastFilters): boolean =>
-                !equal(cleanFunnelParams(filters, true), cleanFunnelParams(lastFilters, true)),
+            () => [selectors.filters, selectors.loadedFilters],
+            (filters, lastFilters): boolean => !equal(cleanFilters(filters), cleanFilters(lastFilters)),
         ],
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         clickhouseFeaturesEnabled: [
@@ -450,10 +407,10 @@ export const funnelLogic = kea<funnelLogicType>({
             (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
         ],
         conversionMetrics: [
-            () => [selectors.stepsWithCount, selectors.filters, selectors.timeConversionResults],
-            (stepsWithCount, filters, timeConversionResults): FunnelTimeConversionMetrics => {
+            () => [selectors.stepsWithCount, selectors.loadedFilters, selectors.timeConversionResults],
+            (stepsWithCount, loadedFilters, timeConversionResults): FunnelTimeConversionMetrics => {
                 // stepsWithCount should be empty in time conversion view. Return metrics precalculated on backend
-                if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                if (loadedFilters.funnel_viz_type === FunnelVizType.TimeToConvert) {
                     return {
                         averageTime: timeConversionResults?.average_conversion_time ?? 0,
                         stepRate: 0,
@@ -470,13 +427,13 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 }
 
-                const isAllSteps = filters.funnel_from_step === -1
+                const isAllSteps = loadedFilters.funnel_from_step === -1
                 const fromStep = isAllSteps
                     ? getReferenceStep(stepsWithCount, FunnelStepReference.total)
-                    : stepsWithCount[filters.funnel_from_step ?? 0]
+                    : stepsWithCount[loadedFilters.funnel_from_step ?? 0]
                 const toStep = isAllSteps
                     ? getLastFilledStep(stepsWithCount)
-                    : stepsWithCount[filters.funnel_to_step ?? 0]
+                    : stepsWithCount[loadedFilters.funnel_to_step ?? 0]
 
                 return {
                     averageTime: toStep?.average_conversion_time || 0,
@@ -493,7 +450,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     b) dashboard ID passed as a filter in certain kind of insights when viewing in the dashboard page
                 */
                 const { from_dashboard } = filters
-                const cleanedParams = cleanFunnelParams(filters)
+                const cleanedParams = cleanFilters(filters)
                 return {
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
@@ -839,27 +796,27 @@ export const funnelLogic = kea<funnelLogicType>({
             // If user started from empty state (<2 steps) and added a new step
             const filterLength = (filters: Partial<FilterType>): number =>
                 (filters?.events?.length || 0) + (filters?.actions?.length || 0)
-            const shouldRefresh = filterLength(values.filters) === 2 && filterLength(values.lastAppliedFilters) === 1
+            const shouldRefresh = filterLength(values.filters) === 2 && filterLength(values.loadedFilters) === 1
             // If layout or visibility is the only thing that changes
             const onlyLayoutOrVisibilityChanged = equal(
                 Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
-                Object.assign({}, values.lastAppliedFilters, { layout: undefined, hiddenLegendKeys: undefined })
+                Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
             )
 
             if (!onlyLayoutOrVisibilityChanged && (refresh || shouldRefresh || clickhouseFeaturesEnabled)) {
                 actions.loadResults()
             }
-            const cleanedParams = cleanFunnelParams(values.filters)
+            const cleanedParams = cleanFilters(values.filters)
             insightLogic(props).actions.setFilters(cleanedParams)
             insightLogic(props).actions.setLastRefresh(null)
         },
         setEventExclusionFilters: () => {
-            if (!equal(values.filters.exclusions || [], values.lastAppliedFilters.exclusions || [])) {
+            if (!equal(values.filters.exclusions || [], values.loadedFilters.exclusions || [])) {
                 actions.loadResults()
             }
         },
         setOneEventExclusionFilter: () => {
-            if (!equal(values.filters.exclusions || [], values.lastAppliedFilters.exclusions || [])) {
+            if (!equal(values.filters.exclusions || [], values.loadedFilters.exclusions || [])) {
                 actions.loadResults()
             }
         },

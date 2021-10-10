@@ -246,6 +246,9 @@ export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
 export const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
 
+export const isStepsUndefined = (filters: FilterType): boolean =>
+    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
+
 export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepRangeEntityFilter[] | undefined => {
     if (!filters.exclusions) {
         return undefined
