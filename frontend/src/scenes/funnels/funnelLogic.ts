@@ -25,7 +25,6 @@ import {
     FunnelStepRangeEntityFilter,
     InsightLogicProps,
     FlattenedFunnelStepByBreakdown,
-    FunnelAPIResponse,
     FunnelCorrelation,
     FunnelCorrelationType,
     FunnelStepReference,
@@ -85,7 +84,6 @@ export const funnelLogic = kea<funnelLogicType>({
         }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
-        setCachedResults: (filters: Partial<FilterType>, results: FunnelAPIResponse) => ({ filters, results }),
         toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
@@ -104,9 +102,6 @@ export const funnelLogic = kea<funnelLogicType>({
         rawResults: [
             { results: [], filters: {} } as LoadedRawFunnelResults,
             {
-                setCachedResults: ({ results, filters }) => {
-                    return { results, filters }
-                },
                 loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
                     const { apiParams, eventCount, actionCount, interval, filters } = values
 
@@ -254,7 +249,6 @@ export const funnelLogic = kea<funnelLogicType>({
                         : [],
                 }),
                 clearFunnel: (state) => ({ new_entity: state.new_entity }),
-                setCachedResultsSuccess: (_, { rawResults }) => rawResults.filters,
             },
         ],
         people: {

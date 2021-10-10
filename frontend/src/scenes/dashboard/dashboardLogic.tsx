@@ -12,7 +12,7 @@ import { DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
-import { getLogicFromInsight } from 'scenes/insights/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
@@ -493,12 +493,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                     // reload the cached results inside the insight's logic
                     if (dashboardItem.filters.insight) {
-                        const itemResultLogic = getLogicFromInsight(dashboardItem.filters.insight, {
+                        const itemResultLogic = insightLogic({
                             dashboardItemId: dashboardItem.id,
                             filters: dashboardItem.filters,
                             cachedResults: refreshedDashboardItem.result,
                         })
-                        itemResultLogic.actions.setCachedResults(dashboardItem.filters, refreshedDashboardItem.result)
+                        itemResultLogic.actions.setInsight({ ...dashboardItem, result: refreshedDashboardItem.result })
                     }
 
                     dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem)

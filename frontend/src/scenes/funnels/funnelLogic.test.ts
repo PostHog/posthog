@@ -6,7 +6,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { FunnelAPIResponse, PropertyOperator } from '~/types'
+import { PropertyOperator } from '~/types'
 
 jest.mock('lib/api')
 
@@ -242,28 +242,6 @@ describe('funnelLogic', () => {
                         filters: expect.objectContaining({
                             events: [{ id: 2 }, { id: 3 }],
                             properties: [expect.objectContaining({ value: 'a' })],
-                        }),
-                    })
-            })
-
-            it('setCachedResults sets results directly', async () => {
-                await expectLogic(logic).toDispatchActions(['loadResultsSuccess'])
-
-                logic.actions.setCachedResults(
-                    {
-                        events: [{ id: 2 }, { id: 3 }],
-                        properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
-                    },
-                    ['cached result' as any] as FunnelAPIResponse
-                )
-
-                await expectLogic(logic)
-                    .toDispatchActions(['setCachedResults', 'setCachedResultsSuccess'])
-                    .toMatchValues({
-                        results: ['cached result'],
-                        filters: expect.objectContaining({
-                            events: [{ id: 2 }, { id: 3 }],
-                            properties: [expect.objectContaining({ type: 'lol' })],
                         }),
                     })
             })

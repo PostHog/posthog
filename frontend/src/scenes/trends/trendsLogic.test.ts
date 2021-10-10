@@ -61,10 +61,6 @@ describe('trendsLogic', () => {
             }).toMatchValues({ visibilityMap: { 1: true, 2: true, 8: true } })
 
             expectLogic(logic, () => {
-                logic.actions.setCachedResultsSuccess({ result: [r, r, r, r, r], filters: {} })
-            }).toMatchValues({ visibilityMap: { 0: true, 1: true, 2: true, 3: true, 4: true } })
-
-            expectLogic(logic, () => {
                 logic.actions.loadResultsSuccess({ result: [r, r], filters: {} })
             }).toMatchValues({ visibilityMap: { 0: true, 1: true } })
 
@@ -135,28 +131,6 @@ describe('trendsLogic', () => {
                         filters: expect.objectContaining({
                             events: [{ id: 3 }],
                             properties: [expect.objectContaining({ value: 'a' })],
-                        }),
-                    })
-            })
-
-            it('setCachedResults sets results directly', async () => {
-                await expectLogic(logic).toDispatchActions(['loadResultsSuccess'])
-
-                logic.actions.setCachedResults(
-                    {
-                        events: [{ id: 3 }],
-                        properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
-                    },
-                    ['result' as any as TrendResult]
-                )
-
-                await expectLogic(logic)
-                    .toDispatchActions(['setCachedResults', 'setCachedResultsSuccess'])
-                    .toMatchValues({
-                        results: ['result'],
-                        filters: expect.objectContaining({
-                            events: [{ id: 3 }],
-                            properties: [expect.objectContaining({ type: 'lol' })],
                         }),
                     })
             })

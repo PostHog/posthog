@@ -2,9 +2,9 @@ import { kea } from 'kea'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { pathsLogicType } from './pathsLogicType'
-import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType, TrendResult } from '~/types'
+import { InsightLogicProps, FilterType, PathType, PropertyFilter, ViewType } from '~/types'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export const DEFAULT_STEP_LIMIT = 5
@@ -34,7 +34,7 @@ interface PathNode {
     value: number
 }
 
-export const pathsLogic = kea<pathsLogicType<PathNode>>({
+export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
 
@@ -130,8 +130,8 @@ export const pathsLogic = kea<pathsLogicType<PathNode>>({
         ],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): TrendResult[] =>
-                isTrendsInsight(filters?.insight) && Array.isArray(result) ? result : [],
+            ({ filters, result }): PathResult =>
+                filters?.insight === ViewType.PATHS ? result : { paths: [], filter: {} },
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         paths: [

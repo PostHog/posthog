@@ -46,14 +46,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         updateRetention: (retention: RetentionTablePayload[] | RetentionTrendPayload[]) => ({ retention }),
         clearPeople: true,
         clearRetention: true,
-        setCachedResults: (filters: Partial<FilterType>, results: any) => ({ filters, results }),
     }),
     loaders: ({ values, props }) => ({
         results: {
             __default: [] as RetentionTablePayload[] | RetentionTrendPayload[],
-            setCachedResults: ({ results }) => {
-                return results
-            },
             loadResults: async (refresh = false, breakpoint) => {
                 if (!refresh && (props.cachedResults || props.preventLoading) && values.filters === props.filters) {
                     return props.cachedResults

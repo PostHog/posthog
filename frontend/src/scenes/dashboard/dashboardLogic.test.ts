@@ -8,7 +8,6 @@ import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 jest.mock('lib/api')
 
@@ -92,9 +91,6 @@ describe('dashboardLogic', () => {
                         },
                     })
                     .toDispatchActionsInAnyOrder([
-                        // calls the "setCachedResults" directly on the sub-logics (trendsLogic.172 this case)
-                        trendsLogic({ dashboardItemId: dashboardJson.items[0].id }).actionTypes.setCachedResults,
-                        trendsLogic({ dashboardItemId: dashboardJson.items[1].id }).actionTypes.setCachedResults,
                         // and updates the action in the model
                         (a) =>
                             a.type === dashboardsModel.actionTypes.updateDashboardItem &&
