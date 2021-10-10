@@ -108,11 +108,10 @@ export const insightLogic = kea<insightLogicType>({
             } as Partial<DashboardItemType>,
             {
                 loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
-                updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
+                updateInsight: async (payload: Partial<DashboardItemType>) => {
                     if (!Object.entries(payload).length) {
                         return
                     }
-                    await breakpoint(300)
                     return await api.update(`api/insight/${values.insight.id}`, payload)
                 },
                 // using values.filters, query for new insight results
@@ -450,32 +449,39 @@ export const insightLogic = kea<insightLogicType>({
                 </div>
             )
         },
-        updateInsightFilters: async ({ filters }) => {
-            // This auto-saves new filters into the insight if results were loaded in any of the sub-logics.
-            // Exceptions:
-            // - not saved if saved insights are enabled --> it has its own view/edit modes
-            // - not saved if on the history "insight"
-            // - not saved if came from a dashboard --> there's a separate "save" button for that
-            if (props.dashboardItemId && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS]) {
-                if ((filters.insight as ViewType) !== ViewType.HISTORY && !router.values.hashParams.fromDashboard) {
-                    await api.update(`api/insight/${props.dashboardItemId}`, { filters })
-                }
-            }
-        },
+        // called when search query was successful
         loadResultsSuccess: async ({ insight }) => {
+            if (props.doNotPersist) {
+                return
+            }
+
             if (!insight.id) {
-                const i = await api.create('api/insight', {
+                const createdInsight = await api.create('api/insight', {
                     filters: insight.filters,
                 })
-                actions.setInsight(i)
+                actions.setInsight(createdInsight)
                 if (props.syncWithUrl) {
                     router.actions.replace('/insights', router.values.searchParams, {
                         ...router.values.hashParams,
-                        fromItem: i.id,
+                        fromItem: createdInsight.id,
                     })
                 }
             } else if (insight.filters) {
-                actions.updateInsightFilters(insight.filters)
+                // This auto-saves new filters into the insight.
+                // Exceptions:
+                if (
+                    // - not saved if "saved insights" feature flag is enabled and we're in view mode
+                    !(
+                        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] &&
+                        values.insightMode === ItemMode.View
+                    ) &&
+                    // - not saved if on the history "insight" for some reason
+                    (insight.filters.insight as ViewType) !== ViewType.HISTORY &&
+                    // - not saved if we came from a dashboard --> there's a separate "save" button for that
+                    !router.values.hashParams.fromDashboard
+                ) {
+                    actions.updateInsight({ filters: insight.filters })
+                }
             }
         },
     }),

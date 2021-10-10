@@ -980,6 +980,8 @@ export interface InsightLogicProps {
     filters?: Partial<FilterType> | null
     /** not sure about this one */
     preventLoading?: boolean
+    /** enable this to make unsaved queries */
+    doNotPersist?: boolean
 }
 
 export interface FeatureFlagGroupType {
