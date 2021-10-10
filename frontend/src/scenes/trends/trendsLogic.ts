@@ -249,17 +249,22 @@ export const trendsLogic = kea<trendsLogicType>({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        setDisplay: async ({ display }) => {
-            insightLogic(props).actions.setFilters({ ...values.filters, display })
-        },
+        // <insightLogic requirements>
         setFilters: async ({ filters, mergeFilters }) => {
             insightLogic(props).actions.setFilters(mergeFilters ? { ...values.filters, ...filters } : filters)
         },
         [insightLogic(props).actionTypes.setFilters]: () => {
             actions.loadResults()
         },
+        setCachedResultsSuccess: () => {
+            insightLogic(props).actions.fetchedResults(values.filters)
+        },
         loadResultsSuccess: async () => {
             insightLogic(props).actions.fetchedResults(values.filters)
+        },
+        // </insightLogic requirements>
+        setDisplay: async ({ display }) => {
+            insightLogic(props).actions.setFilters({ ...values.filters, display })
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {

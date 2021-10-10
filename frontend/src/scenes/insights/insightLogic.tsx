@@ -106,7 +106,7 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
     }),
-    reducers: {
+    reducers: ({ props }) => ({
         insight: {
             setInsight: (state, { insight, shouldMergeWithExisting }) =>
                 shouldMergeWithExisting
@@ -159,7 +159,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
         filters: [
-            {} as Partial<FilterType>,
+            () => props.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (_, { filters }) => filters,
             },
@@ -203,7 +203,7 @@ export const insightLogic = kea<insightLogicType>({
                 setTagLoading: (_, { tagLoading }) => tagLoading,
             },
         ],
-    },
+    }),
     selectors: {
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
