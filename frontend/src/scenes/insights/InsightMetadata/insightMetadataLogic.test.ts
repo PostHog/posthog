@@ -24,6 +24,8 @@ describe('insightMetadataLogic', () => {
     mockAPI(async ({ pathname, searchParams }) => {
         if (pathname.startsWith('api/insight')) {
             return { results: [], next: null }
+        } else if (pathname === '_preflight/') {
+            return { is_clickhouse_enabled: true }
         } else if (pathname === 'api/users/@me/') {
             return {
                 results: {

@@ -3,7 +3,7 @@ import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { trendsLogicType } from 'scenes/trends/trendsLogicType'
-import { PropertyOperator, TrendResult, ViewType } from '~/types'
+import { TrendResult } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 jest.mock('lib/api')
@@ -73,64 +73,6 @@ describe('trendsLogic', () => {
             expectLogic(logic, () => {
                 logic.actions.toggleVisibility(1)
             }).toMatchValues({ visibilityMap: { 0: true, 1: true } })
-        })
-    })
-
-    describe('as dashboard item', () => {
-        describe('props with filters and cached results', () => {
-            initKeaTestLogic({
-                logic: trendsLogic,
-                props: {
-                    dashboardItemId: 123,
-                    cachedResults: ['cached result'],
-                    filters: {
-                        insight: ViewType.TRENDS,
-                        events: [{ id: 2 }],
-                        properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
-                    },
-                },
-                onLogic: (l) => (logic = l),
-            })
-
-            it('no query to load results', async () => {
-                await expectLogic(logic)
-                    .toMatchValues({
-                        results: ['cached result'],
-                        filters: expect.objectContaining({
-                            events: [{ id: 2 }],
-                            properties: [expect.objectContaining({ type: 'lol' })],
-                        }),
-                    })
-                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
-            })
-        })
-
-        describe('props with filters, no cached results', () => {
-            initKeaTestLogic({
-                logic: trendsLogic,
-                props: {
-                    dashboardItemId: 123,
-                    cachedResults: undefined,
-                    filters: {
-                        insight: ViewType.TRENDS,
-                        events: [{ id: 3 }],
-                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
-                    },
-                },
-                onLogic: (l) => (logic = l),
-            })
-
-            it('makes a query to load the results', async () => {
-                await expectLogic(logic)
-                    .toDispatchActions(['loadResultsSuccess'])
-                    .toMatchValues({
-                        results: ['result from api'],
-                        filters: expect.objectContaining({
-                            events: [{ id: 3 }],
-                            properties: [expect.objectContaining({ value: 'a' })],
-                        }),
-                    })
-            })
         })
     })
 
