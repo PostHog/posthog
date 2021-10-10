@@ -1,14 +1,11 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { objectsEqual } from 'lib/utils'
 import { insightLogic } from '../insights/insightLogic'
 import { InsightLogicProps, FilterType, ViewType, TrendResult } from '~/types'
 import { trendsLogicType } from './trendsLogicType'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export const trendsLogic = kea<trendsLogicType>({
     props: {} as InsightLogicProps,
@@ -132,16 +129,6 @@ export const trendsLogic = kea<trendsLogicType>({
                 next: response.next,
             })
             actions.setBreakdownValuesLoading(false)
-        },
-        [eventDefinitionsModel.actionTypes.loadEventDefinitionsSuccess]: async () => {
-            const newFilter = cleanFilters(values.filters)
-            const mergedFilter: Partial<FilterType> = {
-                ...values.filters,
-                ...newFilter,
-            }
-            if (!objectsEqual(values.filters, mergedFilter)) {
-                insightLogic(props).actions.setFilters(mergedFilter)
-            }
         },
     }),
 })

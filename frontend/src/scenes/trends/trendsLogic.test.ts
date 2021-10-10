@@ -3,7 +3,7 @@ import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { trendsLogicType } from 'scenes/trends/trendsLogicType'
-import { PropertyOperator, TrendResult } from '~/types'
+import { PropertyOperator, TrendResult, ViewType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 jest.mock('lib/api')
@@ -26,7 +26,7 @@ describe('trendsLogic', () => {
             ].includes(pathname)
         ) {
             return { results: [] }
-        } else if (['api/insight/session/', 'api/insight/trend/'].includes(pathname)) {
+        } else if (['api/insight/123', 'api/insight/session/', 'api/insight/trend/'].includes(pathname)) {
             return { result: ['result from api'] }
         } else {
             throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
@@ -41,7 +41,9 @@ describe('trendsLogic', () => {
         })
 
         it('loads results on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['loadResults'])
+            await expectLogic(logic).toDispatchActions([
+                insightLogic({ dashboardItemId: undefined }).actionTypes.loadResults,
+            ])
         })
     })
 
@@ -56,9 +58,9 @@ describe('trendsLogic', () => {
             const r = {} as TrendResult
 
             expectLogic(logic, () => {
-                logic.actions.setVisibilityById({ '1': true, '2': false })
+                logic.actions.setVisibilityById({ '0': true, '2': false })
                 logic.actions.setVisibilityById({ '8': true, '2': true })
-            }).toMatchValues({ visibilityMap: { 1: true, 2: true, 8: true } })
+            }).toMatchValues({ visibilityMap: { 0: true, 2: true, 8: true } })
 
             expectLogic(logic, () => {
                 logic.actions.loadResultsSuccess({ result: [r, r], filters: {} })
@@ -82,6 +84,7 @@ describe('trendsLogic', () => {
                     dashboardItemId: 123,
                     cachedResults: ['cached result'],
                     filters: {
+                        insight: ViewType.TRENDS,
                         events: [{ id: 2 }],
                         properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
                     },
@@ -98,14 +101,7 @@ describe('trendsLogic', () => {
                             properties: [expect.objectContaining({ type: 'lol' })],
                         }),
                     })
-                    .toDispatchActions(['loadResultsSuccess']) // this took the cached results
-                    .toMatchValues({
-                        results: ['cached result'], // should not have changed
-                        filters: expect.objectContaining({
-                            events: [{ id: 2 }],
-                            properties: [expect.objectContaining({ value: 'lol' })],
-                        }),
-                    })
+                    .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
             })
         })
 
@@ -116,6 +112,7 @@ describe('trendsLogic', () => {
                     dashboardItemId: 123,
                     cachedResults: undefined,
                     filters: {
+                        insight: ViewType.TRENDS,
                         events: [{ id: 3 }],
                         properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                     },
