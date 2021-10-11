@@ -8,13 +8,14 @@ from typing import List, Tuple
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
-from posthog.models import Cohort, Team, Organization
+from posthog.models import Action, ActionStep, Cohort, Team, Organization
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
 
 MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
     ("events", "$host"),
+    ("events", "$current_url"),
     ("person", "email"),
     ("person", "$browser"),
 ]
@@ -28,29 +29,7 @@ class QuerySuite:
     version = "v001"  # Version. Incrementing this will invalidate previous results
 
     team: Team
-
-    def setup(self):
-        for table, property in MATERIALIZED_PROPERTIES:
-            if property not in get_materialized_columns(table):
-                materialize(table, property)
-                backfill_materialized_columns(table, [property], backfill_period=timedelta(days=1_000))
-
-        # :TRICKY: Data in benchmark servers has ID=2
-        team = Team.objects.filter(id=2).first()
-        if team is None:
-            organization = Organization.objects.create()
-            team = Team.objects.create(id=2, organization=organization, name="The Bakery")
-        self.team = team
-
-        cohort = Cohort.objects.filter(name="benchmarking cohort").first()
-        if cohort is None:
-            cohort = Cohort.objects.create(
-                team_id=2,
-                name="benchmarking cohort",
-                groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
-            )
-            cohort.calculate_people_ch()
-        self.cohort = cohort
+    cohort: Cohort
 
     @benchmark_clickhouse
     def track_trends_no_filter(self):
@@ -179,6 +158,52 @@ class QuerySuite:
         ClickhouseTrends().run(filter, self.team)
 
     @benchmark_clickhouse
+    def track_trends_filter_by_action_current_url_materialized(self):
+        action = Action.objects.create(team=self.team, name="docs view")
+        ActionStep.objects.create(
+            action=action, event="$pageview", url="docs", url_matching="contains",
+        )
+
+        filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_filter_by_action_current_url(self):
+        action = Action.objects.create(team=self.team, name="docs view")
+        ActionStep.objects.create(
+            action=action, event="$pageview", url="docs", url_matching="contains",
+        )
+
+        filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_filter_by_action_with_person_filters_materialized(self):
+        action = Action.objects.create(team=self.team, name=".com-users page views")
+        ActionStep.objects.create(
+            action=action,
+            event="$pageview",
+            properties=[{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+        )
+
+        filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
+        ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_trends_filter_by_action_with_person_filters(self):
+        action = Action.objects.create(team=self.team, name=".com-users page views")
+        ActionStep.objects.create(
+            action=action,
+            event="$pageview",
+            properties=[{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}],
+        )
+
+        filter = Filter(data={"actions": [{"id": action.id}], **DATE_RANGE}, team=self.team)
+        with no_materialized_columns():
+            ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
     def track_correlations_by_events(self):
         filter = Filter(
             data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE,}, team=self.team
@@ -212,3 +237,26 @@ class QuerySuite:
         )
         with no_materialized_columns():
             FunnelCorrelation(filter, self.team).run()
+
+    def setup(self):
+        for table, property in MATERIALIZED_PROPERTIES:
+            if property not in get_materialized_columns(table):
+                materialize(table, property)
+                backfill_materialized_columns(table, [property], backfill_period=timedelta(days=1_000))
+
+        # :TRICKY: Data in benchmark servers has ID=2
+        team = Team.objects.filter(id=2).first()
+        if team is None:
+            organization = Organization.objects.create()
+            team = Team.objects.create(id=2, organization=organization, name="The Bakery")
+        self.team = team
+
+        cohort = Cohort.objects.filter(name="benchmarking cohort").first()
+        if cohort is None:
+            cohort = Cohort.objects.create(
+                team_id=2,
+                name="benchmarking cohort",
+                groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch()
+        self.cohort = cohort
