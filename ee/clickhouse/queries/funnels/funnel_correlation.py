@@ -30,6 +30,8 @@ class FunnelCorrelationResponse(TypedDict):
     The structure that the diagnose response will be returned in.
     NOTE: TypedDict is used here to comply with existing formats from other
     queries, but we could use, for example, a dataclass
+
+    TEST MAKING CHANGES TO PY CODE
     """
 
     events: List[EventOddsRatio]
