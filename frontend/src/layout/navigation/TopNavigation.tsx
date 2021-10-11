@@ -44,7 +44,7 @@ import { organizationLogic } from '../../scenes/organizationLogic'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
-        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami" style={{paddingRight: 16}}>
+        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
             <ProfilePicture name={user.first_name} email={user.email} />
             <div className="details hide-lte-lg">
                 <span>{user.first_name}</span>
