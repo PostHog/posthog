@@ -1,5 +1,3 @@
-import { fromParamsGivenUrl, toParams } from 'lib/utils'
-import { Environments, ENVIRONMENT_LOCAL_STORAGE_KEY } from 'lib/constants'
 import posthog from 'posthog-js'
 
 export function getCookie(name) {
@@ -28,8 +26,9 @@ async function getJSONOrThrow(response) {
 
 class Api {
     async get(url, signal = undefined) {
-        // TODO: how to put behind a feature flag
-        url = maybeAddEnvironmentProperty(url)
+        if (url.indexOf('http') !== 0) {
+            url = '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
+        }
 
         let response
         const startTime = new Date().getTime()
@@ -112,55 +111,6 @@ class Api {
             throw { status: response.status, ...data }
         }
         return response
-    }
-}
-
-function isWhitelisted(url) {
-    const WHITELIST = ['api']
-
-    for (let i = 0; i < WHITELIST.length; i++) {
-        const urlWithSlash = '/' + url
-        const startsWith = url.indexOf(WHITELIST[i]) === 0 || urlWithSlash.indexOf(WHITELIST[i]) === 0
-        if (startsWith) {
-            return true
-        }
-    }
-
-    return false
-}
-
-function maybeAddEnvironmentProperty(url) {
-    const localStorageEnvironmentValue = window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY)
-    const isWhitelistedUrl = isWhitelisted(url)
-    const shouldAddEnvironmentValue = localStorageEnvironmentValue && isWhitelistedUrl
-
-    if (shouldAddEnvironmentValue) {
-        let urlObject = url.indexOf('http') === 0 ? new URL(url) : new URL(url, window.location.origin)
-
-        let params = fromParamsGivenUrl(urlObject.search)
-
-        const environmentProperty =
-            localStorageEnvironmentValue === Environments.PRODUCTION
-                ? { key: '$environment', operator: 'is_not', value: ['test'] }
-                : { key: '$environment', operator: 'exact', value: ['test'] }
-
-        if (params.properties) {
-            let parsedProperties = JSON.parse(params.properties)
-            parsedProperties = Array.isArray(parsedProperties)
-                ? [...parsedProperties, environmentProperty]
-                : [parsedProperties, environmentProperty]
-            params.properties = JSON.stringify(parsedProperties)
-        } else {
-            params.properties = JSON.stringify([environmentProperty])
-        }
-
-        return url.indexOf('http') === 0
-            ? urlObject.origin + urlObject.pathname + '?' + toParams(params)
-            : urlObject.pathname + '?' + toParams(params)
-    } else if (url.indexOf('http') !== 0) {
-        return '/' + url + (url.indexOf('?') === -1 && url[url.length - 1] !== '/' ? '/' : '')
-    } else {
-        return url
     }
 }
 

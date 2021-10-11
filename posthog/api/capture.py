@@ -14,7 +14,6 @@ from statshog.defaults.django import statsd
 
 from posthog.api.utils import get_token
 from posthog.celery import app as celery_app
-from posthog.constants import ENVIRONMENT_TEST
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.models import Team, User
@@ -136,7 +135,7 @@ def get_event(request):
 
     sent_at = _get_sent_at(data, request)
 
-    token, is_test_environment = get_token(data, request)
+    token = get_token(data, request)
 
     if not token:
         return cors_response(
@@ -243,16 +242,9 @@ def get_event(request):
         if not event.get("properties"):
             event["properties"] = {}
 
-        # Support test_[apiKey] for users with multiple environments
-        if event["properties"].get("$environment") is None and is_test_environment:
-            event["properties"]["$environment"] = ENVIRONMENT_TEST
-
-        library = event["properties"].get("$lib", "unknown")
-        library_version = event["properties"].get("$lib_version", "unknown")
-
         with configure_scope() as scope:
-            scope.set_tag("library", library)
-            scope.set_tag("library.version", library_version)
+            scope.set_tag("library", event["properties"].get("$lib", "unknown"))
+            scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
 
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
