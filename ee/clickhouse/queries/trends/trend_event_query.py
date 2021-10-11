@@ -2,6 +2,7 @@ from typing import Any, Dict, Tuple
 
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.queries.event_query import ClickhouseEventQuery
+from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.trends.util import get_active_user_params
 from ee.clickhouse.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps
 from posthog.constants import MONTHLY_ACTIVE, WEEKLY_ACTIVE
@@ -16,6 +17,13 @@ class TrendsEventQuery(ClickhouseEventQuery):
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
         super().__init__(*args, **kwargs)
+        self._person_query = ClickhousePersonQuery(
+            self._filter,
+            self._team_id,
+            self._column_optimizer,
+            extra_fields=kwargs.get("extra_person_fields", []),
+            entity=entity,
+        )
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (

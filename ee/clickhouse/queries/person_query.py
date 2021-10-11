@@ -14,6 +14,7 @@ from ee.clickhouse.models.property import extract_tables_and_properties, parse_p
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from posthog.constants import FunnelCorrelationType
 from posthog.models import Filter
+from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.property import Property, PropertyName, PropertyType, TableWithProperties
@@ -33,10 +34,13 @@ class ClickhousePersonQuery:
         filter: Union[Filter, PathFilter, RetentionFilter],
         team_id: int,
         column_optimizer: Optional[ColumnOptimizer] = None,
+        *,
+        entity: Optional[Entity] = None,
         extra_fields: List[ColumnName] = [],
     ) -> None:
         self._filter = filter
         self._team_id = team_id
+        self._entity = entity
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
         self._extra_fields = extra_fields
 
@@ -80,13 +84,19 @@ class ClickhousePersonQuery:
         properties_to_query = self._column_optimizer._used_properties_with_type("person")
         properties_to_query -= extract_tables_and_properties(self._filter.properties)
 
+        if self._entity is not None:
+            properties_to_query -= extract_tables_and_properties(self._entity.properties)
+
         columns = self._column_optimizer.columns_to_query("person", set(properties_to_query)) | set(self._extra_fields)
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in columns]
 
     def _get_person_filters(self) -> Tuple[str, Dict]:
         conditions, params = [""], {}
-        for index, property in enumerate(self._filter.properties):
+
+        properties = self._filter.properties + (self._entity.properties if self._entity else [])
+
+        for index, property in enumerate(properties):
             if property.type != "person":
                 continue
 
