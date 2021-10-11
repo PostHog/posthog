@@ -308,9 +308,6 @@ export const insightLogic = kea<insightLogicType>({
         ],
     },
     listeners: ({ actions, values, props }) => ({
-        updateInsightSuccess: () => {
-            actions.setInsightMode(ItemMode.View, null)
-        },
         setFilters: async ({ filters }, breakpoint) => {
             const { fromDashboard } = router.values.hashParams
             eventUsageLogic.actions.reportInsightViewed(filters, values.isFirstLoad, Boolean(fromDashboard))
