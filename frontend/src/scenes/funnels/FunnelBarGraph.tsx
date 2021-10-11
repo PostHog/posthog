@@ -12,7 +12,6 @@ import { funnelLogic } from './funnelLogic'
 import { useThrottledCallback } from 'use-debounce'
 import './FunnelBarGraph.scss'
 import { useActions, useValues } from 'kea'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import {
@@ -25,7 +24,7 @@ import {
     humanizeOrder,
     humanizeStepCount,
 } from './funnelUtils'
-import { ChartParams, StepOrderValue, FunnelStepWithConversionMetrics } from '~/types'
+import { StepOrderValue, FunnelStepWithConversionMetrics, FunnelStepReference } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -436,8 +435,9 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph({ dashboardItemId, color = 'white' }: Omit<ChartParams, 'view'>): JSX.Element {
+export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { dashboardItemId } = insightProps
     const logic = funnelLogic(insightProps)
     const {
         filters,
@@ -452,14 +452,14 @@ export function FunnelBarGraph({ dashboardItemId, color = 'white' }: Omit<ChartP
     // If the layout is vertical, we render bars using the table as a legend. See FunnelStepTable
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && layout === FunnelLayout.vertical) {
-        return <FunnelStepTable dashboardItemId={dashboardItemId} filters={filters} />
+        return <FunnelStepTable />
     }
 
     return (
         <div
             data-attr="funnel-bar-graph"
             className={`funnel-bar-graph ${layout}${color && color !== 'white' ? ' colored' : ''} ${color}`}
-            style={dashboardItemId ? {} : { minHeight: 450 }}
+            style={insightProps.syncWithUrl ? { minHeight: 450 } : {}}
         >
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)

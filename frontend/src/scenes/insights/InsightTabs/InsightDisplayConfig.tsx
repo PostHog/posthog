@@ -16,7 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useValues } from 'kea'
 interface InsightDisplayConfigProps {
     clearAnnotationsToCreate: () => void
-    allFilters: FilterType
+    filters: FilterType
     activeView: ViewType
     insightMode: ItemMode
     annotationsToCreate: Record<string, any>[] // TODO: Annotate properly
@@ -80,7 +80,7 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
 }
 
 export function InsightDisplayConfig({
-    allFilters,
+    filters,
     insightMode,
     activeView,
     clearAnnotationsToCreate,
@@ -90,7 +90,7 @@ export function InsightDisplayConfig({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const dateFilterDisabled =
-        (showFunnelBarOptions && isFunnelEmpty(allFilters)) ||
+        (showFunnelBarOptions && isFunnelEmpty(filters)) ||
         (!!featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && insightMode === ItemMode.View)
 
     return (
@@ -106,22 +106,22 @@ export function InsightDisplayConfig({
                                 clearAnnotationsToCreate()
                             }
                         }}
-                        filters={allFilters}
-                        disabled={allFilters.insight === ViewType.LIFECYCLE}
+                        filters={filters}
+                        disabled={filters.insight === ViewType.LIFECYCLE}
                     />
                 )}
-                {showIntervalFilter(activeView, allFilters) && <IntervalFilter view={activeView} />}
+                {showIntervalFilter(activeView, filters) && <IntervalFilter view={activeView} />}
 
                 {activeView === ViewType.RETENTION && <RetentionDatePicker />}
 
-                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.Steps && (
+                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <FunnelDisplayLayoutPicker />
                         <FunnelStepReferencePicker />
                     </>
                 )}
 
-                {showFunnelBarOptions && allFilters.funnel_viz_type === FunnelVizType.TimeToConvert && (
+                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
                     <>
                         <FunnelBinsPicker />
                     </>

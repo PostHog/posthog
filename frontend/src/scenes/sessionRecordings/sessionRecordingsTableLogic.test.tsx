@@ -1,7 +1,7 @@
 import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { BuiltLogic } from 'kea'
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { router } from 'kea-router'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -11,7 +11,8 @@ jest.mock('lib/api')
 describe('sessionRecordingsTableLogic', () => {
     let logic: BuiltLogic<sessionRecordingsTableLogicType<string>>
 
-    mockAPI(async ({ pathname, searchParams }) => {
+    mockAPI(async (url) => {
+        const { pathname, searchParams } = url
         if (pathname === 'api/projects/@current/session_recordings' && searchParams['distinct_id'] === '') {
             return {
                 results: ['List of recordings from server'],
@@ -23,9 +24,8 @@ describe('sessionRecordingsTableLogic', () => {
             return {
                 results: ["List of specific user's recordings from server"],
             }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url)
     })
 
     describe('global logic', () => {

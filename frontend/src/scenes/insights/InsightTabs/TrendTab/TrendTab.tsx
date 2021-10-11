@@ -184,7 +184,7 @@ export function TrendTab({ view }: TrendTabProps): JSX.Element {
                                     />
                                     {filters.breakdown && (
                                         <CloseButton
-                                            onClick={(): void => setFilters({ breakdown: false, breakdown_type: null })}
+                                            onClick={() => setFilters({ breakdown: undefined, breakdown_type: null })}
                                             style={{ marginTop: 1, marginLeft: 5 }}
                                         />
                                     )}

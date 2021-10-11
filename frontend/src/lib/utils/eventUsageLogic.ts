@@ -350,7 +350,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             } else if (insight === 'RETENTION') {
                 properties.period = filters.period
                 properties.date_to = filters.date_to
-                properties.retention_type = filters.retentionType
+                properties.retention_type = filters.retention_type
                 const cohortizingEvent = filters.target_entity
                 const retainingEvent = filters.returning_entity
                 properties.same_retention_and_cohortizing_event =

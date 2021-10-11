@@ -5,13 +5,13 @@ import useSize from '@react-hook/size'
 import { hashCodeForString, humanFriendlyDuration } from 'lib/utils'
 import { funnelLogic } from './funnelLogic'
 import { Histogram } from 'scenes/insights/Histogram'
-import { ChartParams } from '~/types'
 
 import './FunnelHistogram.scss'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function FunnelHistogram({ dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element {
+export function FunnelHistogram(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { dashboardItemId } = insightProps
     const logic = funnelLogic(insightProps)
     const { histogramGraphData } = useValues(logic)
     const ref = useRef(null)

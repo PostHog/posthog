@@ -14,11 +14,11 @@ export function RetentionContainer(props: {
 }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const logic = retentionTableLogic(insightProps)
-    const { filters } = useValues(logic)
+    const { loadedFilters } = useValues(logic)
     return (
         <div
             style={
-                !props.dashboardItemId && filters.display === ACTIONS_LINE_GRAPH_LINEAR
+                !props.dashboardItemId && loadedFilters.display === ACTIONS_LINE_GRAPH_LINEAR
                     ? {
                           minHeight: '70vh',
                           position: 'relative',
@@ -28,7 +28,7 @@ export function RetentionContainer(props: {
                       }
             }
         >
-            {filters.display === ACTIONS_LINE_GRAPH_LINEAR ? (
+            {loadedFilters.display === ACTIONS_LINE_GRAPH_LINEAR ? (
                 <RetentionLineGraph {...props} />
             ) : (
                 <RetentionTable {...props} />
