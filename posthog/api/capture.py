@@ -242,6 +242,10 @@ def get_event(request):
         if not event.get("properties"):
             event["properties"] = {}
 
+        with configure_scope() as scope:
+            scope.set_tag("library", event["properties"].get("$lib", "unknown"))
+            scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
+
         _ensure_web_feature_flags_in_properties(event, team, distinct_id)
 
         statsd.incr("posthog_cloud_plugin_server_ingestion")
