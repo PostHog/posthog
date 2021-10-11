@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Union, cast
 import posthoganalytics
 from django.core.cache import cache
 from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
-from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
@@ -120,7 +119,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                 action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
 
-        calculate_action.delay(action_id=action.pk)
+        calculate_action.delay(action_id=instance.pk)
         posthoganalytics.capture(
             validated_data["created_by"].distinct_id, "action created", instance.get_analytics_metadata()
         )
@@ -149,7 +148,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                     )
 
         instance = super().update(instance, validated_data)
-        calculate_action.delay(action_id=action.pk)
+        calculate_action.delay(action_id=instance.pk)
         instance.refresh_from_db()
         posthoganalytics.capture(
             self.context["request"].user.distinct_id,
