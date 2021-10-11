@@ -25,35 +25,35 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
     def test_properties_used_in_filter(self):
         properties_used_in_filter = lambda filter: ColumnOptimizer(filter, self.team.id).properties_used_in_filter
 
-        self.assertEqual(properties_used_in_filter(BASE_FILTER), set())
+        self.assertEqual(properties_used_in_filter(BASE_FILTER), {})
         self.assertEqual(
             properties_used_in_filter(FILTER_WITH_PROPERTIES),
-            {("event_prop", "event"), ("person_prop", "person"), ("id", "cohort"), ("tag_name", "element")},
+            {("event_prop", "event"): 1, ("person_prop", "person"): 1, ("id", "cohort"): 1, ("tag_name", "element"): 1},
         )
 
         # Breakdown cases
         filter = BASE_FILTER.with_data({"breakdown": "some_prop", "breakdown_type": "person"})
-        self.assertEqual(properties_used_in_filter(filter), {("some_prop", "person")})
+        self.assertEqual(properties_used_in_filter(filter), {("some_prop", "person"): 1})
 
         filter = BASE_FILTER.with_data({"breakdown": "some_prop", "breakdown_type": "event"})
-        self.assertEqual(properties_used_in_filter(filter), {("some_prop", "event")})
+        self.assertEqual(properties_used_in_filter(filter), {("some_prop", "event"): 1})
 
         filter = BASE_FILTER.with_data({"breakdown": [11], "breakdown_type": "cohort"})
-        self.assertEqual(properties_used_in_filter(filter), set())
+        self.assertEqual(properties_used_in_filter(filter), {})
 
         # Funnel Correlation cases
         filter = BASE_FILTER.with_data(
             {"funnel_correlation_type": "events", "funnel_correlation_names": ["random_column"]}
         )
-        self.assertEqual(properties_used_in_filter(filter), set())
+        self.assertEqual(properties_used_in_filter(filter), {})
 
         filter = BASE_FILTER.with_data(
             {"funnel_correlation_type": "properties", "funnel_correlation_names": ["random_column", "$browser"]}
         )
-        self.assertEqual(properties_used_in_filter(filter), {("random_column", "person"), ("$browser", "person")})
+        self.assertEqual(properties_used_in_filter(filter), {("random_column", "person"): 1, ("$browser", "person"): 1})
 
         filter = BASE_FILTER.with_data({"funnel_correlation_type": "properties"})
-        self.assertEqual(properties_used_in_filter(filter), set())
+        self.assertEqual(properties_used_in_filter(filter), {})
 
         filter = Filter(
             data={
@@ -72,11 +72,11 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             properties_used_in_filter(filter),
             {
-                ("numeric_prop", "event"),
-                ("event_prop", "event"),
-                ("person_prop", "person"),
-                ("id", "cohort"),
-                ("tag_name", "element"),
+                ("numeric_prop", "event"): 1,
+                ("event_prop", "event"): 1,
+                ("person_prop", "person"): 1,
+                ("id", "cohort"): 1,
+                ("tag_name", "element"): 1,
             },
         )
 
@@ -96,13 +96,13 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
         self.assertEqual(
             ColumnOptimizer(filter, self.team.id).properties_used_in_filter,
-            {("$current_url", "event"), ("$browser", "person")},
+            {("$current_url", "event"): 1, ("$browser", "person"): 1},
         )
 
         filter = BASE_FILTER.with_data({"exclusions": [{"id": action.id, "type": "actions"}]})
         self.assertEqual(
             ColumnOptimizer(filter, self.team.id).properties_used_in_filter,
-            {("$current_url", "event"), ("$browser", "person")},
+            {("$current_url", "event"): 1, ("$browser", "person"): 1},
         )
 
     def test_materialized_columns_checks(self):
