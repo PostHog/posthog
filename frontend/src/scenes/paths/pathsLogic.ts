@@ -152,7 +152,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode>>({
                 }
             },
         ],
-        pathsError: [(s) => [s.insight], ({ error }): boolean => error],
+        pathsError: [(s) => [s.insight], (insight): PathNode => insight.result.error],
         loadedFilter: [
             (s) => [s.results, s.filter],
             (results: PathResult, filter: Partial<FilterType>) => results?.filter || filter,
