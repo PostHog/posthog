@@ -124,10 +124,14 @@ def prop_filter_json_extract(
     transform_expression: Optional[Callable[[str], str]] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
+    if transform_expression is not None:
+        prop_var = transform_expression(prop_var)
+
     property_expr, is_denormalized = get_property_string_expr(
         property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
     )
-    if transform_expression:
+
+    if is_denormalized and transform_expression:
         property_expr = transform_expression(property_expr)
 
     operator = prop.operator
