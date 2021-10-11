@@ -1,11 +1,8 @@
-from typing import Optional
-
 import pytest
 
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import materialize
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
-from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.person import Person
 from posthog.models.team import Team
@@ -61,7 +58,7 @@ def test_person_query_with_extra_requested_fields(testdata, team, snapshot):
     filter = Filter(
         data={
             "properties": [{"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},],
-            "breakdown": "person_prop",
+            "breakdown": "person_prop_4326",
             "breakdown_type": "person",
         },
     )
