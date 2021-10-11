@@ -111,10 +111,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PLUGIN_SERVER_ACTION_MATCHING",
-                    "value": "1"
-                },
-                {
                     "name": "USING_PGBOUNCER",
                     "value": "True"
                 },

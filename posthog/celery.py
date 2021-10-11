@@ -116,14 +116,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             capture_exception(err)
             print(f"Scheduling materialized column task failed: {err}")
 
-    elif settings.PLUGIN_SERVER_ACTION_MATCHING >= 2:
-        sender.add_periodic_task(
-            ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
-            calculate_event_action_mappings.s(),
-            name="calculate event action mappings",
-            expires=ACTION_EVENT_MAPPING_INTERVAL_SECONDS,
-        )
-
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
