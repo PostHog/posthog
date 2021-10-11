@@ -31,7 +31,7 @@ def get_breakdown_prop_values(
 
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties,
+        filter.properties + entity.properties,
         team_id,
         table_name="e",
         prepend="e_brkdwn",
@@ -39,9 +39,7 @@ def get_breakdown_prop_values(
         allow_denormalized_props=True,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(
-        entity, team_id, with_prop_filters=True, table_name="e", person_properties_mode=PersonPropertiesMode.EXCLUDE
-    )
+    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, table_name="e")
 
     if filter.breakdown_type == "person":
         value_expression, _ = get_property_string_expr("person", cast(str, filter.breakdown), "%(key)s", "person_props")
