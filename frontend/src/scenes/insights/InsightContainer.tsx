@@ -62,7 +62,6 @@ export function InsightContainer(): JSX.Element {
         showErrorMessage,
         insightLoading,
     } = useValues(insightLogic)
-    const { loadResults } = useActions(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
@@ -178,9 +177,7 @@ export function InsightContainer(): JSX.Element {
                             <FunnelCanvasLabel />
                             <PathCanvasLabel />
                         </Col>
-                        {lastRefresh && (
-                            <ComputationTimeWithRefresh lastRefresh={lastRefresh} loadResults={loadResults} />
-                        )}
+                        {lastRefresh && <ComputationTimeWithRefresh />}
                     </Row>
                     {!BlockingEmptyState && CoexistingEmptyState}
                     <div style={{ display: 'block' }}>

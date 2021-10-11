@@ -3,15 +3,14 @@ import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import React, { useEffect, useState } from 'react'
 import { Tooltip } from 'antd'
+import { useActions, useValues } from 'kea'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 dayjs.extend(relativeTime)
 
-export interface ComputationTimeWithRefreshProps {
-    lastRefresh: string
-    loadResults: (refresh: boolean) => void
-}
-
-export function ComputationTimeWithRefresh({ lastRefresh, loadResults }: ComputationTimeWithRefreshProps): JSX.Element {
+export function ComputationTimeWithRefresh(): JSX.Element {
+    const { lastRefresh } = useValues(insightLogic)
+    const { loadResults } = useActions(insightLogic)
     const [, setRerenderCounter] = useState(0)
 
     useEffect(() => {
@@ -43,7 +42,7 @@ export function ComputationTimeWithRefresh({ lastRefresh, loadResults }: Computa
                     size="small"
                     type="link"
                     onClick={() => loadResults(true)}
-                    disabled={dayjs().subtract(3, 'minutes') <= dayjs(lastRefresh)}
+                    disabled={!!lastRefresh && dayjs().subtract(3, 'minutes') <= dayjs(lastRefresh)}
                     style={{ padding: 0 }}
                 >
                     <span style={{ fontSize: 14 }}>Refresh</span>
