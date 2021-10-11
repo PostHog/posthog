@@ -433,7 +433,7 @@ TEST_PROPERTIES = [
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 def test_prop_filter_json_extract(test_events, property, expected_event_indexes, team):
-    query, params = prop_filter_json_extract(property, 0)
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
     uuids = list(
         sorted(
             [
