@@ -231,7 +231,7 @@ export const sessionRecordingsTableLogic = kea<
         }
 
         return {
-            '/session_recordings': urlToAction,
+            '/recordings': urlToAction,
             '/person/*': urlToAction,
         }
     },

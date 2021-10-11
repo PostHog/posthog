@@ -80,7 +80,7 @@ describe('sessionRecordingsTableLogic', () => {
             })
 
             it('is read from the URL on the session recording page', async () => {
-                router.actions.push('/session_recordings', { sessionRecordingId: 'recording1212' })
+                router.actions.push('/recordings', { sessionRecordingId: 'recording1212' })
                 expect(router.values.searchParams).toHaveProperty('sessionRecordingId', 'recording1212')
 
                 await expectLogic(logic)
