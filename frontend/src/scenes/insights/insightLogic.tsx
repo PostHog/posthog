@@ -395,7 +395,7 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         setActiveView: ({ type }) => {
-            actions.setFilters({ insight: type as InsightType })
+            actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }))
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
             if (values.timeout) {
