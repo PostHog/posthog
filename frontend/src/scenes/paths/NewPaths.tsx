@@ -44,7 +44,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
     const canvas = useRef<HTMLDivElement>(null)
     const size = useWindowSize()
     const { insightProps } = useValues(insightLogic)
-    const { paths, resultsLoading: pathsLoading, filter } = useValues(pathsLogic(insightProps))
+    const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
     const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(pathsLogic(insightProps))
     const [pathItemCards, setPathItemCards] = useState<PathNodeData[]>([])
 
@@ -63,6 +63,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
     }
 
     const createSankey = (width: number, height: number): any => {
+        // @ts-expect-error - d3 sankey typing things
         return new Sankey.sankey()
             .nodeId((d: PathNodeData) => d.name)
             .nodeAlign(Sankey.sankeyJustify)
@@ -283,8 +284,8 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
             id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
         >
             <div ref={canvas} className="paths" data-attr="paths-viz">
-                {!pathsLoading && paths && paths.nodes.length === 0 && !paths.error && <NoData />}
-                {!paths.error &&
+                {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <NoData />}
+                {!pathsError &&
                     pathItemCards &&
                     pathItemCards.map((pathItemCard: PathNodeData, idx) => {
                         const continuingValue = getContinuingValue(pathItemCard.sourceLinks)
