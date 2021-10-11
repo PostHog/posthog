@@ -6,12 +6,12 @@ import ResizeObserver from 'resize-observer-polyfill'
 import { RenderedCell } from 'rc-table/lib/interface'
 import { getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from 'lib/utils/responsiveUtils'
 import VirtualTableHeader from './VirtualTableHeader'
-import { TableConfig as _TableConfig } from './TableConfig'
+import { TableColumnsChoice as _TableColumnsChoice } from './TableColumnsChoice'
 import { useBreakpoint } from 'lib/hooks/useBreakpoint'
 
 import './index.scss'
 
-export const TableConfig = _TableConfig
+export const TableColumnsChoice = _TableColumnsChoice
 
 export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> {
     title: string | JSX.Element

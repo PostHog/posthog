@@ -1,17 +1,17 @@
 import { kea } from 'kea'
-import { tableConfigLogicType } from './tableConfigLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 import { router } from 'kea-router'
 
-export const tableConfigLogic = kea<tableConfigLogicType>({
+import { tableColumnsChoiceLogicType } from './tableColumnsChoiceLogicType'
+export const tableColumnsChoiceLogic = kea<tableColumnsChoiceLogicType>({
     connect: {
         logic: [userLogic],
     },
     actions: {
         setModalVisible: (visible: boolean) => ({ visible }),
-        setColumnConfig: (columnConfig: string[]) => ({ columnConfig }),
-        setColumnConfigSaving: (saving: boolean) => ({ saving }),
+        setCurrentColumnChoice: (columnChoice: string[]) => ({ columnChoice }),
+        setColumnChoiceSaving: (saving: boolean) => ({ saving }),
         saveSelectedColumns: (columns: string[]) => ({ columns }),
     },
     reducers: {
@@ -21,25 +21,25 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
                 setModalVisible: (_, { visible }) => visible,
             },
         ],
-        columnConfigSaving: [
+        columnChoiceSaving: [
             false,
             {
-                setColumnConfigSaving: (_, { saving }) => saving,
+                setColumnChoiceSaving: (_, { saving }) => saving,
             },
         ],
-        columnConfig: [
+        currentColumnChoice: [
             [],
             {
-                setColumnConfig: (_, { columnConfig }) => columnConfig,
+                setCurrentColumnChoice: (_, { columnChoice }) => columnChoice,
             },
         ],
     },
     selectors: {
         selectedColumns: [
-            (selectors) => [userLogic.selectors.user, selectors.columnConfig],
-            (user: UserType, columnConfig: string[]) => {
-                if (columnConfig.length > 0) {
-                    return columnConfig
+            (selectors) => [userLogic.selectors.user, selectors.currentColumnChoice],
+            (user: UserType, currentColumnChoice: string[]) => {
+                if (currentColumnChoice.length > 0) {
+                    return currentColumnChoice
                 } else {
                     return user?.events_column_config?.active || 'DEFAULT'
                 }
@@ -52,10 +52,10 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
             },
         ],
         hasColumnConfigToSave: [
-            (selectors) => [userLogic.selectors.user, selectors.columnConfig],
-            (user: UserType, columnConfig: string[]) => {
-                const hasUserSelectedColumns = columnConfig.length > 0
-                const storedConfigMatchesUserSelection = columnConfig.every(
+            (selectors) => [userLogic.selectors.user, selectors.currentColumnChoice],
+            (user: UserType, currentColumnChoice: string[]) => {
+                const hasUserSelectedColumns = currentColumnChoice.length > 0
+                const storedConfigMatchesUserSelection = currentColumnChoice.every(
                     (v, i) => v === user?.events_column_config?.active[i]
                 )
                 return hasUserSelectedColumns && !storedConfigMatchesUserSelection
@@ -63,29 +63,31 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
         ],
     },
     listeners: ({ actions }) => ({
-        setColumnConfig: () => {
+        setCurrentColumnChoice: () => {
             actions.setModalVisible(false)
         },
         saveSelectedColumns: ({ columns }) => {
             userLogic.actions.updateUser({ events_column_config: { active: columns } })
         },
         [userLogic.actionTypes.updateUserSuccess]: () => {
-            actions.setColumnConfigSaving(false)
+            actions.setColumnChoiceSaving(false)
+            const savedValues = userLogic.values?.user?.events_column_config?.active
+            actions.setCurrentColumnChoice(Array.isArray(savedValues) ? savedValues : [])
             actions.setModalVisible(false)
         },
         [userLogic.actionTypes.updateUserFailure]: () => {
-            actions.setColumnConfigSaving(false)
+            actions.setColumnChoiceSaving(false)
         },
     }),
     urlToAction: ({ actions }) => ({
         '*': (_, searchParams) => {
             if (searchParams.tableColumns) {
-                actions.setColumnConfig(searchParams.tableColumns)
+                actions.setCurrentColumnChoice(searchParams.tableColumns)
             }
         },
     }),
     actionToUrl: ({ values }) => ({
-        setColumnConfig: () => {
+        setCurrentColumnChoice: () => {
             return [
                 router.values.location.pathname,
                 {

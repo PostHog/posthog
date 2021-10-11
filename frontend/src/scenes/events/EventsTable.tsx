@@ -15,7 +15,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 import LocalizedFormat from 'dayjs/plugin/localizedFormat'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { ResizableColumnType, ResizableTable, TableConfig } from 'lib/components/ResizableTable'
+import { ResizableColumnType, ResizableTable, TableColumnsChoice } from 'lib/components/ResizableTable'
 import { EventsTableRowItem, EventType, ViewType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -26,7 +26,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LabelledSwitch } from 'scenes/events/LabelledSwitch'
 import clsx from 'clsx'
-import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
+import { tableColumnsChoiceLogic } from 'lib/components/ResizableTable/tableColumnsChoiceLogic'
 
 dayjs.extend(LocalizedFormat)
 dayjs.extend(relativeTime)
@@ -57,7 +57,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         exportUrl,
         highlightEvents,
     } = useValues(logic)
-    const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
+    const { tableWidth, selectedColumns } = useValues(tableColumnsChoiceLogic)
 
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
@@ -319,7 +319,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                 </Col>
                 <Col flex="0">
                     {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
-                        <TableConfig
+                        <TableColumnsChoice
                             availableColumns={propertyNames}
                             immutableColumns={['event', 'person', 'when']}
                             defaultColumns={defaultColumns.map((e) => e.key || '')}

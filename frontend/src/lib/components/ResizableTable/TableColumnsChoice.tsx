@@ -1,9 +1,9 @@
 import { Button, Card, Col, Input, Row, Space, Tooltip } from 'antd'
 import React, { useEffect, useState } from 'react'
 import { ControlOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
-import './TableConfig.scss'
+import './TableColumnsChoice.scss'
 import { useActions, useValues } from 'kea'
-import { tableConfigLogic } from './tableConfigLogic'
+import { tableColumnsChoiceLogic } from './tableColumnsChoiceLogic'
 import Modal from 'antd/lib/modal/Modal'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
 import { AutoSizer } from 'react-virtualized'
@@ -13,14 +13,14 @@ import Fuse from 'fuse.js'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import clsx from 'clsx'
 
-interface TableConfigInterface {
+interface TableColumnsToChooseFrom {
     availableColumns: string[]
     immutableColumns?: string[]
     defaultColumns: string[]
 }
 
 /**
- * A scene that contains a ResizableTable with many possible columns
+ * Any component that contains a ResizableTable with many possible columns
  * can use this to let the user choose which columns they see
  *
  * @param availableColumns the full set of column titles in the table's data
@@ -28,9 +28,13 @@ interface TableConfigInterface {
  * @param defaultColumns the titles of the set of columns to show when there is no user choice
  * @constructor
  */
-export function TableConfig({ availableColumns, immutableColumns, defaultColumns }: TableConfigInterface): JSX.Element {
-    const { modalVisible } = useValues(tableConfigLogic)
-    const { setModalVisible } = useActions(tableConfigLogic)
+export function TableColumnsChoice({
+    availableColumns,
+    immutableColumns,
+    defaultColumns,
+}: TableColumnsToChooseFrom): JSX.Element {
+    const { modalVisible } = useValues(tableColumnsChoiceLogic)
+    const { setModalVisible } = useActions(tableColumnsChoiceLogic)
 
     return (
         <>
@@ -89,8 +93,8 @@ function ColumnConfigurator({
 
     const selectableColumnsDisplay = searchFilteredColumns(searchTerm, selectableColumns)
 
-    const { columnConfigSaving, selectedColumns, hasColumnConfigToSave } = useValues(tableConfigLogic)
-    const { setColumnConfig, setModalVisible, saveSelectedColumns } = useActions(tableConfigLogic)
+    const { columnChoiceSaving, selectedColumns, hasColumnConfigToSave } = useValues(tableColumnsChoiceLogic)
+    const { setCurrentColumnChoice, setModalVisible, saveSelectedColumns } = useActions(tableColumnsChoiceLogic)
 
     const currentSelection = selectedColumns === 'DEFAULT' ? defaultColumns : selectedColumns
 
@@ -118,7 +122,7 @@ function ColumnConfigurator({
     }
 
     function AvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = columnConfigSaving
+        const disabled = columnChoiceSaving
         return (
             <div
                 className={`column-display-item${disabled ? ' disabled' : ''}`}
@@ -133,7 +137,7 @@ function ColumnConfigurator({
     }
 
     function SelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = immutableColumns?.includes(selectedColumnsDisplay[index]) || columnConfigSaving
+        const disabled = immutableColumns?.includes(selectedColumnsDisplay[index]) || columnChoiceSaving
 
         return (
             <div
@@ -153,14 +157,14 @@ function ColumnConfigurator({
             centered
             visible
             title="Toggle column visibility"
-            confirmLoading={columnConfigSaving}
-            onOk={() => setColumnConfig(userColumnSelection)}
+            confirmLoading={columnChoiceSaving}
+            onOk={() => setCurrentColumnChoice(userColumnSelection)}
             width={700}
             className="column-configurator-modal"
             okButtonProps={{
                 // @ts-ignore
                 'data-attr': 'items-selector-confirm',
-                loading: columnConfigSaving,
+                loading: columnChoiceSaving,
                 icon: <SaveOutlined />,
             }}
             okText="Save preferences"

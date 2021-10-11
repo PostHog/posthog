@@ -1,4 +1,4 @@
-import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
+import { tableColumnsChoiceLogic } from 'lib/components/ResizableTable/tableColumnsChoiceLogic'
 import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { UserType } from '~/types'
@@ -68,8 +68,8 @@ const fakeUser: UserType = {
     events_column_config: { active: 'DEFAULT' },
 }
 
-describe('tableConfigLogic', () => {
-    let logic: ReturnType<typeof tableConfigLogic.build>
+describe('tableColumnChoiceLogic', () => {
+    let logic: ReturnType<typeof tableColumnsChoiceLogic.build>
     let builtUserLogic: ReturnType<typeof userLogic.build>
 
     mockAPI(async ({ pathname, searchParams, method, data }) => {
@@ -90,7 +90,7 @@ describe('tableConfigLogic', () => {
     })
 
     initKeaTestLogic({
-        logic: tableConfigLogic,
+        logic: tableColumnsChoiceLogic,
         props: {},
         onLogic: (l) => (logic = l),
     })
@@ -131,7 +131,7 @@ describe('tableConfigLogic', () => {
         })
         it('writes to the URL when column config changes', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setColumnConfig(['soup', 'bread', 'greens'])
+                logic.actions.setCurrentColumnChoice(['soup', 'bread', 'greens'])
             })
             expect(router.values.searchParams).toHaveProperty('tableColumns', ['soup', 'bread', 'greens'])
         })
@@ -139,7 +139,7 @@ describe('tableConfigLogic', () => {
         it('does not show a "save column layout as default" button in the modal when the URL and user match', async () => {
             await expectLogic(logic, () => {
                 builtUserLogic.actions.updateUser({ events_column_config: { active: ['soup', 'bread', 'greens'] } })
-                logic.actions.setColumnConfig(['soup', 'bread', 'greens'])
+                logic.actions.setCurrentColumnChoice(['soup', 'bread', 'greens'])
             }).toMatchValues({
                 hasColumnConfigToSave: false,
             })
@@ -148,7 +148,7 @@ describe('tableConfigLogic', () => {
         it('shows a "save column layout as default" button in the modal when the URL and don\'t user match', async () => {
             await expectLogic(logic, () => {
                 builtUserLogic.actions.updateUser({ events_column_config: { active: ['soup', 'bread', 'greens'] } })
-                logic.actions.setColumnConfig(['soup', 'bread', 'tea'])
+                logic.actions.setCurrentColumnChoice(['soup', 'bread', 'tea'])
             }).toMatchValues({
                 hasColumnConfigToSave: true,
             })
@@ -162,14 +162,14 @@ describe('tableConfigLogic', () => {
     })
 
     it('can set column config saving', async () => {
-        await expectLogic(logic, () => logic.actions.setColumnConfigSaving(true)).toMatchValues({
+        await expectLogic(logic, () => logic.actions.setColumnChoiceSaving(true)).toMatchValues({
             columnConfigSaving: true,
         })
     })
 
     it('sets column config saving to false when user update succeeds', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setColumnConfigSaving(true)
+            logic.actions.setColumnChoiceSaving(true)
             userLogic.actions.updateUserSuccess(fakeUser)
         }).toMatchValues({
             columnConfigSaving: false,
@@ -179,7 +179,7 @@ describe('tableConfigLogic', () => {
     it('sets modal to hidden when user has selected columns', async () => {
         await expectLogic(logic, () => {
             logic.actions.setModalVisible(true)
-            logic.actions.setColumnConfig(['a'])
+            logic.actions.setCurrentColumnChoice(['a'])
         }).toMatchValues({
             modalVisible: false,
         })
@@ -196,16 +196,18 @@ describe('tableConfigLogic', () => {
             })
     })
 
-    it('stores the columns on the user when they choose to save columns', async () => {
+    it('saves to the server and sets column config when saving columns to the user', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setModalVisible(true)
             logic.actions.saveSelectedColumns(['a'])
-        }).toDispatchActions([builtUserLogic.actionCreators.updateUser({ events_column_config: { active: ['a'] } })])
+        }).toDispatchActions([
+            builtUserLogic.actionCreators.updateUser({ events_column_config: { active: ['a'] } }),
+            logic.actionCreators.setCurrentColumnChoice(['a']),
+        ])
     })
 
     it('sets column config saving to false when user update fails', async () => {
         await expectLogic(logic, () => {
-            logic.actions.setColumnConfigSaving(true)
+            logic.actions.setColumnChoiceSaving(true)
             userLogic.actions.updateUserFailure('an error')
         }).toMatchValues({
             columnConfigSaving: false,
@@ -213,7 +215,7 @@ describe('tableConfigLogic', () => {
     })
 
     it('sets table width to one more than column length to account for the button column', async () => {
-        await expectLogic(logic, () => logic.actions.setColumnConfig(['a', 'b'])).toMatchValues({
+        await expectLogic(logic, () => logic.actions.setCurrentColumnChoice(['a', 'b'])).toMatchValues({
             tableWidth: 3,
         })
     })
