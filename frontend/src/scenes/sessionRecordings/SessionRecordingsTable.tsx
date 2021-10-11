@@ -191,7 +191,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                     }}
                     dataSource={sessionRecordings}
                     columns={columns}
-                    loading={sessionRecordings.length === 0 && sessionRecordingsResponseLoading}
+                    loading={sessionRecordingsResponseLoading}
                     pagination={false}
                     onRow={(sessionRecording) => ({
                         onClick: (e) => {
