@@ -65,14 +65,6 @@ class TrendsEventQuery(ClickhouseEventQuery):
 
         return query, self.params
 
-    def _determine_should_join_persons(self) -> None:
-        super()._determine_should_join_persons()
-        for prop in self._entity.properties:
-            if prop.type == "person":
-                self._should_join_distinct_ids = True
-                self._should_join_persons = True
-                return
-
     def _determine_should_join_distinct_ids(self) -> None:
         if self._entity.math == "dau":
             self._should_join_distinct_ids = True
