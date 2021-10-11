@@ -258,7 +258,9 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
         }, 0)
 
         const width =
-            maxLayer > 5 ? (canvas?.current?.offsetWidth || 0 / 5) * maxLayer : canvas?.current?.offsetWidth || 0
+            maxLayer > 5 && canvas?.current?.offsetWidth
+                ? (canvas.current.offsetWidth / 5) * maxLayer
+                : canvas?.current?.offsetWidth || 0
         const height = canvas?.current?.offsetHeight || 0
 
         const svg = createCanvas(width, height)
