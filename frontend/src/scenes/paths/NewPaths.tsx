@@ -35,7 +35,12 @@ function NoData(): JSX.Element {
 const DEFAULT_PATHS_ID = 'default_paths'
 const HIDE_PATH_CARD_HEIGHT = 30
 
-export function NewPaths({ dashboardItemId = null, color = 'white' }) {
+interface PathsProps {
+    dashboardItemId: number | null
+    color: string
+}
+
+export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps): JSX.Element {
     const canvas = useRef<HTMLDivElement>(null)
     const size = useWindowSize()
     const { insightProps } = useValues(insightLogic)
@@ -159,20 +164,20 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
                 if (data?.source?.targetLinks.length === 0) {
                     return
                 }
-                let nodesToColor = [data.source]
+                const nodesToColor = [data.source]
                 const pathCardsToShow: number[] = []
                 while (nodesToColor.length > 0) {
-                    let _node = nodesToColor.pop()
+                    const _node = nodesToColor.pop()
                     _node?.targetLinks.forEach((_link: PathTargetLink) => {
                         svg.select(`#path-${_link.index}`).attr('stroke', 'blue')
                         nodesToColor.push(_link.source)
                         pathCardsToShow.push(_link.source.index)
                     })
                 }
-                let pathCards = [data.target]
+                const pathCards = [data.target]
                 pathCardsToShow.push(data.target.index, data.source.index)
                 while (pathCards.length > 0) {
-                    let node = pathCards.pop()
+                    const node = pathCards.pop()
                     node?.sourceLinks.forEach((l: PathTargetLink) => {
                         pathCards.push(l.target)
                         pathCardsToShow.push(l.target.index)
@@ -199,7 +204,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
                 if (data.source.layer === 0) {
                     return
                 }
-                let _height =
+                const _height =
                     data.source.y1 -
                     data.source.y0 -
                     data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)
