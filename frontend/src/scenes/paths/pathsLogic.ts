@@ -34,7 +34,7 @@ interface PathNode {
     value: number
 }
 
-export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
+export const pathsLogic = kea<pathsLogicType<PathNode>>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
 
@@ -130,17 +130,14 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         ],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): PathResult =>
-                filters?.insight === ViewType.PATHS ? result || { paths: [], filter: {} } : { paths: [], filter: {} },
+            ({ filters, result }): PathNode[] => (filters?.insight === ViewType.PATHS ? result || [] : []),
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         paths: [
             (s) => [s.results],
-            (results: PathResult) => {
-                const { paths, error } = results || {}
-
+            (results) => {
                 const nodes: Record<string, any> = {}
-                for (const path of paths || []) {
+                for (const path of results) {
                     if (!nodes[path.source]) {
                         nodes[path.source] = { name: path.source }
                     }
@@ -151,8 +148,7 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
 
                 return {
                     nodes: Object.values(nodes),
-                    links: paths,
-                    error,
+                    links: results,
                 }
             },
         ],
