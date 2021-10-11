@@ -132,7 +132,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                     title={
                         currentTeam?.session_recording_opt_in
                             ? 'Replay sessions as if you were right next to your users.'
-                            : 'Session recording is turned off for this project. Click to go to settings.'
+                            : 'Recordings is turned off for this project. Click to go to settings.'
                     }
                     delayMs={0}
                 >
@@ -224,7 +224,7 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                                 ? 'No recordings found for this date.'
                                 : currentTeam?.session_recording_opt_in
                                 ? 'Play all recordings found for this date.'
-                                : 'Session recording is turned off for this project. Enable in Project Settings.'
+                                : 'Recordings is turned off for this project. Enable in Project Settings.'
                         }
                     >
                         <LinkButton
