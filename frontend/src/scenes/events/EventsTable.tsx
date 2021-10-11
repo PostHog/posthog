@@ -57,7 +57,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
         exportUrl,
         highlightEvents,
     } = useValues(logic)
-    const { tableWidth, columnConfig } = useValues(tableConfigLogic)
+    const { tableWidth, selectedColumns } = useValues(tableConfigLogic)
 
     const { propertyNames } = useValues(propertyDefinitionsModel)
     const { fetchNextEvents, prependNewEvents, setEventFilter, toggleAutomaticLoad } = useActions(logic)
@@ -242,9 +242,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
 
     const columns = useMemo(
         () =>
-            columnConfig === 'DEFAULT'
+            selectedColumns === 'DEFAULT'
                 ? defaultColumns
-                : columnConfig.map(
+                : selectedColumns.map(
                       (e: string, index: number): ResizableColumnType<EventsTableRowItem> =>
                           defaultColumns.find((d) => d.key === e) || {
                               title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
@@ -274,7 +274,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                               ellipsis: true,
                           }
                   ),
-        [columnConfig]
+        [selectedColumns]
     )
 
     return (
@@ -334,7 +334,7 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     loading={isLoading}
                     columns={columns}
                     size="small"
-                    key={columnConfig === 'DEFAULT' ? 'default' : columnConfig.join('-')}
+                    key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
                     className="ph-no-capture"
                     locale={{
                         emptyText: isLoading ? (

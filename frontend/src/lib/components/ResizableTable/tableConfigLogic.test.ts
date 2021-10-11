@@ -3,7 +3,9 @@ import { mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { UserType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
 
+import api from 'lib/api'
 jest.mock('lib/api')
 
 const fakeUser: UserType = {
@@ -97,9 +99,43 @@ describe('tableConfigLogic', () => {
         await expectLogic(logic).toMount(builtUserLogic).toMatchValues({
             columnConfigSaving: false,
             modalVisible: false,
-            columnConfig: 'DEFAULT',
+            columnConfig: [],
+            selectedColumns: 'DEFAULT',
             tableWidth: 7,
         })
+    })
+
+    describe('column config source', () => {
+        it('reads from the URL when present', async () => {
+            router.actions.push(router.values.location.pathname, { tableColumns: ['egg', 'beans', 'toast'] })
+            await expectLogic(logic).toMatchValues({
+                columnConfig: ['egg', 'beans', 'toast'],
+                selectedColumns: ['egg', 'beans', 'toast'],
+            })
+        })
+        it('does not save to user when reading from URL', async () => {
+            router.actions.push(router.values.location.pathname, { tableColumns: ['egg', 'beans', 'toast'] })
+            await expectLogic(logic)
+            expect(api.update).not.toHaveBeenCalled()
+        })
+        it('reads from the user if the URL has no column settings', async () => {
+            router.actions.push(router.values.location.pathname, {})
+            await expectLogic(builtUserLogic, () => {
+                builtUserLogic.actions.updateUser({ events_column_config: { active: ['soup', 'bread', 'greens'] } })
+            })
+            await expectLogic(logic).toMatchValues({
+                columnConfig: [],
+                selectedColumns: ['soup', 'bread', 'greens'],
+            })
+        })
+        it('writes to the URL when column config changes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setColumnConfig(['soup', 'bread', 'greens'])
+            })
+            expect(router.values.searchParams).toHaveProperty('tableColumns', ['soup', 'bread', 'greens'])
+        })
+
+        // it.todo('shows a "save column layout as default" button in the modal when the URL and user don\'t match')
     })
 
     it('can set column config saving', async () => {
@@ -114,19 +150,6 @@ describe('tableConfigLogic', () => {
         })
     })
 
-    it('can set column config', async () => {
-        const columnConfig = ['a', 'b']
-        await expectLogic(logic, () => logic.actions.setColumnConfig(columnConfig))
-            .toDispatchActions([
-                logic.actionCreators.setColumnConfigSaving(true),
-                userLogic.actionCreators.updateUser({ events_column_config: { active: columnConfig } }),
-            ])
-            .toMatchValues({
-                columnConfig,
-                columnConfigSaving: true,
-            })
-    })
-
     it('sets column config saving to false when user update succeeds', async () => {
         await expectLogic(logic, () => {
             logic.actions.setColumnConfigSaving(true)
@@ -136,10 +159,10 @@ describe('tableConfigLogic', () => {
         })
     })
 
-    it('sets modal to hidden when user update succeeds', async () => {
+    it('sets modal to hidden when user has selected columns', async () => {
         await expectLogic(logic, () => {
             logic.actions.setModalVisible(true)
-            userLogic.actions.updateUserSuccess(fakeUser)
+            logic.actions.setColumnConfig(['a'])
         }).toMatchValues({
             modalVisible: false,
         })

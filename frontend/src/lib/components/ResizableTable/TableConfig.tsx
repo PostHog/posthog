@@ -79,38 +79,38 @@ function ColumnConfigurator({
     defaultColumns,
 }: ColumnConfiguratorInterface): JSX.Element {
     const [selectableColumns, setSelectableColumns] = useState([] as string[]) // Stores the actual state of columns that could be selected
-    const [selectedColumns, setSelectedColumns] = useState([] as string[]) // Stores the actual state of columns that **are** selected
+    const [userColumnSelection, setUserColumnSelection] = useState([] as string[]) // Stores the actual state of columns that **are** selected
     const [scrollSelectedToIndex, setScrollSelectedToIndex] = useState(0)
     const [searchTerm, setSearchTerm] = useState('')
 
-    const selectedColumnsDisplay = searchFilteredColumns(searchTerm, selectedColumns)
+    const selectedColumnsDisplay = searchFilteredColumns(searchTerm, userColumnSelection)
 
     const selectableColumnsDisplay = searchFilteredColumns(searchTerm, selectableColumns)
 
-    const { columnConfigSaving, columnConfig } = useValues(tableConfigLogic)
+    const { columnConfigSaving, selectedColumns } = useValues(tableConfigLogic)
     const { setColumnConfig, setModalVisible } = useActions(tableConfigLogic)
 
-    const currentSelection = columnConfig === 'DEFAULT' ? defaultColumns : columnConfig
+    const currentSelection = selectedColumns === 'DEFAULT' ? defaultColumns : selectedColumns
 
     useEffect(() => {
-        setSelectedColumns(currentSelection)
+        setUserColumnSelection(currentSelection)
         setSelectableColumns(allColumns.filter((column) => !currentSelection.includes(column)))
     }, [currentSelection, allColumns])
 
     const selectColumn = (column: string): void => {
-        setSelectedColumns([...selectedColumns, column])
+        setUserColumnSelection([...userColumnSelection, column])
         setSelectableColumns(selectableColumns.filter((item) => item != column))
-        setScrollSelectedToIndex(selectedColumns.length)
+        setScrollSelectedToIndex(userColumnSelection.length)
     }
 
     const unSelectColumn = (column: string): void => {
-        setSelectedColumns(selectedColumns.filter((item) => item != column))
+        setUserColumnSelection(userColumnSelection.filter((item) => item != column))
         setSelectableColumns([...selectableColumns, column])
     }
 
     const resetColumns = (): void => {
         if (defaultColumns) {
-            setSelectedColumns(defaultColumns)
+            setUserColumnSelection(defaultColumns)
             setSelectableColumns(allColumns.filter((column) => !currentSelection.includes(column)))
         }
     }
@@ -152,7 +152,7 @@ function ColumnConfigurator({
             visible
             title="Toggle column visibility"
             confirmLoading={columnConfigSaving}
-            onOk={() => setColumnConfig(selectedColumns)}
+            onOk={() => setColumnConfig(userColumnSelection)}
             width={700}
             className="column-configurator-modal"
             okButtonProps={{
