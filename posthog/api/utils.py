@@ -78,13 +78,4 @@ def get_token(data, request) -> Optional[str]:
                 elif data.get("properties") and data["properties"].get("token"):
                     token = data["properties"]["token"]  # JS capture call
 
-    if token:
-        return clean_token(token)
-    return None
-
-
-# Support test_[apiKey] for users with multiple environments
-def clean_token(token):
-    is_test_environment = token.startswith("test_")
-    token = token[5:] if is_test_environment else token
-    return token, is_test_environment
+    return token

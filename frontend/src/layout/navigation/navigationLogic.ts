@@ -7,6 +7,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { teamLogic } from 'scenes/teamLogic'
 
 type WarningType =
     | 'welcome'
