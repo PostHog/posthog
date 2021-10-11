@@ -24,11 +24,9 @@ class FunnelEventQuery(ClickhouseEventQuery):
             for column_name in self._column_optimizer.event_columns_to_query
         )
 
-        # :TODO: Use PersonQuery instead here
         if self._should_join_persons:
             _fields.extend(
-                f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
-                for column_name in self._column_optimizer.person_columns_to_query
+                f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}" for column_name in self._person_query.fields
             )
 
         _fields = list(filter(None, _fields))
