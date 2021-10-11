@@ -134,7 +134,8 @@ def get_team(request, data, token) -> Tuple[Optional[Team], Optional[str], Optio
     error_response = None
 
     try:
-        team = Team.objects.get_team_from_token(token)
+        # team = Team.objects.get_team_from_token(token)
+        raise Exception()
     except Exception as e:
         capture_exception(e)
         statsd.incr("capture_endpoint_fetch_team_fail")

@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime
+from datetime import datetime, tzinfo
 from typing import Any, Dict, Optional
 
 from dateutil import parser
@@ -62,6 +62,7 @@ if is_clickhouse_enabled():
         topic: str = KAFKA_DEAD_LETTER_QUEUE,
     ):
         data = event.copy()
+
         data["failure_timestamp"] = datetime.now().isoformat()
         data["error_location"] = error_location
         data["error"] = error_message
@@ -69,6 +70,7 @@ if is_clickhouse_enabled():
         data["id"] = str(UUIDT())
         data["event"] = event_name
         data["raw_payload"] = json.dumps(raw_payload)
+        data["now"] = datetime.fromisoformat(data["now"]).replace(tzinfo=None).isoformat() if data["now"] else None
 
         data["event_uuid"] = event["uuid"]
         del data["uuid"]
