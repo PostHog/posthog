@@ -27,6 +27,8 @@ export interface PathNodeData {
     y1: number
     layer: number
     source: PathNodeData
+    target: PathNodeData
+    visible?: boolean
 }
 
 export function roundedRect(
