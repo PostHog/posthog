@@ -19,11 +19,10 @@ SINGLE_RECORDING_QUERY = """
 
 
 class ClickhouseSessionRecording(SessionRecording):
-    def query_recording_snapshots(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots, bool]:
+    def query_recording_snapshots(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
         response = sync_execute(
             SINGLE_RECORDING_QUERY, {"team_id": self._team.id, "session_id": self._session_recording_id,},
         )
         if len(response) == 0:
-            return None, None, [], False
-        snapshots = [json.loads(snapshot_data) for _, _, snapshot_data in response]
-        return response[0][0], response[0][1], snapshots, len(snapshots) > self._limit - 1
+            return None, None, []
+        return response[0][0], response[0][1], [json.loads(snapshot_data) for _, _, snapshot_data in response]

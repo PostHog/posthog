@@ -51,7 +51,7 @@ SESSIONS_IN_RANGE_QUERY = """
     WHERE full_snapshots > 0 {filter_query}
 """
 
-RECORDINGS_NUM_SNAPSHOTS_LIMIT = 2000
+RECORDINGS_NUM_SNAPSHOTS_LIMIT = 500
 
 
 class SessionRecording:
