@@ -67,7 +67,7 @@ export function RetentionTab(): JSX.Element {
                         <Col>
                             <div style={{ display: '-webkit-inline-box', flexWrap: 'wrap' }}>
                                 <Select
-                                    value={retentionOptions[filters.retention_type]}
+                                    value={retentionOptions[filters.retentionType]}
                                     onChange={(value): void => setFilters({ retentionType: value as RetentionType })}
                                     dropdownMatchSelectWidth={false}
                                 >
