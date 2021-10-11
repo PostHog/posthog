@@ -8,6 +8,7 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { NewPaths } from './NewPaths'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 // TODO: Replace with PathType enums when moving to TypeScript
 const PAGEVIEW = '$pageview'
@@ -99,10 +100,11 @@ export function Paths({ dashboardItemId = null, filters = null, color = 'white' 
     )
 }
 
-export function OldPaths({ dashboardItemId = null, filters = null, color = 'white' }) {
+export function OldPaths({ dashboardItemId = null, color = 'white' }) {
     const canvas = useRef(null)
     const size = useWindowSize()
-    const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic({ dashboardItemId, filters }))
+    const { insightProps } = useValues(insightLogic)
+    const { paths, loadedFilter, resultsLoading: pathsLoading } = useValues(pathsLogic(insightProps))
 
     useEffect(() => {
         renderPaths()

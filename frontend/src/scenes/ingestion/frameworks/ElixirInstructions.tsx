@@ -1,7 +1,7 @@
 import React from 'react'
 import { CodeSnippet, Language } from './CodeSnippet'
 import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 function ElixirInstallSnippet(): JSX.Element {
     return (
@@ -12,11 +12,12 @@ function ElixirInstallSnippet(): JSX.Element {
 }
 
 function ElixirSetupSnippet(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const url = window.location.origin
+
     return (
         <CodeSnippet language={Language.Elixir}>
-            {'config :posthog,\n    api_url: "' + url + '",\n    api_key: "' + user?.team?.api_token + '"'}
+            {'config :posthog,\n    api_url: "' + url + '",\n    api_key: "' + currentTeam?.api_token + '"'}
         </CodeSnippet>
     )
 }

@@ -65,7 +65,7 @@ class PropertyDefinitionViewSet(
                     WHERE team_id = %(team_id)s {name_filter} {search_query}
                     ORDER BY name
                     """,
-                    params={"names": names, "team_id": self.request.user.team.id, **search_kwargs},  # type: ignore
+                    params={"names": names, "team_id": self.team_id, **search_kwargs},
                 )
                 return ee_property_definitions
 

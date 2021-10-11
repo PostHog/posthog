@@ -32,6 +32,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from '../sceneLogic'
 import { SessionPlayerDrawer } from 'scenes/sessionRecordings/SessionPlayerDrawer'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
@@ -152,7 +153,10 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
             ),
             render: function RenderEndPoint(session: SessionType) {
                 return session.session_recordings.length ? (
-                    <SessionRecordingsButton sessionRecordings={session.session_recordings} />
+                    <SessionRecordingsButton
+                        sessionRecordings={session.session_recordings}
+                        source={RecordingWatchedSource.SessionsList}
+                    />
                 ) : null
             },
             span: 4,
@@ -224,7 +228,11 @@ export function SessionsView({ personIds, isPersonPage = false }: SessionsTableP
                         }
                     >
                         <LinkButton
-                            to={firstRecordingId ? sessionPlayerUrl(firstRecordingId) : '#'}
+                            to={
+                                firstRecordingId
+                                    ? sessionPlayerUrl(firstRecordingId, RecordingWatchedSource.SessionsListPlayAll)
+                                    : '#'
+                            }
                             type="primary"
                             data-attr="play-all-recordings"
                             disabled={firstRecordingId === null} // We allow playback of previously recorded sessions even if new recordings are disabled

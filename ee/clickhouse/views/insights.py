@@ -16,6 +16,7 @@ from ee.clickhouse.queries.funnels import (
     ClickhouseFunnelTrends,
     ClickhouseFunnelUnordered,
 )
+from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from ee.clickhouse.queries.util import get_earliest_timestamp
@@ -42,7 +43,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     @cached_function
     def calculate_trends(self, request: Request) -> Dict[str, Any]:
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
 
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             stickiness_filter = StickinessFilter(
@@ -60,19 +61,22 @@ class ClickhouseInsightsViewSet(InsightViewSet):
     def calculate_session(self, request: Request) -> Dict[str, Any]:
         return {
             "result": ClickhouseSessions().run(
-                team=self.team, filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS})
+                team=self.team,
+                filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS}, team=self.team),
             )
         }
 
     @cached_function
     def calculate_path(self, request: Request) -> Dict[str, Any]:
         team = self.team
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
 
         funnel_filter = None
-        funnel_filter_data = request.GET.get("funnel_filter")
+        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
         if funnel_filter_data:
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **json.loads(funnel_filter_data)})
+            if isinstance(funnel_filter_data, str):
+                funnel_filter_data = json.loads(funnel_filter_data)
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
         #  backwards compatibility
         if filter.path_type:
@@ -81,15 +85,10 @@ class ClickhouseInsightsViewSet(InsightViewSet):
 
         return {"result": resp}
 
-    @action(methods=["GET", "POST"], detail=False)
-    def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
-        response = self.calculate_funnel(request)
-        return Response(response)
-
     @cached_function
     def calculate_funnel(self, request: Request) -> Dict[str, Any]:
         team = self.team
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
         funnel_order_class: Type[ClickhouseFunnelBase] = ClickhouseFunnel
         if filter.funnel_order_type == FunnelOrderType.UNORDERED:
@@ -110,13 +109,36 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         else:
             return {"result": funnel_order_class(team=team, filter=filter).run()}
 
+    # ******************************************
+    # /insight/funnel/correlation
+    #
+    # params:
+    # - params are the same as for funnel
+    #
+    # Returns significant events, i.e. those that are correlated with a person
+    # making it through a funnel
+    # ******************************************
+    @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
+    def funnel_correlation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_funnel_correlation(request)
+        return Response(result)
+
+    @cached_function
+    def calculate_funnel_correlation(self, request: Request) -> Dict[str, Any]:
+        team = self.team
+        filter = Filter(request=request)
+
+        result = FunnelCorrelation(filter=filter, team=team).run()
+
+        return {"result": result}
+
     @cached_function
     def calculate_retention(self, request: Request) -> Dict[str, Any]:
         team = self.team
         data = {}
         if not request.GET.get("date_from"):
             data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data, request=request)
+        filter = RetentionFilter(data=data, request=request, team=self.team)
         result = ClickhouseRetention().run(filter, team)
         return {"result": result}
 

@@ -119,9 +119,9 @@ export const eventsTableLogic = kea<eventsTableLogicType<ApiError, EventsTableLo
             },
         ],
         isLoading: [
-            false,
+            true,
             {
-                fetchEvents: (state) => state,
+                fetchEvents: () => true,
                 setDelayedLoading: () => true,
                 fetchEventsSuccess: () => false,
                 fetchOrPollFailure: () => false,

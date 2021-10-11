@@ -6,12 +6,14 @@ import { useActions, useValues } from 'kea'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { CalendarOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
 
 export function RetentionDatePicker(): JSX.Element {
-    const { filters } = useValues(retentionTableLogic({ dashboardItemId: null }))
-    const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(retentionTableLogic(insightProps))
+    const { setFilters } = useActions(retentionTableLogic(insightProps))
     const yearSuffix = filters.date_to && dayjs(filters.date_to).year() !== dayjs().year() ? ', YYYY' : ''
     return (
         <>

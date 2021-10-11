@@ -46,7 +46,7 @@ export const toDispatchActions: ExpectFunction<ActionToDispatch[]> = {
     },
 }
 
-function tryToSearchActions(logic: LogicWrapper | BuiltLogic, actions: ActionToDispatch[]): ActionToDispatch[] {
+export function tryToSearchActions(logic: LogicWrapper | BuiltLogic, actions: ActionToDispatch[]): ActionToDispatch[] {
     const actionsToSearch = [...actions]
     const { recordedHistory, historyIndex } = testUtilsContext()
     const actionPointer = historyIndex || -1

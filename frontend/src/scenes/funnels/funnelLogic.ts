@@ -3,7 +3,6 @@ import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { autocorrectInterval, sum, uuid } from 'lib/utils'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { funnelLogicType } from './funnelLogicType'
@@ -25,9 +24,11 @@ import {
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelStepRangeEntityFilter,
-    SharedInsightLogicProps,
+    InsightLogicProps,
     FlattenedFunnelStepByBreakdown,
     FunnelAPIResponse,
+    FunnelCorrelation,
+    FunnelCorrelationType,
 } from '~/types'
 import { FunnelLayout, BinCountAuto, FEATURE_FLAGS } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -51,6 +52,7 @@ import { router } from 'kea-router'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
     const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
@@ -92,16 +94,9 @@ export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNo
     }
 }
 
-export interface FunnelLogicProps extends SharedInsightLogicProps {
-    refresh?: boolean
-    exclusionFilters?: Partial<FilterType>
-}
-
-export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
-    props: {} as FunnelLogicProps,
-    key: (props) => {
-        return props.dashboardItemId || 'insight_funnel'
-    },
+export const funnelLogic = kea<funnelLogicType>({
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('insight_funnel'),
 
     actions: () => ({
         clearFunnel: true,
@@ -137,10 +132,14 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
         toggleVisibility: (index: string) => ({ index }),
         toggleVisibilityByBreakdown: (breakdownValue?: number | string) => ({ breakdownValue }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
+
+        // Correlation related actions
+        setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
     }),
 
     connect: {
-        actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
+        actions: [funnelsModel, ['loadFunnels']],
         logic: [insightLogic, eventUsageLogic, dashboardsModel],
     },
 
@@ -202,9 +201,9 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     }
 
                     const queryId = uuid()
-                    const dashboardItemId = props.dashboardItemId || props.fromDashboardItemId
+                    const { dashboardItemId } = props
 
-                    insightLogic.actions.startQuery(queryId)
+                    insightLogic(props).actions.startQuery(queryId)
                     if (dashboardItemId) {
                         dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
                     }
@@ -214,7 +213,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                         const result = await loadFunnelResults()
                         breakpoint()
                         resultsPackage = { ...resultsPackage, results: result.result }
-                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
+                        insightLogic(props).actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
                         if (dashboardItemId) {
                             dashboardsModel.actions.updateDashboardRefreshStatus(
                                 dashboardItemId,
@@ -225,7 +224,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                         return resultsPackage
                     } catch (e) {
                         if (!isBreakpoint(e)) {
-                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
+                            insightLogic(props).actions.endQuery(queryId, ViewType.FUNNELS, null, e)
                             if (dashboardItemId) {
                                 dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
                             }
@@ -241,6 +240,38 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             {
                 loadPeople: async (steps) => {
                     return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
+                },
+            },
+        ],
+        correlations: [
+            { events: [] } as Record<'events', FunnelCorrelation[]>,
+            {
+                loadCorrelations: async () => {
+                    return (
+                        await api.create('api/insight/funnel/correlation', {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'events',
+                        })
+                    ).result
+                },
+            },
+        ],
+        propertyCorrelations: [
+            {
+                events: [],
+            } as Record<'events', FunnelCorrelation[]>,
+            {
+                loadPropertyCorrelations: async (propertyCorrelationName) => {
+                    return (
+                        await api.create('api/insight/funnel/correlation', {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'properties',
+                            // Name is comma separated list of property names
+                            funnel_correlation_names: propertyCorrelationName
+                                .split(',')
+                                .map((name: string) => name.trim()),
+                        })
+                    ).result
                 },
             },
         ],
@@ -311,16 +342,28 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             },
         ],
         error: [
-            null as any, // TODO: Error typing in typescript doesn't exist natively
+            null as any,
             {
-                [insightLogic.actionTypes.startQuery]: () => null,
-                [insightLogic.actionTypes.endQuery]: (_, { exception }) => exception ?? null,
-                [insightLogic.actionTypes.abortQuery]: (_, { exception }) => exception ?? null,
+                [insightLogic(props).actionTypes.startQuery]: () => null,
+                [insightLogic(props).actionTypes.endQuery]: (_: any, { exception }: any) => exception ?? null,
+                [insightLogic(props).actionTypes.abortQuery]: (_: any, { exception }: any) => exception ?? null,
+            },
+        ],
+        correlationTypes: [
+            [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
+            {
+                setCorrelationTypes: (_, { types }) => types,
+            },
+        ],
+        propertyCorrelationTypes: [
+            [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
+            {
+                setPropertyCorrelationTypes: (_, { types }) => types,
             },
         ],
     }),
 
-    selectors: ({ props, selectors }) => ({
+    selectors: ({ selectors }) => ({
         isLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
         results: [(s) => [s.rawResults], (rawResults) => rawResults.results],
         resultsLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
@@ -460,7 +503,6 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 const { from_dashboard } = filters
                 const cleanedParams = cleanFunnelParams(filters)
                 return {
-                    ...(props.refresh ? { refresh: true } : {}),
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
                 }
@@ -698,6 +740,44 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 return !(e?.status === 400 && e?.type === 'validation_error')
             },
         ],
+        correlationValues: [
+            () => [selectors.correlations, selectors.correlationTypes],
+            (correlations, correlationTypes): FunnelCorrelation[] => {
+                return correlations.events
+                    ?.filter((correlation) => correlationTypes.includes(correlation.correlation_type))
+                    .map((value) => {
+                        return {
+                            ...value,
+                            odds_ratio:
+                                value.correlation_type === FunnelCorrelationType.Success
+                                    ? value.odds_ratio
+                                    : 1 / value.odds_ratio,
+                        }
+                    })
+                    .sort((first, second) => {
+                        return second.odds_ratio - first.odds_ratio
+                    })
+            },
+        ],
+        propertyCorrelationValues: [
+            () => [selectors.propertyCorrelations, selectors.propertyCorrelationTypes],
+            (propertyCorrelations, propertyCorrelationTypes): FunnelCorrelation[] => {
+                return propertyCorrelations.events
+                    ?.filter((correlation) => propertyCorrelationTypes.includes(correlation.correlation_type))
+                    .map((value) => {
+                        return {
+                            ...value,
+                            odds_ratio:
+                                value.correlation_type === FunnelCorrelationType.Success
+                                    ? value.odds_ratio
+                                    : 1 / value.odds_ratio,
+                        }
+                    })
+                    .sort((first, second) => {
+                        return second.odds_ratio - first.odds_ratio
+                    })
+            },
+        ],
     }),
 
     listeners: ({ actions, values, props }) => ({
@@ -718,13 +798,18 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                     actions.loadPeople(values.stepsWithCount)
                 }
             }
-            if (!props.dashboardItemId) {
-                if (!insightLogic.values.insight.id) {
-                    actions.createInsight(values.filters)
-                } else {
-                    insightLogic.actions.updateInsightFilters(values.filters)
-                }
+
+            // load correlation table after funnel. Maybe parallel?
+            if (
+                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] &&
+                values.clickhouseFeaturesEnabled
+            ) {
+                actions.loadCorrelations()
+                // Hardcoded for initial testing
+                actions.loadPropertyCorrelations('$browser, $os, $geoip_country_code')
             }
+
+            insightLogic(props).actions.fetchedResults(values.filters)
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
             values.visibleStepsWithConversionMetrics?.forEach((step) => {
@@ -773,10 +858,8 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
                 actions.loadResults()
             }
             const cleanedParams = cleanFunnelParams(values.filters)
-            if (!props.dashboardItemId) {
-                insightLogic.actions.setAllFilters(cleanedParams)
-                insightLogic.actions.setLastRefresh(null)
-            }
+            insightLogic(props).actions.setAllFilters(cleanedParams)
+            insightLogic(props).actions.setLastRefresh(null)
         },
         setEventExclusionFilters: () => {
             if (!equal(values.filters.exclusions || [], values.lastAppliedFilters.exclusions || [])) {
@@ -797,9 +880,7 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
             actions.loadFunnels()
         },
         clearFunnel: async () => {
-            if (!props.dashboardItemId) {
-                insightLogic.actions.setAllFilters({})
-            }
+            insightLogic(props).actions.setAllFilters({})
         },
         openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
             personsModalLogic.actions.loadPeople({
@@ -828,19 +909,19 @@ export const funnelLogic = kea<funnelLogicType<FunnelLogicProps>>({
     }),
     actionToUrl: ({ values, props }) => ({
         setFilters: () => {
-            if (!props.dashboardItemId) {
+            if (props.syncWithUrl) {
                 return ['/insights', values.propertiesForUrl, router.values.hashParams, { replace: true }]
             }
         },
         clearFunnel: () => {
-            if (!props.dashboardItemId) {
+            if (props.syncWithUrl) {
                 return ['/insights', { insight: ViewType.FUNNELS }, router.values.hashParams, { replace: true }]
             }
         },
     }),
     urlToAction: ({ actions, props }) => ({
         '/insights': (_, searchParams: Partial<FilterType>) => {
-            if (props.dashboardItemId) {
+            if (!props.syncWithUrl) {
                 return
             }
             if (searchParams.insight === ViewType.FUNNELS) {

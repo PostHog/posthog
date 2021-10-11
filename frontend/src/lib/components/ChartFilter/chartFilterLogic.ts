@@ -34,7 +34,7 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
                 (!isFunnelVizType(filter) && !objectsEqual(display, values.chartFilter)) ||
                 (isFunnelVizType(filter) && !objectsEqual(funnel_viz_type, values.chartFilter))
             ) {
-                router.actions.replace(pathname, searchParams)
+                router.actions.replace(pathname, searchParams, router.values.hashParams)
             }
         },
     }),

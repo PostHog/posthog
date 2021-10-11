@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { SimpleOption } from 'lib/components/TaxonomicFilter/groups'
 
 interface PathItemSelectorProps {
     pathItem: TaxonomicFilterValue | undefined
@@ -10,6 +11,7 @@ interface PathItemSelectorProps {
     index: number
     groupTypes?: TaxonomicFilterGroupType[]
     disabled?: boolean
+    wildcardOptions?: SimpleOption[]
 }
 
 export function PathItemSelector({
@@ -18,6 +20,7 @@ export function PathItemSelector({
     children,
     groupTypes,
     disabled,
+    wildcardOptions,
 }: PathItemSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
     return (
@@ -35,6 +38,7 @@ export function PathItemSelector({
                         setVisible(false)
                     }}
                     groupTypes={groupTypes}
+                    optionsFromProp={{ wildcard: wildcardOptions }}
                 />
             }
         >

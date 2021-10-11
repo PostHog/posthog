@@ -9,7 +9,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, configure_scope
 from statshog.defaults.django import statsd
 
 from posthog.api.utils import get_token

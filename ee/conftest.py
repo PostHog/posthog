@@ -2,6 +2,12 @@ import pytest
 from infi.clickhouse_orm import Database
 
 from ee.clickhouse.client import sync_execute
+from ee.clickhouse.sql.dead_letter_queue import (
+    DEAD_LETTER_QUEUE_TABLE_MV_SQL,
+    DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL,
+    DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
+    KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
+)
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
@@ -17,6 +23,7 @@ def reset_clickhouse_tables():
     # Reset clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from ee.clickhouse.sql.cohort import CREATE_COHORTPEOPLE_TABLE_SQL, DROP_COHORTPEOPLE_TABLE_SQL
+    from ee.clickhouse.sql.dead_letter_queue import DEAD_LETTER_QUEUE_TABLE_SQL, DROP_DEAD_LETTER_QUEUE_TABLE_SQL
     from ee.clickhouse.sql.events import DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
     from ee.clickhouse.sql.person import (
         DROP_PERSON_DISTINCT_ID_TABLE_SQL,
@@ -41,6 +48,9 @@ def reset_clickhouse_tables():
         (DROP_SESSION_RECORDING_EVENTS_TABLE_SQL, SESSION_RECORDING_EVENTS_TABLE_SQL),
         (DROP_PLUGIN_LOG_ENTRIES_TABLE_SQL, PLUGIN_LOG_ENTRIES_TABLE_SQL),
         (DROP_COHORTPEOPLE_TABLE_SQL, CREATE_COHORTPEOPLE_TABLE_SQL),
+        (DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL, KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL),
+        (DROP_DEAD_LETTER_QUEUE_TABLE_SQL, DEAD_LETTER_QUEUE_TABLE_SQL),
+        (DROP_DEAD_LETTER_QUEUE_TABLE_MV_SQL, DEAD_LETTER_QUEUE_TABLE_MV_SQL),
     ]
     for item in TABLES_TO_CREATE_DROP:
         sync_execute(item[0])

@@ -16,7 +16,7 @@ def send_license_usage():
         date_from = (timezone.now() - relativedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         date_to = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
         events_count = sync_execute(
-            "select count(1) from events where timestamp >= %(date_from)s and timestamp < %(date_to)s",
+            "select count(1) from events where timestamp >= %(date_from)s and timestamp < %(date_to)s and not startsWith(event, '$$')",
             {"date_from": date_from, "date_to": date_to},
         )[0][0]
         response = requests.post(

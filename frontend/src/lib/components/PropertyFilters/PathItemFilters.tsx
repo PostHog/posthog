@@ -9,6 +9,7 @@ import { PlusCircleOutlined } from '@ant-design/icons'
 import { FilterButton } from './components/PropertyFilterButton'
 import { CloseButton } from '../CloseButton'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { SimpleOption } from '../TaxonomicFilter/groups'
 import { objectsEqual } from 'lib/utils'
 
 interface PropertyFiltersProps {
@@ -18,6 +19,7 @@ interface PropertyFiltersProps {
     pageKey: string
     style?: CSSProperties
     groupTypes?: TaxonomicFilterGroupType[]
+    wildcardOptions?: SimpleOption[]
 }
 
 export function PathItemFilters({
@@ -26,6 +28,7 @@ export function PathItemFilters({
     pageKey,
     style = {},
     groupTypes,
+    wildcardOptions,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, urlOverride: 'exclude_events' }
     const { filters } = useValues(propertyFilterLogic(logicProps))
@@ -49,6 +52,7 @@ export function PathItemFilters({
                                     onChange={(pathItem) => setFilter(index, pathItem, pathItem, null, 'event')}
                                     index={index}
                                     groupTypes={groupTypes}
+                                    wildcardOptions={wildcardOptions}
                                 >
                                     {!filter.value ? (
                                         <Button

@@ -5,6 +5,7 @@ import { BarsOutlined } from '@ant-design/icons'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface StepOption {
     label: string
@@ -20,8 +21,9 @@ const options: StepOption[] = Array.from(Array.from(Array.from(Array(MAX + 1).ke
 }))
 
 export function PathStepPicker(): JSX.Element {
-    const { filter } = useValues(pathsLogic)
-    const { setFilter } = useActions(pathsLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { filter } = useValues(pathsLogic(insightProps))
+    const { setFilter } = useActions(pathsLogic(insightProps))
 
     return (
         <Select

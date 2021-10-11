@@ -140,6 +140,13 @@
                 }
             ],
             "entryPoint": ["./bin/plugin-server", "--no-restart-loop"],
+            "ulimits": [
+                {
+                    "name": "nofile",
+                    "softLimit": 1024000,
+                    "hardLimit": 1024000
+                }
+            ],
             "linuxParameters": {
                 "initProcessEnabled": true
             }

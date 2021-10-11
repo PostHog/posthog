@@ -871,7 +871,8 @@ def retention_test_factory(retention, event_factory, person_factory, action_fact
 
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result = retention().run(
-                RetentionFilter(data={"date_to": self._date(10, hour=6), FILTER_TEST_ACCOUNTS: True}), self.team
+                RetentionFilter(data={"date_to": self._date(10, hour=6), FILTER_TEST_ACCOUNTS: True}, team=self.team),
+                self.team,
             )
             self.assertEqual(len(result), 11)
             self.assertEqual(

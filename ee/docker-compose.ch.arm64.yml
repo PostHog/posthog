@@ -30,10 +30,10 @@ services:
             - ../docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ../docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
-        image: wurstmeister/zookeeper
+        image: zookeeper
         restart: always
     kafka:
-        image: wurstmeister/kafka
+        image: cfei/kafka
         depends_on:
             - zookeeper
         ports:

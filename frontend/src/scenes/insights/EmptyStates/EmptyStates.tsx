@@ -10,6 +10,7 @@ import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogi
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { SavedInsightsTabs } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function LineGraphEmptyState({ color, isDashboard }: { color: string; isDashboard?: boolean }): JSX.Element {
     return (
@@ -167,8 +168,9 @@ export function ErrorMessage(): JSX.Element {
 }
 
 export function FunnelInvalidFiltersEmptyState(): JSX.Element {
-    const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic)
-    const { setFilters } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { filters, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (

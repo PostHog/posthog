@@ -48,13 +48,7 @@ class Funnel(BaseQuery):
                         else {}
                     ),
                 )
-                .filter(
-                    properties_to_Q(
-                        self._filter.properties,
-                        team_id=self._team.pk,
-                        filter_test_accounts=self._filter.filter_test_accounts,
-                    )
-                )
+                .filter(properties_to_Q(self._filter.properties, team_id=self._team.pk,))
                 .filter(properties_to_Q(step.properties, team_id=self._team.pk))
             )
             with connection.cursor() as cursor:
@@ -160,9 +154,9 @@ class Funnel(BaseQuery):
         event_chain_query = sql.SQL(" ").join(lateral_joins).as_string(connection.connection)
 
         query = f"""
-            SELECT 
+            SELECT
                 DISTINCT ON (person.id)
-                person.uuid, 
+                person.uuid,
                 person.created_at,
                 person.team_id,
                 person.properties,
@@ -171,7 +165,7 @@ class Funnel(BaseQuery):
             FROM posthog_person person
             JOIN posthog_persondistinctid pdi ON pdi.person_id = person.id
             JOIN {event_chain_query}
-            -- join on person_id for the first event. 
+            -- join on person_id for the first event.
             -- NOTE: there is some implicit coupling here in that I am
             -- assuming the name of the first event select is "step_0".
             -- Maybe worth cleaning up in the future

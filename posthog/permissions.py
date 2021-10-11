@@ -71,6 +71,7 @@ class ProjectMembershipNecessaryPermissions(BasePermission):
 
     message = "You don't belong to any organization that has a project."
 
+    # TODO: Remove this permission class once legacy_team_compatibility setting is removed
     def has_object_permission(self, request: Request, view, object) -> bool:
         return request.user.is_authenticated and request.user.team is not None
 
@@ -80,6 +81,7 @@ class OrganizationMembershipNecessaryPermissions(BasePermission):
 
     message = "You don't belong to any organization."
 
+    # TODO: Remove this permission class once legacy_team_compatibility setting is removed
     def has_object_permission(self, request: Request, view, object) -> bool:
         return request.user.is_authenticated and request.user.organization is not None
 

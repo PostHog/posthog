@@ -78,18 +78,17 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(organization.name, "Hedgehogs United, LLC")
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
-        mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user signed up",
-            properties={
-                "is_first_user": True,
-                "is_organization_first_user": True,
-                "new_onboarding_enabled": False,
-                "signup_backend_processor": "OrganizationSignupSerializer",
-                "signup_social_provider": "",
-                "realm": get_instance_realm(),
-            },
-        )
+        mock_capture.assert_called_once()
+        self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
+        self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        # Assert that key properties were set properly
+        event_props = mock_capture.call_args.kwargs["properties"]
+        self.assertEqual(event_props["is_first_user"], True)
+        self.assertEqual(event_props["is_organization_first_user"], True)
+        self.assertEqual(event_props["new_onboarding_enabled"], False)
+        self.assertEqual(event_props["signup_backend_processor"], "OrganizationSignupSerializer")
+        self.assertEqual(event_props["signup_social_provider"], "")
+        self.assertEqual(event_props["realm"], get_instance_realm())
 
         # Assert that the user is logged in
         response = self.client.get("/api/users/@me/")
@@ -171,18 +170,17 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_identify.assert_called_once()
-        mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user signed up",
-            properties={
-                "is_first_user": True,
-                "is_organization_first_user": True,
-                "new_onboarding_enabled": False,
-                "signup_backend_processor": "OrganizationSignupSerializer",
-                "signup_social_provider": "",
-                "realm": get_instance_realm(),
-            },
-        )
+        mock_capture.assert_called_once()
+        self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
+        self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        # Assert that key properties were set properly
+        event_props = mock_capture.call_args.kwargs["properties"]
+        self.assertEqual(event_props["is_first_user"], True)
+        self.assertEqual(event_props["is_organization_first_user"], True)
+        self.assertEqual(event_props["new_onboarding_enabled"], False)
+        self.assertEqual(event_props["signup_backend_processor"], "OrganizationSignupSerializer")
+        self.assertEqual(event_props["signup_social_provider"], "")
+        self.assertEqual(event_props["realm"], get_instance_realm())
 
         # Assert that the user is logged in
         response = self.client.get("/api/users/@me/")
@@ -600,18 +598,17 @@ class TestInviteSignup(APIBaseTest):
         self.assertEqual(user.email_opt_in, True)
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
-        mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user signed up",
-            properties={
-                "is_first_user": False,
-                "is_organization_first_user": False,
-                "new_onboarding_enabled": False,
-                "signup_backend_processor": "OrganizationInviteSignupSerializer",
-                "signup_social_provider": "",
-                "realm": get_instance_realm(),
-            },
-        )
+        mock_capture.assert_called_once()
+        self.assertEqual(user.distinct_id, mock_capture.call_args.args[0])
+        self.assertEqual("user signed up", mock_capture.call_args.args[1])
+        # Assert that key properties were set properly
+        event_props = mock_capture.call_args.kwargs["properties"]
+        self.assertEqual(event_props["is_first_user"], False)
+        self.assertEqual(event_props["is_organization_first_user"], False)
+        self.assertEqual(event_props["new_onboarding_enabled"], False)
+        self.assertEqual(event_props["signup_backend_processor"], "OrganizationInviteSignupSerializer")
+        self.assertEqual(event_props["signup_social_provider"], "")
+        self.assertEqual(event_props["realm"], get_instance_realm())
 
         # Assert that the user is logged in
         response = self.client.get("/api/users/@me/")

@@ -152,6 +152,10 @@ NOTE: $medium is a SCSS var; not a keyword
     color: $text_muted_alt;
 }
 
+.primary {
+    color: $primary;
+}
+
 code.code {
     // Temporary: .code class to transition legacy elements
     color: $danger;

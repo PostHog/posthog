@@ -36,18 +36,8 @@ describe('dashboardLogic', () => {
             onLogic: (l) => (logic = l),
         })
 
-        it('fetches dashboard items on mount', async () => {
-            expectLogic(logic)
-                .toDispatchActions(['loadDashboardItems'])
-                .toMatchValues({
-                    allItems: null,
-                    items: undefined,
-                })
-                .toDispatchActions(['loadDashboardItemsSuccess'])
-                .toMatchValues({
-                    allItems: dashboardJson,
-                    items: truth((items) => items.length === 2),
-                })
+        it('does not fetch dashboard items on mount', async () => {
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadDashboardItems'])
         })
     })
 
@@ -66,7 +56,7 @@ describe('dashboardLogic', () => {
             })
 
             it('fetches dashboard items on mount', async () => {
-                expectLogic(logic)
+                await expectLogic(logic)
                     .toDispatchActions(['loadDashboardItems'])
                     .toMatchValues({
                         allItems: null,

@@ -2,9 +2,11 @@ import json
 from uuid import uuid4
 
 from django.core.cache import cache
+from rest_framework import status
 
 from ee.clickhouse.models.event import create_event
 from ee.clickhouse.util import ClickhouseTestMixin
+from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_PATHS
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest
 
@@ -20,6 +22,34 @@ def _create_event(**kwargs):
 
 
 class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
+    def _create_sample_data(self, num, delete=False):
+        for i in range(num):
+            person = _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+            _create_event(
+                event="step one",
+                distinct_id=f"user_{i}",
+                team=self.team,
+                timestamp="2021-05-01 00:00:00",
+                properties={"$browser": "Chrome"},
+            )
+            if i % 2 == 0:
+                _create_event(
+                    event="step two",
+                    distinct_id=f"user_{i}",
+                    team=self.team,
+                    timestamp="2021-05-01 00:10:00",
+                    properties={"$browser": "Chrome"},
+                )
+            _create_event(
+                event="step three",
+                distinct_id=f"user_{i}",
+                team=self.team,
+                timestamp="2021-05-01 00:20:00",
+                properties={"$browser": "Chrome"},
+            )
+            if delete:
+                person.delete()
+
     def test_insight_paths_basic(self):
         _create_person(team=self.team, distinct_ids=["person_1"])
         _create_event(
@@ -158,3 +188,36 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             "/api/insight/path", data={"insight": "PATHS", "path_groupings": json.dumps(["/about_*"])}
         ).json()
         self.assertEqual(len(response["result"]), 3)
+
+    def test_funnel_path_post(self):
+        self._create_sample_data(7)
+        request_data = {
+            "insight": INSIGHT_PATHS,
+            "funnel_paths": FUNNEL_PATH_AFTER_STEP,
+            "filter_test_accounts": "false",
+            "date_from": "2021-05-01",
+            "date_to": "2021-05-07",
+        }
+
+        funnel_filter = {
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "funnel_window_interval": 7,
+            "funnel_window_interval_unit": "day",
+            "funnel_step": 2,
+            "events": [
+                {"id": "step one", "order": 0},
+                {"id": "step two", "order": 1},
+                {"id": "step three", "order": 2},
+            ],
+        }
+
+        post_response = self.client.post("/api/insight/path/", data={**request_data, "funnel_filter": funnel_filter})
+        self.assertEqual(post_response.status_code, status.HTTP_200_OK)
+        post_j = post_response.json()
+        self.assertEqual(
+            post_j["result"],
+            [{"source": "1_step two", "target": "2_step three", "value": 4, "average_conversion_time": 600000.0}],
+        )

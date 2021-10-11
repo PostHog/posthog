@@ -15,6 +15,7 @@ import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from '../lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from '../lib/constants'
+import { organizationLogic } from './organizationLogic'
 
 export enum Scene {
     Error404 = '404',
@@ -432,16 +433,16 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
         },
         guardAvailableFeature: ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }) => {
             const { preflight } = preflightLogic.values
-            const { user } = userLogic.values
+            const { currentOrganization } = organizationLogic.values
             let featureAvailable: boolean
-            if (!preflight || !user) {
+            if (!preflight || !currentOrganization) {
                 featureAvailable = false
             } else if (!guardOn.cloud && preflight.cloud) {
                 featureAvailable = true
             } else if (!guardOn.selfHosted && !preflight.cloud) {
                 featureAvailable = true
             } else {
-                featureAvailable = !!user.organization?.available_features.includes(featureKey)
+                featureAvailable = !!currentOrganization?.available_features.includes(featureKey)
             }
             if (featureAvailable) {
                 featureAvailableCallback?.()
@@ -490,13 +491,14 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                             router.actions.replace(urls.organizationCreateFirst())
                             return
                         }
-                    } else if (!user.team) {
+                    } else if (teamLogic.values.isCurrentTeamUnavailable) {
                         if (location.pathname !== urls.projectCreateFirst()) {
                             router.actions.replace(urls.projectCreateFirst())
                             return
                         }
                     } else if (
-                        !user.team.completed_snippet_onboarding &&
+                        teamLogic.values.currentTeam &&
+                        !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                         !location.pathname.startsWith('/ingestion') &&
                         !location.pathname.startsWith('/personalization')
                     ) {

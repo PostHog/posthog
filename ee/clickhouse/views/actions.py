@@ -42,7 +42,7 @@ class ClickhouseActionsViewSet(ActionViewSet):
     @action(methods=["GET"], detail=False)
     def people(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore
         team = self.team
-        filter = Filter(request=request)
+        filter = Filter(request=request, team=self.team)
         entity = get_target_entity(request)
 
         current_url = request.get_full_path()

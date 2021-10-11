@@ -1,0 +1,55 @@
+@import '~/vars';
+
+.insight-metadata {
+    .insight-metadata-input {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        max-width: 400px;
+        width: 100%;
+        min-height: 40px;
+
+        .btn-cancel {
+            color: $primary;
+        }
+    }
+
+    .insight-metadata-title {
+        .title {
+            font-size: 28px;
+            font-weight: 600;
+            line-height: 40px;
+        }
+    }
+
+    .insight-metadata-description {
+        padding: 0;
+
+        .insight-description-textarea-wrapper {
+            .insight-description-textarea {
+                padding: 0 !important;
+                border: none;
+                outline: none;
+                transition: none;
+                font-size: 16px;
+
+                &:focus {
+                    border: none;
+                    outline: none;
+                    box-shadow: none;
+                }
+            }
+        }
+
+        .description {
+            color: $text_muted_alt;
+            font-style: italic;
+        }
+    }
+
+    .insight-metadata-tags {
+        .ant-tag {
+            margin-top: 0 !important;
+        }
+    }
+}

@@ -18,9 +18,11 @@ dayjs.extend(utc)
 
 import { ColumnsType } from 'antd/lib/table'
 import clsx from 'clsx'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: number | null }): JSX.Element | null {
-    const logic = retentionTableLogic({ dashboardItemId })
+    const { insightProps } = useValues(insightLogic)
+    const logic = retentionTableLogic(insightProps)
     const {
         results: _results,
         resultsLoading,

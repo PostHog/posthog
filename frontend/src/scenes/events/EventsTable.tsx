@@ -341,7 +341,9 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                     key={columnConfig === 'DEFAULT' ? 'default' : columnConfig.join('-')}
                     className="ph-no-capture"
                     locale={{
-                        emptyText: (
+                        emptyText: isLoading ? (
+                            <span>&nbsp;</span>
+                        ) : (
                             <span>
                                 You don't have any items here! If you haven't integrated PostHog yet,{' '}
                                 <Link to="/project/settings">click here to set PostHog up on your app</Link>.

@@ -231,7 +231,7 @@ export function InfiniteList(): JSX.Element {
                             height={height}
                             rowCount={isLoading && totalCount === 0 ? 7 : totalCount}
                             overscanRowCount={100}
-                            rowHeight={40}
+                            rowHeight={32}
                             rowRenderer={renderItem}
                             onRowsRendered={onRowsRendered}
                             scrollToIndex={index}

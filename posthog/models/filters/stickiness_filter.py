@@ -1,8 +1,8 @@
 from typing import Any, Callable, Dict, Optional, Union
 
 from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek
-from django.http import HttpRequest
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
@@ -14,6 +14,7 @@ from posthog.models.filters.mixins.common import (
     ShownAsMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 from posthog.models.filters.mixins.stickiness import SelectedIntervalMixin, TotalIntervalsDerivedMixin
 from posthog.models.team import Team
 
@@ -28,12 +29,13 @@ class StickinessFilter(
     CompareMixin,
     ShownAsMixin,
     InsightMixin,
+    SimplifyFilterMixin,
     BaseFilter,
 ):
     get_earliest_timestamp: Callable
     team: Team
 
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         super().__init__(data, request, **kwargs)
         team: Optional[Team] = kwargs.get("team", None)
         if not team:

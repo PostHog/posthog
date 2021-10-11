@@ -14,6 +14,7 @@ import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } 
 import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
+import { teamLogic } from '../teamLogic'
 
 type PluginForm = FormInstance
 
@@ -434,13 +435,13 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                                     config[key] = def
                                 }
                             )
-                            const team = userLogic.values.user?.team
-                            if (!team) {
+                            const { currentTeam } = teamLogic.values
+                            if (!currentTeam) {
                                 throw new Error("Can't list installed plugins with no user or team!")
                             }
                             pluginConfig = {
                                 id: undefined,
-                                team_id: team.id,
+                                team_id: currentTeam.id,
                                 plugin: plugin.id,
                                 enabled: false,
                                 config: config,

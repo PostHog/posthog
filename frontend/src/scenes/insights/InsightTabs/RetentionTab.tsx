@@ -15,12 +15,14 @@ import { IconExternalLink } from 'lib/components/icons'
 import { GlobalFiltersTitle } from '../common'
 import { ActionFilter } from '../ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/components/Tooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function RetentionTab(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
-        retentionTableLogic({ dashboardItemId: null })
+        retentionTableLogic(insightProps)
     )
-    const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
+    const { setFilters } = useActions(retentionTableLogic(insightProps))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)

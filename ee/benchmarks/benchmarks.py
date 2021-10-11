@@ -5,21 +5,27 @@ from .helpers import *
 from datetime import timedelta
 from typing import List, Tuple
 
-from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns import backfill_materialized_columns, get_materialized_columns, materialize
 from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
+from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.models import Cohort, Team, Organization
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
+from posthog.constants import FunnelCorrelationType
 
-MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [("events", "$host"), ("person", "email")]
+MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
+    ("events", "$host"),
+    ("person", "email"),
+    ("person", "$browser"),
+]
 
-DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01"}
-SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01"}
+DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01", "interval": "week"}
+SHORT_DATE_RANGE = {"date_from": "2021-07-01", "date_to": "2021-10-01", "interval": "week"}
 
 
 class QuerySuite:
     timeout = 3000.0  # Timeout for the whole suite
+    version = "v001"  # Version. Incrementing this will invalidate previous results
 
     team: Team
 
@@ -36,14 +42,15 @@ class QuerySuite:
             team = Team.objects.create(id=2, organization=organization, name="The Bakery")
         self.team = team
 
-        self.cohort = Cohort.objects.create(
-            team_id=2,
-            name="benchmarking cohort",
-            groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
-        )
-        self.cohort.calculate_people_ch()
-
-        assert self.cohort.last_calculation is not None
+        cohort = Cohort.objects.filter(name="benchmarking cohort").first()
+        if cohort is None:
+            cohort = Cohort.objects.create(
+                team_id=2,
+                name="benchmarking cohort",
+                groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+            )
+            cohort.calculate_people_ch()
+        self.cohort = cohort
 
     @benchmark_clickhouse
     def track_trends_no_filter(self):
@@ -134,7 +141,7 @@ class QuerySuite:
                 "properties": [{"key": "id", "value": self.cohort.pk, "type": "cohort"}],
                 **DATE_RANGE,
             },
-            team_id=self.team.pk,
+            team=self.team,
         )
         ClickhouseTrends().run(filter, self.team)
 
@@ -149,7 +156,7 @@ class QuerySuite:
                 "properties": [{"key": "id", "value": self.cohort.pk, "type": "cohort"}],
                 **DATE_RANGE,
             },
-            team_id=self.team.pk,
+            team=self.team,
         )
 
         with no_materialized_columns():
@@ -166,7 +173,42 @@ class QuerySuite:
                 "properties": [{"key": "id", "value": self.cohort.pk, "type": "cohort"}],
                 **DATE_RANGE,
             },
-            team_id=self.team.pk,
+            team=self.team,
         )
 
         ClickhouseTrends().run(filter, self.team)
+
+    @benchmark_clickhouse
+    def track_correlations_by_events(self):
+        filter = Filter(
+            data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE,}, team=self.team
+        )
+
+        FunnelCorrelation(filter, self.team).run()
+
+    @benchmark_clickhouse
+    def track_correlations_by_properties_materialized(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
+                **SHORT_DATE_RANGE,
+                "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
+                "funnel_correlation_names": ["$browser"],
+            },
+            team=self.team,
+        )
+        FunnelCorrelation(filter, self.team).run()
+
+    @benchmark_clickhouse
+    def track_correlations_by_properties(self):
+        filter = Filter(
+            data={
+                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
+                **SHORT_DATE_RANGE,
+                "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
+                "funnel_correlation_names": ["$browser"],
+            },
+            team=self.team,
+        )
+        with no_materialized_columns():
+            FunnelCorrelation(filter, self.team).run()

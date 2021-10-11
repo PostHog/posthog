@@ -10523,10 +10523,10 @@ kea-router@^1.0.2:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^1.1.5:
-  version "1.1.5"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.1.5.tgz#65c87de76d86815b14ea7619a7fe4ce806e620b6"
-  integrity sha512-nrVSGlrO/U3YiNTkpF6P721MFbVNPoqULTR7OEd7FO5P6DaHJR7OVQTO8IYAsvuvfS/kj+yAT/PlftMUXBG7lQ==
+kea-typegen@^1.1.6:
+  version "1.1.6"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.1.6.tgz#b151a8c0aad065769781267d65df43628a16d52d"
+  integrity sha512-vGNwnMy69s12jDHCzxjUk+cDGDRhPc7JplRszCQ0snAqHRdU32YWWFe7nIgYW1/7gu4YkME7hJ9VWHRd1e71xQ==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     diff "^5.0.0"
@@ -12537,10 +12537,10 @@ posthog-js-lite@^0.0.3:
   resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
   integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
 
-posthog-js@1.14.0:
-  version "1.14.0"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.14.0.tgz#9a75e7ae2f3461f606dd8ffb1f6fde377ec37591"
-  integrity sha512-KcP2oiYX8NCPQKTYG3KmP5gs+/cviv+jtizTteIx3x/47KulHMMn7K80HnNNoRfT0OtG1x17dCeYgR8gxOkbMw==
+posthog-js@1.14.1:
+  version "1.14.1"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.14.1.tgz#68553b9074c686784b994b3f433ad035b241deaa"
+  integrity sha512-gVFk6fsTxG9T+5oqZghffYovENSrs05v3hQMiRQENtGlsHGpt1fnoQ52En8Vg5brMxqLv1XZO4lMgm12/ubH0Q==
   dependencies:
     "@sentry/types" "^6.11.0"
     fflate "^0.4.1"
