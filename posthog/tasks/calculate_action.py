@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 @shared_task(ignore_result=True)
 def calculate_action(action_id: int) -> None:
+    if is_clickhouse_enabled():  # In EE, actions are not precalculated
+        return
     start_time = time.time()
     action = Action.objects.get(pk=action_id)
     action.calculate_events()

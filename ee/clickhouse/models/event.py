@@ -63,32 +63,6 @@ def create_event(
 
     p.produce_proto(sql=INSERT_EVENT_SQL, topic=KAFKA_EVENTS, data=pb_event)
 
-    if not settings.PLUGIN_SERVER_ACTION_MATCHING and (
-        team.slack_incoming_webhook
-        or (
-            team.organization.is_feature_available(AvailableFeature.ZAPIER)
-            and Hook.objects.filter(event="action_performed", team=team).exists()
-        )
-    ):
-        try:
-            statsd.incr("posthog_cloud_hooks_send_task")
-            celery.current_app.send_task(
-                "ee.tasks.webhooks_ee.post_event_to_webhook_ee",
-                (
-                    {
-                        "event": event,
-                        "properties": properties,
-                        "distinct_id": distinct_id,
-                        "timestamp": timestamp,
-                        "elements_chain": elements_chain,
-                    },
-                    team.pk,
-                    site_url,
-                ),
-            )
-        except:
-            capture_exception()
-
     return str(event_uuid)
 
 

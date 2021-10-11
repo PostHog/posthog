@@ -93,9 +93,6 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
 
-    def _calculate_action(self, action: Action) -> None:
-        calculate_action.delay(action_id=action.pk)
-
     def validate(self, attrs):
         instance = cast(Action, self.instance)
         exclude_args = {}
@@ -123,7 +120,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                 action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
 
-        self._calculate_action(instance)
+        calculate_action.delay(action_id=action.pk)
         posthoganalytics.capture(
             validated_data["created_by"].distinct_id, "action created", instance.get_analytics_metadata()
         )
@@ -152,7 +149,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                     )
 
         instance = super().update(instance, validated_data)
-        self._calculate_action(instance)
+        calculate_action.delay(action_id=action.pk)
         instance.refresh_from_db()
         posthoganalytics.capture(
             self.context["request"].user.distinct_id,
