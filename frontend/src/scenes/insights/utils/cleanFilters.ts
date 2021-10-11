@@ -22,6 +22,7 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
 
     if (filters.insight === ViewType.RETENTION) {
         return {
+            insight: ViewType.RETENTION,
             target_entity: filters.target_entity || {
                 id: '$pageview',
                 name: '$pageview',
@@ -34,16 +35,16 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-            insight: ViewType.RETENTION,
         }
     } else if (filters.insight === ViewType.FUNNELS) {
         const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
         const cleanedParams: Partial<FilterType> = {
+            insight: ViewType.FUNNELS,
             ...(filters.date_from ? { date_from: filters.date_from } : {}),
             ...(filters.date_to ? { date_to: filters.date_to } : {}),
             ...(filters.actions ? { actions: filters.actions } : {}),
             ...(filters.events ? { events: filters.events } : {}),
-            ...(filters.display ? { display: filters.display } : {}),
+            ...(filters.display && !insightChanged ? { display: filters.display } : {}),
             ...(filters.layout ? { layout: filters.layout } : {}),
             ...(filters.interval ? { interval: filters.interval } : {}),
             ...(filters.properties ? { properties: filters.properties } : {}),
@@ -69,7 +70,6 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             interval: autocorrectInterval(filters),
             breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
             breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
-            insight: ViewType.FUNNELS,
         }
 
         // if we came from an URL with just `#q={insight:TRENDS}` (no `events`/`actions`), add the default states `[]`
@@ -88,6 +88,7 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
         }
     } else if (filters.insight === ViewType.PATHS) {
         return {
+            insight: ViewType.PATHS,
             start_point: filters.start_point || undefined,
             end_point: filters.end_point || undefined,
             step_limit: filters.step_limit || DEFAULT_STEP_LIMIT,
@@ -99,7 +100,6 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             ...(filters.include_event_types ? { include_event_types: filters.include_event_types } : {}),
             date_from: filters.date_from,
             date_to: filters.date_to,
-            insight: ViewType.PATHS,
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             path_start_key: filters.path_start_key || undefined,
             path_end_key: filters.path_end_key || undefined,
@@ -115,6 +115,8 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             display:
                 filters.session && filters.session === 'dist'
                     ? ChartDisplayType.ActionsTable
+                    : insightChanged
+                    ? ChartDisplayType.ActionsLineGraphLinear
                     : filters.display || ChartDisplayType.ActionsLineGraphLinear,
             actions: Array.isArray(filters.actions) ? filters.actions : undefined,
             events: Array.isArray(filters.events) ? filters.events : undefined,
