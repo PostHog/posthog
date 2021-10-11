@@ -285,7 +285,7 @@ function MenuItems(): JSX.Element {
             />
             {featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? (
                 <MenuItem
-                    title="Recodings"
+                    title="Recordings"
                     icon={<PlayCircleFilled />}
                     identifier="sessionRecordings"
                     to={urls.sessionRecordings()}
