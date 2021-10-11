@@ -102,6 +102,7 @@ describe('tableConfigLogic', () => {
             columnConfig: [],
             selectedColumns: 'DEFAULT',
             tableWidth: 7,
+            hasColumnConfigToSave: false,
         })
     })
 
@@ -135,18 +136,34 @@ describe('tableConfigLogic', () => {
             expect(router.values.searchParams).toHaveProperty('tableColumns', ['soup', 'bread', 'greens'])
         })
 
-        // it.todo('shows a "save column layout as default" button in the modal when the URL and user don\'t match')
-    })
+        it('does not show a "save column layout as default" button in the modal when the URL and user match', async () => {
+            await expectLogic(logic, () => {
+                builtUserLogic.actions.updateUser({ events_column_config: { active: ['soup', 'bread', 'greens'] } })
+                logic.actions.setColumnConfig(['soup', 'bread', 'greens'])
+            }).toMatchValues({
+                hasColumnConfigToSave: false,
+            })
+        })
 
-    it('can set column config saving', async () => {
-        await expectLogic(logic, () => logic.actions.setColumnConfigSaving(true)).toMatchValues({
-            columnConfigSaving: true,
+        it('shows a "save column layout as default" button in the modal when the URL and don\'t user match', async () => {
+            await expectLogic(logic, () => {
+                builtUserLogic.actions.updateUser({ events_column_config: { active: ['soup', 'bread', 'greens'] } })
+                logic.actions.setColumnConfig(['soup', 'bread', 'tea'])
+            }).toMatchValues({
+                hasColumnConfigToSave: true,
+            })
         })
     })
 
     it('can set modal visible', async () => {
         await expectLogic(logic, () => logic.actions.setModalVisible(true)).toMatchValues({
             modalVisible: true,
+        })
+    })
+
+    it('can set column config saving', async () => {
+        await expectLogic(logic, () => logic.actions.setColumnConfigSaving(true)).toMatchValues({
+            columnConfigSaving: true,
         })
     })
 
@@ -166,6 +183,24 @@ describe('tableConfigLogic', () => {
         }).toMatchValues({
             modalVisible: false,
         })
+    })
+
+    it('sets modal to hidden when user has saved columns', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setModalVisible(true)
+            logic.actions.saveSelectedColumns(['a'])
+        })
+            .delay(0)
+            .toMatchValues({
+                modalVisible: false,
+            })
+    })
+
+    it('stores the columns on the user when they choose to save columns', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setModalVisible(true)
+            logic.actions.saveSelectedColumns(['a'])
+        }).toDispatchActions([builtUserLogic.actionCreators.updateUser({ events_column_config: { active: ['a'] } })])
     })
 
     it('sets column config saving to false when user update fails', async () => {

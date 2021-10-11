@@ -10,6 +10,8 @@ import { AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
+import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
+import clsx from 'clsx'
 
 interface TableConfigInterface {
     availableColumns: string[]
@@ -87,8 +89,8 @@ function ColumnConfigurator({
 
     const selectableColumnsDisplay = searchFilteredColumns(searchTerm, selectableColumns)
 
-    const { columnConfigSaving, selectedColumns } = useValues(tableConfigLogic)
-    const { setColumnConfig, setModalVisible } = useActions(tableConfigLogic)
+    const { columnConfigSaving, selectedColumns, hasColumnConfigToSave } = useValues(tableConfigLogic)
+    const { setColumnConfig, setModalVisible, saveSelectedColumns } = useActions(tableConfigLogic)
 
     const currentSelection = selectedColumns === 'DEFAULT' ? defaultColumns : selectedColumns
 
@@ -165,11 +167,33 @@ function ColumnConfigurator({
             onCancel={() => setModalVisible(false)}
         >
             {defaultColumns && (
-                <div className="text-right mb">
-                    <Button type="link" icon={<ClearOutlined />} style={{ paddingRight: 0 }} onClick={resetColumns}>
-                        Reset to default
-                    </Button>
-                </div>
+                <Row>
+                    <Col xs={24} sm={12} className="mb">
+                        <div>
+                            {hasColumnConfigToSave && (
+                                <Button
+                                    type="link"
+                                    icon={<SaveOutlined />}
+                                    onClick={() => saveSelectedColumns(userColumnSelection)}
+                                >
+                                    Save visible columns
+                                </Button>
+                            )}
+                        </div>
+                    </Col>
+                    <Col xs={24} sm={12} className="mb">
+                        <div className={clsx([!useBreakpoint().xs ? 'text-right' : ''])}>
+                            <Button
+                                type="link"
+                                icon={<ClearOutlined />}
+                                style={{ paddingRight: 0 }}
+                                onClick={resetColumns}
+                            >
+                                Reset to default
+                            </Button>
+                        </div>
+                    </Col>
+                </Row>
             )}
             <Input
                 allowClear

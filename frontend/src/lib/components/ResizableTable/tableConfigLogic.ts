@@ -12,6 +12,7 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
         setModalVisible: (visible: boolean) => ({ visible }),
         setColumnConfig: (columnConfig: string[]) => ({ columnConfig }),
         setColumnConfigSaving: (saving: boolean) => ({ saving }),
+        saveSelectedColumns: (columns: string[]) => ({ columns }),
     },
     reducers: {
         modalVisible: [
@@ -50,10 +51,23 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
                 return selectedColumns === 'DEFAULT' ? 7 : selectedColumns.length + 1
             },
         ],
+        hasColumnConfigToSave: [
+            (selectors) => [userLogic.selectors.user, selectors.columnConfig],
+            (user: UserType, columnConfig: string[]) => {
+                const hasUserSelectedColumns = columnConfig.length > 0
+                const storedConfigMatchesUserSelection = columnConfig.every(
+                    (v, i) => v === user?.events_column_config?.active[i]
+                )
+                return hasUserSelectedColumns && !storedConfigMatchesUserSelection
+            },
+        ],
     },
     listeners: ({ actions }) => ({
         setColumnConfig: () => {
             actions.setModalVisible(false)
+        },
+        saveSelectedColumns: ({ columns }) => {
+            userLogic.actions.updateUser({ events_column_config: { active: columns } })
         },
         [userLogic.actionTypes.updateUserSuccess]: () => {
             actions.setColumnConfigSaving(false)
