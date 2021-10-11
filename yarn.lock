@@ -10523,10 +10523,10 @@ kea-router@^1.0.2:
   dependencies:
     url-pattern "^1.0.3"
 
-kea-typegen@^1.1.5:
-  version "1.1.5"
-  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.1.5.tgz#65c87de76d86815b14ea7619a7fe4ce806e620b6"
-  integrity sha512-nrVSGlrO/U3YiNTkpF6P721MFbVNPoqULTR7OEd7FO5P6DaHJR7OVQTO8IYAsvuvfS/kj+yAT/PlftMUXBG7lQ==
+kea-typegen@^1.1.6:
+  version "1.1.6"
+  resolved "https://registry.yarnpkg.com/kea-typegen/-/kea-typegen-1.1.6.tgz#b151a8c0aad065769781267d65df43628a16d52d"
+  integrity sha512-vGNwnMy69s12jDHCzxjUk+cDGDRhPc7JplRszCQ0snAqHRdU32YWWFe7nIgYW1/7gu4YkME7hJ9VWHRd1e71xQ==
   dependencies:
     "@wessberg/ts-clone-node" "0.3.19"
     diff "^5.0.0"
@@ -15764,9 +15764,9 @@ url-loader@^4.1.1:
     schema-utils "^3.0.0"
 
 url-parse@^1.4.3, url-parse@^1.4.7:
-  version "1.5.1"
-  resolved "https://registry.yarnpkg.com/url-parse/-/url-parse-1.5.1.tgz#d5fa9890af8a5e1f274a2c98376510f6425f6e3b"
-  integrity sha512-HOfCOUJt7iSYzEx/UqgtwKRMC6EU91NFhsCHMv9oM03VJcVo2Qrp8T8kI9D7amFf1cu+/3CEhgb3rF9zL7k85Q==
+  version "1.5.3"
+  resolved "https://registry.yarnpkg.com/url-parse/-/url-parse-1.5.3.tgz#71c1303d38fb6639ade183c2992c8cc0686df862"
+  integrity sha512-IIORyIQD9rvj0A4CLWsHkBBJuNqWpFQe224b6j9t/ABmquIS0qDU2pY6kl6AuOrL5OkCXHMCFNe1jBcuAggjvQ==
   dependencies:
     querystringify "^2.1.1"
     requires-port "^1.0.0"

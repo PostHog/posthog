@@ -5,15 +5,15 @@ import { useActions, useValues } from 'kea'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { router } from 'kea-router'
 import { ChartParams } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelLineGraph({
-    filters: defaultFilters,
     dashboardItemId,
-    cachedResults,
     inSharedMode,
     color = 'white',
-}: Omit<ChartParams, 'view'>): JSX.Element | null {
-    const logic = funnelLogic({ dashboardItemId, cachedResults, filters: defaultFilters })
+}: Omit<ChartParams, 'filters'>): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const logic = funnelLogic(insightProps)
     const { steps, filters } = useValues(logic)
     const { loadPeople } = useActions(personsModalLogic)
     const {

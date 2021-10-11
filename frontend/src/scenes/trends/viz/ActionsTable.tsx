@@ -4,15 +4,12 @@ import { Table } from 'antd'
 import PropTypes from 'prop-types'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ActionFilter, ChartParams, TrendResultWithAggregate } from '~/types'
+import { ActionFilter, TrendResultWithAggregate } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-export function ActionsTable({
-    dashboardItemId,
-    view,
-    filters: filtersParam,
-    cachedResults,
-}: ChartParams): JSX.Element {
-    const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
+export function ActionsTable(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const logic = trendsLogic(insightProps)
     const { filters, indexedResults, resultsLoading } = useValues(logic)
 
     let data = indexedResults as any as TrendResultWithAggregate[]

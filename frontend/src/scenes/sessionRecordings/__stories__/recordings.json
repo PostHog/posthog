@@ -1,0 +1,2064 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/recordings",
+                "search": "",
+                "hash": ""
+            },
+            "searchParams": {},
+            "hashParams": {}
+        }
+    },
+    "scenes": {
+        "organizationLogic": {
+            "currentOrganization": {
+                "id": "017c49bd-6c3d-0000-6945-a82da2468ccb",
+                "name": "Hogflix",
+                "created_at": "2021-10-04T05:18:43.263968Z",
+                "updated_at": "2021-10-04T05:18:43.263988Z",
+                "membership_level": 15,
+                "personalization": {},
+                "setup": {
+                    "is_active": false,
+                    "current_section": null
+                },
+                "plugins_access_level": 9,
+                "teams": [
+                    {
+                        "id": 4,
+                        "uuid": "017c49bd-a01c-0000-4357-ec379cc27992",
+                        "organization": "017c49bd-6c3d-0000-6945-a82da2468ccb",
+                        "api_token": "phc_KB0cs4oUtgDUjBWrpr7ZvMojYBHUPgx6bLQlvUjZ3Cn",
+                        "name": "HogFlix Demo App",
+                        "completed_snippet_onboarding": true,
+                        "ingested_event": true,
+                        "is_demo": true,
+                        "timezone": "UTC",
+                        "access_control": false,
+                        "effective_membership_level": 15
+                    },
+                    {
+                        "id": 3,
+                        "uuid": "017c49bd-7138-0000-384f-51b17830cf34",
+                        "organization": "017c49bd-6c3d-0000-6945-a82da2468ccb",
+                        "api_token": "phc_omwaIrOjB6df3j7ZuxZa3xItxfUk5aDnN3jxI066UaH",
+                        "name": "Default Project",
+                        "completed_snippet_onboarding": true,
+                        "ingested_event": true,
+                        "is_demo": false,
+                        "timezone": "UTC",
+                        "access_control": false,
+                        "effective_membership_level": 15
+                    }
+                ],
+                "available_features": [],
+                "domain_whitelist": [],
+                "is_member_join_email_enabled": true
+            },
+            "currentOrganizationLoading": false,
+            "organizationBeingDeleted": null
+        },
+        "teamLogic": {
+            "currentTeam": {
+                "id": 4,
+                "uuid": "017c49bd-a01c-0000-4357-ec379cc27992",
+                "organization": "017c49bd-6c3d-0000-6945-a82da2468ccb",
+                "api_token": "phc_KB0cs4oUtgDUjBWrpr7ZvMojYBHUPgx6bLQlvUjZ3Cn",
+                "app_urls": [],
+                "name": "HogFlix Demo App",
+                "slack_incoming_webhook": null,
+                "created_at": "2021-10-04T05:18:56.541050Z",
+                "updated_at": "2021-10-04T05:38:49.880112Z",
+                "anonymize_ips": false,
+                "completed_snippet_onboarding": true,
+                "ingested_event": true,
+                "test_account_filters": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "@posthog.com",
+                        "operator": "not_icontains"
+                    },
+                    {
+                        "key": "$host",
+                        "value": [
+                            "localhost:8000",
+                            "localhost:5000",
+                            "127.0.0.1:8000",
+                            "127.0.0.1:3000",
+                            "localhost:3000"
+                        ],
+                        "operator": "is_not"
+                    }
+                ],
+                "is_demo": true,
+                "timezone": "UTC",
+                "data_attributes": ["data-attr"],
+                "session_recording_opt_in": true,
+                "session_recording_retention_period_days": null,
+                "effective_membership_level": 15,
+                "access_control": false
+            },
+            "currentTeamLoading": false,
+            "teamBeingDeleted": null
+        },
+        "userLogic": {
+            "user": {
+                "date_joined": "2021-10-04T05:18:44.432507Z",
+                "uuid": "017c49bd-70d0-0000-ff04-12a1bed33cff",
+                "distinct_id": "Nr5jM7FCbz1XaBmFBmsny4NrDmU9y9lOx1Cb3c2DAAw",
+                "first_name": "Jane Doe",
+                "email": "test@posthog.com",
+                "email_opt_in": true,
+                "anonymize_data": false,
+                "toolbar_mode": "toolbar",
+                "has_password": true,
+                "is_staff": false,
+                "is_impersonated": false,
+                "team": {
+                    "id": 4,
+                    "uuid": "017c49bd-a01c-0000-4357-ec379cc27992",
+                    "organization": "017c49bd-6c3d-0000-6945-a82da2468ccb",
+                    "api_token": "phc_KB0cs4oUtgDUjBWrpr7ZvMojYBHUPgx6bLQlvUjZ3Cn",
+                    "name": "HogFlix Demo App",
+                    "completed_snippet_onboarding": true,
+                    "ingested_event": true,
+                    "is_demo": true,
+                    "timezone": "UTC",
+                    "access_control": false,
+                    "effective_membership_level": 15
+                },
+                "organization": {
+                    "id": "017c49bd-6c3d-0000-6945-a82da2468ccb",
+                    "name": "Hogflix",
+                    "created_at": "2021-10-04T05:18:43.263968Z",
+                    "updated_at": "2021-10-04T05:18:43.263988Z",
+                    "membership_level": 15,
+                    "personalization": {},
+                    "setup": {
+                        "is_active": false,
+                        "current_section": null
+                    },
+                    "plugins_access_level": 9,
+                    "teams": [
+                        {
+                            "id": 3,
+                            "uuid": "017c49bd-7138-0000-384f-51b17830cf34",
+                            "organization": "017c49bd-6c3d-0000-6945-a82da2468ccb",
+                            "api_token": "phc_omwaIrOjB6df3j7ZuxZa3xItxfUk5aDnN3jxI066UaH",
+                            "name": "Default Project",
+                            "completed_snippet_onboarding": true,
+                            "ingested_event": true,
+                            "is_demo": false,
+                            "timezone": "UTC",
+                            "access_control": false,
+                            "effective_membership_level": 15
+                        },
+                        {
+                            "id": 4,
+                            "uuid": "017c49bd-a01c-0000-4357-ec379cc27992",
+                            "organization": "017c49bd-6c3d-0000-6945-a82da2468ccb",
+                            "api_token": "phc_KB0cs4oUtgDUjBWrpr7ZvMojYBHUPgx6bLQlvUjZ3Cn",
+                            "name": "HogFlix Demo App",
+                            "completed_snippet_onboarding": true,
+                            "ingested_event": true,
+                            "is_demo": true,
+                            "timezone": "UTC",
+                            "access_control": false,
+                            "effective_membership_level": 15
+                        }
+                    ],
+                    "available_features": [],
+                    "domain_whitelist": [],
+                    "is_member_join_email_enabled": true
+                },
+                "organizations": [
+                    {
+                        "id": "017c49bd-6c3d-0000-6945-a82da2468ccb",
+                        "name": "Hogflix"
+                    }
+                ],
+                "events_column_config": {
+                    "active": "DEFAULT"
+                }
+            },
+            "userLoading": false
+        },
+        "PreflightCheck": {
+            "logic": {
+                "preflight": {
+                    "django": true,
+                    "redis": true,
+                    "plugins": true,
+                    "celery": true,
+                    "db": true,
+                    "initiated": true,
+                    "cloud": false,
+                    "realm": "hosted",
+                    "available_social_auth_providers": {
+                        "github": false,
+                        "gitlab": false,
+                        "google-oauth2": false,
+                        "saml": false
+                    },
+                    "can_create_org": false,
+                    "ee_available": true,
+                    "is_clickhouse_enabled": false,
+                    "db_backend": "postgres",
+                    "available_timezones": {
+                        "Africa/Abidjan": 0,
+                        "Africa/Accra": 0,
+                        "Africa/Addis_Ababa": 3,
+                        "UTC": 0
+                    },
+                    "opt_out_capture": false,
+                    "posthog_version": "1.28.1",
+                    "email_service_available": false,
+                    "is_debug": true,
+                    "is_event_property_usage_enabled": false,
+                    "licensed_users_available": null,
+                    "site_url": "http://localhost:8000"
+                },
+                "preflightLoading": false,
+                "preflightMode": null
+            }
+        },
+        "App": {
+            "showingDelayedSpinner": true,
+            "featureFlagsTimedOut": true
+        },
+        "sceneLogic": {
+            "scene": "sessionRecordings",
+            "params": {},
+            "loadedScenes": {
+                "404": {},
+                "4xx": {},
+                "projectUnavailable": {},
+                "sessionRecordings": {}
+            },
+            "loadingScene": null,
+            "upgradeModalFeatureNameAndCaption": null
+        },
+        "instance": {
+            "SystemStatus": {
+                "systemStatusLogic": {
+                    "systemStatus": {
+                        "overview": [
+                            {
+                                "key": "posthog_version",
+                                "metric": "PostHog version",
+                                "value": "1.28.1"
+                            },
+                            {
+                                "key": "posthog_git_sha",
+                                "metric": "PostHog Git SHA",
+                                "value": "Undefined"
+                            },
+                            {
+                                "key": "analytics_database",
+                                "metric": "Analytics database in use",
+                                "value": "Postgres"
+                            },
+                            {
+                                "key": "plugin_sever_alive",
+                                "metric": "Plugin server alive",
+                                "value": true
+                            },
+                            {
+                                "key": "plugin_sever_version",
+                                "metric": "Plugin server version",
+                                "value": "1.9.3"
+                            },
+                            {
+                                "key": "plugin_sever_job_queues",
+                                "metric": "Job queues enabled in plugin server",
+                                "value": "Graphile"
+                            },
+                            {
+                                "key": "db_alive",
+                                "metric": "Postgres database alive",
+                                "value": true
+                            },
+                            {
+                                "key": "pg_version",
+                                "metric": "Postgres version",
+                                "value": "13.0.1"
+                            },
+                            {
+                                "metric": "Postgres elements table size",
+                                "value": "1.02K rows (~288 kB)"
+                            },
+                            {
+                                "metric": "Postgres events table size",
+                                "value": "3.15K rows (~5496 kB)"
+                            },
+                            {
+                                "metric": "Postgres session recording table size",
+                                "value": "122 rows (~5216 kB)"
+                            },
+                            {
+                                "key": "redis_alive",
+                                "metric": "Redis alive",
+                                "value": true
+                            },
+                            {
+                                "metric": "Redis version",
+                                "value": "6.2.5"
+                            },
+                            {
+                                "metric": "Redis current queue depth",
+                                "value": "0"
+                            },
+                            {
+                                "metric": "Redis connected client count",
+                                "value": "33"
+                            },
+                            {
+                                "metric": "Redis memory used",
+                                "value": "1.88MB"
+                            },
+                            {
+                                "metric": "Redis memory peak",
+                                "value": "3.13MB"
+                            },
+                            {
+                                "metric": "Redis total memory available",
+                                "value": "16.00GB"
+                            }
+                        ],
+                        "internal_metrics": {}
+                    },
+                    "systemStatusLoading": false,
+                    "queries": null,
+                    "queriesLoading": false,
+                    "analyzeQueryResult": null,
+                    "analyzeQueryResultLoading": false,
+                    "tab": "overview",
+                    "error": null,
+                    "openSections": ["0"],
+                    "analyzeModalOpen": false,
+                    "analyzeQuery": ""
+                }
+            }
+        },
+        "billing": {
+            "billingLogic": {
+                "billing": null,
+                "billingLoading": false,
+                "plans": [],
+                "plansLoading": false,
+                "billingSubscription": null,
+                "billingSubscriptionLoading": false
+            }
+        },
+        "organization": {
+            "Settings": {
+                "bulkInviteLogic": {
+                    "invitedTeamMembers": [],
+                    "invitedTeamMembersLoading": false,
+                    "invites": [
+                        {
+                            "target_email": "",
+                            "first_name": "",
+                            "isValid": true
+                        }
+                    ]
+                }
+            }
+        },
+        "sessionRecordings": {
+            "sessionRecordingsTableLogic": {
+                "global": {
+                    "sessionRecordings": [
+                        {
+                            "id": "17c49bdf172ca-08eead1c4310948-455f6c-17eda0-17c49bdf1738b6",
+                            "viewed": true,
+                            "recording_duration": "1172.675",
+                            "start_time": "2021-10-04T05:19:17.458000Z",
+                            "end_time": "2021-10-04T05:38:50.133000Z",
+                            "distinct_id": "Nr5jM7FCbz1XaBmFBmsny4NrDmU9y9lOx1Cb3c2DAAw",
+                            "email": "test@posthog.com"
+                        },
+                        {
+                            "id": "017c49bd-a0ca-0000-5893-880c691608db",
+                            "viewed": true,
+                            "recording_duration": "18.925",
+                            "start_time": "2021-10-04T05:18:56.711340Z",
+                            "end_time": "2021-10-04T05:19:15.636340Z",
+                            "distinct_id": "017c49bd-a046-0005-f9b9-74b06ed70f75",
+                            "email": "smith.nunez@gmail.com"
+                        }
+                    ],
+                    "sessionRecordingsLoading": false,
+                    "sessionRecordingId": null
+                }
+            }
+        }
+    },
+    "lib": {
+        "logic": {
+            "featureFlagLogic": {
+                "receivedFeatureFlags": true
+            }
+        },
+        "components": {
+            "PersonalAPIKeys": {
+                "personalAPIKeysLogic": {
+                    "keys": [],
+                    "keysLoading": false
+                }
+            },
+            "CommandPalette": {
+                "commandPaletteLogic": {
+                    "isPaletteShown": false,
+                    "keyboardResultIndex": 0,
+                    "hoverResultIndex": null,
+                    "input": "",
+                    "activeFlow": null,
+                    "rawCommandRegistrations": {
+                        "go-to": {
+                            "key": "go-to",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"],
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Go to Dashboards"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Insights"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Trends"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Sessions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Funnels"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Retention"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to User Paths"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Events"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Actions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Live Sessions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Persons",
+                                    "synonyms": ["people"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Cohorts"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Feature Flags",
+                                    "synonyms": ["feature flags", "a/b tests"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Annotations"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Team Members",
+                                    "synonyms": ["organization", "members", "invites", "teammates"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Project Settings"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to My Settings",
+                                    "synonyms": ["account"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Plugins",
+                                    "synonyms": ["integrations"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to System Status Page",
+                                    "synonyms": [
+                                        "redis",
+                                        "celery",
+                                        "django",
+                                        "postgres",
+                                        "backend",
+                                        "service",
+                                        "online"
+                                    ]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Create Action"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Log Out"
+                                }
+                            ]
+                        },
+                        "open-urls": {
+                            "key": "open-urls",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"]
+                        },
+                        "debug-clickhouse-queries": {
+                            "key": "debug-clickhouse-queries",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Debug ClickHouse Queries"
+                            }
+                        },
+                        "calculator": {
+                            "key": "calculator",
+                            "scope": "global"
+                        },
+                        "create-personal-api-key": {
+                            "key": "create-personal-api-key",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Personal API Key"
+                            }
+                        },
+                        "create-dashboard": {
+                            "key": "create-dashboard",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Dashboard"
+                            }
+                        },
+                        "share-feedback": {
+                            "key": "share-feedback",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Share Feedback",
+                                "synonyms": ["send opinion", "ask question", "message posthog", "github issue"]
+                            }
+                        }
+                    }
+                }
+            },
+            "BackTo": {
+                "backTo": null
+            }
+        }
+    },
+    "models": {
+        "actionsModel": {
+            "actions": [
+                {
+                    "id": 8,
+                    "name": "Entered Free Trial",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "8",
+                            "event": "entered_free_trial",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-10-04T05:18:58.283712Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-10-08T04:52:13.731988Z",
+                    "created_by": null,
+                    "team_id": 4
+                },
+                {
+                    "id": 7,
+                    "name": "Purchase",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "7",
+                            "event": "purchase",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-10-04T05:18:58.270817Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-10-08T04:52:13.759469Z",
+                    "created_by": null,
+                    "team_id": 4
+                },
+                {
+                    "id": 6,
+                    "name": "Watched Movie",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "6",
+                            "event": "watched_movie",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-10-04T05:18:57.676439Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-10-08T04:52:13.870657Z",
+                    "created_by": null,
+                    "team_id": 4
+                },
+                {
+                    "id": 5,
+                    "name": "Rated App",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "5",
+                            "event": "rated_app",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-10-04T05:18:57.642894Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-10-08T04:52:13.856695Z",
+                    "created_by": null,
+                    "team_id": 4
+                },
+                {
+                    "id": 4,
+                    "name": "Installed App",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "4",
+                            "event": "installed_app",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-10-04T05:18:57.616962Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-10-08T04:52:13.842423Z",
+                    "created_by": null,
+                    "team_id": 4
+                },
+                {
+                    "id": 3,
+                    "name": "HogFlix paid",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "3",
+                            "event": "$autocapture",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": "button",
+                            "url": "http://hogflix.com/2",
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-10-04T05:18:56.820310Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-10-08T04:52:13.782097Z",
+                    "created_by": null,
+                    "team_id": 4
+                },
+                {
+                    "id": 2,
+                    "name": "HogFlix signed up",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "2",
+                            "event": "$autocapture",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": "button",
+                            "url": "http://hogflix.com/1",
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-10-04T05:18:56.801705Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-10-08T04:52:13.803180Z",
+                    "created_by": null,
+                    "team_id": 4
+                },
+                {
+                    "id": 1,
+                    "name": "HogFlix homepage view",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "1",
+                            "event": "$pageview",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": "http://hogflix.com",
+                            "name": null,
+                            "url_matching": "exact",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-10-04T05:18:56.787353Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-10-08T04:52:13.821505Z",
+                    "created_by": null,
+                    "team_id": 4
+                }
+            ],
+            "actionsLoading": false
+        },
+        "annotationsModel": {
+            "globalAnnotations": [],
+            "globalAnnotationsLoading": false
+        },
+        "cohortsModel": {
+            "cohorts": [],
+            "cohortsLoading": false,
+            "pollTimeout": null
+        },
+        "dashboardsModel": {
+            "rawDashboards": {
+                "4": {
+                    "id": 4,
+                    "name": "Web Analytics",
+                    "description": "",
+                    "pinned": true,
+                    "items": null,
+                    "created_at": "2021-10-04T05:18:56.833860Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "JKvrIatsJDdhuF31JGG22A4uA2zbCA",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                },
+                "5": {
+                    "id": 5,
+                    "name": "App Analytics",
+                    "description": "",
+                    "pinned": true,
+                    "items": null,
+                    "created_at": "2021-10-04T05:18:57.727587Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "kO81-4C792gXzWMQiCq40ZWnB5N9kQ",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                },
+                "6": {
+                    "id": 6,
+                    "name": "Sales & Revenue",
+                    "description": "",
+                    "pinned": true,
+                    "items": null,
+                    "created_at": "2021-10-04T05:18:58.305880Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "D389W0vFnGhlJVz8eDkOoKZoa6bYBQ",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                }
+            },
+            "rawDashboardsLoading": false,
+            "sharedDashboards": null,
+            "sharedDashboardsLoading": false,
+            "dashboard": null,
+            "dashboardLoading": false,
+            "redirect": true,
+            "lastDashboardId": 5,
+            "diveSourceId": null
+        },
+        "eventDefinitionsModel": {
+            "eventStorage": {
+                "count": 24,
+                "results": [
+                    {
+                        "id": "017c49bd-c5c7-0001-c743-c30946457b57",
+                        "name": "$autocapture",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49cd-6e09-0001-7eaa-7d9ad705629d",
+                        "name": "$capture_failed_request",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0633-0000-3d32-4c888f93bc57",
+                        "name": "$capture_metrics",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4de-0000-fc41-1ab3dfd5d4ad",
+                        "name": "$feature_flag_called",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b8a5-0000-ee4f-fdbab17c6ac8",
+                        "name": "$identify",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4e9-0000-4008-c9a7d4050539",
+                        "name": "$pageleave",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-aa50-0000-b193-e7685016cc85",
+                        "name": "$pageview",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49f3-9a6e-0000-37d6-27c07bfda2a7",
+                        "name": "$rageclick",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-ca8c-0001-2c01-5b2608bfe583",
+                        "name": "client_request_failure",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-ca67-0001-2b37-ee76e0ed8fda",
+                        "name": "dashboard date range changed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a692-0000-fcac-0c99798307ad",
+                        "name": "entered_free_trial",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cac2-0001-9dad-1a22c22c0f9e",
+                        "name": "funnel result calculated",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a5-f596-0001-dcf7-dc866c2905f3",
+                        "name": "insight analyzed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5ba-0001-50b3-c93f34140841",
+                        "name": "insight loaded",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a6-248d-0001-2f70-e4ba4e244a9e",
+                        "name": "insight person modal viewed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5b0-0001-2bfa-4797bd36e03f",
+                        "name": "insight viewed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a19a-0000-8a20-c145167f0da4",
+                        "name": "installed_app",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a68e-0000-ce5a-a650c7c28a60",
+                        "name": "purchase",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a19e-0000-4b5d-bb31c401d037",
+                        "name": "rated_app",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d3-3153-0001-a41c-23505f469961",
+                        "name": "recording analyzed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d3-0e28-0001-fa93-f103f80c73d2",
+                        "name": "recording watched",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c5e2e-1169-0000-de40-038c0b1c55c0",
+                        "name": "timezone component viewed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cab5-0001-2ca8-01eee8740faf",
+                        "name": "viewed dashboard",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a195-0000-eca9-3920775babc4",
+                        "name": "watched_movie",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    }
+                ],
+                "next": null
+            },
+            "eventStorageLoading": false
+        },
+        "personPropertiesModel": {
+            "personProperties": [
+                {
+                    "name": "is_demo",
+                    "count": 160
+                },
+                {
+                    "name": "email",
+                    "count": 36
+                },
+                {
+                    "name": "address",
+                    "count": 35
+                },
+                {
+                    "name": "name",
+                    "count": 35
+                },
+                {
+                    "name": "phone",
+                    "count": 35
+                },
+                {
+                    "name": "$browser",
+                    "count": 1
+                },
+                {
+                    "name": "$browser_version",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_city_name",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_continent_code",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_continent_name",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_country_code",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_country_name",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_latitude",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_longitude",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_postal_code",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_subdivision_1_code",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_subdivision_1_name",
+                    "count": 1
+                },
+                {
+                    "name": "$geoip_time_zone",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_browser",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_browser_version",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_current_url",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_device_type",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_city_name",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_continent_code",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_continent_name",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_country_code",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_country_name",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_latitude",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_longitude",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_postal_code",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_subdivision_1_code",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_subdivision_1_name",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_geoip_time_zone",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_os",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_referrer",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_referring_domain",
+                    "count": 1
+                },
+                {
+                    "name": "$os",
+                    "count": 1
+                }
+            ],
+            "personPropertiesLoading": false
+        },
+        "propertyDefinitionsModel": {
+            "propertyStorage": {
+                "count": 146,
+                "results": [
+                    {
+                        "id": "017c49bd-b507-0000-0f21-519d8896b5c3",
+                        "name": "$active_feature_flags",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b8d6-0000-633d-541b57bb4d19",
+                        "name": "$anon_distinct_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a03c-0000-f151-55abf53513f9",
+                        "name": "$browser",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4e9-0000-7977-a23a88714ee4",
+                        "name": "$browser_version",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5d0-0000-c1b9-e0b6dec9f095",
+                        "name": "$ce_version",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a031-0000-f428-d654f0ce5a00",
+                        "name": "$current_url",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4fd-0000-a44f-3db2afdf03d1",
+                        "name": "$device_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4e5-0000-1fa1-bd03498123d8",
+                        "name": "$device_type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5ce-0000-91ab-9a1e83e2a44d",
+                        "name": "$event_type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49dc-9916-0001-0a2f-b0c334c682b7",
+                        "name": "$feature/6050-remove-sessions",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b506-0000-280d-00a052d1cc9f",
+                        "name": "$feature_flag",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49e3-9b43-0001-6e1a-fb31cc5c5ae9",
+                        "name": "$feature_flag_response",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b50a-0000-b89c-216759e8382c",
+                        "name": "$geoip_city_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b511-0000-b87d-f0c095a828b9",
+                        "name": "$geoip_continent_code",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b510-0000-0c7b-490e1b689e61",
+                        "name": "$geoip_continent_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b50e-0000-c45f-b0a1bb25ad68",
+                        "name": "$geoip_country_code",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b50b-0000-1707-77fa75f72a8a",
+                        "name": "$geoip_country_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b518-0000-5878-4ccf0f54110b",
+                        "name": "$geoip_latitude",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b51a-0000-9bcc-dce3b93b7570",
+                        "name": "$geoip_longitude",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b513-0000-806e-974c30e01d8e",
+                        "name": "$geoip_postal_code",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b51d-0000-3bd9-09810ed86254",
+                        "name": "$geoip_subdivision_1_code",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b51f-0000-d33f-ca125432e998",
+                        "name": "$geoip_subdivision_1_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b51c-0000-d5b0-124b36b7518c",
+                        "name": "$geoip_time_zone",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4e6-0000-bf86-2fe847ff33ca",
+                        "name": "$host",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4fe-0000-49ca-13bd1874c48e",
+                        "name": "$initial_referrer",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b500-0000-3e86-6ecdc6b86d75",
+                        "name": "$initial_referring_domain",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4f8-0000-fb3a-1441a5b9d235",
+                        "name": "$insert_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b528-0000-b145-e24fb049e82d",
+                        "name": "$ip",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4f4-0000-1734-cff2707145d2",
+                        "name": "$lib",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4f6-0000-c708-c08f32d8af05",
+                        "name": "$lib_version",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4e1-0000-212b-58f8d4399609",
+                        "name": "$os",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4e8-0000-beb7-cea89d35c62b",
+                        "name": "$pathname",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b527-0000-25ad-23008042f179",
+                        "name": "$plugins_deferred",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b525-0000-0200-32a826a549ae",
+                        "name": "$plugins_failed",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b524-0000-3530-56fb544153e8",
+                        "name": "$plugins_succeeded",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b503-0000-c6f8-a651b0915991",
+                        "name": "$referrer",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b504-0000-df03-a9ebfa763a6a",
+                        "name": "$referring_domain",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4ea-0000-fac8-de75382f7b9d",
+                        "name": "$screen_height",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4ec-0000-d767-9cb0f5e5c603",
+                        "name": "$screen_width",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b528-0000-0ef5-ca47e45782f1",
+                        "name": "$set",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b529-0000-b160-2050c8557078",
+                        "name": "$set_once",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4fa-0000-a1af-760f52e21e13",
+                        "name": "$time",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b8cc-0000-a2af-70146b7b56a9",
+                        "name": "$user_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4f0-0000-93a8-434cc7926508",
+                        "name": "$viewport_height",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4f2-0000-d62b-12290449217b",
+                        "name": "$viewport_width",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cae2-0000-9212-91df1f2abbcc",
+                        "name": "action_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5bf-0000-475c-1a14e6aab7d1",
+                        "name": "actions_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a1ac-0000-9bdd-df1fcc613b22",
+                        "name": "app_rating",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c5e2e-1227-0000-2a2d-91b912a9a2a2",
+                        "name": "component",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a6-24b1-0000-3af8-1e649981411a",
+                        "name": "count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cada-0000-0cd4-ebd43e5222aa",
+                        "name": "created_at",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cb0c-0000-19cd-4e4c20aed54f",
+                        "name": "created_by_system",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cb02-0000-3a55-d37b89507fd2",
+                        "name": "creation_mode",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d3-0e3f-0000-0253-2c9f7941d9fc",
+                        "name": "date",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a6-249f-0000-01f1-7f5b5496c146",
+                        "name": "date_from",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a6-24a2-0000-1968-81e6d319bfc2",
+                        "name": "date_to",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c5e2e-122d-0000-ca3c-bd1fa0bf9d73",
+                        "name": "device_timezone",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5b9-0000-7a81-98a7090a472e",
+                        "name": "display",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b4fc-0000-eab8-29fc010cc182",
+                        "name": "distinct_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c3-0000-3cdb-f6dc86a920a2",
+                        "name": "duration",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5b6-0000-97c2-a6312bc9f824",
+                        "name": "ee_available",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5b7-0000-4b09-3eb0f3046c07",
+                        "name": "email_service_available",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49cd-6e13-0000-93fb-951ce65c81e9",
+                        "name": "endpoint",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cada-0000-b4f4-5b37a18c858d",
+                        "name": "event_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d3-0e41-0000-59a8-234777003ce6",
+                        "name": "eventsLength",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5be-0000-de34-896b08567831",
+                        "name": "events_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d5-3fc4-0000-6fde-a1f5e3be2e4f",
+                        "name": "events_length",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5bc-0000-6b22-4f807f4e1b59",
+                        "name": "filter_test_accounts",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5bd-0000-41e2-77efce75baa6",
+                        "name": "filters_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a69a-0000-a471-c05e58f487fd",
+                        "name": "first_visit",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c8-0000-49ec-80b8fc4a645b",
+                        "name": "from_dashboard",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cb14-0000-0292-7208be1c3554",
+                        "name": "funnels_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a6-24a3-0000-27b5-a06204ce3933",
+                        "name": "has_breakdown_value",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a6-24b7-0000-2ff8-79548550f407",
+                        "name": "has_next",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a6-24a9-0000-9f78-e23f24d1b274",
+                        "name": "has_search_term",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cb12-0000-3f2c-08118c18da7d",
+                        "name": "has_share_token",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5b8-0000-a33b-77da8a2ca783",
+                        "name": "insight",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5bb-0000-03b8-c42fe71652c5",
+                        "name": "interval",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5b5-0000-2339-428a6a70e29a",
+                        "name": "is_clickhouse_enabled",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c542-0000-ab97-5484f63a8fc3",
+                        "name": "is_demo_project",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c6-0000-5139-2cb477a4e999",
+                        "name": "is_first_component_load",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a1a7-0000-0425-c1ce3c47d321",
+                        "name": "is_first_movie",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-caf4-0000-762e-d45ab08f2750",
+                        "name": "is_shared",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cb0a-0000-e5f5-beb03143b31e",
+                        "name": "item_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d3-0e3b-0000-7f55-adeeb81d815d",
+                        "name": "loadTime",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d5-3fb9-0001-4646-d1be2661d5ca",
+                        "name": "load_time",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-caf2-0000-d1cb-c017ec8fad2c",
+                        "name": "method",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cada-0000-910f-9dc3a6e8d176",
+                        "name": "pathname",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-063b-0000-fba9-d865905048e8",
+                        "name": "phjs-_send_request",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-063d-0000-dd0e-3cec0794a050",
+                        "name": "phjs-_send_request_inflight",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0641-0000-43dc-0c73165575de",
+                        "name": "phjs-batch-enqueue",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-064d-0000-ab6d-ffd9c7629766",
+                        "name": "phjs-batch-handle",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-064f-0000-bfdb-78344577b400",
+                        "name": "phjs-batch-handle-e/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-06bb-0000-31c9-6a8f6d11cbb7",
+                        "name": "phjs-batch-handle-s/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0649-0000-c1df-84c24104cf88",
+                        "name": "phjs-batch-requests",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-064b-0000-49e2-134054dd57b4",
+                        "name": "phjs-batch-requests-e/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-06b9-0000-048b-366179d024bc",
+                        "name": "phjs-batch-requests-s/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0661-0000-cef9-c02d021aea60",
+                        "name": "phjs-batch-unload",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0665-0000-e16e-8b28958e58e9",
+                        "name": "phjs-batch-unload-e/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0651-0000-f02a-ad098a231a7f",
+                        "name": "phjs-batch-unload-requests",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-065a-0000-79a1-5307185aead2",
+                        "name": "phjs-batch-unload-requests-e/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-06bd-0000-c5eb-448bc8619b26",
+                        "name": "phjs-batch-unload-requests-s/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-06bf-0000-b0fc-ba8225b4af36",
+                        "name": "phjs-batch-unload-s/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0640-0000-62b6-1a1e6a1e313a",
+                        "name": "phjs-capture",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0644-0000-f8b7-0e69a72b5dea",
+                        "name": "phjs-identify",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-06a7-0001-cddf-be4d20689e7c",
+                        "name": "phjs-rrweb-record",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-758c-0000-69ff-aa46facd0e2c",
+                        "name": "phjs-rrweb-record-0",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-758e-0000-0628-2ac7e95a5291",
+                        "name": "phjs-rrweb-record-1",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-06b1-0000-944a-49b8f875f21c",
+                        "name": "phjs-rrweb-record-2",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-06b2-0000-9c5b-355e7bd51c14",
+                        "name": "phjs-rrweb-record-3",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-06ae-0000-db8b-e352f118542e",
+                        "name": "phjs-rrweb-record-4",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-7585-0000-f267-f187be487448",
+                        "name": "phjs-rrweb-record-5",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-06b0-0000-f143-eea1643622ed",
+                        "name": "phjs-snapshot",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0646-0000-42fe-c4abeedb8b12",
+                        "name": "phjs-xhr-response",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49cd-6e77-0000-3dda-32fc525cdfe4",
+                        "name": "phjs-xhr-response-0",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49c0-0648-0000-d856-06939856a9c7",
+                        "name": "phjs-xhr-response-200",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cafb-0000-8708-eebbebef8582",
+                        "name": "pinned",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a695-0000-b0db-2f1f84d62712",
+                        "name": "plan",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5b2-0000-46a6-ec4fa5a53fa6",
+                        "name": "posthog_version",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c5e2e-122b-0000-9cb3-07fd07d67fd1",
+                        "name": "project_timezone",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c5-0000-cd67-fb4cd2bf1a39",
+                        "name": "properties_all",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c0-0000-779b-5365535c514a",
+                        "name": "properties_global",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c1-0000-4a36-aeccbcc064cc",
+                        "name": "properties_global_custom_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c3-0000-24c3-4192c3dd627a",
+                        "name": "properties_local",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c4-0000-b16b-b62a6564e749",
+                        "name": "properties_local_custom_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a026-0000-d64d-b2231e701445",
+                        "name": "purchase",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-a69d-0000-3f64-ef7dcd1409ea",
+                        "name": "purchase_value",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5b3-0000-352d-8aebe1e73301",
+                        "name": "realm",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d3-0e43-0000-36ed-2e23445ea0ab",
+                        "name": "recordingWidth",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d5-3fc9-0000-fce7-8166ad87ef3d",
+                        "name": "recording_width",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a5-f634-0000-faee-fa7d1e2a845a",
+                        "name": "report_delay",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49cd-6e1b-0000-590d-aca8f7309cab",
+                        "name": "rrweb_full_snapshot",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-cb08-0000-bf6b-046cae92ba7e",
+                        "name": "sample_items_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c50a6-24a6-0000-9151-a82f062c3f74",
+                        "name": "save_original",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c0-0000-ffbb-d18537062f8f",
+                        "name": "scene",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49e8-5829-0001-095c-5e33fa8af93b",
+                        "name": "source",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d5-3fc2-0000-9d08-840818f9a9ec",
+                        "name": "start_time",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49cd-6e1f-0000-12ec-aef0ceda85f5",
+                        "name": "status",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49cd-6e22-0000-b5a5-835fdecdc6b6",
+                        "name": "statusText",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c1-0000-7ff2-d8ad7b554f02",
+                        "name": "success",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-b507-0000-d829-e26675588b24",
+                        "name": "token",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c4b09-caf3-0000-e89b-9ac4168eb335",
+                        "name": "total_count_actions_events",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5ca-0000-0c29-98dfd1d62099",
+                        "name": "total_event_action_filters_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49bd-c5c9-0000-a3b3-a597ae1d6b9b",
+                        "name": "total_event_actions_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49cd-6e1d-0001-7f47-7c83fd4f2305",
+                        "name": "type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017c49d8-b5a4-0000-dd88-6b2602851d02",
+                        "name": "user_is_identified",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    }
+                ],
+                "next": null
+            },
+            "propertyStorageLoading": false
+        }
+    },
+    "layout": {
+        "navigation": {
+            "navigationLogic": {
+                "latestVersion": "1.28.1",
+                "latestVersionLoading": false,
+                "menuCollapsed": false,
+                "changelogModalOpen": false,
+                "toolbarModalOpen": false,
+                "inviteMembersModalOpen": false,
+                "pinnedDashboardsVisible": false,
+                "hotkeyNavigationEngaged": false,
+                "filteredEnvironment": "production",
+                "projectModalShown": false,
+                "organizationModalShown": false
+            }
+        }
+    }
+}

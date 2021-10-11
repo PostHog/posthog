@@ -26,7 +26,7 @@ class ClickhouseSessionsAvg:
 
         parsed_date_from, parsed_date_to, _ = parse_timestamps(filter, team.pk)
 
-        filters, params = parse_prop_clauses(filter.properties, team.pk)
+        filters, params = parse_prop_clauses(filter.properties, team.pk, has_person_id_joined=False)
 
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)

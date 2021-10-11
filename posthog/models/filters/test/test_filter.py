@@ -38,7 +38,7 @@ class TestFilter(BaseTest):
             list(filter.to_dict().keys()), ["events", "display", "compare", "insight", "date_from", "interval"],
         )
 
-    def test_simplify(self):
+    def test_simplify_test_accounts(self):
         self.team.test_account_filters = [
             {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
         ]

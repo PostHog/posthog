@@ -157,7 +157,7 @@ def format_action_filter_aggregate(entity: Entity, prepend: str):
     filter_sql, params = format_entity_filter(entity, prepend=prepend, filter_by_team=False)
     if entity.properties:
         filters, filter_params = parse_prop_clauses(
-            entity.properties, prepend=prepend, team_id=None, allow_denormalized_props=False
+            entity.properties, prepend=prepend, team_id=None, allow_denormalized_props=False, has_person_id_joined=False
         )
         filter_sql += f" {filters}"
         params = {**params, **filter_params}

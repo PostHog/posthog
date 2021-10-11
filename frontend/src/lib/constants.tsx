@@ -225,7 +225,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 }
 
 export const FEATURE_FLAGS = {
-    TEST_ENVIRONMENT: 'test-environment-3149',
     PAPERCUPS_ENABLED: 'papercups-enabled',
     INGESTION_GRID: 'ingestion-grid-exp-3',
     PROJECT_HOME: 'project-home-exp-5',
@@ -251,13 +250,6 @@ export const FEATURE_FLAGS = {
     RENAME_FILTERS: '6063-rename-filters',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     CORRELATION_ANALYSIS: 'correlation-analysis',
-}
-
-export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
-
-export enum Environments {
-    PRODUCTION = 'production',
-    TEST = 'test',
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

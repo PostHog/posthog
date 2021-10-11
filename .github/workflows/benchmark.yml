@@ -101,8 +101,8 @@ jobs:
 
             - name: Compare results
               run: |
-                  asv compare $(cat ee/benchmarks/results/last-master-commit) HEAD --config ee/benchmarks/asv.conf.json --factor 1.5 | tee pr_vs_master.txt
-                  asv compare $(cat ee/benchmarks/results/last-master-commit) HEAD --config ee/benchmarks/asv.conf.json --factor 1.5 --only-changed | tee pr_vs_master_changed.txt
+                  asv compare $(cat ee/benchmarks/results/last-master-commit) HEAD --config ee/benchmarks/asv.conf.json --factor 1.2 | tee pr_vs_master.txt
+                  asv compare $(cat ee/benchmarks/results/last-master-commit) HEAD --config ee/benchmarks/asv.conf.json --factor 1.2 --only-changed | tee pr_vs_master_changed.txt
 
             - name: Save last benchmarked commit
               if: ${{ github.ref == 'refs/heads/master' }}

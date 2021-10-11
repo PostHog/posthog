@@ -628,7 +628,7 @@ class TestClickhouseTrends(ClickhouseTestMixin, trend_test_factory(ClickhouseTre
         result = ClickhouseTrends().run(filter, self.team,)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
-    @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
+    @test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
     def test_filter_test_accounts(self):
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
