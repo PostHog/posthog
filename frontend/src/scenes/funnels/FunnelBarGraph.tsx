@@ -459,7 +459,7 @@ export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Ele
         <div
             data-attr="funnel-bar-graph"
             className={`funnel-bar-graph ${layout}${color && color !== 'white' ? ' colored' : ''} ${color}`}
-            style={dashboardItemId ? {} : { minHeight: 450 }}
+            style={insightProps.syncWithUrl ? { minHeight: 450 } : {}}
         >
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
