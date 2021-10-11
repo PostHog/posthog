@@ -425,7 +425,7 @@ export const insightLogic = kea<insightLogicType>({
                 ...values.insight,
                 saved: true,
             })
-            actions.setInsight(savedInsight)
+            actions.setInsight({ ...savedInsight, result: savedInsight.result || values.insight.result })
             actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
             toast(
                 <div data-attr="success-toast">
@@ -444,7 +444,7 @@ export const insightLogic = kea<insightLogicType>({
                 const createdInsight = await api.create('api/insight', {
                     filters: insight.filters,
                 })
-                actions.setInsight(createdInsight)
+                actions.setInsight({ ...createdInsight, result: createdInsight.result || values.insight.result })
                 if (props.syncWithUrl) {
                     router.actions.replace('/insights', router.values.searchParams, {
                         ...router.values.hashParams,
