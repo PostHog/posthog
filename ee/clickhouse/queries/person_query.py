@@ -82,7 +82,7 @@ class ClickhousePersonQuery:
 
         columns = self._column_optimizer.columns_to_query("person", set(properties_to_query)) | set(self._extra_fields)
 
-        return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in columns]
+        return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
     def _get_person_filters(self) -> Tuple[str, Dict]:
         conditions, params = [""], {}
