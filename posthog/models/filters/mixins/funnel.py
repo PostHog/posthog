@@ -237,6 +237,12 @@ class FunnelCorrelationMixin(BaseParamMixin):
             return json.loads(property_names)
         return property_names
 
+    @property
+    def get_all_properties(self) -> bool:
+        if not self.correlation_property_names:
+            return False
+        return "$all" in self.correlation_property_names
+
     @include_dict
     def funnel_correlation_to_dict(self):
         result_dict: Dict = {}
