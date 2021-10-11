@@ -247,7 +247,7 @@ class ClickhouseTrendsBreakdown:
         else:
             return str(value) or "none"
 
-    def _person_join_condition(self) -> str:
+    def _person_join_condition(self) -> Tuple[str, Dict]:
         person_query = ClickhousePersonQuery(self.filter, self.team_id, self.column_optimizer)
         if person_query.is_used:
             query, params = person_query.get_query()

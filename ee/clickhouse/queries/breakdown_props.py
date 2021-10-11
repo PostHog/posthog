@@ -49,7 +49,7 @@ def get_breakdown_prop_values(
         value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
 
     person_join_clauses = ""
-    person_join_params = {}
+    person_join_params: Dict = {}
     person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer)
     if person_query.is_used:
         person_subquery, person_join_params = person_query.get_query()
