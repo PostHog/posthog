@@ -11,7 +11,15 @@ import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
-import { roundedRect, pageUrl, isSelectedPathStartOrEnd, getContinuingValue, getDropOffValue, PathNodeData, PathTargetLink } from './pathUtils'
+import {
+    roundedRect,
+    pageUrl,
+    isSelectedPathStartOrEnd,
+    getContinuingValue,
+    getDropOffValue,
+    PathNodeData,
+    PathTargetLink,
+} from './pathUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { D3Selector } from 'lib/hooks/useD3'
 
@@ -88,11 +96,12 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
                 if (isSelectedPathStartOrEnd(filter, d)) {
                     return d3.color('purple')
                 }
-                const startNodeColor = c && d3.color(c)
-                    ? d3.color(c)
-                    : color === 'white' // is this ever not white?
-                    ? d3.color('#5375ff')
-                    : d3.color('#191919')
+                const startNodeColor =
+                    c && d3.color(c)
+                        ? d3.color(c)
+                        : color === 'white' // is this ever not white?
+                        ? d3.color('#5375ff')
+                        : d3.color('#191919')
                 return startNodeColor
             })
             .on('mouseover', (data: PathNodeData) => {
@@ -226,7 +235,9 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
     }
 
     function renderPaths(): void {
-        const elements = document?.getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)?.querySelectorAll(`.paths svg`)
+        const elements = document
+            ?.getElementById(`'${dashboardItemId || DEFAULT_PATHS_ID}'`)
+            ?.querySelectorAll(`.paths svg`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
         if (!paths || paths.nodes.length === 0) {
@@ -235,18 +246,22 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
         }
 
         const maxLayer = paths.links.reduce((prev, curr) => {
-            const currNum = curr.target || ''
+            // @ts-expect-error - sometimes target is an object instead of string
+            const currNum = curr.target.name || curr.target
             return Math.max(prev, Number(currNum.match(/[^_]*/)))
         }, 0)
 
-        const width = maxLayer > 5 ? (canvas?.current?.offsetWidth || 0 / 5) * maxLayer : canvas?.current?.offsetWidth || 0
+        const width =
+            maxLayer > 5 ? (canvas?.current?.offsetWidth || 0 / 5) * maxLayer : canvas?.current?.offsetWidth || 0
         const height = canvas?.current?.offsetHeight || 0
 
         const svg = createCanvas(width, height)
         const sankey = createSankey(width, height)
         const { nodes, links } = sankey(paths)
-        
-        setPathItemCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
+
+        setPathItemCards(
+            nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT }))
+        )
 
         appendPathNodes(svg, nodes)
         appendDropoffs(svg)
@@ -460,23 +475,10 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
                                                         </Menu.Item>
                                                         <Menu.Item
                                                             onClick={() => {
-                                                                if (
-                                                                    filter &&
-                                                                    filter.exclude_events &&
-                                                                    filter.exclude_events.length > 0
-                                                                ) {
-                                                                    const exclusionEvents = filter.exclude_events.map(
-                                                                        (event) => ({
-                                                                            value: event,
-                                                                        })
-                                                                    )
-                                                                    updateExclusions([
-                                                                        ...exclusionEvents,
-                                                                        { value: pageUrl(pathItemCard) },
-                                                                    ])
-                                                                } else {
-                                                                    updateExclusions([{ value: pageUrl(pathItemCard) }])
-                                                                }
+                                                                updateExclusions([
+                                                                    ...(filter.exclude_events || []),
+                                                                    pageUrl(pathItemCard, false),
+                                                                ])
                                                             }}
                                                         >
                                                             Exclude path item
