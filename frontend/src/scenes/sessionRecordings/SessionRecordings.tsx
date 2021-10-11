@@ -13,7 +13,7 @@ export function SessionsRecordings(): JSX.Element {
     return (
         <div>
             <Row style={{ alignItems: 'center', marginBottom: 16 }}>
-                <PageHeader title="Session Recordings" />
+                <PageHeader title="Recordings" />
                 <Tag color="orange" style={{ marginLeft: 8, marginTop: 16 }}>
                     BETA
                 </Tag>
@@ -21,7 +21,7 @@ export function SessionsRecordings(): JSX.Element {
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <Alert
                     style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}
-                    message="Session recordings are not yet enabled for this project"
+                    message="Recordings are not yet enabled for this project"
                     description="To use this feature, please go to your project settings and enable it."
                     type="info"
                     showIcon
