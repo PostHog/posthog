@@ -423,6 +423,26 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(self._run_query(filter)), 1)
 
 
+def test_parse_prop_clauses_defaults(snapshot):
+    filter = Filter(
+        data={
+            "properties": [
+                {"key": "event_prop", "value": "value"},
+                {"key": "email", "type": "person", "value": "posthog", "operator": "icontains"},
+            ],
+        }
+    )
+
+    assert parse_prop_clauses(filter.properties, None) == snapshot
+    assert (
+        parse_prop_clauses(
+            filter.properties, None, person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
+        )
+        == snapshot
+    )
+    assert parse_prop_clauses(filter.properties, None, person_properties_mode=PersonPropertiesMode.EXCLUDE) == snapshot
+
+
 @pytest.fixture
 def test_events(db, team) -> List[UUID]:
     return [
