@@ -76,6 +76,7 @@ export const insightLogic = kea<insightLogicType>({
         updateInsightFilters: (filters: FilterType) => ({ filters }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
+        loadInsight: (id: number) => ({ id }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
@@ -87,14 +88,15 @@ export const insightLogic = kea<insightLogicType>({
                 result: props.cachedResults || null,
             } as Partial<DashboardItemType>,
             {
-                loadInsight: async (id: number) => {
+                loadInsight: async ({ id }) => {
                     return await api.get(`api/insight/${id}`)
                 },
-                updateInsight: async (payload: Partial<DashboardItemType>) => {
+                updateInsight: async (payload: Partial<DashboardItemType>, breakpoint) => {
                     if (!Object.entries(payload).length) {
                         return
                     }
                     const response = await api.update(`api/insight/${values.insight.id}`, payload)
+                    breakpoint()
                     return { ...response, result: response.result || values.insight.result }
                 },
                 // using values.filters, query for new insight results
@@ -205,6 +207,16 @@ export const insightLogic = kea<insightLogicType>({
     }),
     reducers: ({ props }) => ({
         insight: {
+            loadInsight: (state, { id }) =>
+                id === state.id
+                    ? state
+                    : {
+                          // blank slate if switched to a new insight
+                          id,
+                          tags: [],
+                          result: null,
+                          filters: {},
+                      },
             setInsight: (state, { insight, shouldMergeWithExisting }) =>
                 shouldMergeWithExisting
                     ? {
@@ -451,15 +463,15 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         // called when search query was successful
-        loadResultsSuccess: async ({ insight }) => {
+        loadResultsSuccess: async ({ insight }, breakpoint) => {
             if (props.doNotPersist) {
                 return
             }
-
             if (!insight.id) {
                 const createdInsight = await api.create('api/insight', {
                     filters: insight.filters,
                 })
+                breakpoint()
                 actions.setInsight({ ...insight, ...createdInsight, result: createdInsight.result || insight.result })
                 if (props.syncWithUrl) {
                     router.actions.replace('/insights', router.values.searchParams, {
@@ -496,17 +508,17 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
-                const cleanSearchParams = cleanFilters(searchParams, values.filters)
-                if (!objectsEqual(cleanSearchParams, values.filters)) {
-                    actions.setFilters(cleanSearchParams)
-                }
-
                 if (hashParams.fromItem) {
                     if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
                         actions.loadInsight(hashParams.fromItem)
                     }
                 } else {
                     actions.setInsightMode(ItemMode.Edit, null)
+                }
+
+                const cleanSearchParams = cleanFilters(searchParams, values.filters)
+                if (!objectsEqual(cleanSearchParams, values.filters)) {
+                    actions.setFilters(cleanSearchParams)
                 }
             }
         },
