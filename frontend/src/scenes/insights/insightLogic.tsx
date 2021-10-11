@@ -92,7 +92,8 @@ export const insightLogic = kea<insightLogicType>({
                     if (!Object.entries(payload).length) {
                         return
                     }
-                    return await api.update(`api/insight/${values.insight.id}`, payload)
+                    const response = await api.update(`api/insight/${values.insight.id}`, payload)
+                    return { ...response, result: response.result || values.insight.result }
                 },
                 // using values.filters, query for new insight results
                 loadResults: async ({ refresh, queryId }, breakpoint) => {
