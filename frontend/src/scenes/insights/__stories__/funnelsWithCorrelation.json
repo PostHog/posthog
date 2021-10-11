@@ -1,0 +1,3367 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/insights",
+                "search": "?insight=FUNNELS&properties=%5B%5D&filter_test_accounts=false&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%2C%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A1%7D%2C%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A2%7D%5D&actions=%5B%5D&funnel_viz_type=steps&display=FunnelViz&interval=day&new_entity=%5B%5D&date_from=-14d",
+                "hash": ""
+            },
+            "searchParams": {
+                "insight": "FUNNELS",
+                "properties": [],
+                "filter_test_accounts": false,
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 0
+                    },
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 1
+                    },
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "order": 2
+                    }
+                ],
+                "actions": [],
+                "funnel_viz_type": "steps",
+                "display": "FunnelViz",
+                "interval": "day",
+                "new_entity": [],
+                "date_from": "-14d"
+            },
+            "hashParams": {}
+        }
+    },
+    "scenes": {
+        "userLogic": {
+            "user": {
+                "date_joined": "2021-06-11T20:15:15.312479Z",
+                "uuid": "0179fcb6-e570-0000-ef87-23aff95dc8ed",
+                "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
+                "first_name": "Marius Andra",
+                "email": "marius@posthog.com",
+                "email_opt_in": true,
+                "anonymize_data": false,
+                "toolbar_mode": "toolbar",
+                "has_password": true,
+                "is_staff": false,
+                "is_impersonated": false,
+                "team": {
+                    "id": 1,
+                    "uuid": "0179fcb6-e5b1-0000-2042-7b48b76d29ff",
+                    "organization": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
+                    "api_token": "ASECtCtPHPry2b9W_9_imSU2CO6dl3gpro2ESWuKwMU",
+                    "name": "HogFlix Demo App",
+                    "completed_snippet_onboarding": true,
+                    "ingested_event": true,
+                    "is_demo": true,
+                    "timezone": "UTC"
+                },
+                "organization": {
+                    "id": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
+                    "name": "PostHog DEV",
+                    "created_at": "2021-06-11T20:15:13.890390Z",
+                    "updated_at": "2021-08-24T06:17:47.034208Z",
+                    "membership_level": 15,
+                    "personalization": {
+                        "role": "engineer",
+                        "products": ["web", "backend", "data_pipeline"],
+                        "technical": "technical"
+                    },
+                    "setup": {
+                        "is_active": true,
+                        "current_section": 1,
+                        "any_project_ingested_events": false,
+                        "any_project_completed_snippet_onboarding": false,
+                        "non_demo_team_id": null,
+                        "has_invited_team_members": false
+                    },
+                    "plugins_access_level": 9,
+                    "teams": [
+                        {
+                            "id": 1,
+                            "uuid": "0179fcb6-e5b1-0000-2042-7b48b76d29ff",
+                            "organization": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
+                            "api_token": "ASECtCtPHPry2b9W_9_imSU2CO6dl3gpro2ESWuKwMU",
+                            "name": "HogFlix Demo App",
+                            "completed_snippet_onboarding": true,
+                            "ingested_event": true,
+                            "is_demo": true,
+                            "timezone": "UTC"
+                        }
+                    ],
+                    "available_features": [],
+                    "domain_whitelist": [],
+                    "is_member_join_email_enabled": true
+                },
+                "organizations": [
+                    {
+                        "id": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
+                        "name": "PostHog DEV"
+                    }
+                ],
+                "events_column_config": {
+                    "active": "DEFAULT"
+                }
+            },
+            "userLoading": false
+        },
+        "PreflightCheck": {
+            "logic": {
+                "preflight": {
+                    "django": true,
+                    "redis": true,
+                    "plugins": true,
+                    "celery": false,
+                    "db": true,
+                    "initiated": true,
+                    "cloud": false,
+                    "realm": "hosted",
+                    "available_social_auth_providers": {
+                        "google-oauth2": false,
+                        "github": false,
+                        "gitlab": false
+                    },
+                    "can_create_org": false,
+                    "ee_available": true,
+                    "is_clickhouse_enabled": true,
+                    "db_backend": "clickhouse",
+                    "available_timezones": {
+                        "Africa/Abidjan": 0,
+                        "Africa/Accra": 0,
+                        "Africa/Addis_Ababa": 3,
+                        "Africa/Algiers": 1,
+                        "Africa/Asmara": 3,
+                        "Africa/Bamako": 0,
+                        "Africa/Bangui": 1,
+                        "Africa/Banjul": 0,
+                        "Africa/Bissau": 0,
+                        "Africa/Blantyre": 2,
+                        "Africa/Brazzaville": 1,
+                        "Africa/Bujumbura": 2,
+                        "Africa/Cairo": 2,
+                        "Africa/Casablanca": 1,
+                        "Africa/Ceuta": 2,
+                        "Africa/Conakry": 0,
+                        "Africa/Dakar": 0,
+                        "Africa/Dar_es_Salaam": 3,
+                        "Africa/Djibouti": 3,
+                        "Africa/Douala": 1,
+                        "Africa/El_Aaiun": 1,
+                        "Africa/Freetown": 0,
+                        "Africa/Gaborone": 2,
+                        "Africa/Harare": 2,
+                        "Africa/Johannesburg": 2,
+                        "Africa/Juba": 2,
+                        "Africa/Kampala": 3,
+                        "Africa/Khartoum": 2,
+                        "Africa/Kigali": 2,
+                        "Africa/Kinshasa": 1,
+                        "Africa/Lagos": 1,
+                        "Africa/Libreville": 1,
+                        "Africa/Lome": 0,
+                        "Africa/Luanda": 1,
+                        "Africa/Lubumbashi": 2,
+                        "Africa/Lusaka": 2,
+                        "Africa/Malabo": 1,
+                        "Africa/Maputo": 2,
+                        "Africa/Maseru": 2,
+                        "Africa/Mbabane": 2,
+                        "Africa/Mogadishu": 3,
+                        "Africa/Monrovia": 0,
+                        "Africa/Nairobi": 3,
+                        "Africa/Ndjamena": 1,
+                        "Africa/Niamey": 1,
+                        "Africa/Nouakchott": 0,
+                        "Africa/Ouagadougou": 0,
+                        "Africa/Porto-Novo": 1,
+                        "Africa/Sao_Tome": 0,
+                        "Africa/Tripoli": 2,
+                        "Africa/Tunis": 1,
+                        "Africa/Windhoek": 2,
+                        "America/Adak": -9,
+                        "America/Anchorage": -8,
+                        "America/Anguilla": -4,
+                        "America/Antigua": -4,
+                        "America/Araguaina": -3,
+                        "America/Argentina/Buenos_Aires": -3,
+                        "America/Argentina/Catamarca": -3,
+                        "America/Argentina/Cordoba": -3,
+                        "America/Argentina/Jujuy": -3,
+                        "America/Argentina/La_Rioja": -3,
+                        "America/Argentina/Mendoza": -3,
+                        "America/Argentina/Rio_Gallegos": -3,
+                        "America/Argentina/Salta": -3,
+                        "America/Argentina/San_Juan": -3,
+                        "America/Argentina/San_Luis": -3,
+                        "America/Argentina/Tucuman": -3,
+                        "America/Argentina/Ushuaia": -3,
+                        "America/Aruba": -4,
+                        "America/Asuncion": -4,
+                        "America/Atikokan": -5,
+                        "America/Bahia": -3,
+                        "America/Bahia_Banderas": -5,
+                        "America/Barbados": -4,
+                        "America/Belem": -3,
+                        "America/Belize": -6,
+                        "America/Blanc-Sablon": -4,
+                        "America/Boa_Vista": -4,
+                        "America/Bogota": -5,
+                        "America/Boise": -6,
+                        "America/Cambridge_Bay": -6,
+                        "America/Campo_Grande": -4,
+                        "America/Cancun": -5,
+                        "America/Caracas": -4,
+                        "America/Cayenne": -3,
+                        "America/Cayman": -5,
+                        "America/Chicago": -5,
+                        "America/Chihuahua": -6,
+                        "America/Costa_Rica": -6,
+                        "America/Creston": -7,
+                        "America/Cuiaba": -4,
+                        "America/Curacao": -4,
+                        "America/Danmarkshavn": 0,
+                        "America/Dawson": -7,
+                        "America/Dawson_Creek": -7,
+                        "America/Denver": -6,
+                        "America/Detroit": -4,
+                        "America/Dominica": -4,
+                        "America/Edmonton": -6,
+                        "America/Eirunepe": -5,
+                        "America/El_Salvador": -6,
+                        "America/Fort_Nelson": -7,
+                        "America/Fortaleza": -3,
+                        "America/Glace_Bay": -3,
+                        "America/Goose_Bay": -3,
+                        "America/Grand_Turk": -4,
+                        "America/Grenada": -4,
+                        "America/Guadeloupe": -4,
+                        "America/Guatemala": -6,
+                        "America/Guayaquil": -5,
+                        "America/Guyana": -4,
+                        "America/Halifax": -3,
+                        "America/Havana": -4,
+                        "America/Hermosillo": -7,
+                        "America/Indiana/Indianapolis": -4,
+                        "America/Indiana/Knox": -5,
+                        "America/Indiana/Marengo": -4,
+                        "America/Indiana/Petersburg": -4,
+                        "America/Indiana/Tell_City": -5,
+                        "America/Indiana/Vevay": -4,
+                        "America/Indiana/Vincennes": -4,
+                        "America/Indiana/Winamac": -4,
+                        "America/Inuvik": -6,
+                        "America/Iqaluit": -4,
+                        "America/Jamaica": -5,
+                        "America/Juneau": -8,
+                        "America/Kentucky/Louisville": -4,
+                        "America/Kentucky/Monticello": -4,
+                        "America/Kralendijk": -4,
+                        "America/La_Paz": -4,
+                        "America/Lima": -5,
+                        "America/Los_Angeles": -7,
+                        "America/Lower_Princes": -4,
+                        "America/Maceio": -3,
+                        "America/Managua": -6,
+                        "America/Manaus": -4,
+                        "America/Marigot": -4,
+                        "America/Martinique": -4,
+                        "America/Matamoros": -5,
+                        "America/Mazatlan": -6,
+                        "America/Menominee": -5,
+                        "America/Merida": -5,
+                        "America/Metlakatla": -8,
+                        "America/Mexico_City": -5,
+                        "America/Miquelon": -2,
+                        "America/Moncton": -3,
+                        "America/Monterrey": -5,
+                        "America/Montevideo": -3,
+                        "America/Montserrat": -4,
+                        "America/Nassau": -4,
+                        "America/New_York": -4,
+                        "America/Nipigon": -4,
+                        "America/Nome": -8,
+                        "America/Noronha": -2,
+                        "America/North_Dakota/Beulah": -5,
+                        "America/North_Dakota/Center": -5,
+                        "America/North_Dakota/New_Salem": -5,
+                        "America/Nuuk": -2,
+                        "America/Ojinaga": -6,
+                        "America/Panama": -5,
+                        "America/Pangnirtung": -4,
+                        "America/Paramaribo": -3,
+                        "America/Phoenix": -7,
+                        "America/Port-au-Prince": -4,
+                        "America/Port_of_Spain": -4,
+                        "America/Porto_Velho": -4,
+                        "America/Puerto_Rico": -4,
+                        "America/Punta_Arenas": -3,
+                        "America/Rainy_River": -5,
+                        "America/Rankin_Inlet": -5,
+                        "America/Recife": -3,
+                        "America/Regina": -6,
+                        "America/Resolute": -5,
+                        "America/Rio_Branco": -5,
+                        "America/Santarem": -3,
+                        "America/Santiago": -4,
+                        "America/Santo_Domingo": -4,
+                        "America/Sao_Paulo": -3,
+                        "America/Scoresbysund": 0,
+                        "America/Sitka": -8,
+                        "America/St_Barthelemy": -4,
+                        "America/St_Johns": -2.5,
+                        "America/St_Kitts": -4,
+                        "America/St_Lucia": -4,
+                        "America/St_Thomas": -4,
+                        "America/St_Vincent": -4,
+                        "America/Swift_Current": -6,
+                        "America/Tegucigalpa": -6,
+                        "America/Thule": -3,
+                        "America/Thunder_Bay": -4,
+                        "America/Tijuana": -7,
+                        "America/Toronto": -4,
+                        "America/Tortola": -4,
+                        "America/Vancouver": -7,
+                        "America/Whitehorse": -7,
+                        "America/Winnipeg": -5,
+                        "America/Yakutat": -8,
+                        "America/Yellowknife": -6,
+                        "Antarctica/Casey": 11,
+                        "Antarctica/Davis": 7,
+                        "Antarctica/DumontDUrville": 10,
+                        "Antarctica/Macquarie": 10,
+                        "Antarctica/Mawson": 5,
+                        "Antarctica/McMurdo": 12,
+                        "Antarctica/Palmer": -3,
+                        "Antarctica/Rothera": -3,
+                        "Antarctica/Syowa": 3,
+                        "Antarctica/Troll": 2,
+                        "Antarctica/Vostok": 6,
+                        "Arctic/Longyearbyen": 2,
+                        "Asia/Aden": 3,
+                        "Asia/Almaty": 6,
+                        "Asia/Amman": 3,
+                        "Asia/Anadyr": 12,
+                        "Asia/Aqtau": 5,
+                        "Asia/Aqtobe": 5,
+                        "Asia/Ashgabat": 5,
+                        "Asia/Atyrau": 5,
+                        "Asia/Baghdad": 3,
+                        "Asia/Bahrain": 3,
+                        "Asia/Baku": 4,
+                        "Asia/Bangkok": 7,
+                        "Asia/Barnaul": 7,
+                        "Asia/Beirut": 3,
+                        "Asia/Bishkek": 6,
+                        "Asia/Brunei": 8,
+                        "Asia/Chita": 9,
+                        "Asia/Choibalsan": 8,
+                        "Asia/Colombo": 5.5,
+                        "Asia/Damascus": 3,
+                        "Asia/Dhaka": 6,
+                        "Asia/Dili": 9,
+                        "Asia/Dubai": 4,
+                        "Asia/Dushanbe": 5,
+                        "Asia/Famagusta": 3,
+                        "Asia/Gaza": 3,
+                        "Asia/Hebron": 3,
+                        "Asia/Ho_Chi_Minh": 7,
+                        "Asia/Hong_Kong": 8,
+                        "Asia/Hovd": 7,
+                        "Asia/Irkutsk": 8,
+                        "Asia/Jakarta": 7,
+                        "Asia/Jayapura": 9,
+                        "Asia/Jerusalem": 3,
+                        "Asia/Kabul": 4.5,
+                        "Asia/Kamchatka": 12,
+                        "Asia/Karachi": 5,
+                        "Asia/Kathmandu": 5.75,
+                        "Asia/Khandyga": 9,
+                        "Asia/Kolkata": 5.5,
+                        "Asia/Krasnoyarsk": 7,
+                        "Asia/Kuala_Lumpur": 8,
+                        "Asia/Kuching": 8,
+                        "Asia/Kuwait": 3,
+                        "Asia/Macau": 8,
+                        "Asia/Magadan": 11,
+                        "Asia/Makassar": 8,
+                        "Asia/Manila": 8,
+                        "Asia/Muscat": 4,
+                        "Asia/Nicosia": 3,
+                        "Asia/Novokuznetsk": 7,
+                        "Asia/Novosibirsk": 7,
+                        "Asia/Omsk": 6,
+                        "Asia/Oral": 5,
+                        "Asia/Phnom_Penh": 7,
+                        "Asia/Pontianak": 7,
+                        "Asia/Pyongyang": 9,
+                        "Asia/Qatar": 3,
+                        "Asia/Qostanay": 6,
+                        "Asia/Qyzylorda": 5,
+                        "Asia/Riyadh": 3,
+                        "Asia/Sakhalin": 11,
+                        "Asia/Samarkand": 5,
+                        "Asia/Seoul": 9,
+                        "Asia/Shanghai": 8,
+                        "Asia/Singapore": 8,
+                        "Asia/Srednekolymsk": 11,
+                        "Asia/Taipei": 8,
+                        "Asia/Tashkent": 5,
+                        "Asia/Tbilisi": 4,
+                        "Asia/Tehran": 4.5,
+                        "Asia/Thimphu": 6,
+                        "Asia/Tokyo": 9,
+                        "Asia/Tomsk": 7,
+                        "Asia/Ulaanbaatar": 8,
+                        "Asia/Urumqi": 6,
+                        "Asia/Ust-Nera": 10,
+                        "Asia/Vientiane": 7,
+                        "Asia/Vladivostok": 10,
+                        "Asia/Yakutsk": 9,
+                        "Asia/Yangon": 6.5,
+                        "Asia/Yekaterinburg": 5,
+                        "Asia/Yerevan": 4,
+                        "Atlantic/Azores": 0,
+                        "Atlantic/Bermuda": -3,
+                        "Atlantic/Canary": 1,
+                        "Atlantic/Cape_Verde": -1,
+                        "Atlantic/Faroe": 1,
+                        "Atlantic/Madeira": 1,
+                        "Atlantic/Reykjavik": 0,
+                        "Atlantic/South_Georgia": -2,
+                        "Atlantic/St_Helena": 0,
+                        "Atlantic/Stanley": -3,
+                        "Australia/Adelaide": 9.5,
+                        "Australia/Brisbane": 10,
+                        "Australia/Broken_Hill": 9.5,
+                        "Australia/Darwin": 9.5,
+                        "Australia/Eucla": 8.75,
+                        "Australia/Hobart": 10,
+                        "Australia/Lindeman": 10,
+                        "Australia/Lord_Howe": 10.5,
+                        "Australia/Melbourne": 10,
+                        "Australia/Perth": 8,
+                        "Australia/Sydney": 10,
+                        "Canada/Atlantic": -3,
+                        "Canada/Central": -5,
+                        "Canada/Eastern": -4,
+                        "Canada/Mountain": -6,
+                        "Canada/Newfoundland": -2.5,
+                        "Canada/Pacific": -7,
+                        "Europe/Amsterdam": 2,
+                        "Europe/Andorra": 2,
+                        "Europe/Astrakhan": 4,
+                        "Europe/Athens": 3,
+                        "Europe/Belgrade": 2,
+                        "Europe/Berlin": 2,
+                        "Europe/Bratislava": 2,
+                        "Europe/Brussels": 2,
+                        "Europe/Bucharest": 3,
+                        "Europe/Budapest": 2,
+                        "Europe/Busingen": 2,
+                        "Europe/Chisinau": 3,
+                        "Europe/Copenhagen": 2,
+                        "Europe/Dublin": 1,
+                        "Europe/Gibraltar": 2,
+                        "Europe/Guernsey": 1,
+                        "Europe/Helsinki": 3,
+                        "Europe/Isle_of_Man": 1,
+                        "Europe/Istanbul": 3,
+                        "Europe/Jersey": 1,
+                        "Europe/Kaliningrad": 2,
+                        "Europe/Kiev": 3,
+                        "Europe/Kirov": 3,
+                        "Europe/Lisbon": 1,
+                        "Europe/Ljubljana": 2,
+                        "Europe/London": 1,
+                        "Europe/Luxembourg": 2,
+                        "Europe/Madrid": 2,
+                        "Europe/Malta": 2,
+                        "Europe/Mariehamn": 3,
+                        "Europe/Minsk": 3,
+                        "Europe/Monaco": 2,
+                        "Europe/Moscow": 3,
+                        "Europe/Oslo": 2,
+                        "Europe/Paris": 2,
+                        "Europe/Podgorica": 2,
+                        "Europe/Prague": 2,
+                        "Europe/Riga": 3,
+                        "Europe/Rome": 2,
+                        "Europe/Samara": 4,
+                        "Europe/San_Marino": 2,
+                        "Europe/Sarajevo": 2,
+                        "Europe/Saratov": 4,
+                        "Europe/Simferopol": 3,
+                        "Europe/Skopje": 2,
+                        "Europe/Sofia": 3,
+                        "Europe/Stockholm": 2,
+                        "Europe/Tallinn": 3,
+                        "Europe/Tirane": 2,
+                        "Europe/Ulyanovsk": 4,
+                        "Europe/Uzhgorod": 3,
+                        "Europe/Vaduz": 2,
+                        "Europe/Vatican": 2,
+                        "Europe/Vienna": 2,
+                        "Europe/Vilnius": 3,
+                        "Europe/Volgograd": 3,
+                        "Europe/Warsaw": 2,
+                        "Europe/Zagreb": 2,
+                        "Europe/Zaporozhye": 3,
+                        "Europe/Zurich": 2,
+                        "GMT": 0,
+                        "Indian/Antananarivo": 3,
+                        "Indian/Chagos": 6,
+                        "Indian/Christmas": 7,
+                        "Indian/Cocos": 6.5,
+                        "Indian/Comoro": 3,
+                        "Indian/Kerguelen": 5,
+                        "Indian/Mahe": 4,
+                        "Indian/Maldives": 5,
+                        "Indian/Mauritius": 4,
+                        "Indian/Mayotte": 3,
+                        "Indian/Reunion": 4,
+                        "Pacific/Apia": 13,
+                        "Pacific/Auckland": 12,
+                        "Pacific/Bougainville": 11,
+                        "Pacific/Chatham": 12.75,
+                        "Pacific/Chuuk": 10,
+                        "Pacific/Easter": -6,
+                        "Pacific/Efate": 11,
+                        "Pacific/Enderbury": 13,
+                        "Pacific/Fakaofo": 13,
+                        "Pacific/Fiji": 12,
+                        "Pacific/Funafuti": 12,
+                        "Pacific/Galapagos": -6,
+                        "Pacific/Gambier": -9,
+                        "Pacific/Guadalcanal": 11,
+                        "Pacific/Guam": 10,
+                        "Pacific/Honolulu": -10,
+                        "Pacific/Kiritimati": 14,
+                        "Pacific/Kosrae": 11,
+                        "Pacific/Kwajalein": 12,
+                        "Pacific/Majuro": 12,
+                        "Pacific/Marquesas": -9.5,
+                        "Pacific/Midway": -11,
+                        "Pacific/Nauru": 12,
+                        "Pacific/Niue": -11,
+                        "Pacific/Norfolk": 11,
+                        "Pacific/Noumea": 11,
+                        "Pacific/Pago_Pago": -11,
+                        "Pacific/Palau": 9,
+                        "Pacific/Pitcairn": -8,
+                        "Pacific/Pohnpei": 11,
+                        "Pacific/Port_Moresby": 10,
+                        "Pacific/Rarotonga": -10,
+                        "Pacific/Saipan": 10,
+                        "Pacific/Tahiti": -10,
+                        "Pacific/Tarawa": 12,
+                        "Pacific/Tongatapu": 13,
+                        "Pacific/Wake": 12,
+                        "Pacific/Wallis": 12,
+                        "US/Alaska": -8,
+                        "US/Arizona": -7,
+                        "US/Central": -5,
+                        "US/Eastern": -4,
+                        "US/Hawaii": -10,
+                        "US/Mountain": -6,
+                        "US/Pacific": -7,
+                        "UTC": 0
+                    },
+                    "opt_out_capture": false,
+                    "posthog_version": "1.27.0",
+                    "email_service_available": false,
+                    "is_debug": true,
+                    "is_event_property_usage_enabled": false,
+                    "licensed_users_available": null,
+                    "site_url": "http://localhost:8000"
+                },
+                "preflightLoading": false,
+                "preflightMode": null
+            }
+        },
+        "App": {
+            "showingDelayedSpinner": true,
+            "featureFlagsTimedOut": true
+        },
+        "sceneLogic": {
+            "scene": "insights",
+            "params": {},
+            "loadedScenes": {
+                "404": {},
+                "4xx": {},
+                "insights": {}
+            },
+            "loadingScene": null,
+            "upgradeModalFeatureNameAndCaption": null
+        },
+        "organizationLogic": {
+            "currentOrganization": {
+                "id": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
+                "name": "PostHog DEV",
+                "created_at": "2021-06-11T20:15:13.890390Z",
+                "updated_at": "2021-08-24T06:17:47.034208Z",
+                "membership_level": 15,
+                "personalization": {
+                    "role": "engineer",
+                    "products": ["web", "backend", "data_pipeline"],
+                    "technical": "technical"
+                },
+                "setup": {
+                    "is_active": true,
+                    "current_section": 1,
+                    "any_project_ingested_events": false,
+                    "any_project_completed_snippet_onboarding": false,
+                    "non_demo_team_id": null,
+                    "has_invited_team_members": false
+                },
+                "plugins_access_level": 9,
+                "teams": [
+                    {
+                        "id": 1,
+                        "uuid": "0179fcb6-e5b1-0000-2042-7b48b76d29ff",
+                        "organization": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
+                        "api_token": "ASECtCtPHPry2b9W_9_imSU2CO6dl3gpro2ESWuKwMU",
+                        "name": "HogFlix Demo App",
+                        "completed_snippet_onboarding": true,
+                        "ingested_event": true,
+                        "is_demo": true,
+                        "timezone": "UTC"
+                    }
+                ],
+                "available_features": [],
+                "domain_whitelist": [],
+                "is_member_join_email_enabled": true
+            },
+            "currentOrganizationLoading": false,
+            "organizationBeingDeleted": null
+        },
+        "instance": {
+            "SystemStatus": {
+                "systemStatusLogic": {
+                    "systemStatus": {
+                        "overview": [
+                            {
+                                "key": "posthog_version",
+                                "metric": "PostHog version",
+                                "value": "1.27.0"
+                            },
+                            {
+                                "key": "analytics_database",
+                                "metric": "Analytics database in use",
+                                "value": "Postgres"
+                            },
+                            {
+                                "key": "plugin_sever_alive",
+                                "metric": "Plugin server alive",
+                                "value": true
+                            },
+                            {
+                                "key": "plugin_sever_version",
+                                "metric": "Plugin server version",
+                                "value": "1.1.4"
+                            },
+                            {
+                                "key": "plugin_sever_job_queues",
+                                "metric": "Job queues enabled in plugin server",
+                                "value": "Graphile"
+                            },
+                            {
+                                "key": "db_alive",
+                                "metric": "Postgres database alive",
+                                "value": true
+                            },
+                            {
+                                "key": "pg_version",
+                                "metric": "Postgres version",
+                                "value": "13.0.1"
+                            },
+                            {
+                                "metric": "Postgres elements table size",
+                                "value": "46.3K rows (~12 MB)"
+                            },
+                            {
+                                "metric": "Postgres events table size",
+                                "value": "32.4K rows (~98 MB)"
+                            },
+                            {
+                                "metric": "Postgres session recording table size",
+                                "value": "62 rows (~184 kB)"
+                            },
+                            {
+                                "key": "redis_alive",
+                                "metric": "Redis alive",
+                                "value": true
+                            },
+                            {
+                                "metric": "Redis version",
+                                "value": "6.0.10"
+                            },
+                            {
+                                "metric": "Redis current queue depth",
+                                "value": "0"
+                            },
+                            {
+                                "metric": "Redis connected client count",
+                                "value": "35"
+                            },
+                            {
+                                "metric": "Redis memory used",
+                                "value": "1.97MB"
+                            },
+                            {
+                                "metric": "Redis memory peak",
+                                "value": "2.37MB"
+                            },
+                            {
+                                "metric": "Redis total memory available",
+                                "value": "16.00GB"
+                            }
+                        ],
+                        "internal_metrics": {}
+                    },
+                    "systemStatusLoading": false,
+                    "queries": null,
+                    "queriesLoading": false,
+                    "tab": "overview",
+                    "error": null,
+                    "openSections": ["0"]
+                }
+            }
+        },
+        "billing": {
+            "billingLogic": {
+                "billing": null,
+                "billingLoading": false,
+                "plans": [],
+                "plansLoading": false,
+                "billingSubscription": null,
+                "billingSubscriptionLoading": false
+            }
+        },
+        "teamLogic": {
+            "currentTeam": {
+                "id": 1,
+                "uuid": "0179fcb6-e5b1-0000-2042-7b48b76d29ff",
+                "organization": "0179fcb6-dfdf-0000-7e5a-3f65203b1885",
+                "api_token": "ASECtCtPHPry2b9W_9_imSU2CO6dl3gpro2ESWuKwMU",
+                "app_urls": [],
+                "name": "HogFlix Demo App",
+                "slack_incoming_webhook": null,
+                "created_at": "2021-06-11T20:15:15.378152Z",
+                "updated_at": "2021-06-11T20:15:16.311308Z",
+                "anonymize_ips": false,
+                "completed_snippet_onboarding": true,
+                "ingested_event": true,
+                "test_account_filters": [
+                    {
+                        "key": "$host",
+                        "value": [
+                            "localhost:8000",
+                            "localhost:5000",
+                            "127.0.0.1:8000",
+                            "127.0.0.1:3000",
+                            "localhost:3000"
+                        ],
+                        "operator": "is_not"
+                    }
+                ],
+                "is_demo": true,
+                "timezone": "UTC",
+                "data_attributes": ["data-attr"],
+                "session_recording_opt_in": false,
+                "session_recording_retention_period_days": null
+            },
+            "currentTeamLoading": false,
+            "teamBeingDeleted": null
+        },
+        "organization": {
+            "Settings": {
+                "bulkInviteLogic": {
+                    "invitedTeamMembers": [],
+                    "invitedTeamMembersLoading": false,
+                    "invites": [
+                        {
+                            "target_email": "",
+                            "first_name": "",
+                            "isValid": true
+                        }
+                    ]
+                }
+            }
+        },
+        "insights": {
+            "InsightDateFilter": {
+                "insightDateFilterLogic": {
+                    "dates": {
+                        "dateFrom": "-14d"
+                    },
+                    "highlightDateChange": false,
+                    "initialLoad": false
+                }
+            },
+            "insightLogic": {
+                "insight": {
+                    "tags": []
+                },
+                "insightLoading": false,
+                "insightMode": "view",
+                "insightModeLoading": false,
+                "showTimeoutMessage": false,
+                "maybeShowTimeoutMessage": false,
+                "showErrorMessage": false,
+                "maybeShowErrorMessage": false,
+                "cachedUrls": {},
+                "activeView": "FUNNELS",
+                "timeout": 63,
+                "lastRefresh": "2021-08-24T08:58:30.209209Z",
+                "isLoading": false,
+                "allFilters": {
+                    "insight": "FUNNELS",
+                    "properties": [],
+                    "filter_test_accounts": false,
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 0
+                        },
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 1
+                        },
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "order": 2
+                        }
+                    ],
+                    "actions": [],
+                    "funnel_viz_type": "steps",
+                    "display": "FunnelViz",
+                    "interval": "day",
+                    "new_entity": [],
+                    "date_from": "-14d"
+                },
+                "isFirstLoad": false,
+                "controlsCollapsed": false,
+                "queryStartTimes": {
+                    "e22772f3-aa1d-4a14-a4c5-85dc5cf52e96": 1629796352880
+                },
+                "lastInsightModeSource": null
+            },
+            "InsightHistoryPanel": {
+                "insightHistoryLogic": {
+                    "insights": [],
+                    "insightsLoading": false,
+                    "savedInsights": [],
+                    "savedInsightsLoading": false,
+                    "teamInsights": [],
+                    "teamInsightsLoading": false,
+                    "insightsNext": null,
+                    "loadingMoreInsights": false,
+                    "savedInsightsNext": null,
+                    "loadingMoreSavedInsights": false,
+                    "teamInsightsNext": null,
+                    "loadingMoreTeamInsights": false
+                }
+            },
+            "ActionFilter": {
+                "entityFilterLogic": {
+                    "EditFunnel-action": {
+                        "selectedFilter": null,
+                        "localFilters": [
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0
+                            },
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 1
+                            },
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 2
+                            }
+                        ],
+                        "entityFilterVisible": []
+                    }
+                }
+            }
+        },
+        "trends": {
+            "personsModalLogic": {
+                "people": null,
+                "peopleLoading": false,
+                "searchTerm": "",
+                "cohortModalVisible": false,
+                "firstLoadedPeople": null,
+                "loadingMorePeople": false,
+                "showingPeople": false,
+                "peopleParams": null
+            }
+        },
+        "funnels": {
+            "funnelLogic": {
+                "insight_funnel": {
+                    "rawResults": {
+                        "results": [
+                            {
+                                "action_id": "$pageview",
+                                "name": "$pageview",
+                                "order": 0,
+                                "people": ["0179fcb6-ec4b-0000-0ec3-69f4fb4b6b90"],
+                                "count": 1,
+                                "type": "events",
+                                "average_time": 0
+                            },
+                            {
+                                "action_id": "$pageview",
+                                "name": "$pageview",
+                                "order": 1,
+                                "people": ["0179fcb6-ec4b-0000-0ec3-69f4fb4b6b90"],
+                                "count": 1,
+                                "type": "events",
+                                "average_time": 0
+                            },
+                            {
+                                "action_id": "$pageview",
+                                "name": "$pageview",
+                                "order": 2,
+                                "people": ["0179fcb6-ec4b-0000-0ec3-69f4fb4b6b90"],
+                                "count": 1,
+                                "type": "events"
+                            }
+                        ],
+                        "timeConversionResults": {
+                            "bins": [],
+                            "average_conversion_time": 0
+                        },
+                        "filters": {
+                            "insight": "FUNNELS",
+                            "properties": [],
+                            "filter_test_accounts": false,
+                            "events": [
+                                {
+                                    "id": "$pageview",
+                                    "name": "$pageview",
+                                    "type": "events",
+                                    "order": 0
+                                },
+                                {
+                                    "id": "$pageview",
+                                    "name": "$pageview",
+                                    "type": "events",
+                                    "order": 1
+                                },
+                                {
+                                    "id": "$pageview",
+                                    "name": "$pageview",
+                                    "type": "events",
+                                    "order": 2
+                                }
+                            ],
+                            "actions": [],
+                            "funnel_viz_type": "steps",
+                            "display": "FunnelViz",
+                            "interval": "day",
+                            "new_entity": [],
+                            "date_from": "-14d"
+                        }
+                    },
+                    "rawResultsLoading": false,
+                    "people": [
+                        {
+                            "id": 161,
+                            "name": "marius@posthog.com",
+                            "distinct_ids": [
+                                "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
+                                "179fcb6eb94401-01a74f4cf30319-1f3a6255-13c680-179fcb6eb9519d1"
+                            ],
+                            "properties": {
+                                "$os": "Mac OS X",
+                                "role": "engineer",
+                                "email": "marius@posthog.com",
+                                "$browser": "Chrome",
+                                "products": ["web", "backend", "data_pipeline"],
+                                "technical": "technical",
+                                "$geoip_latitude": -33.8591,
+                                "$browser_version": 92,
+                                "$geoip_city_name": "Sydney",
+                                "$geoip_longitude": 151.2002,
+                                "$geoip_time_zone": "Australia/Sydney",
+                                "$initial_referrer": "$direct",
+                                "$geoip_postal_code": "2000",
+                                "$geoip_country_code": "AU",
+                                "$geoip_country_name": "Australia",
+                                "$geoip_continent_code": "OC",
+                                "$geoip_continent_name": "Oceania",
+                                "$initial_geoip_latitude": -33.8563,
+                                "$initial_geoip_city_name": "Sydney",
+                                "$initial_geoip_longitude": 151.2122,
+                                "$initial_geoip_time_zone": "Australia/Sydney",
+                                "$geoip_subdivision_1_code": "NSW",
+                                "$geoip_subdivision_1_name": "New South Wales",
+                                "$initial_referring_domain": "$direct",
+                                "$initial_geoip_postal_code": "2000",
+                                "$initial_geoip_country_code": "AU",
+                                "$initial_geoip_country_name": "Australia",
+                                "$initial_geoip_continent_code": "OC",
+                                "$initial_geoip_continent_name": "Oceania",
+                                "$initial_geoip_subdivision_1_code": "NSW",
+                                "$initial_geoip_subdivision_1_name": "New South Wales"
+                            },
+                            "is_identified": true,
+                            "created_at": "2021-06-11T20:15:17.067000Z",
+                            "uuid": "0179fcb6-ec4b-0000-0ec3-69f4fb4b6b90"
+                        }
+                    ],
+                    "peopleLoading": false,
+                    "filters": {
+                        "insight": "FUNNELS",
+                        "properties": [],
+                        "filter_test_accounts": false,
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0
+                            },
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 1
+                            },
+                            {
+                                "id": "$pageview",
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 2
+                            }
+                        ],
+                        "actions": [],
+                        "funnel_viz_type": "steps",
+                        "display": "FunnelViz",
+                        "interval": "day",
+                        "new_entity": [],
+                        "date_from": "-14d"
+                    },
+                    "conversionWindow": {
+                        "funnel_window_interval_unit": "day",
+                        "funnel_window_interval": 14
+                    },
+                    "stepReference": "total",
+                    "histogramStep": {
+                        "from_step": -1,
+                        "to_step": -1
+                    },
+                    "isGroupingOutliers": true,
+                    "binCount": "auto"
+                }
+            }
+        }
+    },
+    "lib": {
+        "logic": {
+            "featureFlagLogic": {
+                "featureFlags": {
+                    "4050-query-ui-optB": true,
+                    "correlation-analysis": true
+                },
+                "receivedFeatureFlags": true
+            }
+        },
+        "components": {
+            "PersonalAPIKeys": {
+                "personalAPIKeysLogic": {
+                    "keys": [],
+                    "keysLoading": false
+                }
+            },
+            "CommandPalette": {
+                "commandPaletteLogic": {
+                    "isPaletteShown": false,
+                    "keyboardResultIndex": 0,
+                    "hoverResultIndex": null,
+                    "input": "",
+                    "activeFlow": null,
+                    "rawCommandRegistrations": {
+                        "go-to": {
+                            "key": "go-to",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"],
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Go to Dashboards"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Insights"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Trends"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Sessions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Funnels"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Retention"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to User Paths"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Events"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Actions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Live Sessions"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Persons",
+                                    "synonyms": ["people"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Cohorts"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Feature Flags",
+                                    "synonyms": ["feature flags", "a/b tests"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Annotations"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Team Members",
+                                    "synonyms": ["organization", "members", "invites", "teammates"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Project Settings"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to My Settings",
+                                    "synonyms": ["account"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to Plugins",
+                                    "synonyms": ["integrations"]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Go to System Status Page",
+                                    "synonyms": [
+                                        "redis",
+                                        "celery",
+                                        "django",
+                                        "postgres",
+                                        "backend",
+                                        "service",
+                                        "online"
+                                    ]
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Create Action"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Log Out"
+                                }
+                            ]
+                        },
+                        "open-urls": {
+                            "key": "open-urls",
+                            "scope": "global",
+                            "prefixes": ["open", "visit"]
+                        },
+                        "debug-clickhouse-queries": {
+                            "key": "debug-clickhouse-queries",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Debug ClickHouse Queries"
+                            }
+                        },
+                        "calculator": {
+                            "key": "calculator",
+                            "scope": "global"
+                        },
+                        "create-personal-api-key": {
+                            "key": "create-personal-api-key",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Personal API Key"
+                            }
+                        },
+                        "create-dashboard": {
+                            "key": "create-dashboard",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Create Dashboard"
+                            }
+                        },
+                        "share-feedback": {
+                            "key": "share-feedback",
+                            "scope": "global",
+                            "resolver": {
+                                "icon": {},
+                                "display": "Share Feedback",
+                                "synonyms": ["send opinion", "ask question", "message posthog", "github issue"]
+                            }
+                        },
+                        "insight-graph": {
+                            "key": "insight-graph",
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Toggle \"Compare Previous\" on Graph"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Custom"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Today"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Yesterday"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 24 hours"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 48 hours"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 7 days"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 14 days"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 30 days"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Last 90 days"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to This month"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Previous month"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to Year to date"
+                                },
+                                {
+                                    "icon": {},
+                                    "display": "Set Time Range to All time"
+                                }
+                            ],
+                            "scope": "insights"
+                        },
+                        "funnels": {
+                            "key": "funnels",
+                            "resolver": [
+                                {
+                                    "icon": {},
+                                    "display": "Clear Funnel"
+                                }
+                            ],
+                            "scope": "funnels"
+                        }
+                    }
+                }
+            },
+            "BackTo": {
+                "backTo": null
+            },
+            "CompareFilter": {
+                "compareFilterLogic": {
+                    "compare": false,
+                    "disabled": false
+                }
+            },
+            "Annotations": {
+                "annotationsLogic": {
+                    "annotations_default": {
+                        "annotations": [],
+                        "annotationsLoading": false,
+                        "annotationsToCreate": [],
+                        "diffType": "day"
+                    }
+                }
+            },
+            "ChartFilter": {
+                "chartFilterLogic": {
+                    "chartFilter": "steps"
+                }
+            },
+            "PropertyFilters": {
+                "propertyFilterLogic": {
+                    "EditFunnel-property": {
+                        "filters": [{}]
+                    }
+                }
+            }
+        },
+        "experimental": {
+            "NPSPrompt": {
+                "step": 0,
+                "hidden": true,
+                "payload": null
+            }
+        }
+    },
+    "models": {
+        "actionsModel": {
+            "actions": [
+                {
+                    "id": 9,
+                    "name": "Pageview",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "9",
+                            "event": "$pageview",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-07-19T11:37:29.813525Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-08-24T06:22:00.979783Z",
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "0179fcb6-e570-0000-ef87-23aff95dc8ed",
+                        "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
+                        "first_name": "Marius Andra",
+                        "email": "marius@posthog.com"
+                    },
+                    "team_id": 1
+                },
+                {
+                    "id": 8,
+                    "name": "Entered Free Trial",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "8",
+                            "event": "entered_free_trial",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-06-11T20:15:16.301044Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-08-24T06:22:00.811648Z",
+                    "created_by": null,
+                    "team_id": 1
+                },
+                {
+                    "id": 7,
+                    "name": "Purchase",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "7",
+                            "event": "purchase",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-06-11T20:15:16.296620Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-08-24T06:22:00.858976Z",
+                    "created_by": null,
+                    "team_id": 1
+                },
+                {
+                    "id": 6,
+                    "name": "Watched Movie",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "6",
+                            "event": "watched_movie",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-06-11T20:15:15.760207Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-08-24T06:22:00.966124Z",
+                    "created_by": null,
+                    "team_id": 1
+                },
+                {
+                    "id": 5,
+                    "name": "Rated App",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "5",
+                            "event": "rated_app",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-06-11T20:15:15.752383Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-08-24T06:22:00.955565Z",
+                    "created_by": null,
+                    "team_id": 1
+                },
+                {
+                    "id": 4,
+                    "name": "Installed App",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "4",
+                            "event": "installed_app",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": null,
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-06-11T20:15:15.747317Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-08-24T06:22:00.944749Z",
+                    "created_by": null,
+                    "team_id": 1
+                },
+                {
+                    "id": 3,
+                    "name": "HogFlix paid",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "3",
+                            "event": "$autocapture",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": "button",
+                            "url": "http://hogflix.com/2",
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-06-11T20:15:15.511736Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-08-24T06:22:00.886067Z",
+                    "created_by": null,
+                    "team_id": 1
+                },
+                {
+                    "id": 2,
+                    "name": "HogFlix signed up",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "2",
+                            "event": "$autocapture",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": "button",
+                            "url": "http://hogflix.com/1",
+                            "name": null,
+                            "url_matching": "contains",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-06-11T20:15:15.487542Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-08-24T06:22:00.917441Z",
+                    "created_by": null,
+                    "team_id": 1
+                },
+                {
+                    "id": 1,
+                    "name": "HogFlix homepage view",
+                    "post_to_slack": false,
+                    "slack_message_format": "",
+                    "steps": [
+                        {
+                            "id": "1",
+                            "event": "$pageview",
+                            "tag_name": null,
+                            "text": null,
+                            "href": null,
+                            "selector": null,
+                            "url": "http://hogflix.com",
+                            "name": null,
+                            "url_matching": "exact",
+                            "properties": []
+                        }
+                    ],
+                    "created_at": "2021-06-11T20:15:15.476272Z",
+                    "deleted": false,
+                    "is_calculating": false,
+                    "last_calculated_at": "2021-08-24T06:22:00.933405Z",
+                    "created_by": null,
+                    "team_id": 1
+                }
+            ],
+            "actionsLoading": false
+        },
+        "annotationsModel": {
+            "globalAnnotations": [],
+            "globalAnnotationsLoading": false
+        },
+        "cohortsModel": {
+            "cohorts": [
+                {
+                    "id": 1,
+                    "name": "ewrwer",
+                    "groups": [
+                        {
+                            "days": "30",
+                            "count": null,
+                            "end_date": null,
+                            "event_id": null,
+                            "action_id": 1,
+                            "properties": null,
+                            "start_date": null,
+                            "count_operator": null
+                        }
+                    ],
+                    "deleted": false,
+                    "is_calculating": false,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "0179fcb6-e570-0000-ef87-23aff95dc8ed",
+                        "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
+                        "first_name": "Marius Andra",
+                        "email": "marius@posthog.com"
+                    },
+                    "created_at": "2021-07-01T23:28:50.063687Z",
+                    "last_calculation": "2021-08-24T06:19:00.646077Z",
+                    "errors_calculating": 0,
+                    "count": 0,
+                    "is_static": false
+                },
+                {
+                    "id": 2,
+                    "name": "bla",
+                    "groups": [
+                        {
+                            "days": null,
+                            "count": null,
+                            "label": null,
+                            "end_date": null,
+                            "event_id": null,
+                            "action_id": null,
+                            "properties": [
+                                {
+                                    "key": "$browser",
+                                    "type": "event",
+                                    "value": ["Chrome"],
+                                    "operator": "exact"
+                                }
+                            ],
+                            "start_date": null,
+                            "count_operator": null
+                        }
+                    ],
+                    "deleted": false,
+                    "is_calculating": false,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "0179fcb6-e570-0000-ef87-23aff95dc8ed",
+                        "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
+                        "first_name": "Marius Andra",
+                        "email": "marius@posthog.com"
+                    },
+                    "created_at": "2021-07-21T21:30:18.434311Z",
+                    "last_calculation": "2021-08-24T06:19:00.633027Z",
+                    "errors_calculating": 0,
+                    "count": 1,
+                    "is_static": false
+                }
+            ],
+            "cohortsLoading": false,
+            "pollTimeout": null
+        },
+        "dashboardsModel": {
+            "rawDashboards": {
+                "1": {
+                    "id": 1,
+                    "name": "Web Analytics",
+                    "description": "",
+                    "pinned": true,
+                    "items": null,
+                    "created_at": "2021-06-11T20:15:15.526686Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "y0vE70V15xFb3vXQMe-uyfFJLjX3MA",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {
+                        "date_to": null,
+                        "date_from": "all"
+                    },
+                    "tags": []
+                },
+                "2": {
+                    "id": 2,
+                    "name": "App Analytics",
+                    "description": "",
+                    "pinned": true,
+                    "items": null,
+                    "created_at": "2021-06-11T20:15:15.767559Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "qpLG-A5goOfyOfs994Wp5tEjF18aqA",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {},
+                    "tags": []
+                },
+                "3": {
+                    "id": 3,
+                    "name": "Sales & Revenue",
+                    "description": "",
+                    "pinned": true,
+                    "items": null,
+                    "created_at": "2021-06-11T20:15:16.307762Z",
+                    "created_by": null,
+                    "is_shared": false,
+                    "share_token": "lpRIQdsCN8AIDiwZAP4dZf7TaWvG6A",
+                    "deleted": false,
+                    "creation_mode": "default",
+                    "filters": {
+                        "date_to": null,
+                        "date_from": "-24h"
+                    },
+                    "tags": []
+                }
+            },
+            "rawDashboardsLoading": false,
+            "sharedDashboards": null,
+            "sharedDashboardsLoading": false,
+            "dashboard": null,
+            "dashboardLoading": false,
+            "redirect": true,
+            "lastDashboardId": 3
+        },
+        "eventDefinitionsModel": {
+            "eventStorage": {
+                "count": 41,
+                "results": [
+                    {
+                        "id": "0179fcb7-0f0c-0001-c47c-fc2ba876a2a3",
+                        "name": "$autocapture",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-bf27-0001-d284-954d1e45cf93",
+                        "name": "$capture_failed_request",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43a7-0000-02b0-a10e62856fc8",
+                        "name": "$capture_metrics",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-f7d5-0000-6535-16e7b9e86dd1",
+                        "name": "$feature_flag_called",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec61-0000-d4c6-1afd4fce2833",
+                        "name": "$identify",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-439d-0000-5599-ca3f986f78bf",
+                        "name": "$pageleave",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e9c8-0000-aa71-f8d102702d5d",
+                        "name": "$pageview",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ac4e-0001-fa59-c15c383a4645",
+                        "name": "$rageclick",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-c40f-0001-80c4-b7ad453c5953",
+                        "name": "client_request_failure",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4a92-0001-6ea3-04be97fb9332",
+                        "name": "dashboard date range changed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b53a6-6d9f-0001-bdef-a76a19093579",
+                        "name": "dashboard dropdown navigated",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0d0-6994-0001-db5d-5d3296e53ea6",
+                        "name": "dashboard mode toggled",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-d8a6-0001-1468-857e182c786c",
+                        "name": "demo warning dismissed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e906-0000-b0bb-92ca6e5d0501",
+                        "name": "entered_free_trial",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-af2b-0001-62b6-6d5c4b832f2f",
+                        "name": "entity filter visbility set",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-af3c-0001-17c1-bf6b7ee2199d",
+                        "name": "filter added",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-af09-0001-c715-650aa5276cd3",
+                        "name": "filter updated",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ad8c-0001-cb73-7912ff59f39a",
+                        "name": "filters set",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-add1-0001-199c-7c14f447ad00",
+                        "name": "funnel result calculated",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-aef9-0000-733c-4741add0e359",
+                        "name": "funnel step reordered",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b4f18-f8f8-0001-77a7-3e70e7fa0378",
+                        "name": "insight analyzed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017acb81-993a-0000-15d1-d67fee405b2b",
+                        "name": "insight controls collapse toggled",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aabe0-ddea-0001-72d2-29c3cb003738",
+                        "name": "insight error message shown",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-bdcc-0001-76fd-448945196e78",
+                        "name": "insight history item clicked",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50ba-0000-3d89-a6340d39848c",
+                        "name": "insight loaded",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-adbd-0000-27b2-73c112bed3f9",
+                        "name": "insight timeout message shown",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50cd-0001-e6ed-c66aff3c3503",
+                        "name": "insight viewed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017abd85-c459-0001-7099-cf949c2a69b8",
+                        "name": "insights tab reset",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e68a-0000-50b0-bf0ea2e21c21",
+                        "name": "installed_app",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ad89-0001-d620-e073348e9258",
+                        "name": "local filter removed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ab6c1-4e53-0000-1636-9077d83e2b0d",
+                        "name": "palette shown",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ab4d-0001-bb9a-f050d83dfb2f",
+                        "name": "person viewed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-4393-0000-0018-4c63726075dd",
+                        "name": "personalization finalized",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aa45c-6532-0001-1ec7-ea0021c6eab3",
+                        "name": "plugin installed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017abede-211e-0000-7bcd-9bd2c24ec30e",
+                        "name": "property select toggle opened",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e902-0000-d4e3-9a2291eac220",
+                        "name": "purchase",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e68c-0000-4a04-dc61007df596",
+                        "name": "rated_app",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-3ee9-0000-303f-3c94b5fc051a",
+                        "name": "saved insight to dashboard",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-c267-0001-137c-f4a2f720dc77",
+                        "name": "timezone component viewed",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aa7-0001-93a5-3505682de26d",
+                        "name": "viewed dashboard",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e685-0000-5c67-5faa2626f91f",
+                        "name": "watched_movie",
+                        "volume_30_day": null,
+                        "query_usage_30_day": null
+                    }
+                ],
+                "next": null
+            },
+            "eventStorageLoading": false
+        },
+        "personPropertiesModel": {
+            "personProperties": [
+                {
+                    "name": "is_demo",
+                    "count": 160
+                },
+                {
+                    "name": "email",
+                    "count": 36
+                },
+                {
+                    "name": "address",
+                    "count": 35
+                },
+                {
+                    "name": "name",
+                    "count": 35
+                },
+                {
+                    "name": "phone",
+                    "count": 35
+                },
+                {
+                    "name": "$geoip_city_name",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_continent_code",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_continent_name",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_country_code",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_country_name",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_latitude",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_longitude",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_postal_code",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_subdivision_1_code",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_subdivision_1_name",
+                    "count": 3
+                },
+                {
+                    "name": "$geoip_time_zone",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_city_name",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_continent_code",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_continent_name",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_country_code",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_country_name",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_latitude",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_longitude",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_postal_code",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_subdivision_1_code",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_subdivision_1_name",
+                    "count": 3
+                },
+                {
+                    "name": "$initial_geoip_time_zone",
+                    "count": 3
+                },
+                {
+                    "name": "$browser",
+                    "count": 1
+                },
+                {
+                    "name": "$browser_version",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_referrer",
+                    "count": 1
+                },
+                {
+                    "name": "$initial_referring_domain",
+                    "count": 1
+                },
+                {
+                    "name": "$os",
+                    "count": 1
+                },
+                {
+                    "name": "products",
+                    "count": 1
+                },
+                {
+                    "name": "role",
+                    "count": 1
+                },
+                {
+                    "name": "technical",
+                    "count": 1
+                }
+            ],
+            "personPropertiesLoading": false
+        },
+        "propertyDefinitionsModel": {
+            "propertyStorage": {
+                "count": 153,
+                "results": [
+                    {
+                        "id": "0179fcb6-ec72-0000-6e35-5a1db6028318",
+                        "name": "$active_feature_flags",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec71-0000-eb3a-5d1d70d35fa2",
+                        "name": "$anon_distinct_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e5db-0000-4c5d-92b4c6eae17c",
+                        "name": "$browser",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec66-0000-562b-0084c63cacf5",
+                        "name": "$browser_version",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-0f0e-0000-7119-4993c33eb53a",
+                        "name": "$ce_version",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e5d5-0000-fa2c-ee5f9a974952",
+                        "name": "$current_url",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6d-0002-6daa-7623a11f43c0",
+                        "name": "$device_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec63-0000-2e96-b6a926e1c733",
+                        "name": "$device_type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-0f0d-0000-e488-6ae2dde13ff1",
+                        "name": "$event_type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-f7d7-0000-cfd6-ca0b3bc21214",
+                        "name": "$feature_flag",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-f7d8-0000-d52b-757347b6a0c1",
+                        "name": "$feature_flag_response",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9b7-0000-f1f0-378e8eddf7a6",
+                        "name": "$geoip_city_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9bf-0000-4d5f-6c667f2d8ea6",
+                        "name": "$geoip_continent_code",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9bd-0000-e63f-8ab357e832ae",
+                        "name": "$geoip_continent_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9bb-0000-0d9d-001bfa67039d",
+                        "name": "$geoip_country_code",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9b8-0000-1077-728655b50f41",
+                        "name": "$geoip_country_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9c3-0000-5322-2371c1fceb6f",
+                        "name": "$geoip_latitude",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9c5-0000-2b67-09bb3942b683",
+                        "name": "$geoip_longitude",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9c1-0000-de45-90a1dfc584f6",
+                        "name": "$geoip_postal_code",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9c8-0000-a6e7-0b0c6d5ea4df",
+                        "name": "$geoip_subdivision_1_code",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9cb-0000-2bb3-8c9257b33caf",
+                        "name": "$geoip_subdivision_1_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9c6-0001-bcc8-c284a0dd0daa",
+                        "name": "$geoip_time_zone",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec64-0000-0d8c-59dda0bc86b2",
+                        "name": "$host",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6e-0000-17ee-d13b6f9c5329",
+                        "name": "$initial_referrer",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6e-0001-b23f-477cceda31b2",
+                        "name": "$initial_referring_domain",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6c-0000-2234-cda528ffa0b8",
+                        "name": "$insert_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec67-0000-65f8-61c2d9269578",
+                        "name": "$ip",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6a-0000-b5e9-d64013fc0e63",
+                        "name": "$lib",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6b-0000-e186-efd7f8fc62e0",
+                        "name": "$lib_version",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec62-0000-6057-754a8c7b2497",
+                        "name": "$os",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb9-c387-0000-81e4-b4483bd9309f",
+                        "name": "$override_feature_flags",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec65-0000-9815-54bab3447d66",
+                        "name": "$pathname",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9d1-0000-49b7-5ceec39ab3ce",
+                        "name": "$plugins_deferred",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9d0-0000-a714-885aa75c87ef",
+                        "name": "$plugins_failed",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9cf-0000-fd08-e452465d0779",
+                        "name": "$plugins_succeeded",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6f-0000-fd33-bf05cbecfb65",
+                        "name": "$referrer",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6f-0001-2901-ce4e227182e3",
+                        "name": "$referring_domain",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec67-0000-7fde-63e3643e67dc",
+                        "name": "$screen_height",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec68-0000-30f8-b021d58a013c",
+                        "name": "$screen_width",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec65-0000-407c-700f7fcab72f",
+                        "name": "$set",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-42ce-0000-f21b-802a78bbea24",
+                        "name": "$set_once",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6d-0000-9fcb-c075b47bbb53",
+                        "name": "$time",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec70-0000-71f6-0a3ec1655e8e",
+                        "name": "$user_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9af-0000-c9e5-ad7fbaeb3929",
+                        "name": "$viewport_height",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-a9b3-0000-2d53-c239da418cac",
+                        "name": "$viewport_width",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-add4-0000-ed2c-78ffa081816f",
+                        "name": "action_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50d5-0001-89ab-2a221534d7fe",
+                        "name": "actions_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e691-0000-0466-5772f106137b",
+                        "name": "app_rating",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aaaff-0856-0000-71a3-3d44cb0c11a7",
+                        "name": "breakdown",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aaaff-0854-0000-087e-6c177823a2f3",
+                        "name": "breakdown_type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017acb81-99fc-0000-8b19-7e595ff43fb6",
+                        "name": "collapsed",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-c26a-0000-009d-ff9f5f9862e4",
+                        "name": "component",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aa8-0000-af06-43fbdc5cd7b9",
+                        "name": "created_at",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aac-0001-83ac-010986857ac9",
+                        "name": "created_by_system",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aab-0000-be77-11adbbc69582",
+                        "name": "creation_mode",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ab51-0001-0476-4bf1456743e4",
+                        "name": "custom_properties_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aa04b-7ee5-0001-f0c5-630242c45f96",
+                        "name": "data_size",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ab43-0001-5e36-0a341f6e355b",
+                        "name": "date_from",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b5312-e7ac-0001-9a0b-843d1017c660",
+                        "name": "date_to",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-c280-0000-4318-2b1605364fae",
+                        "name": "device_timezone",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50d0-0000-599e-9340a30ae915",
+                        "name": "display",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec6d-0001-8c61-ed24d842b097",
+                        "name": "distinct_id",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50be-0000-98b9-4ecd6066d73c",
+                        "name": "duration",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-f7fb-0000-6081-ac9568deb28d",
+                        "name": "ee_available",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-f7fc-0000-8010-f2e6bf57f954",
+                        "name": "email_service_available",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-bf4f-0000-05c5-f9c77d659d8e",
+                        "name": "endpoint",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-add3-0000-e6b9-cbc414eb656d",
+                        "name": "event_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50d5-0000-f3cb-5d10a4256db3",
+                        "name": "events_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50d3-0000-178f-d209d0292713",
+                        "name": "filter_test_accounts",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ad8e-0000-e8f2-c57536296ee1",
+                        "name": "filters",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50d4-0000-7536-3b29611ab2c5",
+                        "name": "filters_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e90b-0000-d437-fd1f9c04ef11",
+                        "name": "first_visit",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b4f18-d7fc-0000-7a3c-39e089ebc5ab",
+                        "name": "from_dashboard",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b5312-61e6-0000-8d75-db137f609366",
+                        "name": "funnel_viz_type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aad-0001-f77d-d468ef130436",
+                        "name": "funnels_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ab50-0001-bb3e-2dcd56e49992",
+                        "name": "has_email",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ab51-0000-c1bc-d3bdfebf8237",
+                        "name": "has_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aad-0000-40c7-8892d2f46f35",
+                        "name": "has_share_token",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-bdab-0000-832e-8489cb0e4650",
+                        "name": "has_start_point",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ad8a-0000-b7ed-1bf48f3bb196",
+                        "name": "index",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50bb-0000-f9d1-75d12f229fc5",
+                        "name": "insight",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50d1-0000-f400-83636417221e",
+                        "name": "interval",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ab6c1-4e5c-0000-ed42-575b27505103",
+                        "name": "isMobile",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-f7fa-0000-c78a-c7b289c94008",
+                        "name": "is_clickhouse_enabled",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-f7d6-0000-2314-06df9faddf58",
+                        "name": "is_demo_project",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50ce-0000-bd84-3f4cceeb93c2",
+                        "name": "is_first_component_load",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e68f-0000-d889-8082a638007c",
+                        "name": "is_first_movie",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ab50-0000-a6bb-f40064232de4",
+                        "name": "is_identified",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aaa-0000-3e06-838bbedcd7ee",
+                        "name": "is_shared",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aac-0000-56b0-340d2c89b565",
+                        "name": "item_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-bdda-0000-b10c-94bee8bb2a7e",
+                        "name": "item_type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-c436-0000-002e-4412c739deb4",
+                        "name": "method",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0d0-69a5-0000-7165-45b2ed166ac5",
+                        "name": "mode",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-af0b-0000-a2dd-1bb23545b596",
+                        "name": "name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-af3e-0000-6d13-a677b3b705d7",
+                        "name": "newLength",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-4396-0000-34b3-c53b6acee78e",
+                        "name": "number_of_answers",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-bda8-0001-5a4d-8c7f1af56de6",
+                        "name": "path_type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-c424-0000-47e8-352817cf1a15",
+                        "name": "pathname",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-4395-0001-aff7-ddc35476b07f",
+                        "name": "payload",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-b97e-0001-b818-b80d17920a17",
+                        "name": "period",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43a8-0000-7918-86c6c3cff31a",
+                        "name": "phjs-_send_request",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43a9-0000-f979-45e93e1aeb0f",
+                        "name": "phjs-_send_request_inflight",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43aa-0000-bf1f-e48ab27e5e2b",
+                        "name": "phjs-batch-enqueue",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43ae-0000-ce44-317b4c1c3056",
+                        "name": "phjs-batch-handle",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43ae-0001-9e32-f5b499c4c0f0",
+                        "name": "phjs-batch-handle-e/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43ad-0000-2af3-f604be44ae65",
+                        "name": "phjs-batch-requests",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43ad-0001-64f0-df100c2ba91c",
+                        "name": "phjs-batch-requests-e/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43af-0001-50eb-33782759fe57",
+                        "name": "phjs-batch-unload",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43b0-0000-4508-463bb7c23021",
+                        "name": "phjs-batch-unload-e/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43ae-0002-e875-8a66e05b3242",
+                        "name": "phjs-batch-unload-requests",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43af-0000-972b-ff0425f1bc1c",
+                        "name": "phjs-batch-unload-requests-e/",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43a9-0001-ef3f-789785c61c78",
+                        "name": "phjs-capture",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43ab-0000-d4c2-4a302602572a",
+                        "name": "phjs-identify",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43ab-0001-ca58-c360d6b0c558",
+                        "name": "phjs-xhr-response",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aac34-b4e9-0000-a1b9-5c9303c16f04",
+                        "name": "phjs-xhr-response-0",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-43ac-0000-2e10-68a5925404d4",
+                        "name": "phjs-xhr-response-200",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac292-f392-0000-26f9-315396b3f1a6",
+                        "name": "phjs-xhr-response-500",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aaa-0001-5c3e-5f4d05d311de",
+                        "name": "pinned",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e908-0000-de8a-874fb993022a",
+                        "name": "plan",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aa45c-654c-0000-cb30-373c4c5b14ef",
+                        "name": "plugin_installation_type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aa45c-6547-0000-54f1-24fcbe60aea5",
+                        "name": "plugin_name",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aa45c-654b-0000-9ed5-6b4b44f00465",
+                        "name": "plugin_tag",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aa45c-654a-0000-76da-abd53b95f8fb",
+                        "name": "plugin_url",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ab52-0000-d863-a259af26ae22",
+                        "name": "posthog_properties_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-f7f7-0000-20a6-3cced0d93c1b",
+                        "name": "posthog_version",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-c278-0000-ea39-d13509930b8a",
+                        "name": "project_timezone",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b4f18-d7fb-0000-69f7-841133501fd2",
+                        "name": "properties_all",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-ab4f-0000-0d0f-e5f872faf742",
+                        "name": "properties_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b4f18-d6c7-0000-733b-54a69cb65a52",
+                        "name": "properties_global",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b4f18-d7f8-0000-2aba-b44c3ffa72ef",
+                        "name": "properties_global_custom_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b4f18-d7fa-0000-71ba-cc6609afa1b9",
+                        "name": "properties_local",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b4f18-d7fa-0001-527a-dbc2a3942880",
+                        "name": "properties_local_custom_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e5c9-0000-6d3e-42838bd1a125",
+                        "name": "purchase",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-e90d-0000-ca6e-ab9dd1f41e44",
+                        "name": "purchase_value",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-f7f8-0000-0f71-772a414737d7",
+                        "name": "realm",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b4f18-f911-0000-b648-54c3b87fbfb8",
+                        "name": "report_delay",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-b9ae-0000-e492-fc723ccdfaa0",
+                        "name": "same_retention_and_cohortizing_event",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0cf-4aab-0001-f965-f250d82c768f",
+                        "name": "sample_items_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50bc-0000-2244-7da438ab0f0e",
+                        "name": "scene",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-b653-0001-303d-00cfe32e335c",
+                        "name": "session_distribution",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017ac0d0-69a7-0000-1dda-8110f6935f40",
+                        "name": "source",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-c438-0000-c33c-8eab25e1b82d",
+                        "name": "status",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017aabe0-dde2-0001-39fb-3f2b0f531fbf",
+                        "name": "statusText",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-4395-0000-9d78-03c46d413296",
+                        "name": "step_completed_fully",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50bd-0000-aa69-f28ba0a73e17",
+                        "name": "success",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb6-ec71-0001-7f4c-2a4609af6b2d",
+                        "name": "token",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-add5-0000-1c0a-57834264f333",
+                        "name": "total_count_actions_events",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50d7-0000-da57-1b91aaa2120a",
+                        "name": "total_event_action_filters_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-50d6-0000-edee-4d0de68bd0bd",
+                        "name": "total_event_actions_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017b53ed-3435-0000-d32c-354d644b030c",
+                        "name": "trends_count",
+                        "is_numerical": true,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-c01e-0000-f57f-01e2715f6df4",
+                        "name": "type",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "017a9f32-af2f-0000-98dd-82e0008e2b93",
+                        "name": "visible",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    },
+                    {
+                        "id": "0179fcb7-d8a7-0000-4ad5-411df227b55d",
+                        "name": "warning_key",
+                        "is_numerical": false,
+                        "query_usage_30_day": null
+                    }
+                ],
+                "next": null
+            },
+            "propertyStorageLoading": false
+        },
+        "funnelsModel": {
+            "funnels": [
+                {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [],
+                                "math_property": null
+                            },
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 1,
+                                "properties": [],
+                                "math_property": null
+                            },
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 2,
+                                "properties": [],
+                                "math_property": null
+                            },
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 3,
+                                "properties": [],
+                                "math_property": null
+                            },
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 4,
+                                "properties": [],
+                                "math_property": null
+                            }
+                        ],
+                        "display": "FunnelViz",
+                        "insight": "FUNNELS",
+                        "interval": "day",
+                        "date_from": "-24h",
+                        "date_to": null
+                    },
+                    "type": "FUNNELS",
+                    "id": 1985,
+                    "createdAt": "2021-07-19T22:08:25.511118Z",
+                    "name": "asdasdasdasdas",
+                    "saved": false,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "0179fcb6-e570-0000-ef87-23aff95dc8ed",
+                        "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
+                        "first_name": "Marius Andra",
+                        "email": "marius@posthog.com"
+                    }
+                },
+                {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [],
+                                "math_property": null
+                            },
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 1,
+                                "properties": [],
+                                "math_property": null
+                            },
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 2,
+                                "properties": [],
+                                "math_property": null
+                            },
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 3,
+                                "properties": [],
+                                "math_property": null
+                            },
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 4,
+                                "properties": [],
+                                "math_property": null
+                            }
+                        ],
+                        "display": "FunnelViz",
+                        "insight": "FUNNELS",
+                        "interval": "day",
+                        "date_from": "-24h",
+                        "date_to": null
+                    },
+                    "type": "FUNNELS",
+                    "id": 1984,
+                    "createdAt": "2021-07-19T22:08:18.967493Z",
+                    "name": "tawerwerweawe",
+                    "saved": false,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "0179fcb6-e570-0000-ef87-23aff95dc8ed",
+                        "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
+                        "first_name": "Marius Andra",
+                        "email": "marius@posthog.com"
+                    }
+                },
+                {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                                "properties": [],
+                                "math_property": null
+                            }
+                        ],
+                        "display": "FunnelViz",
+                        "insight": "FUNNELS",
+                        "interval": "day",
+                        "date_from": "-24h",
+                        "date_to": null
+                    },
+                    "type": "FUNNELS",
+                    "id": 1983,
+                    "createdAt": "2021-07-19T22:07:22.840428Z",
+                    "name": "qweqwe",
+                    "saved": false,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "0179fcb6-e570-0000-ef87-23aff95dc8ed",
+                        "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
+                        "first_name": "Marius Andra",
+                        "email": "marius@posthog.com"
+                    }
+                },
+                {
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": null,
+                                "name": "$pageview",
+                                "type": "events",
+                                "order": 1,
+                                "properties": [],
+                                "math_property": null
+                            }
+                        ],
+                        "actions": [
+                            {
+                                "id": 7,
+                                "math": null,
+                                "name": "Rated App",
+                                "type": "actions",
+                                "order": 0,
+                                "properties": [
+                                    {
+                                        "key": "plan",
+                                        "type": "event",
+                                        "value": "premium",
+                                        "operator": null
+                                    }
+                                ],
+                                "math_property": null
+                            }
+                        ],
+                        "display": "FunnelViz",
+                        "insight": "FUNNELS",
+                        "interval": "day",
+                        "date_from": "all",
+                        "funnel_window_days": 14
+                    },
+                    "type": "FUNNELS",
+                    "id": 20,
+                    "createdAt": "2021-06-30T21:47:26.040245Z",
+                    "name": "222",
+                    "saved": true,
+                    "created_by": {
+                        "id": 1,
+                        "uuid": "0179fcb6-e570-0000-ef87-23aff95dc8ed",
+                        "distinct_id": "1FMtZwaNIkI9rRLn5PMHm_TnhoAPerJLvTMdGa52GSI",
+                        "first_name": "Marius Andra",
+                        "email": "marius@posthog.com"
+                    }
+                },
+                {
+                    "filters": {
+                        "actions": [
+                            {
+                                "id": 8,
+                                "math": null,
+                                "name": "Installed App",
+                                "type": "actions",
+                                "order": 0,
+                                "properties": [],
+                                "math_property": null
+                            },
+                            {
+                                "id": 7,
+                                "math": null,
+                                "name": "Rated App",
+                                "type": "actions",
+                                "order": 1,
+                                "properties": [
+                                    {
+                                        "key": "plan",
+                                        "type": "event",
+                                        "value": "premium",
+                                        "operator": null
+                                    }
+                                ],
+                                "math_property": null
+                            }
+                        ],
+                        "display": "FunnelViz",
+                        "insight": "FUNNELS",
+                        "interval": "day",
+                        "date_from": "-24h",
+                        "funnel_window_days": 14,
+                        "date_to": null
+                    },
+                    "type": "FUNNELS",
+                    "id": 3,
+                    "createdAt": "2021-06-11T20:15:16.310608Z",
+                    "name": "Entered Free Trial -> Purchase (Premium)",
+                    "saved": false,
+                    "created_by": null
+                }
+            ],
+            "funnelsLoading": false,
+            "next": "http://localhost:8000/api/insight/?insight=FUNNELS&limit=5&offset=5&order=-created_at&saved=true",
+            "loadingMore": false
+        }
+    },
+    "layout": {
+        "navigation": {
+            "navigationLogic": {
+                "latestVersion": "1.27.0",
+                "latestVersionLoading": false,
+                "menuCollapsed": true,
+                "changelogModalOpen": false,
+                "toolbarModalOpen": false,
+                "inviteMembersModalOpen": false,
+                "pinnedDashboardsVisible": false,
+                "hotkeyNavigationEngaged": false,
+                "filteredEnvironment": "production"
+            }
+        }
+    }
+}
