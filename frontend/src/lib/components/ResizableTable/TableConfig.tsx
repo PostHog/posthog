@@ -1,4 +1,4 @@
-import { Button, Card, Col, Input, Row, Space } from 'antd'
+import { Button, Card, Col, Input, Row, Space, Tooltip } from 'antd'
 import React, { useEffect, useState } from 'react'
 import { ControlOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
@@ -171,13 +171,15 @@ function ColumnConfigurator({
                     <Col xs={24} sm={12} className="mb">
                         <div>
                             {hasColumnConfigToSave && (
-                                <Button
-                                    type="link"
-                                    icon={<SaveOutlined />}
-                                    onClick={() => saveSelectedColumns(userColumnSelection)}
-                                >
-                                    Save visible columns
-                                </Button>
+                                <Tooltip title="Column selections are stored in the current URL. Saving visible columns stores them against your user so that the choice will show on other computers or if they cannot be read from the URL">
+                                    <Button
+                                        type="link"
+                                        icon={<SaveOutlined />}
+                                        onClick={() => saveSelectedColumns(userColumnSelection)}
+                                    >
+                                        Save visible columns
+                                    </Button>
+                                </Tooltip>
                             )}
                         </div>
                     </Col>
