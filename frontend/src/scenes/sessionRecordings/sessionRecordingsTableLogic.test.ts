@@ -1,6 +1,5 @@
 import {
     sessionRecordingsTableLogic,
-    SessionRecordingsResponse,
     PersonUUID,
     SessionRecordingId,
     DEFAULT_ENTITY_FILTERS,
@@ -16,7 +15,7 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 jest.mock('lib/api')
 
 describe('sessionRecordingsTableLogic', () => {
-    let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId, SessionRecordingsResponse>>
+    let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId>>
 
     mockAPI(async (url) => {
         const { pathname, searchParams } = url
@@ -94,7 +93,7 @@ describe('sessionRecordingsTableLogic', () => {
                 expectLogic(logic).toMatchValues({ entityFilters: DEFAULT_ENTITY_FILTERS })
             })
 
-            it('is set by setEntityFilters and loads filtered results', async () => {
+            it('is set by setEntityFilters and loads filtered results and sets the url', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setEntityFilters({
                         events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
@@ -104,17 +103,21 @@ describe('sessionRecordingsTableLogic', () => {
                     .toMatchValues({
                         sessionRecordings: ['List of recordings filtered by events'],
                     })
+                expect(router.values.searchParams.filters).toHaveProperty('events', [
+                    { id: '$autocapture', type: 'events', order: 0, name: '$autocapture' },
+                ])
             })
         })
 
         describe('limit and offset', () => {
-            it('is set by loadNext  and loadPrev and gets the right results', async () => {
+            it('is set by loadNext  and loadPrev and gets the right results and sets the url', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.loadNext()
                 })
                     .toMatchValues({ offset: 50 })
                     .toDispatchActions(['loadNext', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['List of recordings offset by 50'] })
+                expect(router.values.searchParams.filters).toHaveProperty('offset', 50)
 
                 await expectLogic(logic, () => {
                     logic.actions.loadPrev()
@@ -122,17 +125,21 @@ describe('sessionRecordingsTableLogic', () => {
                     .toMatchValues({ offset: 0 })
                     .toDispatchActions(['loadPrev', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['List of recordings from server'] })
+                expect(router.values.searchParams.filters).toHaveProperty('offset', 0)
             })
         })
 
         describe('date range', () => {
-            it('is set by setDateRange and fetches results from server', async () => {
+            it('is set by setDateRange and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setDateRange('2021-10-05', '2021-10-20')
                 })
                     .toMatchValues({ fromDate: '2021-10-05', toDate: '2021-10-20' })
                     .toDispatchActions(['setDateRange', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by date'] })
+
+                expect(router.values.searchParams.filters).toHaveProperty('date_from', '2021-10-05')
+                expect(router.values.searchParams.filters).toHaveProperty('date_to', '2021-10-20')
             })
         })
         describe('duration filter', () => {
@@ -146,7 +153,7 @@ describe('sessionRecordingsTableLogic', () => {
                     },
                 })
             })
-            it('is set by setDurationFilter and fetches results from server', async () => {
+            it('is set by setDurationFilter and fetches results from server and sets the url', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.setDurationFilter({
                         type: 'recording',
@@ -165,6 +172,13 @@ describe('sessionRecordingsTableLogic', () => {
                     })
                     .toDispatchActions(['setDurationFilter', 'getSessionRecordingsSuccess'])
                     .toMatchValues({ sessionRecordings: ['Recordings filtered by duration'] })
+
+                expect(router.values.searchParams.filters).toHaveProperty('session_recording_duration', {
+                    type: 'recording',
+                    key: 'duration',
+                    value: 600,
+                    operator: PropertyOperator.LessThan,
+                })
             })
         })
 
@@ -221,6 +235,42 @@ describe('sessionRecordingsTableLogic', () => {
                         sessionRecordings: ['List of recordings filtered by events'],
                     })
             })
+        })
+
+        it('reads filters from the URL', async () => {
+            router.actions.push('/recordings', {
+                filters: {
+                    actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                    events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                    date_from: '2021-10-01',
+                    date_to: '2021-10-10',
+                    offset: 50,
+                    session_recording_duration: {
+                        type: 'recording',
+                        key: 'duration',
+                        value: 600,
+                        operator: PropertyOperator.LessThan,
+                    },
+                },
+            })
+
+            await expectLogic(logic)
+                .toDispatchActions(['setEntityFilters', 'setDateRange', 'setOffset', 'setDurationFilter'])
+                .toMatchValues({
+                    entityFilters: {
+                        events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                        actions: [{ id: '1', type: 'actions', order: 0, name: 'View Recording' }],
+                    },
+                    fromDate: '2021-10-01',
+                    toDate: '2021-10-10',
+                    offset: 50,
+                    durationFilter: {
+                        type: 'recording',
+                        key: 'duration',
+                        value: 600,
+                        operator: PropertyOperator.LessThan,
+                    },
+                })
         })
     })
     describe('person specific logic', () => {
