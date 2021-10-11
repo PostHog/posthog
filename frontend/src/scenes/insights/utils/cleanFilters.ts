@@ -17,7 +17,9 @@ export function getDefaultEvent(): Entity {
     }
 }
 
-export function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> {
+export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<FilterType>): Partial<FilterType> {
+    const insightChanged = oldFilters?.insight && filters.insight !== oldFilters?.insight
+
     if (filters.insight === ViewType.RETENTION) {
         return {
             target_entity: filters.target_entity || {
@@ -29,7 +31,7 @@ export function cleanFilters(filters: Partial<FilterType>): Partial<FilterType> 
             date_to: filters.date_to,
             period: filters.period || 'Day',
             retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
-            display: filters.display || ChartDisplayType.ActionsTable,
+            display: insightChanged ? ChartDisplayType.ActionsTable : filters.display || ChartDisplayType.ActionsTable,
             properties: filters.properties || [],
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
             insight: ViewType.RETENTION,

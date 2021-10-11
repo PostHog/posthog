@@ -252,7 +252,7 @@ export const insightLogic = kea<insightLogicType>({
         filters: [
             () => props.filters || ({} as Partial<FilterType>),
             {
-                setFilters: (_, { filters }) => cleanFilters(filters),
+                setFilters: (state, { filters }) => cleanFilters(filters, state),
                 loadInsightSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
                 loadResultsSuccess: (state, { insight }) =>
@@ -397,7 +397,7 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
         setActiveView: ({ type }) => {
-            actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }))
+            actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
             if (values.timeout) {
@@ -488,7 +488,7 @@ export const insightLogic = kea<insightLogicType>({
     urlToAction: ({ actions, values, props }) => ({
         '/insights': (_: any, searchParams: Record<string, any>, hashParams: Record<string, any>) => {
             if (props.syncWithUrl) {
-                const cleanSearchParams = cleanFilters(searchParams)
+                const cleanSearchParams = cleanFilters(searchParams, values.filters)
                 if (!objectsEqual(cleanSearchParams, values.filters)) {
                     actions.setFilters(cleanSearchParams)
                 }

@@ -674,7 +674,10 @@ export const funnelLogic = kea<funnelLogicType>({
             })
         },
         setFilters: ({ filters, mergeWithExisting }) => {
-            const cleanedParams = cleanFilters(mergeWithExisting ? { ...values.filters, ...filters } : filters)
+            const cleanedParams = cleanFilters(
+                mergeWithExisting ? { ...values.filters, ...filters } : filters,
+                values.filters
+            )
             insightLogic(props).actions.setFilters(cleanedParams)
         },
         setEventExclusionFilters: ({ filters }) => {

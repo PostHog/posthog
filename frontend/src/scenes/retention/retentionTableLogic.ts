@@ -93,10 +93,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     },
     listeners: ({ actions, values, props }) => ({
         setProperties: ({ properties }) => {
-            insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, properties }))
+            insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, properties }, values.filters))
         },
         setFilters: ({ filters }) => {
-            insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, ...filters }))
+            insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, ...filters }, values.filters))
         },
         loadResultsSuccess: async () => {
             actions.clearPeople()
