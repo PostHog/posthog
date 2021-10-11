@@ -19,12 +19,12 @@ class SimplifyFilterMixin:
         - for cohort properties, replaces them with more concrete lookups or with cohort conditions
         """
 
-        if self._data.get("is_simplified"):
+        if self._data.get("is_simplified"):  # type: ignore
             return self
 
         # :TRICKY: Make a copy to avoid caching issues
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
-        if getattr(self, "filter_test_accounts", False):
+        if getattr(result, "filter_test_accounts", False):
             result = result.with_data(
                 {"properties": result.properties + team.test_account_filters, "filter_test_accounts": False,}
             )
