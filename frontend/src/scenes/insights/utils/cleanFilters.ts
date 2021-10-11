@@ -44,7 +44,9 @@ export function cleanFilters(filters: Partial<FilterType>, oldFilters?: Partial<
             ...(filters.date_to ? { date_to: filters.date_to } : {}),
             ...(filters.actions ? { actions: filters.actions } : {}),
             ...(filters.events ? { events: filters.events } : {}),
-            ...(filters.display && !insightChanged ? { display: filters.display } : {}),
+            ...(insightChanged || filters.display
+                ? { display: insightChanged ? ChartDisplayType.FunnelViz : filters.display }
+                : {}),
             ...(filters.layout ? { layout: filters.layout } : {}),
             ...(filters.interval ? { interval: filters.interval } : {}),
             ...(filters.properties ? { properties: filters.properties } : {}),
