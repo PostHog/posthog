@@ -14,7 +14,13 @@
                 flex: 1;
                 margin-right: 5px;
                 font-weight: bold;
-                font-size: 13;
+                font-size: 13px;
+                a {
+                    color: #2d2d2d;
+                    &:hover {
+                        text-decoration: underline;
+                    }
+                }
             }
         }
         .feature-flag-row-header.overridden {
