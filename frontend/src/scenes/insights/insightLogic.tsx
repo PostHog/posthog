@@ -87,7 +87,9 @@ export const insightLogic = kea<insightLogicType>({
                 result: props.cachedResults || null,
             } as Partial<DashboardItemType>,
             {
-                loadInsight: async (id: number) => await api.get(`api/insight/${id}`),
+                loadInsight: async (id: number) => {
+                    return await api.get(`api/insight/${id}`)
+                },
                 updateInsight: async (payload: Partial<DashboardItemType>) => {
                     if (!Object.entries(payload).length) {
                         return
@@ -433,6 +435,12 @@ export const insightLogic = kea<insightLogicType>({
                     <Link to={'/saved_insights'}>Click here to see your list of saved insights</Link>
                 </div>
             )
+        },
+        loadInsightSuccess: async ({ insight }) => {
+            // loaded `/api/insight`, but it didn't have `results`, so make another query
+            if (!insight.result && values.filters) {
+                actions.loadResults()
+            }
         },
         // called when search query was successful
         loadResultsSuccess: async ({ insight }) => {
