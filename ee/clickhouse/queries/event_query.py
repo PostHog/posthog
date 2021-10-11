@@ -123,7 +123,7 @@ class ClickhouseEventQuery(metaclass=ABCMeta):
                 return True
         return False
 
-    def _get_person_query(self) -> str:
+    def _get_person_query(self) -> Tuple[str, Dict]:
         if self._should_join_persons:
             person_query, params = self._person_query.get_query()
             return (
