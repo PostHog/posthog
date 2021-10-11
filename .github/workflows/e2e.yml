@@ -102,6 +102,11 @@ jobs:
                   install: false
                   # We already install cypress separately, we don't need to install it again here
                   install-command: echo "no"
+              env:
+                  # Required for `sessions.js` to pass
+                  # TODO: #6347 remove dependence on having `GITHUB_TOKEN` for
+                  # `sessions.js` to pass
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             - name: Archive test screenshots
               uses: actions/upload-artifact@v1
               with:
