@@ -66,6 +66,16 @@ class TestFilter(BaseTest):
         )
         self.assertTrue(filter.is_simplified)
 
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {
+                "properties": [
+                    {"key": "attr", "value": "some_val", "operator": None, "type": "event"},
+                    {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
+                ]
+            },
+        )
+
 
 def property_to_Q_test_factory(filter_events: Callable, event_factory, person_factory):
     class TestPropertiesToQ(BaseTest):
