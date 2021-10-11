@@ -1,5 +1,5 @@
 import { funnelLogic } from './funnelLogic'
-import { api, mockAPI } from 'lib/api.mock'
+import { api, defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
@@ -12,27 +12,18 @@ jest.mock('lib/api')
 describe('funnelLogic', () => {
     let logic: ReturnType<typeof funnelLogic.build>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === 'api/insight/funnel/') {
+    mockAPI(async (url) => {
+        if (url.pathname === 'api/insight/funnel/') {
             return {
                 is_cached: true,
                 last_refresh: '2021-09-16T13:41:41.297295Z',
                 result: ['result from api'],
                 type: 'Funnel',
             }
-        } else if (pathname.startsWith('api/insight')) {
+        } else if (url.pathname.startsWith('api/insight')) {
             return { results: [], next: null }
-        } else if (pathname === '_preflight/') {
-            return { is_clickhouse_enabled: true }
-        } else if (
-            ['api/action/', 'api/projects/@current/event_definitions/', 'api/users/@me/', 'api/dashboard'].includes(
-                pathname
-            )
-        ) {
-            return { results: [] }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({

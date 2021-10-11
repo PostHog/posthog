@@ -1,5 +1,5 @@
 import { BuiltLogic } from 'kea'
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { trendsLogicType } from 'scenes/trends/trendsLogicType'
@@ -11,26 +11,14 @@ jest.mock('lib/api')
 describe('trendsLogic', () => {
     let logic: BuiltLogic<trendsLogicType>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === '_preflight/') {
-            return { is_clickhouse_enabled: true }
-        } else if (pathname === 'api/users/@me/') {
-            return { organization: {}, team: { ingested_event: true, completed_snippet_onboarding: true } }
-        } else if (
-            [
-                'api/action/',
-                'api/projects/@current/event_definitions/',
-                'api/users/@me/',
-                'api/dashboard',
-                'api/insight',
-            ].includes(pathname)
-        ) {
+    mockAPI(async (url) => {
+        const { pathname } = url
+        if (['api/insight'].includes(pathname)) {
             return { results: [] }
         } else if (['api/insight/123', 'api/insight/session/', 'api/insight/trend/'].includes(pathname)) {
             return { result: ['result from api'] }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url)
     })
 
     describe('core assumptions', () => {

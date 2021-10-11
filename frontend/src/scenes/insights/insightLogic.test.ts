@@ -1,4 +1,4 @@
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { insightLogic } from './insightLogic'
 import { AvailableFeature, PropertyOperator, ViewType } from '~/types'
@@ -8,20 +8,9 @@ jest.mock('lib/api')
 describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
-    mockAPI(async ({ pathname, searchParams }) => {
-        if (pathname === '_preflight/') {
-            return { is_clickhouse_enabled: true }
-        } else if (['api/organizations/@current', 'api/projects/@current', 'api/dashboard'].includes(pathname)) {
-            return { results: [] }
-        } else if (pathname === 'api/users/@me/') {
-            return {
-                results: {
-                    organization: {
-                        available_features: [AvailableFeature.DASHBOARD_COLLABORATION],
-                    },
-                },
-            }
-        } else if (['api/insight/42'].includes(pathname)) {
+    mockAPI(async (url) => {
+        const { pathname } = url
+        if (['api/insight/42'].includes(pathname)) {
             return {
                 result: ['result from api'],
                 id: 42,
@@ -33,9 +22,8 @@ describe('insightLogic', () => {
             }
         } else if (['api/insight', 'api/insight/session/', 'api/insight/trend/'].includes(pathname)) {
             return { result: ['result from api'] }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })
     })
 
     it('requires props', () => {

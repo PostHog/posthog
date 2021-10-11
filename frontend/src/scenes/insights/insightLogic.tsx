@@ -444,7 +444,7 @@ export const insightLogic = kea<insightLogicType>({
                 const createdInsight = await api.create('api/insight', {
                     filters: insight.filters,
                 })
-                actions.setInsight({ ...createdInsight, result: createdInsight.result || values.insight.result })
+                actions.setInsight({ ...insight, ...createdInsight, result: createdInsight.result || insight.result })
                 if (props.syncWithUrl) {
                     router.actions.replace('/insights', router.values.searchParams, {
                         ...router.values.hashParams,

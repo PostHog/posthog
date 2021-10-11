@@ -1,5 +1,5 @@
 import { BuiltLogic } from 'kea'
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import dashboardJson from './__mocks__/dashboard.json'
@@ -14,16 +14,14 @@ jest.mock('lib/api')
 describe('dashboardLogic', () => {
     let logic: BuiltLogic<dashboardLogicType>
 
-    mockAPI(async ({ pathname, searchParams }) => {
+    mockAPI(async (url) => {
+        const { pathname } = url
         if (pathname === 'api/dashboard/5/') {
             return dashboardJson
         } else if (pathname.startsWith('api/dashboard_item/')) {
             return dashboardJson.items.find(({ id }) => id === parseInt(pathname.split('/')[2]))
-        } else if (pathname === '_preflight/') {
-            return { is_clickhouse_enabled: true }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url)
     })
 
     describe('when there is no props id', () => {

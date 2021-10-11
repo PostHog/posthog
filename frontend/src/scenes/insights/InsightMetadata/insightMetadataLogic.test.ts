@@ -4,7 +4,7 @@ import { insightMetadataLogic, InsightMetadataLogicProps } from 'scenes/insights
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { truth } from '~/test/kea-test-utils/jest'
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AvailableFeature } from '~/types'
@@ -21,22 +21,12 @@ describe('insightMetadataLogic', () => {
         tags: ['Most Creative Tag'],
     }
 
-    mockAPI(async ({ pathname, searchParams }) => {
+    mockAPI(async (url) => {
+        const { pathname } = url
         if (pathname.startsWith('api/insight')) {
             return { results: [], next: null }
-        } else if (pathname === '_preflight/') {
-            return { is_clickhouse_enabled: true }
-        } else if (pathname === 'api/users/@me/') {
-            return {
-                results: {
-                    organization: {
-                        available_features: [AvailableFeature.DASHBOARD_COLLABORATION],
-                    },
-                },
-            }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })
     })
 
     initKeaTestLogic({
