@@ -40,7 +40,7 @@ def get_breakdown_prop_values(
     )
 
     entity_params, entity_format_params = get_entity_filtering_params(
-        entity, team_id, with_prop_filters=True, table_name="e"
+        entity, team_id, with_prop_filters=True, table_name="e", person_properties_mode=PersonPropertiesMode.EXCLUDE
     )
 
     if filter.breakdown_type == "person":
@@ -50,7 +50,7 @@ def get_breakdown_prop_values(
 
     person_join_clauses = ""
     person_join_params: Dict = {}
-    person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer)
+    person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer, entity=entity)
     if person_query.is_used:
         person_subquery, person_join_params = person_query.get_query()
         person_join_clauses = f"""
