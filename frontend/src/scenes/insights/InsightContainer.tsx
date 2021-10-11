@@ -56,6 +56,7 @@ export function InsightContainer(): JSX.Element {
         lastRefresh,
         isLoading,
         activeView,
+        loadedView,
         filters,
         insightMode,
         showTimeoutMessage,
@@ -66,8 +67,11 @@ export function InsightContainer(): JSX.Element {
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
+        if (activeView !== loadedView) {
+            return <Loading />
+        }
         // Insight specific empty states - note order is important here
-        if (activeView === ViewType.FUNNELS) {
+        if (loadedView === ViewType.FUNNELS) {
             if (!areFiltersValid) {
                 return <FunnelInvalidFiltersEmptyState />
             }
@@ -105,7 +109,7 @@ export function InsightContainer(): JSX.Element {
             !showTimeoutMessage &&
             areFiltersValid &&
             activeView === ViewType.FUNNELS &&
-            filters.display === FUNNEL_VIZ
+            filters?.display === FUNNEL_VIZ
         ) {
             return <People />
         }
@@ -117,12 +121,13 @@ export function InsightContainer(): JSX.Element {
             !showTimeoutMessage &&
             areFiltersValid &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
-            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters.layout === FunnelLayout.horizontal)
+            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal)
         ) {
             return <FunnelStepTable />
         }
         if (
-            (!filters.display || (filters.display !== ACTIONS_TABLE && filters.display !== ACTIONS_BAR_CHART_VALUE)) &&
+            (!filters.display ||
+                (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
             (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS)
         ) {
             /* InsightsTable is loaded for all trend views (except below), plus the sessions view.

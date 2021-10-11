@@ -304,6 +304,10 @@ export const insightLogic = kea<insightLogicType>({
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
         activeView: [(s) => [s.filters], (filters) => filters.insight || ViewType.TRENDS],
+        loadedView: [
+            (s) => [s.insight, s.activeView],
+            ({ filters }, activeView) => filters?.insight || activeView || ViewType.TRENDS,
+        ],
         clickhouseFeaturesEnabled: [
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
@@ -318,6 +322,8 @@ export const insightLogic = kea<insightLogicType>({
             const filterLength = (filter?: Partial<FilterType>): number =>
                 (filter?.events?.length || 0) + (filter?.actions?.length || 0)
 
+            const insightChanged = values.loadedFilters?.insight && filters.insight !== values.loadedFilters?.insight
+
             const backendFilterChanged = !objectsEqual(
                 Object.assign({}, values.filters, { layout: undefined, hiddenLegendKeys: undefined }),
                 Object.assign({}, values.loadedFilters, { layout: undefined, hiddenLegendKeys: undefined })
@@ -329,6 +335,8 @@ export const insightLogic = kea<insightLogicType>({
                 (values.filters.insight !== ViewType.FUNNELS ||
                     // Auto-reload on funnels if with clickhouse
                     values.clickhouseFeaturesEnabled ||
+                    // Or if tabbing to the funnels insight
+                    insightChanged ||
                     // If user started from empty state (<2 steps) and added a new step
                     (filterLength(values.loadedFilters) === 1 && filterLength(values.filters) === 2))
             ) {
