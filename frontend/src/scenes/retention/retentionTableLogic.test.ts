@@ -1,73 +1,27 @@
-import { BuiltLogic } from 'kea'
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { trendsLogicType } from 'scenes/trends/trendsLogicType'
-import { TrendResult } from '~/types'
+import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 jest.mock('lib/api')
 
-describe('trendsLogic', () => {
-    let logic: BuiltLogic<trendsLogicType>
+describe('retentionTableLogic', () => {
+    let logic: ReturnType<typeof retentionTableLogic.build>
 
     mockAPI(async (url) => {
         const { pathname } = url
-        if (['api/insight'].includes(pathname)) {
+        if (pathname === 'api/insight') {
             return { results: [] }
-        } else if (['api/insight/123', 'api/insight/session/', 'api/insight/trend/'].includes(pathname)) {
+        } else if (pathname === 'api/insight/retention/') {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url)
     })
 
-    describe('core assumptions', () => {
-        initKeaTestLogic({
-            logic: trendsLogic,
-            props: { dashboardItemId: undefined },
-            onLogic: (l) => (logic = l),
-        })
-
-        it('loads results on mount', async () => {
-            await expectLogic(logic).toDispatchActions([
-                insightLogic({ dashboardItemId: undefined }).actionTypes.loadResults,
-            ])
-        })
-    })
-
-    describe('reducers', () => {
-        initKeaTestLogic({
-            logic: trendsLogic,
-            props: { dashboardItemId: undefined },
-            onLogic: (l) => (logic = l),
-        })
-
-        it('visibilityMap', async () => {
-            const r = {} as TrendResult
-
-            expectLogic(logic, () => {
-                logic.actions.setVisibilityById({ '0': true, '2': false })
-                logic.actions.setVisibilityById({ '8': true, '2': true })
-            }).toMatchValues({ visibilityMap: { 0: true, 2: true, 8: true } })
-
-            expectLogic(logic, () => {
-                logic.actions.loadResultsSuccess({ result: [r, r], filters: {} })
-            }).toMatchValues({ visibilityMap: { 0: true, 1: true } })
-
-            expectLogic(logic, () => {
-                logic.actions.toggleVisibility(1)
-            }).toMatchValues({ visibilityMap: { 0: true, 1: false } })
-
-            expectLogic(logic, () => {
-                logic.actions.toggleVisibility(1)
-            }).toMatchValues({ visibilityMap: { 0: true, 1: true } })
-        })
-    })
-
     describe('syncs with insightLogic', () => {
         const props = { dashboardItemId: 123 }
         initKeaTestLogic({
-            logic: trendsLogic,
+            logic: retentionTableLogic,
             props,
             onLogic: (l) => (logic = l),
         })

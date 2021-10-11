@@ -40,7 +40,7 @@ export function RetentionTable({ dashboardItemId = null }: { dashboardItemId?: n
     const [isLatestPeriod, setIsLatestPeriod] = useState(false)
 
     useEffect(() => {
-        setIsLatestPeriod(periodIsLatest(date_to, period))
+        setIsLatestPeriod(periodIsLatest(date_to || null, period || null))
     }, [date_to, period])
     const columns: ColumnsType<Record<string, any>> = [
         {
@@ -227,8 +227,8 @@ const renderPercentage = (value: number, total: number, latest = false, periodZe
     return latest ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell
 }
 
-const periodIsLatest = (date_to: string, period: string): boolean => {
-    if (!date_to) {
+const periodIsLatest = (date_to: string | null, period: string | null): boolean => {
+    if (!date_to || !period) {
         return true
     }
 

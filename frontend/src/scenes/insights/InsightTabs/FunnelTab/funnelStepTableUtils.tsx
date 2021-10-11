@@ -3,6 +3,7 @@ import {
     FlattenedFunnelStep,
     FlattenedFunnelStepByBreakdown,
     FunnelStep,
+    FunnelStepReference,
     FunnelStepWithConversionMetrics,
 } from '~/types'
 import { getReferenceStep, getSeriesColor, humanizeOrder } from 'scenes/funnels/funnelUtils'
@@ -11,7 +12,6 @@ import React from 'react'
 import { BreakdownVerticalBarGroup } from 'scenes/funnels/FunnelBarGraph'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { zeroPad } from 'lib/utils'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
