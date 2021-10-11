@@ -119,7 +119,7 @@ export function InsightContainer(): JSX.Element {
             filters.funnel_viz_type === FunnelVizType.Steps &&
             (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters.layout === FunnelLayout.horizontal)
         ) {
-            return <FunnelStepTable filters={filters} />
+            return <FunnelStepTable />
         }
         if (
             (!filters.display || (filters.display !== ACTIONS_TABLE && filters.display !== ACTIONS_BAR_CHART_VALUE)) &&

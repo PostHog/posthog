@@ -11,7 +11,7 @@ export function FunnelLineGraph({
     dashboardItemId,
     inSharedMode,
     color = 'white',
-}: Omit<ChartParams, 'view'>): JSX.Element | null {
+}: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { steps, filters } = useValues(logic)

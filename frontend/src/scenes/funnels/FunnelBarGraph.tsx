@@ -24,7 +24,7 @@ import {
     humanizeOrder,
     humanizeStepCount,
 } from './funnelUtils'
-import { ChartParams, StepOrderValue, FunnelStepWithConversionMetrics, FunnelStepReference } from '~/types'
+import { StepOrderValue, FunnelStepWithConversionMetrics, FunnelStepReference } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepTable } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -435,8 +435,9 @@ function MetricRow({ title, value }: { title: string; value: string | number }):
     )
 }
 
-export function FunnelBarGraph({ dashboardItemId, color = 'white' }: Omit<ChartParams, 'view'>): JSX.Element {
+export function FunnelBarGraph({ color = 'white' }: { color?: string }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { dashboardItemId } = insightProps
     const logic = funnelLogic(insightProps)
     const {
         filters,
@@ -451,7 +452,7 @@ export function FunnelBarGraph({ dashboardItemId, color = 'white' }: Omit<ChartP
     // If the layout is vertical, we render bars using the table as a legend. See FunnelStepTable
 
     if (featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] && layout === FunnelLayout.vertical) {
-        return <FunnelStepTable dashboardItemId={dashboardItemId} filters={filters} />
+        return <FunnelStepTable />
     }
 
     return (
