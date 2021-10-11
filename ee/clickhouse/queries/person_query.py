@@ -11,6 +11,14 @@ from posthog.models.property import Property
 
 
 class ClickhousePersonQuery:
+    """
+    Query class responsible for joining with `person` clickhouse table
+
+    For sake of performance, this class:
+    - Tries to do as much person property filtering as possible here
+    - Minimizes the amount of columns read
+    """
+
     PERSON_PROPERTIES_ALIAS = "person_props"
     ALIASES = {"properties": "person_props"}
 
@@ -74,6 +82,8 @@ class ClickhousePersonQuery:
         return prop.type in ("person", "static-cohort", "precalculated-cohort")
 
     def _get_fields(self) -> List[Tuple[str, str]]:
+        # :TRICKY: Figure out what fields we want to expose - minimizing this set is good for performance
+        #   We re-use work from column_optimizer here, removing columns that are used in the person table filter.
         properties_to_query = self._column_optimizer._used_properties_with_type("person")
         properties_to_query -= extract_tables_and_properties(self._filter.properties)
 
