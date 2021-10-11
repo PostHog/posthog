@@ -71,6 +71,8 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
         },
         [userLogic.actionTypes.updateUserSuccess]: () => {
             actions.setColumnConfigSaving(false)
+            const savedValues = userLogic.values?.user?.events_column_config?.active
+            actions.setColumnConfig(Array.isArray(savedValues) ? savedValues : [])
             actions.setModalVisible(false)
         },
         [userLogic.actionTypes.updateUserFailure]: () => {

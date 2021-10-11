@@ -153,6 +153,16 @@ describe('tableConfigLogic', () => {
                 hasColumnConfigToSave: true,
             })
         })
+
+        it('sets column config when user update succeeds', async () => {
+            await expectLogic(logic, () => {
+                builtUserLogic.actions.updateUser({ events_column_config: { active: ['soup', 'bread', 'greens'] } })
+            })
+                .delay(0) // allow listeners to process API response
+                .toMatchValues({
+                    columnConfig: ['soup', 'bread', 'greens'],
+                })
+        })
     })
 
     it('can set modal visible', async () => {
