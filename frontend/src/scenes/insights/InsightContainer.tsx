@@ -32,6 +32,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
+import WarningOutlined from '@ant-design/icons/lib/icons/WarningOutlined'
 
 interface Props {
     loadResults: () => void
@@ -200,11 +201,43 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             {preflight?.is_clickhouse_enabled &&
             activeView === ViewType.FUNNELS &&
             featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
-                <>
-                    <FunnelCorrelationTable />
-                    <FunnelPropertyCorrelationTable />
-                </>
+                <FunnelCorrelation />
             ) : null}
+        </>
+    )
+}
+
+const FunnelCorrelation: React.FC = () => {
+    const { insightProps } = useValues(insightLogic)
+    const { stepsWithCount } = useValues(funnelLogic(insightProps))
+
+    // If the ratio of success to failure if too great, we want to give a
+    // warning that we are unlikely to have accurate results.
+    let skewed = false
+    if (stepsWithCount?.length) {
+        const totalPeople = stepsWithCount[0].count
+        const successfulPeople = stepsWithCount.slice(-1)[0].count
+        skewed = Math.abs((2 * successfulPeople) / totalPeople - 1) > 0.8
+    }
+
+    return (
+        <>
+            {skewed ? (
+                <Card style={{ marginTop: '1em' }}>
+                    <div style={{ display: 'flex' }}>
+                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
+                            <WarningOutlined className="text-warning" style={{ paddingRight: 8 }} />
+                            <b>Funnel skewed!</b>
+                            Your funnel has a large skew to either successes or failures. With such funnels it's hard to
+                            get meaningful odds for events and property correlations. Try adjusting your funnel to have
+                            a more balanced success/failure ratio.
+                        </div>
+                    </div>
+                </Card>
+            ) : null}
+
+            <FunnelCorrelationTable />
+            <FunnelPropertyCorrelationTable />
         </>
     )
 }
