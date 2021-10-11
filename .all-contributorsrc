@@ -1626,6 +1626,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "geary",
+      "name": "Michael Geary",
+      "avatar_url": "https://avatars.githubusercontent.com/u/21968?v=4",
+      "profile": "http://mg.to/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

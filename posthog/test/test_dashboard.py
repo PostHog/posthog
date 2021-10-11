@@ -20,4 +20,4 @@ class TestDashboardItemModel(BaseTest):
 
     def test_short_id_is_automatically_generated(self):
         d = DashboardItem.objects.create(team=self.team)
-        self.assertRegexpMatches(d.short_id, r"[0-9A-Za-z_-]{8}")
+        self.assertRegex(d.short_id, r"[0-9A-Za-z_-]{8}")

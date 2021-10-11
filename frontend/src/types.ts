@@ -495,6 +495,7 @@ export interface SessionRecordingType {
     end_time: string
     distinct_id?: string
     email?: string
+    person?: PersonType
 }
 
 export interface BillingType {
@@ -543,6 +544,7 @@ export interface DashboardItemType {
     result: any | null
     updated_at: string
     tags: string[]
+    next?: string // only used in the frontend to store the next breakdown url
 }
 
 export interface DashboardType {
@@ -725,7 +727,7 @@ export interface FilterType {
     shown_as?: ShownAsType
     session?: string
     period?: string
-    retentionType?: RetentionType
+    retention_type?: RetentionType
     new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
@@ -923,6 +925,11 @@ export interface LoadedRawFunnelResults {
     filters: Partial<FilterType>
 }
 
+export enum FunnelStepReference {
+    total = 'total',
+    previous = 'previous',
+}
+
 export interface FunnelStepWithConversionMetrics extends FunnelStep {
     droppedOffFromPrevious: number
     conversionRates: {
@@ -974,6 +981,8 @@ export interface InsightLogicProps {
     filters?: Partial<FilterType> | null
     /** not sure about this one */
     preventLoading?: boolean
+    /** enable this to make unsaved queries */
+    doNotPersist?: boolean
 }
 
 export interface FeatureFlagGroupType {

@@ -35,7 +35,7 @@ export function FunnelInsight(): JSX.Element {
                         filters.funnel_viz_type == FunnelVizType.Steps,
                 })}
             >
-                <Funnel filters={{ funnel_viz_type: filters.funnel_viz_type }} />
+                <Funnel />
             </div>
         </>
     )

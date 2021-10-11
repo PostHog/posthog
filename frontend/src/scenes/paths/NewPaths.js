@@ -446,24 +446,10 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }) {
                                                             </Menu.Item>
                                                             <Menu.Item
                                                                 onClick={() => {
-                                                                    if (
-                                                                        filter &&
-                                                                        filter.exclude_events &&
-                                                                        filter.exclude_events.length > 0
-                                                                    ) {
-                                                                        const exclusionEvents =
-                                                                            filter.exclude_events.map((event) => ({
-                                                                                value: event,
-                                                                            }))
-                                                                        updateExclusions([
-                                                                            ...exclusionEvents,
-                                                                            { value: pageUrl(pathItemCard) },
-                                                                        ])
-                                                                    } else {
-                                                                        updateExclusions([
-                                                                            { value: pageUrl(pathItemCard) },
-                                                                        ])
-                                                                    }
+                                                                    updateExclusions([
+                                                                        ...(filter.exclude_events || []),
+                                                                        pageUrl(pathItemCard, false),
+                                                                    ])
                                                                 }}
                                                             >
                                                                 Exclude path item

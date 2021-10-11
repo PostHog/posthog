@@ -78,14 +78,6 @@ class Action(models.Model):
                     cursor.execute(delete_query + ";" + insert_query, params)
                 except Exception as err:
                     capture_exception(err)
-
-            if not settings.PLUGIN_SERVER_ACTION_MATCHING and self.post_to_slack:
-                for event in self.events.filter(
-                    created_at__gt=last_calculated_at, team__slack_incoming_webhook__isnull=False
-                ).only("pk", "site_url"):
-                    celery.current_app.send_task(
-                        "posthog.tasks.webhooks.post_event_to_webhook", (event.pk, event.site_url)
-                    )
         finally:
             self.is_calculating = False
             self.last_calculated_at = now_calculated_at

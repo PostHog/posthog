@@ -44,6 +44,8 @@ export interface ActionFilterProps {
               onClose: () => void
           }) => JSX.Element) // Custom suffix element to show in each ActionFilterRow
     rowClassName?: string
+    propertyFilterWrapperClassName?: string
+    stripeActionRow?: boolean
     customActions?: JSX.Element // Custom actions to be added next to the add series button
     horizontalUI?: boolean
     fullWidth?: boolean
@@ -84,6 +86,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             customRowPrefix,
             customRowSuffix,
             rowClassName,
+            propertyFilterWrapperClassName,
+            stripeActionRow = true,
             customActions,
             showNestedArrow = false,
             groupTypes,
@@ -125,6 +129,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             customRowPrefix,
             customRowSuffix,
             rowClassName,
+            propertyFilterWrapperClassName,
+            stripeActionRow,
             hasBreakdown: !!filters.breakdown,
             fullWidth,
             groupTypes,
