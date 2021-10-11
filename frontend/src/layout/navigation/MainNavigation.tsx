@@ -285,12 +285,12 @@ function MenuItems(): JSX.Element {
             />
             {featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? (
                 <MenuItem
-                    title="Session Rec."
+                    title="Recordings"
                     icon={<PlayCircleFilled />}
                     identifier="sessionRecordings"
                     to={urls.sessionRecordings()}
-                    hotkey="s"
-                    tooltip="Watch session recordings"
+                    hotkey="r"
+                    tooltip="Playback user recordings as if you were next to them"
                 />
             ) : (
                 <MenuItem
