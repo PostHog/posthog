@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from requests import Request
@@ -8,7 +8,7 @@ from posthog.helpers.session_recording import decompress_chunked_snapshot_data
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.sessions.session_recording import RECORDINGS_NUM_SNAPSHOTS_LIMIT
-from posthog.utils import format_query_params_absolute_url
+from posthog.utils import format_query_params_absolute_url, get_seconds_between_dates
 
 DistinctId = str
 Snapshots = List[Any]
@@ -39,22 +39,23 @@ class SessionRecording:
             "timestamp"
         )
 
-    def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
+    def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime], Optional[int], Snapshots]:
         events = self.query_recording_snapshots()
 
         if len(events) == 0:
-            return None, None, []
+            return None, None, None, []
 
         return (
             events[0].distinct_id,
             events[0].timestamp,
+            get_seconds_between_dates(events[-1].timestamp, events[0].timestamp),
             [e.snapshot_data for e in events],
         )
 
     def run(self) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
 
-        distinct_id, start_time, snapshots = self.query_recording_snapshots()
+        distinct_id, start_time, duration, snapshots = self.query_recording_snapshots()
         # Apply limit and offset after decompressing to account for non-fully formed chunks.
         snapshots = list(decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, snapshots))
         snapshots_subset = snapshots[self._offset : (self._offset + self._limit)]
@@ -75,4 +76,10 @@ class SessionRecording:
         except Person.DoesNotExist:
             person = None
 
-        return {"snapshots": snapshots_subset, "person": person, "start_time": start_time, "next": next_url}
+        return {
+            "snapshots": snapshots_subset,
+            "person": person,
+            "start_time": start_time,
+            "next": next_url,
+            "duration": duration,
+        }

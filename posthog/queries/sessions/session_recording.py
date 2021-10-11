@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timedelta
 from typing import (
     Any,
     Callable,
@@ -20,7 +20,7 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.utils import namedtuplefetchall
-from posthog.utils import format_query_params_absolute_url
+from posthog.utils import format_query_params_absolute_url, get_seconds_between_dates
 
 DistinctId = str
 Snapshots = List[Any]
@@ -80,22 +80,23 @@ class SessionRecording:
             "timestamp"
         )
 
-    def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
+    def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime], Optional[int], Snapshots]:
         events = self.query_recording_snapshots()
 
         if len(events) == 0:
-            return None, None, []
+            return None, None, None, []
 
         return (
             events[0].distinct_id,
             events[0].timestamp,
+            get_seconds_between_dates(events[-1].timestamp, events[0].timestamp),
             [e.snapshot_data for e in events],
         )
 
     def run(self) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
 
-        distinct_id, start_time, snapshots = self.get_snapshot_data()
+        distinct_id, start_time, duration, snapshots = self.get_snapshot_data()
 
         # Apply limit and offset after decompressing to account for non-fully formed chunks.
         snapshots = list(decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, snapshots))
@@ -114,12 +115,16 @@ class SessionRecording:
             else None
         )
 
-        return {"snapshots": snapshots_subset, "person": person, "start_time": start_time, "next": next_url}
+        return {
+            "snapshots": snapshots_subset,
+            "person": person,
+            "start_time": start_time,
+            "next": next_url,
+            "duration": duration,
+        }
 
 
-def query_sessions_in_range(
-    team: Team, start_time: datetime.datetime, end_time: datetime.datetime, filter: SessionsFilter
-) -> List[dict]:
+def query_sessions_in_range(team: Team, start_time: datetime, end_time: datetime, filter: SessionsFilter) -> List[dict]:
     filter_query, filter_params = "", {}
 
     if filter.recording_duration_filter:
@@ -169,7 +174,7 @@ def collect_matching_recordings(
 ) -> Generator[Dict, None, None]:
     for recording in session_recordings:
         if matches(session, recording, filter, viewed):
-            if isinstance(recording["duration"], datetime.timedelta):
+            if isinstance(recording["duration"], timedelta):
                 # postgres
                 recording_duration = recording["duration"].total_seconds()
             else:
