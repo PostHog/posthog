@@ -133,10 +133,7 @@ export function InsightContainer(): JSX.Element {
     */
             return (
                 <Card style={{ marginTop: 8 }}>
-                    <BindLogic
-                        logic={trendsLogic}
-                        props={{ dashboardItemId: null, view: activeView, filters: filters }}
-                    >
+                    <BindLogic logic={trendsLogic} props={insightProps}>
                         <h3 className="l3">Details table</h3>
                         <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
                     </BindLogic>
@@ -153,7 +150,7 @@ export function InsightContainer(): JSX.Element {
             <Card
                 title={
                     <InsightDisplayConfig
-                        activeView={activeView}
+                        activeView={activeView as ViewType}
                         insightMode={insightMode}
                         filters={filters}
                         annotationsToCreate={annotationsToCreate}

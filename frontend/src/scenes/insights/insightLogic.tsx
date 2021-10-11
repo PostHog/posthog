@@ -3,16 +3,7 @@ import { errorToast, objectsEqual, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { insightLogicType } from './insightLogicType'
-import {
-    DashboardItemType,
-    Entity,
-    FilterType,
-    FunnelVizType,
-    InsightLogicProps,
-    ItemMode,
-    PropertyFilter,
-    ViewType,
-} from '~/types'
+import { DashboardItemType, FilterType, InsightLogicProps, InsightType, ItemMode, ViewType } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { Scene, sceneLogic } from 'scenes/sceneLogic'
 import { router } from 'kea-router'
@@ -30,8 +21,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
-export const TRENDS_BASED_INSIGHTS = ['TRENDS', 'SESSIONS', 'STICKINESS', 'LIFECYCLE'] // Insights that are based on the same `Trends` components
-
 /*
 InsightLogic maintains state for changing between insight features
 This includes handling the urls and view state
@@ -40,16 +29,6 @@ This includes handling the urls and view state
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 export const defaultFilterTestAccounts = (): boolean => {
     return localStorage.getItem('default_filter_test_accounts') === 'true' || false
-}
-
-interface UrlParams {
-    insight: string
-    properties: PropertyFilter[] | undefined
-    filter_test_accounts: boolean
-    funnel_viz_type?: string
-    display?: string
-    events?: Entity[]
-    actions?: Entity[]
 }
 
 export const insightLogic = kea<insightLogicType>({
@@ -252,12 +231,6 @@ export const insightLogic = kea<insightLogicType>({
                 setActiveView: () => false,
             },
         ],
-        activeView: [
-            ViewType.TRENDS as ViewType,
-            {
-                updateActiveView: (_, { type }) => type,
-            },
-        ],
         timeout: [null as number | null, { setTimeout: (_, { timeout }) => timeout }],
         lastRefresh: [
             null as string | null,
@@ -327,6 +300,7 @@ export const insightLogic = kea<insightLogicType>({
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
+        activeView: [(s) => [s.filters], (filters) => filters.insight || ViewType.TRENDS],
         clickhouseFeaturesEnabled: [
             () => [preflightLogic.selectors.preflight],
             (preflight) => !!preflight?.is_clickhouse_enabled,
@@ -422,7 +396,8 @@ export const insightLogic = kea<insightLogicType>({
                 }
             }
         },
-        setActiveView: () => {
+        setActiveView: ({ type }) => {
+            actions.setFilters({ insight: type as InsightType })
             actions.setShowTimeoutMessage(false)
             actions.setShowErrorMessage(false)
             if (values.timeout) {
@@ -497,29 +472,10 @@ export const insightLogic = kea<insightLogicType>({
             }
         },
     }),
-    actionToUrl: ({ actions, values, props }) => ({
+    actionToUrl: ({ values, props }) => ({
         setFilters: () => {
             if (props.syncWithUrl) {
                 return ['/insights', values.filters, router.values.hashParams, { replace: true }]
-            }
-        },
-        setActiveView: ({ type }) => {
-            if (props.syncWithUrl) {
-                actions.updateActiveView(type)
-
-                const urlParams: UrlParams = {
-                    insight: type,
-                    properties: values.filters.properties,
-                    filter_test_accounts: defaultFilterTestAccounts(),
-                    events: (values.filters.events || []) as Entity[],
-                    actions: (values.filters.actions || []) as Entity[],
-                }
-
-                if (type === ViewType.FUNNELS) {
-                    urlParams.funnel_viz_type = FunnelVizType.Steps
-                    urlParams.display = 'FunnelViz'
-                }
-                return ['/insights', urlParams, { ...router.values.hashParams, fromItem: values.insight.id || null }]
             }
         },
     }),
@@ -531,9 +487,6 @@ export const insightLogic = kea<insightLogicType>({
                     actions.setFilters(cleanSearchParams)
                 }
 
-                if (searchParams.insight && searchParams.insight !== values.activeView) {
-                    actions.updateActiveView(searchParams.insight)
-                }
                 if (hashParams.fromItem) {
                     if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
                         actions.loadInsight(hashParams.fromItem)

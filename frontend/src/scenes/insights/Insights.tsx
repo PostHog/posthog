@@ -193,7 +193,7 @@ export function Insights(): JSX.Element {
                     </Row>
 
                     <Row gutter={16}>
-                        {activeView === ViewType.HISTORY ? (
+                        {(activeView as ViewType) === ViewType.HISTORY ? (
                             <Col span={24}>
                                 <Card className="" style={{ overflow: 'visible' }}>
                                     <InsightHistoryPanel />
