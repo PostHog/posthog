@@ -47,11 +47,7 @@ class ClickhouseTrendsBreakdown:
 
         props_to_filter = [*self.filter.properties, *self.entity.properties]
         prop_filters, prop_filter_params = parse_prop_clauses(
-            props_to_filter,
-            self.team_id,
-            table_name="e",
-            filter_test_accounts=self.filter.filter_test_accounts,
-            person_properties_column="person_props",
+            props_to_filter, self.team_id, table_name="e", person_properties_column="person_props",
         )
         aggregate_operation, _, math_params = process_math(self.entity)
 

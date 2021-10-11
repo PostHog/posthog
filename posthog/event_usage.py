@@ -2,7 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import List
+from typing import List, Optional
 
 import posthoganalytics
 
@@ -17,6 +17,8 @@ def report_user_signed_up(
     new_onboarding_enabled: bool = False,
     backend_processor: str = "",  # which serializer/view processed the request
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
+    user_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the User object
+    org_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the Organization object
 ) -> None:
     """
     Reports that a new user has joined. Only triggered when a new user is actually created (i.e. when an existing user
@@ -31,6 +33,12 @@ def report_user_signed_up(
         "signup_social_provider": social_provider,
         "realm": get_instance_realm(),
     }
+    if user_analytics_metadata is not None:
+        props.update(user_analytics_metadata)
+
+    if org_analytics_metadata is not None:
+        for k, v in org_analytics_metadata.items():
+            props[f"org__{k}"] = v
 
     # TODO: This should be $set_once as user props.
     posthoganalytics.identify(distinct_id, props)

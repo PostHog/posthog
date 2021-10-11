@@ -12,6 +12,7 @@ import { GlobalFiltersTitle } from '../../common'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NewPathTab } from './NewPathTab'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function PathTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -20,8 +21,9 @@ export function PathTab(): JSX.Element {
 
 export function OldPathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
-    const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
-    const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
+    const { insightProps } = useValues(insightLogic)
+    const { filter } = useValues(pathsLogic(insightProps))
+    const { setFilter } = useActions(pathsLogic(insightProps))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)

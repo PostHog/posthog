@@ -3,7 +3,7 @@ import gzip
 import json
 from datetime import timedelta
 from typing import Any, Dict, List, Union
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
@@ -13,7 +13,6 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
-from posthog.constants import ENVIRONMENT_TEST
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.base import BaseTest
@@ -90,10 +89,10 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.api.capture.push_scope")
+    @patch("posthog.api.capture.configure_scope")
     @patch("posthog.api.capture.celery_app.send_task", MagicMock())
-    def test_capture_event_adds_library_to_sentry(self, patch_push_scope):
-        mock_set_tag = mock_sentry_context_for_tagging(patch_push_scope)
+    def test_capture_event_adds_library_to_sentry(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
         data = {
             "event": "$autocapture",
@@ -115,10 +114,10 @@ class TestCapture(BaseTest):
 
         mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
 
-    @patch("posthog.api.capture.push_scope")
+    @patch("posthog.api.capture.configure_scope")
     @patch("posthog.api.capture.celery_app.send_task", MagicMock())
-    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patch_push_scope):
-        mock_set_tag = mock_sentry_context_for_tagging(patch_push_scope)
+    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
 
         data = {
             "event": "$autocapture",
@@ -137,39 +136,6 @@ class TestCapture(BaseTest):
             )
 
         mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
-
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_test_api_key(self, patch_process_event_with_plugins):
-        api_token = "test_" + self.team.api_token
-        data: Dict[str, Any] = {
-            "event": "$autocapture",
-            "properties": {
-                "distinct_id": 2,
-                "token": api_token,
-                "$elements": [
-                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
-                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
-                ],
-            },
-        }
-        now = timezone.now()
-        with freeze_time(now):
-            with self.assertNumQueries(1):
-                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
-        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
-        arguments = self._to_arguments(patch_process_event_with_plugins)
-        arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
-        self.assertDictEqual(
-            arguments,
-            {
-                "distinct_id": "2",
-                "ip": "127.0.0.1",
-                "site_url": "http://testserver",
-                "data": {**data, "properties": {**data["properties"], "$environment": ENVIRONMENT_TEST}},
-                "team_id": self.team.pk,
-            },
-        )
 
     @patch("posthog.api.capture.celery_app.send_task")
     def test_personal_api_key(self, patch_process_event_with_plugins):

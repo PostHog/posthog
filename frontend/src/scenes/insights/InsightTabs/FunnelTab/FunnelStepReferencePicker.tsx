@@ -3,6 +3,7 @@ import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { PercentageOutlined } from '@ant-design/icons'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export enum FunnelStepReference {
     total = 'total',
@@ -10,8 +11,9 @@ export enum FunnelStepReference {
 }
 
 export function FunnelStepReferencePicker(): JSX.Element {
-    const { stepReference } = useValues(funnelLogic)
-    const { setStepReference } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { stepReference } = useValues(funnelLogic(insightProps))
+    const { setStepReference } = useActions(funnelLogic(insightProps))
     const options = [
         {
             value: FunnelStepReference.total,

@@ -8,9 +8,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FunnelVizType, ViewType } from '~/types'
 import { PersonModal } from 'scenes/trends/PersonModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function FunnelInsight(): JSX.Element {
-    const { isValidFunnel, isLoading, filters, areFiltersValid } = useValues(funnelLogic({}))
+    const { insightProps } = useValues(insightLogic)
+    const { isValidFunnel, isLoading, filters, areFiltersValid } = useValues(funnelLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)

@@ -4,13 +4,12 @@ import { getChartColors } from 'lib/colors'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LineGraphEmptyState } from '../../insights/EmptyStates'
-import { ViewType } from '~/types'
 import { FilterType, TrendResultWithAggregate } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface Props {
     dashboardItemId?: number | null
-    view: ViewType
     filters: Partial<FilterType>
     color?: string
     inSharedMode?: boolean | null
@@ -21,14 +20,13 @@ type DataSet = any
 
 export function ActionsBarValueGraph({
     dashboardItemId = null,
-    view,
     filters: filtersParam,
     color = 'white',
-    cachedResults,
 }: Props): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
-    const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
+    const { insightProps } = useValues(insightLogic)
+    const logic = trendsLogic(insightProps)
     const { loadPeople } = useActions(personsModalLogic)
     const { results } = useValues(logic)
 

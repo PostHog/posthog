@@ -39,13 +39,17 @@ describe('insightMetadataLogic', () => {
 
     initKeaTestLogic({
         logic: insightMetadataLogic,
-        props: { insight },
+        props: { insight, insightProps: { dashboardItemId: insight.id } },
         onLogic: (l) => (logic = l),
     })
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([insightLogic, userLogic, featureFlagLogic])
+            await expectLogic(logic).toMount([
+                insightLogic({ dashboardItemId: insight.id }),
+                userLogic,
+                featureFlagLogic,
+            ])
         })
 
         // Below is more fully tested by testing of cleanMetadataValues() in utils.test
@@ -61,6 +65,7 @@ describe('insightMetadataLogic', () => {
             initKeaTestLogic({
                 logic: insightMetadataLogic,
                 props: {
+                    insightProps: { dashboardItemId: insight.id },
                     insight: {
                         name: undefined,
                         description: '         ',
@@ -84,6 +89,7 @@ describe('insightMetadataLogic', () => {
         initKeaTestLogic({
             logic: insightMetadataLogic,
             props: {
+                insightProps: { dashboardItemId: undefined },
                 insight: {},
             },
             onLogic: (l) => (logic = l),
@@ -127,7 +133,10 @@ describe('insightMetadataLogic', () => {
                 })
                     .toDispatchActions(logic, ['saveInsightMetadata'])
                     .toDispatchActions(insightLogic, [
-                        insightLogic.actionCreators.setInsight({ name: insight.name }, true),
+                        insightLogic({ dashboardItemId: undefined }).actionCreators.setInsight(
+                            { name: insight.name },
+                            true
+                        ),
                     ])
                     .toDispatchActions(logic, [
                         logic.actionCreators.setInsightMetadata({ name: insight.name }),
@@ -147,7 +156,9 @@ describe('insightMetadataLogic', () => {
                 })
                     .toDispatchActions(logic, ['saveInsightMetadata'])
                     .toDispatchActions(insightLogic, [
-                        insightLogic.actionCreators.updateInsight({ name: insight.name }),
+                        insightLogic({ dashboardItemId: undefined }).actionCreators.updateInsight({
+                            name: insight.name,
+                        }),
                     ])
                     .toDispatchActions(logic, [
                         logic.actionCreators.setInsightMetadata({ name: insight.name }),

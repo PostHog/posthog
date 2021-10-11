@@ -960,17 +960,19 @@ export interface ChartParams {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     cachedResults?: TrendResult[]
-    view: ViewType
 }
 
-// Shared between dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
-export interface SharedInsightLogicProps {
-    // the chart is displayed on a dashboard right now, used in the key if present
+// Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
+export interface InsightLogicProps {
+    /** currently persisted insight */
     dashboardItemId?: number | null
-    // the insight is connected to a dashboard item, yet viewed on the insights scene
-    fromDashboardItemId?: number | null
+    /** enable url handling for this insight */
+    syncWithUrl?: boolean
+    /** cached results, avoid making a request */
     cachedResults?: any
+    /** cached filters, avoid making a request */
     filters?: Partial<FilterType> | null
+    /** not sure about this one */
     preventLoading?: boolean
 }
 

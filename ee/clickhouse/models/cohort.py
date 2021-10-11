@@ -12,8 +12,8 @@ from ee.clickhouse.models.action import format_action_filter
 from ee.clickhouse.sql.cohort import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
-    GET_PERSON_ID_BY_COHORT_ID,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
+    GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     INSERT_PEOPLE_MATCHING_COHORT_ID_SQL,
     REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL,
 )
@@ -25,6 +25,7 @@ from ee.clickhouse.sql.person import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models import Action, Cohort, Filter, Team
+from posthog.models.property import Property
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
@@ -37,10 +38,7 @@ def format_person_query(
     params: Dict[str, Any] = {}
 
     if cohort.is_static:
-        return (
-            f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %(cohort_id_{index})s AND team_id = %(team_id)s)",
-            {f"cohort_id_{index}": cohort.pk, "team_id": cohort.team_id},
-        )
+        return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
 
     or_queries = []
     groups = cohort.groups
@@ -66,6 +64,27 @@ def format_person_query(
 
     joined_filter = " OR ".join(filters)
     return joined_filter, params
+
+
+def format_static_cohort_query(
+    cohort_id: int, index: int, prepend: str, custom_match_field: str
+) -> Tuple[str, Dict[str, Any]]:
+    return (
+        f"{custom_match_field} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s)",
+        {f"{prepend}_cohort_id_{index}": cohort_id},
+    )
+
+
+def format_precalculated_cohort_query(
+    cohort_id: int, index: int, prepend: str = "", custom_match_field="person_id"
+) -> Tuple[str, Dict[str, Any]]:
+    filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
+    return (
+        f"""
+        {custom_match_field} IN ({filter_query})
+        """,
+        {f"{prepend}_cohort_id_{index}": cohort_id},
+    )
 
 
 def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int) -> Tuple[str, Dict[str, Any]]:
@@ -192,7 +211,6 @@ def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) 
 
 
 def is_precalculated_query(cohort: Cohort) -> bool:
-
     if (
         cohort.last_calculation
         and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
@@ -207,24 +225,13 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     person_query, params = (
-        get_precalculated_query(cohort, index) if is_precalculated else format_person_query(cohort, index)
+        format_precalculated_cohort_query(cohort.pk, index) if is_precalculated else format_person_query(cohort, index)
     )
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query, id_column=id_column, GET_TEAM_PERSON_DISTINCT_IDS=GET_TEAM_PERSON_DISTINCT_IDS
     )
     return person_id_query, params
-
-
-def get_precalculated_query(cohort: Cohort, index: int, **kwargs) -> Tuple[str, Dict[str, Any]]:
-    custom_match_field = kwargs.get("custom_match_field", "person_id")
-    filter_query = GET_PERSON_ID_BY_COHORT_ID.format(index=index)
-    return (
-        f"""
-        {custom_match_field} IN ({filter_query})
-        """,
-        {"team_id": cohort.team_id, f"cohort_id_{index}": cohort.pk},
-    )
 
 
 def get_person_ids_by_cohort_id(team: Team, cohort_id: int):
@@ -262,3 +269,41 @@ def recalculate_cohortpeople(cohort: Cohort):
 
     remove_cohortpeople_sql = REMOVE_PEOPLE_NOT_MATCHING_COHORT_ID_SQL.format(cohort_filter=cohort_filter)
     sync_execute(remove_cohortpeople_sql, {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id})
+
+
+def simplified_cohort_filter_properties(cohort: Cohort, team: Team) -> List[Property]:
+    """
+    'Simplifies' cohort property filters, removing team-specific context from properties.
+    """
+    from ee.clickhouse.models.cohort import is_precalculated_query
+
+    if cohort.is_static:
+        return [Property(type="static-cohort", key="id", value=cohort.pk)]
+
+    # Cohort has been precalculated
+    if is_precalculated_query(cohort):
+        return [Property(type="precalculated-cohort", key="id", value=cohort.pk)]
+
+    # Cohort can have multiple match groups.
+    # Each group is either
+    # 1. "user has done X in time range Y at least N times" or
+    # 2. "user has properties XYZ", including belonging to another cohort
+    #
+    # Users who match _any_ of the groups are considered to match the cohort.
+    group_filters: List[List[Property]] = []
+    for group in cohort.groups:
+        if group.get("action_id") or group.get("event_id"):
+            # :TODO: Support hasdone as separate property type
+            return [Property(type="cohort", key="id", value=cohort.pk)]
+        elif group.get("properties"):
+            # :TRICKY: This will recursively simplify all the properties
+            filter = Filter(data=group, team=team)
+            group_filters.append(filter.properties)
+
+    if len(group_filters) > 1:
+        # :TODO: Support or properties
+        return [Property(type="cohort", key="id", value=cohort.pk)]
+    elif len(group_filters) == 1:
+        return group_filters[0]
+    else:
+        return []

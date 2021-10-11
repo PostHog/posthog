@@ -35,7 +35,7 @@ describe('trendsLogic', () => {
     describe('core assumptions', () => {
         initKeaTestLogic({
             logic: trendsLogic,
-            props: {},
+            props: { dashboardItemId: undefined },
             onLogic: (l) => (logic = l),
         })
 
@@ -47,7 +47,7 @@ describe('trendsLogic', () => {
     describe('reducers', () => {
         initKeaTestLogic({
             logic: trendsLogic,
-            props: {},
+            props: { dashboardItemId: undefined },
             onLogic: (l) => (logic = l),
         })
 

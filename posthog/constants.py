@@ -114,7 +114,7 @@ FUNNEL_LAYOUT = "layout"
 FUNNEL_ORDER_TYPE = "funnel_order_type"
 FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
-FUNNEL_CORRELATION_VALUE = "funnel_correlation_value"
+FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 BIN_COUNT = "bin_count"
 ENTRANCE_PERIOD_START = "entrance_period_start"
 DROP_OFF = "drop_off"
@@ -164,9 +164,6 @@ class AnalyticsDBMS(str, Enum):
 
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
-
-ENVIRONMENT_TEST = "test"
-ENVIRONMENT_PRODUCTION = "production"
 
 
 class RetentionQueryType(str, Enum):

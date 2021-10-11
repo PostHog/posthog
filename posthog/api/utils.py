@@ -58,7 +58,7 @@ def format_offset_absolute_url(request: request.Request, offset: int):
     return url_to_format
 
 
-def get_token(data, request) -> Tuple[Optional[str], bool]:
+def get_token(data, request) -> Optional[str]:
     token = None
     if request.method == "GET":
         if request.GET.get("token"):
@@ -83,17 +83,7 @@ def get_token(data, request) -> Tuple[Optional[str], bool]:
                     token = data["api_key"]  # server-side libraries like posthog-python and posthog-ruby
                 elif data.get("properties") and data["properties"].get("token"):
                     token = data["properties"]["token"]  # JS capture call
-
-    if token:
-        return clean_token(token)
-    return None, False
-
-
-# Support test_[apiKey] for users with multiple environments
-def clean_token(token) -> Tuple[str, bool]:
-    is_test_environment = token.startswith("test_")
-    token = token[5:] if is_test_environment else token
-    return token, is_test_environment
+    return token
 
 
 def get_project_id(data, request) -> Optional[int]:

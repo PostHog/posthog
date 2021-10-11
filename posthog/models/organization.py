@@ -155,6 +155,7 @@ class Organization(UUIDModel):
             "person_count": sum((team.person_set.count() for team in self.teams.all())),
             "setup_section_2_completed": self.setup_section_2_completed,
             "personalization": self.personalization,
+            "name": self.name,
         }
 
 

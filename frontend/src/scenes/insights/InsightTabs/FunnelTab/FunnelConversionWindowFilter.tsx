@@ -7,6 +7,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { RefSelectProps } from 'antd/lib/select'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
@@ -17,8 +18,9 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
 }
 
 export function FunnelConversionWindowFilter(): JSX.Element {
-    const { conversionWindow } = useValues(funnelLogic)
-    const { setConversionWindow } = useActions(funnelLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { conversionWindow } = useValues(funnelLogic(insightProps))
+    const { setConversionWindow } = useActions(funnelLogic(insightProps))
     const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
     const timeUnitRef: React.RefObject<RefSelectProps> | null = useRef(null)
 

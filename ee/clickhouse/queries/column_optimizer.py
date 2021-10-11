@@ -66,12 +66,6 @@ class ColumnOptimizer:
         if has_element_type_property(self.filter.properties):
             return True
 
-        if self.filter.filter_test_accounts:
-            test_account_filters = Team.objects.only("test_account_filters").get(id=self.team_id).test_account_filters
-            properties = [Property(**prop) for prop in test_account_filters]
-            if has_element_type_property(properties):
-                return True
-
         # Both entities and funnel exclusions can contain nested elements_chain inclusions
         for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
             if has_element_type_property(entity.properties):
@@ -92,9 +86,6 @@ class ColumnOptimizer:
         result: Set[Tuple[PropertyName, PropertyType]] = set()
 
         result |= extract_tables_and_properties(self.filter.properties)
-        if self.filter.filter_test_accounts:
-            test_account_filters = Team.objects.only("test_account_filters").get(id=self.team_id).test_account_filters
-            result |= extract_tables_and_properties([Property(**prop) for prop in test_account_filters])
 
         # Some breakdown types read properties
         #
@@ -121,8 +112,9 @@ class ColumnOptimizer:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 result |= get_action_tables_and_properties(entity.get_action())
 
-        if self.filter.correlation_type == FunnelCorrelationType.PROPERTIES and self.filter.correlation_property_value:
-            result.add((self.filter.correlation_property_value, "person"))
+        if self.filter.correlation_type == FunnelCorrelationType.PROPERTIES and self.filter.correlation_property_names:
+            for prop_value in self.filter.correlation_property_names:
+                result.add((prop_value, "person"))
 
         return result
 
