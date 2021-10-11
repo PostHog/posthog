@@ -26,7 +26,7 @@ export const trendsLogic = kea<trendsLogicType>({
         toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
     }),
 
-    reducers: {
+    reducers: ({ props }) => ({
         toggledLifecycles: [
             ['new', 'resurrecting', 'returning', 'dormant'],
             {
@@ -39,7 +39,10 @@ export const trendsLogic = kea<trendsLogicType>({
             },
         ],
         visibilityMap: [
-            {} as Record<number, any>,
+            () =>
+                (Array.isArray(props.cachedResults)
+                    ? Object.fromEntries(props.cachedResults.map((__, i) => [i, true]))
+                    : {}) as Record<number, any>,
             {
                 setVisibilityById: (
                     state: Record<number, any>,
@@ -75,7 +78,7 @@ export const trendsLogic = kea<trendsLogicType>({
                 setBreakdownValuesLoading: (_, { loading }) => loading,
             },
         ],
-    },
+    }),
 
     selectors: {
         loadedFilters: [
