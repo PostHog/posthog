@@ -12,7 +12,7 @@ from posthog.models import Filter, Person, User
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingEvent, SessionRecordingViewed
 from posthog.queries.sessions.session_recording import (
-    RECORDINGS_NUM_CHUNKS_LIMIT,
+    RECORDINGS_NUM_SNAPSHOTS_LIMIT,
     SessionRecording,
     join_with_session_recordings,
 )
@@ -174,11 +174,11 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
                 req, filt = create_recording_request_and_filter("1")
                 session = session_recording(team=self.team, session_recording_id="1", request=req, filter=filt).run()
-                self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_CHUNKS_LIMIT * self.CHUNK_SIZE)
+                self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT * self.CHUNK_SIZE)
                 self.assertIsNotNone(session["next"])
                 parsed_params = parse_qs(urlparse(session["next"]).query)
-                self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_CHUNKS_LIMIT)
-                self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_CHUNKS_LIMIT)
+                self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
+                self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
 
         def test_query_run_queries_with_specific_limit_and_offset(self):
             limit = 100
@@ -203,7 +203,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
 
-                for s in range(RECORDINGS_NUM_CHUNKS_LIMIT * (expected_num_requests - 1)):
+                for s in range(RECORDINGS_NUM_SNAPSHOTS_LIMIT * (expected_num_requests - 1)):
                     self.create_chunked_snapshot("user", "1", now() + relativedelta(seconds=s), s, self.CHUNK_SIZE)
 
                 # A successful single session recording query will make 200 / 50 = 4 requests
@@ -218,7 +218,10 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                         if i == 0
                         else Filter(
                             request=req,
-                            data={"limit": RECORDINGS_NUM_CHUNKS_LIMIT, "offset": RECORDINGS_NUM_CHUNKS_LIMIT * i},
+                            data={
+                                "limit": RECORDINGS_NUM_SNAPSHOTS_LIMIT,
+                                "offset": RECORDINGS_NUM_SNAPSHOTS_LIMIT * i,
+                            },
                         )
                     )
 
@@ -232,9 +235,9 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     else:
                         self.assertIsNotNone(session["next"])
                         parsed_params = parse_qs(urlparse(session["next"]).query)
-                        self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_CHUNKS_LIMIT * (i + 1))
-                        self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_CHUNKS_LIMIT)
-                        self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_CHUNKS_LIMIT * self.CHUNK_SIZE)
+                        self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT * (i + 1))
+                        self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
+                        self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT * self.CHUNK_SIZE)
 
         def create_snapshot(self, distinct_id, session_id, timestamp, type=2):
             event_factory(

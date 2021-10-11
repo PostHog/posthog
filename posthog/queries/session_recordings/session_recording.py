@@ -6,7 +6,7 @@ from requests import Request
 from posthog.helpers.session_recording import decompress_chunked_snapshot_data
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.queries.sessions.session_recording import RECORDINGS_NUM_CHUNKS_LIMIT
+from posthog.queries.sessions.session_recording import RECORDINGS_NUM_SNAPSHOTS_LIMIT
 from posthog.utils import format_query_params_absolute_url
 
 DistinctId = str
@@ -28,33 +28,35 @@ class SessionRecording:
         self._filter = filter
         self._session_recording_id = session_recording_id
         self._team = team
-        self._limit = self._filter.limit if self._filter.limit else RECORDINGS_NUM_CHUNKS_LIMIT
+        self._limit = self._filter.limit if self._filter.limit else RECORDINGS_NUM_SNAPSHOTS_LIMIT
         self._offset = self._filter.offset if self._filter.offset else 0
 
-    def query_recording_snapshots(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots, bool]:
+    def query_recording_snapshots(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
         events = SessionRecordingEvent.objects.filter(team=self._team, session_id=self._session_recording_id).order_by(
             "timestamp"
-        )[self._offset : (self._offset + self._limit)]
+        )
 
         if len(events) == 0:
-            return None, None, [], False
+            return None, None, []
 
         return (
             events[0].distinct_id,
             events[0].timestamp,
             [e.snapshot_data for e in events],
-            len(events) > self._limit - 1,
         )
 
     def run(self) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
 
-        distinct_id, start_time, snapshots, should_paginate = self.query_recording_snapshots()
+        distinct_id, start_time, snapshots = self.query_recording_snapshots()
+        # Apply limit and offset after decompressing to account for non-fully formed chunks.
         snapshots = list(decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, snapshots))
+        snapshots_subset = snapshots[self._offset : (self._offset + self._limit)]
+        has_next = len(snapshots) > (self._offset + self._limit + 1)
 
         next_url = (
             format_query_params_absolute_url(self._request, self._offset + self._limit, self._limit)
-            if should_paginate
+            if has_next
             else None
         )
 
@@ -67,4 +69,4 @@ class SessionRecording:
         except Person.DoesNotExist:
             person = None
 
-        return {"snapshots": snapshots, "person": person, "start_time": start_time, "next": next_url}
+        return {"snapshots": snapshots_subset, "person": person, "start_time": start_time, "next": next_url}

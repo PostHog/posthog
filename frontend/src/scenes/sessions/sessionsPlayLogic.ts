@@ -168,7 +168,6 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                     const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
                     response = await api.get(`api/event/session_recording?${params}`)
                 }
-                console.log('RESPONSE', response)
                 actions.reportUsage(response.result, performance.now() - startTime)
 
                 const currData = values.sessionPlayerData
