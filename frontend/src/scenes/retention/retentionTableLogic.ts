@@ -3,7 +3,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionTableLogicType } from './retentionTableLogicType'
-import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { ACTIONS_LINE_GRAPH_LINEAR, ACTIONS_TABLE, RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionType, InsightLogicProps, FilterType, ViewType } from '~/types'
 import {
@@ -73,8 +73,15 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
         results: [
             (s) => [s.insight],
-            ({ filters, result }): RetentionTablePayload[] | RetentionTrendPayload[] =>
-                filters?.insight === ViewType.RETENTION ? result : [],
+            ({ filters, result }): RetentionTablePayload[] | RetentionTrendPayload[] => {
+                return filters?.insight === ViewType.RETENTION &&
+                    result &&
+                    (result.length === 0 ||
+                        (!result[0].values && filters.display === ACTIONS_LINE_GRAPH_LINEAR) ||
+                        (result[0].values && filters.display === ACTIONS_TABLE))
+                    ? result
+                    : []
+            },
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         actionsLookup: [
