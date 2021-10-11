@@ -109,7 +109,7 @@ export function LineGraph({
     }, [annotationsLoading, annotationsCondition, annotationsList, annotationInRange])
 
     useEffect(() => {
-        if (annotationsCondition && datasets[0]?.days?.length > 0) {
+        if (annotationsCondition && datasets?.[0]?.days?.length > 0) {
             const begin = dayjs(datasets[0].days[0])
             const end = dayjs(datasets[0].days[datasets[0].days.length - 1]).add(2, 'days')
             const checkBetween = (element) =>
@@ -120,7 +120,7 @@ export function LineGraph({
 
     // recalculate diff if interval type selection changes
     useEffect(() => {
-        if (annotationsCondition) {
+        if (annotationsCondition && datasets?.[0]?.days) {
             updateDiffType(datasets[0].days)
         }
     }, [datasets, type, annotationsCondition])

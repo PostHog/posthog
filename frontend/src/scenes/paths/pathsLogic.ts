@@ -131,16 +131,16 @@ export const pathsLogic = kea<pathsLogicType<PathNode, PathResult>>({
         results: [
             (s) => [s.insight],
             ({ filters, result }): PathResult =>
-                filters?.insight === ViewType.PATHS ? result : { paths: [], filter: {} },
+                filters?.insight === ViewType.PATHS ? result || { paths: [], filter: {} } : { paths: [], filter: {} },
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
         paths: [
             (s) => [s.results],
             (results: PathResult) => {
-                const { paths, error } = results
+                const { paths, error } = results || {}
 
                 const nodes: Record<string, any> = {}
-                for (const path of paths) {
+                for (const path of paths || []) {
                     if (!nodes[path.source]) {
                         nodes[path.source] = { name: path.source }
                     }
