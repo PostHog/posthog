@@ -105,7 +105,7 @@ class ClickhousePersonQuery:
                 index,
                 prepend="personquery",
                 allow_denormalized_props=True,
-                transform_expression=lambda column_name: f"argMax({column_name}, _timestamp)",
+                transform_expression=lambda column_name: f"argMax(person.{column_name}, _timestamp)",
             )
 
             conditions.append(expr)
