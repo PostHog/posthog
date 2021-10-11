@@ -74,13 +74,10 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
                 closeSessionPlayer: () => false,
             },
         ],
-        isRecordingReadyToPlay: [
+        firstChunkLoaded: [
             false,
             {
-                loadRecordingSuccess: (_, { sessionPlayerData }) => {
-                    // If sessionPlayerData has a next url, the first chunk has already been loaded
-                    return !!sessionPlayerData?.next
-                },
+                loadRecordingSuccess: () => true,
             },
         ],
         source: [
@@ -214,6 +211,16 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
         shouldLoadSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],
             (session, sessionEvents) => session && !sessionEvents[session.global_session_id],
+        ],
+        isPlayable: [
+            (selectors) => [
+                selectors.firstChunkLoaded,
+                selectors.sessionPlayerDataLoading,
+                selectors.loadingNextRecording,
+            ],
+            (firstChunkLoaded, sessionPlayerDataLoading, loadingNextRecording) =>
+                firstChunkLoaded || // If first chunk is ready OR
+                !(sessionPlayerDataLoading || loadingNextRecording), // data isn't being fetched
         ],
         highlightedSessionEvents: [
             (selectors) => [selectors.session, selectors.loadedSessionEvents],

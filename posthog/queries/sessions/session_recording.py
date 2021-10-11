@@ -13,8 +13,9 @@ from typing import (
 from django.db import connection
 from rest_framework.request import Request
 
+from posthog.decorators import cached_recording
 from posthog.helpers.session_recording import decompress_chunked_snapshot_data
-from posthog.models import Filter, Person, SessionRecordingEvent, Team
+from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
@@ -23,6 +24,7 @@ from posthog.utils import format_query_params_absolute_url
 
 DistinctId = str
 Snapshots = List[Any]
+Events = Tuple[str, str, Snapshots]
 
 
 OPERATORS = {"gt": ">", "lt": "<"}
@@ -51,7 +53,7 @@ SESSIONS_IN_RANGE_QUERY = """
     WHERE full_snapshots > 0 {filter_query}
 """
 
-RECORDINGS_NUM_SNAPSHOTS_LIMIT = 500
+RECORDINGS_NUM_SNAPSHOTS_LIMIT = 1000
 
 
 class SessionRecording:
@@ -72,11 +74,14 @@ class SessionRecording:
         self._limit = self._filter.limit if self._filter.limit else RECORDINGS_NUM_SNAPSHOTS_LIMIT
         self._offset = self._filter.offset if self._filter.offset else 0
 
-    def query_recording_snapshots(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
-
-        events = SessionRecordingEvent.objects.filter(team=self._team, session_id=self._session_recording_id).order_by(
+    @cached_recording
+    def query_recording_snapshots(self) -> List[SessionRecordingEvent]:
+        return SessionRecordingEvent.objects.filter(team=self._team, session_id=self._session_recording_id).order_by(
             "timestamp"
         )
+
+    def get_snapshot_data(self) -> Tuple[Optional[DistinctId], Optional[datetime.datetime], Snapshots]:
+        events = self.query_recording_snapshots()
 
         if len(events) == 0:
             return None, None, []
@@ -90,7 +95,8 @@ class SessionRecording:
     def run(self) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
 
-        distinct_id, start_time, snapshots = self.query_recording_snapshots()
+        distinct_id, start_time, snapshots = self.get_snapshot_data()
+
         # Apply limit and offset after decompressing to account for non-fully formed chunks.
         snapshots = list(decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, snapshots))
         snapshots_subset = snapshots[self._offset : (self._offset + self._limit)]
