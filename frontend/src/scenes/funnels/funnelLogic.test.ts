@@ -6,6 +6,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { funnelsModel } from '~/models/funnelsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+import { ViewType } from '~/types'
 
 jest.mock('lib/api')
 
@@ -31,6 +32,7 @@ describe('funnelLogic', () => {
         props: {
             dashboardItemId: undefined,
             filters: {
+                insight: ViewType.FUNNELS,
                 actions: [
                     { id: '$pageview', order: 0 },
                     { id: '$pageview', order: 1 },
@@ -75,6 +77,7 @@ describe('funnelLogic', () => {
                         result: null,
                     }),
                     filters: {
+                        insight: ViewType.FUNNELS,
                         actions: [
                             { id: '$pageview', order: 0 },
                             { id: '$pageview', order: 1 },
@@ -86,6 +89,7 @@ describe('funnelLogic', () => {
                 .toMatchValues({
                     insight: expect.objectContaining({
                         filters: {
+                            insight: ViewType.FUNNELS,
                             actions: [
                                 { id: '$pageview', order: 0 },
                                 { id: '$pageview', order: 1 },
@@ -94,6 +98,7 @@ describe('funnelLogic', () => {
                         result: ['result from api'],
                     }),
                     filters: {
+                        insight: ViewType.FUNNELS,
                         actions: [
                             { id: '$pageview', order: 0 },
                             { id: '$pageview', order: 1 },
