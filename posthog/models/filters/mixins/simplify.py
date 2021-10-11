@@ -19,9 +19,6 @@ class SimplifyFilterMixin:
         - for cohort properties, replaces them with more concrete lookups or with cohort conditions
         """
 
-        # :TODO: Temporarily disabled to investigate issues around dashboards
-        return self
-
         # :TRICKY: Make a copy to avoid caching issues
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
         if getattr(self, "filter_test_accounts", False):
