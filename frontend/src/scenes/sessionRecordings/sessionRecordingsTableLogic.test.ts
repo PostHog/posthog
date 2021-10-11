@@ -7,7 +7,7 @@ import {
 } from './sessionRecordingsTableLogic'
 import { sessionRecordingsTableLogicType } from './sessionRecordingsTableLogicType'
 import { BuiltLogic } from 'kea'
-import { mockAPI } from 'lib/api.mock'
+import { mockAPI, defaultAPIMocks } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
@@ -18,7 +18,8 @@ jest.mock('lib/api')
 describe('sessionRecordingsTableLogic', () => {
     let logic: BuiltLogic<sessionRecordingsTableLogicType<PersonUUID, SessionRecordingId, SessionRecordingsResponse>>
 
-    mockAPI(async ({ pathname, searchParams }) => {
+    mockAPI(async (url) => {
+        const { pathname, searchParams } = url
         if (pathname === 'api/projects/@current/session_recordings') {
             if (searchParams['events'].length > 0 && searchParams['events'][0]['id'] === '$autocapture') {
                 return {
@@ -44,9 +45,8 @@ describe('sessionRecordingsTableLogic', () => {
             return {
                 results: ['List of recordings from server'],
             }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url)
     })
 
     describe('global logic', () => {
