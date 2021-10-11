@@ -1,23 +1,13 @@
-from typing import (
-    Dict,
-    Generator,
-    List,
-    Literal,
-    Optional,
-    Set,
-    Tuple,
-    Union,
-)
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import ColumnName
-from ee.clickhouse.models.property import extract_tables_and_properties, parse_prop_clauses, prop_filter_json_extract
+from ee.clickhouse.models.property import extract_tables_and_properties, prop_filter_json_extract
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
-from posthog.constants import FunnelCorrelationType
 from posthog.models import Filter
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.property import Property, PropertyName, PropertyType, TableWithProperties
+from posthog.models.property import Property
 
 
 class ClickhousePersonQuery:
@@ -27,7 +17,7 @@ class ClickhousePersonQuery:
     _filter: Union[Filter, PathFilter, RetentionFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
-    _extra_fields: List[ColumnName]
+    _extra_fields: Set[ColumnName]
 
     def __init__(
         self,
@@ -42,7 +32,10 @@ class ClickhousePersonQuery:
         self._team_id = team_id
         self._entity = entity
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
-        self._extra_fields = extra_fields
+        self._extra_fields = set(extra_fields)
+
+        if self.PERSON_PROPERTIES_ALIAS in self._extra_fields:
+            self._extra_fields = self._extra_fields - {self.PERSON_PROPERTIES_ALIAS} | {"properties"}
 
     def get_query(self) -> Tuple[str, Dict]:
         fields = "id" + " ".join(
