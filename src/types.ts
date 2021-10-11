@@ -456,6 +456,7 @@ export interface BasePerson {
     is_identified: boolean
     uuid: string
     properties_last_updated_at: Record<string, any>
+    properties_last_operation: Record<string, any> | null
 }
 
 /** Raw Person row from database. */
