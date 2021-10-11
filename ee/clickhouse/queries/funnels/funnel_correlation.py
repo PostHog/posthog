@@ -197,7 +197,7 @@ class FunnelCorrelation:
 
         funnel_persons_query, funnel_persons_params = self.get_funnel_persons_cte()
 
-        prop_query, prop_params = self._get_properties_prop_clause()
+        person_prop_query, person_prop_params = self._get_properties_prop_clause()
 
         person_query = ClickhousePersonQuery(
             self._filter, self._team.pk, ColumnOptimizer(self._filter, self._team.pk)
@@ -240,7 +240,7 @@ class FunnelCorrelation:
                         To avoid clashes and clarify the values, we also zip with the property name, to generate
                         tuples like: (property_name, property_value), which we then group by
                     */
-                    {prop_query}
+                    {person_prop_query}
                 FROM funnel_people
                 JOIN ({person_query}) person
                 ON person.id = funnel_people.person_id
@@ -256,7 +256,7 @@ class FunnelCorrelation:
         """
         params = {
             **funnel_persons_params,
-            **prop_params,
+            **person_prop_params,
             "target_step": len(self._filter.entities),
             "property_names": self._filter.correlation_property_names,
         }
@@ -265,7 +265,7 @@ class FunnelCorrelation:
 
     def _get_properties_prop_clause(self):
 
-        if self._filter.get_all_properties:
+        if "$all" in cast(list, self._filter.correlation_property_names):
             return (
                 f"""
             arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw({ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS})) as person_prop_keys,
