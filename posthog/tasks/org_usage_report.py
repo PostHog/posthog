@@ -84,14 +84,14 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
             period_end=period_end,
             month_start=month_start,
         )
+        report: dict = {
+            **metadata,
+            **usage,
+            "organization_id": org,
+        }
+        org_reports.append(report)  # type: ignore
         if not dry_run:
-            report: dict = {
-                **metadata,
-                **usage,
-                "organization_id": org,
-            }
             report_org_usage(distinct_id, report)
-            org_reports.append(report)  # type: ignore
 
     return org_reports
 
