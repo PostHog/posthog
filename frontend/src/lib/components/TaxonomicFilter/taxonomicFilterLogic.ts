@@ -3,7 +3,7 @@ import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
     SimpleOption,
     TaxonomicFilterGroupType,
-    TaxonomicFilterGroupUnion,
+    TaxonomicFilterGroup,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
@@ -18,7 +18,9 @@ import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
     props: {} as TaxonomicFilterLogicProps,
     key: (props) => `${props.taxonomicFilterLogicKey}`,
-
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     actions: () => ({
         moveUp: true,
         moveDown: true,
@@ -71,7 +73,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
         ],
         groups: [
             () => [teamLogic.selectors.currentTeamId],
-            (currentTeamId): TaxonomicFilterGroupUnion[] => [
+            (currentTeamId): TaxonomicFilterGroup[] => [
                 {
                     name: 'Events',
                     type: TaxonomicFilterGroupType.Events,

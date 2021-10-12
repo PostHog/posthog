@@ -11,7 +11,7 @@ const defaultValue = 'https://'
 
 export const appUrlsLogic = kea<appUrlsLogicType>({
     connect: {
-        values: [teamLogic, ['currentTeam']],
+        values: [teamLogic, ['currentTeam', 'currentTeamId']],
     },
     actions: () => ({
         setAppUrls: (appUrls: string[]) => ({ appUrls }),
@@ -91,7 +91,7 @@ export const appUrlsLogic = kea<appUrlsLogicType>({
     listeners: ({ values, sharedListeners, props, actions }) => ({
         addUrlAndGo: async ({ value }) => {
             // TODO: Need to refactor this to use `teamLogic.actions.updateCurrentTeam`
-            await api.update(`api/projects/${teamLogic.values.currentTeamId}`, { app_urls: [...values.appUrls, value] })
+            await api.update(`api/projects/${values.currentTeamId}`, { app_urls: [...values.appUrls, value] })
             if (typeof props.actionId === 'number' || props.isToolbarModal) {
                 window.location.href = appEditorUrl(
                     value,

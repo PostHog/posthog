@@ -43,6 +43,9 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
     props: {} as {
         personUUID?: PersonUUID
     },
+    connect: {
+        values: [teamLogic, ['currentTeamId']],
+    },
     actions: {
         getSessionRecordings: true,
         openSessionPlayer: (sessionRecordingId: SessionRecordingId | null, source: RecordingWatchedSource) => ({
@@ -76,9 +79,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType<P
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes
-                    const response = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/session_recordings?${params}`
-                    )
+                    const response = await api.get(`api/projects/${values.currentTeamId}/session_recordings?${params}`)
                     breakpoint()
                     return response
                 },

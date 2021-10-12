@@ -19,9 +19,11 @@ function TabTitle({
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
+    const { groups } = useValues(taxonomicFilterLogic)
     const { totalCount } = useValues(logic)
 
     const group = groups.find((g) => g.type === groupType)
+
     return (
         <div data-attr={`taxonomic-tab-${groupType}`}>
             {group?.name} {totalCount != null && <Tag>{totalCount}</Tag>}

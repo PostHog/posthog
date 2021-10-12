@@ -1,5 +1,5 @@
 import { LogicWrapper } from 'kea'
-import { ActionType, CohortType, EventDefinition, PersonProperty, PropertyDefinition } from '~/types'
+import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
 
 export interface SimpleOption {
@@ -22,7 +22,7 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
     taxonomicFilterLogicKey: string
 }
 
-export interface TaxonomicFilterGroup<T> {
+export interface TaxonomicFilterGroup {
     name: string
     type: TaxonomicFilterGroupType
     endpoint?: string
@@ -30,17 +30,9 @@ export interface TaxonomicFilterGroup<T> {
     logic?: LogicWrapper
     value?: string
     searchAlias?: string
-    getName: (instance: T) => string
-    getValue: (instance: T) => TaxonomicFilterValue
+    getName: (instance: any) => string
+    getValue: (instance: any) => TaxonomicFilterValue
 }
-
-export type TaxonomicFilterGroupUnion =
-    | TaxonomicFilterGroup<SimpleOption>
-    | TaxonomicFilterGroup<EventDefinition>
-    | TaxonomicFilterGroup<PropertyDefinition>
-    | TaxonomicFilterGroup<CohortType>
-    | TaxonomicFilterGroup<PersonProperty>
-    | TaxonomicFilterGroup<ActionType>
 
 export enum TaxonomicFilterGroupType {
     Actions = 'actions',

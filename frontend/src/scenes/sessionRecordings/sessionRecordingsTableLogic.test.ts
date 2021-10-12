@@ -19,7 +19,11 @@ describe('sessionRecordingsTableLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname, searchParams } = url
-        if (pathname === 'api/projects/@current/session_recordings') {
+        if (pathname === 'api/projects/@current') {
+            return {
+                id: 1,
+            }
+        } else if (pathname === 'api/projects/1/session_recordings') {
             if (searchParams['events'].length > 0 && searchParams['events'][0]['id'] === '$autocapture') {
                 return {
                     results: ['List of recordings filtered by events'],

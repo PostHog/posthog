@@ -13,7 +13,11 @@ describe('infiniteListLogic', () => {
 
     mockAPI(async (url) => {
         const { pathname, searchParams } = url
-        if (pathname === 'api/projects/@current/event_definitions') {
+        if (pathname === 'api/projects/@current') {
+            return {
+                id: 1,
+            }
+        } else if (pathname === 'api/projects/1/event_definitions') {
             const results = searchParams.search
                 ? mockEventDefinitions.filter((e) => e.name.includes(searchParams.search))
                 : mockEventDefinitions
