@@ -132,7 +132,9 @@ describe('infiniteListLogic with optionsFromProp', () => {
                 wildcard: [{ name: 'first' }, { name: 'second' }],
             },
         },
-        onLogic: (l) => (logic = l),
+        onLogic: (l) => {
+            logic = l
+        },
     })
 
     it('doesnt call loadRemoteItems on mount, loads results locally', async () => {

@@ -8,6 +8,8 @@ import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
 import { InfiniteListLogicProps, ListFuse, ListStorage, LoaderOptions } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+import { teamLogic } from '../../../scenes/teamLogic'
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
@@ -38,7 +40,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
     connect: (props: InfiniteListLogicProps) => ({
-        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType']],
+        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType', 'groups']],
         actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem']],
     }),
 
@@ -125,6 +127,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
     }),
 
     listeners: ({ values, actions, props }) => ({
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            if (values.isRemoteDataSource) {
+                actions.loadRemoteItems({ offset: 0, limit: values.limit })
+            } else if (values.groupType === props.listGroupType) {
+                const { value, group, results } = values
+                actions.setIndex(results.findIndex((r) => group?.getValue?.(r) === value))
+            }
+        },
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.isRemoteDataSource) {
                 let loadFrom: number | null = null
@@ -163,7 +173,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [
-            (s) => [s.listGroupType, taxonomicFilterLogic.selectors.groups],
+            (s) => [s.listGroupType, s.groups],
             (listGroupType, groups) => groups.find((g) => g.type === listGroupType),
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
@@ -171,7 +181,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         rawLocalItems: [
             () => [
                 (state, props) => {
-                    const groups = taxonomicFilterLogic.selectors.groups(state)
+                    const groups = (taxonomicFilterLogic(props) as taxonomicFilterLogicType).selectors.groups(state)
                     const group = groups.find((g) => g.type === props.listGroupType)
                     if (group?.logic && group?.value) {
                         return group.logic.selectors[group.value]?.(state) || null
@@ -234,15 +244,4 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             (index, startIndex, stopIndex) => typeof index === 'number' && index >= startIndex && index <= stopIndex,
         ],
     },
-
-    events: ({ actions, values, props }) => ({
-        afterMount: () => {
-            if (values.isRemoteDataSource) {
-                actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else if (values.groupType === props.listGroupType) {
-                const { value, group, results } = values
-                actions.setIndex(results.findIndex((r) => group?.getValue?.(r) === value))
-            }
-        },
-    }),
 })
