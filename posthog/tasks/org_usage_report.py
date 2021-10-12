@@ -51,6 +51,7 @@ OrgReport = TypedDict(
         "organization_id": str,
         "organization_name": str,
         "team_count": int,
+        "product": str,
     },
 )
 
