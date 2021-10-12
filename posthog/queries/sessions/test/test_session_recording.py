@@ -1,4 +1,5 @@
 import json
+from typing import Tuple
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from dateutil.relativedelta import relativedelta
@@ -20,7 +21,7 @@ from posthog.test.base import BaseTest
 
 
 def session_recording_test_factory(session_recording, filter_sessions, event_factory):
-    def create_recording_request_and_filter(session_recording_id, limit=None, offset=None) -> tuple[Request, Filter]:
+    def create_recording_request_and_filter(session_recording_id, limit=None, offset=None) -> Tuple[Request, Filter]:
         params = {}
         if limit:
             params["limit"] = limit
