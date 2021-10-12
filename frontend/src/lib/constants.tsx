@@ -250,6 +250,7 @@ export const FEATURE_FLAGS = {
     RENAME_FILTERS: '6063-rename-filters',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     CORRELATION_ANALYSIS: 'correlation-analysis',
+    SIGMA_ANALYSIS: 'sigma-analysis',
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

@@ -286,3 +286,18 @@ export const getClampedStepRangeFilter = ({
         ),
     }
 }
+
+export function getMeanAndStandardDeviation(values?: number[]): number[] {
+    if (!values?.length) {
+        return [0, 0]
+    }
+
+    const n = values.length
+    const average = values.reduce((acc, current) => current + acc, 0) / n
+    const squareDiffs = values.map((value) => {
+        const diff = value - average
+        return diff * diff
+    })
+    const avgSquareDiff = squareDiffs.reduce((acc, current) => current + acc, 0) / n
+    return [average, Math.sqrt(avgSquareDiff)]
+}
