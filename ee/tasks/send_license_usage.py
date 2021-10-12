@@ -6,6 +6,7 @@ from django.utils import timezone
 from ee.clickhouse.client import sync_execute
 from ee.models.license import License
 from posthog.models import User
+from posthog.tasks.status_report import get_instance_licenses
 
 
 def send_license_usage():
@@ -36,6 +37,19 @@ def send_license_usage():
                     "events_count": events_count,
                 },
             )
+            return
+
+        posthoganalytics.capture(
+            User.objects.first().distinct_id,  # type: ignore
+            "send license usage data",
+            {
+                "date": date_from.strftime("%Y-%m-%d"),
+                "date_from": date_from.strftime("%Y-%m-%d"),
+                "date_to": date_to.strftime("%Y-%m-%d"),
+                "events_count": events_count,
+                "license_keys": get_instance_licenses(),
+            },
+        )
     except Exception as err:
         posthoganalytics.capture(
             User.objects.first().distinct_id,  # type: ignore
