@@ -9,13 +9,6 @@ describe('tableConfigLogic', () => {
     let logic: ReturnType<typeof tableConfigLogic.build>
 
     mockAPI(async ({ pathname, searchParams, method }) => {
-        // if (pathname === 'api/users/@me/' && method === 'get') {
-        //     return fakeUser
-        // }
-        // if (pathname === 'api/users/@me/' && method === 'update') {
-        //     fakeUser.events_column_config = data && data.events_column_config
-        //     return fakeUser
-        // }
         throw new Error(`Unmocked ${method} fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
     })
 

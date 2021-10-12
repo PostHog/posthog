@@ -33,10 +33,23 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
             },
         ],
     },
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '*': (_, searchParams) => {
-            if (searchParams.tableColumns) {
-                actions.setSelectedColumns(searchParams.tableColumns)
+            const columnsFromURL: string[] = searchParams.tableColumns
+            // URL columns must be present, an array, and have content
+            if (!columnsFromURL || !Array.isArray(columnsFromURL) || columnsFromURL.length === 0) {
+                return
+            }
+
+            const currentColumns: ColumnChoice = values.selectedColumns
+
+            const arrayEqualsInAnyOrder =
+                columnsFromURL.length === currentColumns.length &&
+                columnsFromURL.every((value) => currentColumns.includes(value))
+
+            // URL columns should be applied if the current columns are not set, or are not the same as the URL columns
+            if (currentColumns === 'DEFAULT' || !arrayEqualsInAnyOrder) {
+                actions.setSelectedColumns(columnsFromURL)
             }
         },
     }),
