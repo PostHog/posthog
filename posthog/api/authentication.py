@@ -92,7 +92,7 @@ class PasswordResetSerializer(serializers.Serializer):
 
     def create(self, validated_data):
 
-        if hasattr(settings, "SAML_ENFORCED") and settings.SAML_ENFORCED:
+        if getattr(settings, "SAML_ENFORCED", False):
             raise serializers.ValidationError(
                 "Password reset is disabled because SAML login is enforced.", code="saml_enforced"
             )
