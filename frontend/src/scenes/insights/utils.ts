@@ -4,7 +4,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ensureStringIsNotBlank } from 'lib/utils'
+import { ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
 
 export const getLogicFromInsight = (
     insight: InsightType | undefined,
@@ -34,8 +34,8 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export function extractObjectDiffKeys(
-    oldObj: FilterType,
-    newObj: FilterType,
+    oldObj: Partial<FilterType>,
+    newObj: Partial<FilterType>,
     prefix: string = ''
 ): Record<string, any> {
     if (Object.keys(oldObj).length === 0) {
@@ -52,7 +52,7 @@ export function extractObjectDiffKeys(
                 } else {
                     value.forEach((event: Record<string, any>, idx: number) => {
                         // @ts-ignore
-                        const _k = extractObjectDiffKeys(event, oldObj[key][idx], `event_${idx}_`)
+                        const _k = extractObjectDiffKeys(oldObj[key][idx], event, `event_${idx}_`)
                         changedKeys = {
                             ...changedKeys,
                             ..._k,
@@ -65,7 +65,7 @@ export function extractObjectDiffKeys(
                 } else {
                     value.forEach((action: Record<string, any>, idx: number) => {
                         // @ts-ignore
-                        const _k = extractObjectDiffKeys(action, oldObj[key][idx], `action_${idx}_`)
+                        const _k = extractObjectDiffKeys(oldObj[key][idx], action, `action_${idx}_`)
                         changedKeys = {
                             ...changedKeys,
                             ..._k,
