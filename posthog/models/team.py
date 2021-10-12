@@ -14,7 +14,7 @@ from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
-from .utils import LowercaseSlugField, UUIDClassicModel, generate_random_token_project, sane_repr
+from .utils import LowercaseSlugField, UUIDClassicModel, create_with_slug, generate_random_token_project, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models.organization import OrganizationMembership
@@ -71,7 +71,7 @@ class TeamManager(models.Manager):
     def create(self, *args, **kwargs) -> "Team":
         if kwargs.get("organization") is None and kwargs.get("organization_id") is None:
             raise ValueError("Creating organization-less projects is prohibited")
-        return super().create(*args, **kwargs)
+        return create_with_slug(super().create, "default-project", *args, **kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:

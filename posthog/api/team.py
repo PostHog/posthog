@@ -70,6 +70,7 @@ class TeamSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "uuid",
+            "slug",
             "organization",
             "api_token",
             "is_demo",

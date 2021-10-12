@@ -14,7 +14,7 @@ from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.utils import mask_email_address
 
-from .utils import LowercaseSlugField, UUIDModel, sane_repr
+from .utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 
 try:
     from ee.models.license import License
@@ -26,6 +26,9 @@ INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
 
 class OrganizationManager(models.Manager):
+    def create(self, *args: Any, **kwargs: Any):
+        return create_with_slug(super().create, *args, **kwargs)
+
     def bootstrap(
         self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
     ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:

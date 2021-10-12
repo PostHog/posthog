@@ -85,6 +85,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "slug",
             "created_at",
             "updated_at",
         ]

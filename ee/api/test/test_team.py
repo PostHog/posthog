@@ -35,6 +35,50 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
+    def test_create_three_similarly_named_projects(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Test"})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Team.objects.count(), 2)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "name": "Test",
+                "slug": "test",
+                "access_control": False,
+                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+            },
+            response_data,
+        )
+
+        response = self.client.post("/api/projects/", {"name": "test"})
+        self.assertEqual(response.status_code, 201)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "name": "test",
+                "slug": "test-1",
+                "access_control": False,
+                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+            },
+            response_data,
+        )
+
+        response = self.client.post("/api/projects/", {"name": "#TEST"})
+        self.assertEqual(response.status_code, 201)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "name": "#TEST",
+                "slug": "test-2",
+                "access_control": False,
+                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+            },
+            response_data,
+        )
+
     def test_non_admin_cannot_create_project(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
