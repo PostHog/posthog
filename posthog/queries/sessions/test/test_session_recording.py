@@ -169,11 +169,12 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
         def test_query_run_queries_with_default_limit_and_offset(self):
             chunked_session_id = "6"
+            num_events = 1001
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
 
-                for s in range(200):
+                for s in range(num_events):
                     self.create_chunked_snapshot("user", chunked_session_id, now() + relativedelta(seconds=s), s)
 
                 req, filt = create_recording_request_and_filter(chunked_session_id)
@@ -181,8 +182,8 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
                 self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
-                self.assertIsNone(session["next"])  # limit (200) is way below RECORDINGS_NUM_SNAPSHOTS_LIMIT (1000)
-                self.assertEqual(session["duration"], 200)
+                self.assertIsNotNone(session["next"])  # limit (1001) is above RECORDINGS_NUM_SNAPSHOTS_LIMIT (1000)
+                self.assertEqual(session["duration"], num_events - 1)
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
                 self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
@@ -201,8 +202,8 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 session = session_recording(
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
-                self.assertEqual(len(session["snapshtest_session_recordingsots"]), limit)
-                self.assertEqual(session["duration"], 200)
+                self.assertEqual(len(session["snapshots"]), limit)
+                self.assertEqual(session["duration"], 199)
                 self.assertIsNotNone(session["next"])  # limit (200) is above defined limit (100)
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), limit)
@@ -265,9 +266,15 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
                 start_time = now()
 
-                data = [{"timestamp": start_time, "type": 2}] * num_events
+                data = [
+                    {
+                        "timestamp": int(round(start_time.timestamp())),
+                        "type": 2,
+                        "data": dict(map(lambda x: (x, x), "abcdefg")),
+                    }
+                ] * num_events
                 compressed_data = compress_to_string(json.dumps(data))
-                chunks = chunk_string(compressed_data, len(compressed_data))
+                chunks = chunk_string(compressed_data, len(compressed_data) // 2)
 
                 # Send first chunk with first part of json
                 event_factory(
@@ -278,7 +285,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     snapshot_data={
                         "chunk_id": "chunky_0",
                         "chunk_index": 0,
-                        "chunk_count": 1,
+                        "chunk_count": 2,
                         "data": chunks[0],
                         "has_full_snapshot": False,
                     },
@@ -293,7 +300,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     snapshot_data={
                         "chunk_id": "chunky_0",
                         "chunk_index": 0,
-                        "chunk_count": 1,
+                        "chunk_count": 2,
                         "data": chunks[1],
                         "has_full_snapshot": False,
                     },
