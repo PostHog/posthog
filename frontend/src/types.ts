@@ -320,6 +320,19 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface RecordingFilters {
+    date_from?: string | null
+    date_to?: string | null
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
+    offset?: number
+    session_recording_duration?: RecordingDurationFilter
+}
+export interface SessionRecordingsResponse {
+    results: SessionRecordingType[]
+    has_next: boolean
+}
+
 interface RecordingNotViewedFilter extends BasePropertyFilter {
     type: 'recording'
     key: 'unseen'
