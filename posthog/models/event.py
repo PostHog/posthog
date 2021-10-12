@@ -392,7 +392,7 @@ class Event(models.Model):
     properties: models.JSONField = models.JSONField(default=dict)
     timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now, blank=True)
     elements_hash: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    elements_group_cache: models.JSONField = models.JSONField(default=dict)
+    elements_group_cache: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
     site_url: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     # DEPRECATED: elements are stored against element groups now
