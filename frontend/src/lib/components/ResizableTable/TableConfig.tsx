@@ -13,7 +13,7 @@ import Fuse from 'fuse.js'
 import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
 import clsx from 'clsx'
 
-interface TableConfigInterface {
+interface TableConfigProps {
     availableColumns: string[]
     immutableColumns?: string[]
     defaultColumns: string[]
@@ -28,7 +28,7 @@ interface TableConfigInterface {
  * @param defaultColumns the titles of the set of columns to show when there is no user choice
  * @constructor
  */
-export function TableConfig({ availableColumns, immutableColumns, defaultColumns }: TableConfigInterface): JSX.Element {
+export function TableConfig({ availableColumns, immutableColumns, defaultColumns }: TableConfigProps): JSX.Element {
     const { modalVisible } = useValues(tableConfigLogic)
     const { setModalVisible } = useActions(tableConfigLogic)
 
