@@ -5,6 +5,16 @@ import { worker } from '../frontend/src/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { withApi } from './ApiSelector/withApi'
 
+const setupMsw = () => {
+    // Make sure the msw worker is started, if we're running in browser
+    // NOTE: we could be running in node for instance
+    if (typeof window.process === 'undefined') {
+        worker.start()
+    }
+}
+
+setupMsw()
+
 const setupPosthogJs = () => {
     // Make sure we don't hit production posthog. We want to control requests to,
     // e.g. `/decide/` for feature flags
@@ -35,16 +45,6 @@ export const parameters = {
         showPanel: false,
     },
 }
-
-const setupMsw = () => {
-    // Make sure the msw worker is started, if we're running in browser
-    // NOTE: we could be running in node for instance
-    if (typeof window.process === 'undefined') {
-        worker.start()
-    }
-}
-
-setupMsw()
 
 // Setup storybook global decorators. See https://storybook.js.org/docs/react/writing-stories/decorators#global-decorators
 export const decorators = [
