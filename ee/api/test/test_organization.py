@@ -24,6 +24,19 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             OrganizationMembership.Level.OWNER,
         )
 
+    def test_create_three_similarly_named_organizations(self):
+        response = self.client.post("/api/organizations/", {"name": "foobar"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertDictContainsSubset({"name": "foobar", "slug": "foobar"}, response.json())
+
+        response = self.client.post("/api/organizations/", {"name": "Foobar"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertDictContainsSubset({"name": "Foobar", "slug": "foobar-1"}, response.json())
+
+        response = self.client.post("/api/organizations/", {"name": "#FOOBAR"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertDictContainsSubset({"name": "#FOOBAR", "slug": "foobar-2"}, response.json())
+
     def test_delete_second_managed_organization(self):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
