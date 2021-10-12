@@ -4,7 +4,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 
 interface BadgeProps {
     icon?: JSX.Element
-    type?: 'success' | 'warning' | 'danger' | 'primary'
+    type?: 'success' | 'warning' | 'danger' | 'primary' | 'SOME FRONTEND CHANGE'
     className?: string
     onClick?: () => void
     tooltip?: string
