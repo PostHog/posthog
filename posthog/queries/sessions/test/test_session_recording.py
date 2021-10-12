@@ -180,7 +180,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
                 self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
-                self.assertIsNotNone(session["next"])
+                self.assertIsNone(session["next"])  # limit (200) is way below RECORDINGS_NUM_SNAPSHOTS_LIMIT (1000)
                 self.assertEqual(session["duration"], 200)
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
@@ -202,7 +202,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 ).run()
                 self.assertEqual(len(session["snapshots"]), limit)
                 self.assertEqual(session["duration"], 200)
-                self.assertIsNotNone(session["next"])
+                self.assertIsNotNone(session["next"])  # limit (200) is above defined limit (100)
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), limit)
                 self.assertEqual(int(parsed_params["limit"][0]), limit)
