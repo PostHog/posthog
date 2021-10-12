@@ -48,6 +48,7 @@ export function SessionsPlay(): JSX.Element {
     const {
         session,
         sessionPlayerData,
+        sessionPlayerDataLoading,
         isPlayable,
         sessionDate,
         addingTagShown,
@@ -128,6 +129,8 @@ export function SessionsPlay(): JSX.Element {
                                     onPlayerTimeChange={setCurrentPlayerTime}
                                     onNext={showNext ? goToNext : undefined}
                                     onPrevious={showPrev ? goToPrevious : undefined}
+                                    duration={sessionPlayerData?.duration ?? 0}
+                                    isBuffering={sessionPlayerDataLoading}
                                 />
                             </span>
                         )}

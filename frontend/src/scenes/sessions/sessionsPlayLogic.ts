@@ -19,6 +19,7 @@ interface SessionPlayerData {
     person: PersonType | null
     start_time: string
     next: string | null
+    duration: number
 }
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
@@ -79,6 +80,15 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
             false,
             {
                 loadRecordingSuccess: () => true,
+            },
+        ],
+        sessionPlayerDataLoading: [
+            false,
+            {
+                loadRecordingSuccess: (_, { sessionPlayerData }) => {
+                    // If sessionPlayerData doesn't have a next url, it means the entire recording is still loading.
+                    return !!sessionPlayerData?.next
+                },
             },
         ],
         source: [

@@ -54,7 +54,6 @@ describe('sessionsPlayLogic', () => {
                 .toDispatchActions(['loadRecordingSuccess'])
                 .toMatchValues({
                     sessionPlayerData: recordingJson,
-                    firstChunkLoaded: true,
                 })
                 .toNotHaveDispatchedActions(['loadRecording'])
         })
@@ -96,7 +95,6 @@ describe('sessionsPlayLogic', () => {
                 .toDispatchActions(['loadRecordingSuccess'])
                 .toMatchValues({
                     sessionPlayerData: { ...recordingJson, next: firstNext },
-                    firstChunkLoaded: true,
                 })
                 .toDispatchActions([logic.actionCreators.loadRecording(undefined, firstNext), 'loadRecordingSuccess'])
                 .toMatchValues({
@@ -105,7 +103,6 @@ describe('sessionsPlayLogic', () => {
                         next: secondNext,
                         snapshots: [...snaps, ...snaps],
                     },
-                    firstChunkLoaded: true,
                 })
                 .toDispatchActions([logic.actionCreators.loadRecording(undefined, secondNext), 'loadRecordingSuccess'])
                 .toMatchValues({
@@ -114,7 +111,6 @@ describe('sessionsPlayLogic', () => {
                         next: thirdNext,
                         snapshots: [...snaps, ...snaps, ...snaps],
                     },
-                    firstChunkLoaded: true,
                 })
                 .toDispatchActions([logic.actionCreators.loadRecording(undefined, thirdNext), 'loadRecordingSuccess'])
                 .toMatchValues({
@@ -123,7 +119,6 @@ describe('sessionsPlayLogic', () => {
                         next: null,
                         snapshots: [...snaps, ...snaps, ...snaps, ...snaps],
                     },
-                    firstChunkLoaded: true,
                 })
 
             expect(api.get).toBeCalledTimes(4)
@@ -173,6 +168,83 @@ describe('sessionsPlayLogic', () => {
 
             // Error toast is thrown
             expect(api.get).toBeCalledTimes(3)
+        })
+    })
+
+    describe('loading states', () => {
+        it('standard loading in single chunk recording', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadRecording('1')
+            })
+                .toDispatchActions(['loadRecording'])
+                .toMatchValues({
+                    firstChunkLoaded: false,
+                    sessionPlayerDataLoading: true,
+                })
+                .toDispatchActions(['loadRecordingSuccess'])
+                .toMatchValues({
+                    firstChunkLoaded: true,
+                    sessionPlayerDataLoading: false,
+                })
+                .toNotHaveDispatchedActions(['loadRecording'])
+        })
+        it('stays loading throughout multi chunk recording', async () => {
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            await expectLogic(logic).toMount([eventUsageLogic])
+
+            const firstNext = `api/event/session_recording?session_recording_id=1&offset=200&limit=200`
+            const secondNext = `api/event/session_recording?session_recording_id=1&offset=400&limit=200`
+
+            api.get
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname === 'api/event/session_recording') {
+                        return { result: { ...recordingJson, next: firstNext } }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname === 'api/event/session_recording') {
+                        return { result: { ...recordingJson, next: secondNext } }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname === 'api/event/session_recording') {
+                        return { result: recordingJson }
+                    }
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecording('1')
+            })
+                .toDispatchActions(['loadRecording'])
+                .toMatchValues({
+                    firstChunkLoaded: false,
+                    sessionPlayerDataLoading: true,
+                })
+                .toDispatchActions(['loadRecordingSuccess'])
+                .toMatchValues({
+                    firstChunkLoaded: true,
+                    sessionPlayerDataLoading: true,
+                })
+                .toDispatchActions([logic.actionCreators.loadRecording(undefined, firstNext)])
+                .toMatchValues({
+                    firstChunkLoaded: true,
+                    sessionPlayerDataLoading: true,
+                })
+                .toDispatchActions(['loadRecordingSuccess'])
+                .toMatchValues({
+                    firstChunkLoaded: true,
+                    sessionPlayerDataLoading: true,
+                })
+                .toDispatchActions([logic.actionCreators.loadRecording(undefined, secondNext)])
+                .toMatchValues({
+                    firstChunkLoaded: true,
+                    sessionPlayerDataLoading: true,
+                })
+                .toDispatchActions(['loadRecordingSuccess'])
+                .toMatchValues({
+                    firstChunkLoaded: true,
+                    sessionPlayerDataLoading: false,
+                })
         })
     })
 })
