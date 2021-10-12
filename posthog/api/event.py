@@ -169,11 +169,11 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                         }
                         break
             except IndexError:
-                event.serialized_person = None  # type: ignore
+                event.serialized_person = None
             try:
                 event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][0]
             except IndexError:
-                event.elements_group_cache = None  # type: ignore
+                event.elements_group_cache = None
         return events
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -184,7 +184,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         next_url: Optional[str] = None
 
         if self.request.GET.get("limit", None):
-            limit = int(self.request.GET.get("limit"))  # type: ignore
+            limit = int(self.request.GET.get("limit"))
         elif is_csv_request:
             limit = self.CSV_EXPORT_DEFAULT_LIMIT
         else:

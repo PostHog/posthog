@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { eventWithTime } from 'rrweb/typings/types'
 import api from 'lib/api'
-import { eventToName, toParams } from 'lib/utils'
+import { errorToast, eventToName, toParams } from 'lib/utils'
 import { sessionsPlayLogicType } from './sessionsPlayLogicType'
 import { PersonType, SessionType } from '~/types'
 import dayjs from 'dayjs'
@@ -23,6 +23,7 @@ interface SessionPlayerData {
 
 export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, SessionRecordingId>>({
     connect: {
+        logic: [eventUsageLogic],
         values: [sessionsTableLogic, ['sessions', 'pagination', 'orderedSessionRecordingIds', 'loadedSessionEvents']],
         actions: [
             sessionsTableLogic,
@@ -138,6 +139,13 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
             if (!!values.sessionPlayerData?.next) {
                 await actions.loadRecording(undefined, values.sessionPlayerData.next)
             }
+        },
+        loadRecordingFailure: ({ error }) => {
+            errorToast(
+                'Error fetching your session recording',
+                'Your recording returned the following error response:',
+                error
+            )
         },
     }),
     loaders: ({ values, actions }) => ({
