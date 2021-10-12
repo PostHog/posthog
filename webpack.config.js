@@ -80,7 +80,6 @@ function createEntry(entry) {
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
                 cypress: path.resolve(__dirname, 'cypress'),
-                react: require.resolve('react'),
             },
         },
         module: {
