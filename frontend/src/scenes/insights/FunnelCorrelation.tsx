@@ -8,18 +8,13 @@ import WarningOutlined from '@ant-design/icons/lib/icons/WarningOutlined'
 import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
 
-const useIsSkewed = (): boolean => {
-    const { insightProps } = useValues(insightLogic)
-    const { conversionMetrics } = useValues(funnelLogic(insightProps))
-    return conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9
-}
-
 export const FunnelCorrelation = (): JSX.Element => {
-    const skewed = useIsSkewed()
+    const { insightProps } = useValues(insightLogic)
+    const { isSkewed } = useValues(funnelLogic(insightProps))
 
     return (
         <>
-            {skewed ? (
+            {isSkewed ? (
                 <Card style={{ marginTop: '1em' }}>
                     <div style={{ display: 'flex' }}>
                         <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
