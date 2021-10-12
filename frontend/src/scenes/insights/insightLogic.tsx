@@ -220,6 +220,7 @@ export const insightLogic = kea<insightLogicType>({
             }
 
             const changedKeysObj: Record<string, any> = extractObjectDiffKeys(values.allFilters, filters)
+            console.log(changedKeysObj)
             actions._setAllFilters(filters)
 
             const { fromDashboard } = router.values.hashParams
@@ -425,7 +426,7 @@ function extractObjectDiffKeys(oldObj: FilterType, newObj: FilterType, prefix: s
         if (!objectsEqual(value, oldObj[key])) {
             if (key === 'events') {
                 if (value.length !== oldObj.events?.length) {
-                    changedKeys['events_length'] = oldObj.actions?.length
+                    changedKeys['changed_events_length'] = oldObj.events?.length
                 } else {
                     value.forEach((event: Record<string, any>, idx: number) => {
                         // @ts-ignore
@@ -438,7 +439,7 @@ function extractObjectDiffKeys(oldObj: FilterType, newObj: FilterType, prefix: s
                 }
             } else if (key === 'actions') {
                 if (value.length !== oldObj.actions?.length) {
-                    changedKeys['actions_length'] = oldObj.actions?.length
+                    changedKeys['changed_actions_length'] = oldObj.actions?.length
                 } else {
                     value.forEach((action: Record<string, any>, idx: number) => {
                         // @ts-ignore
