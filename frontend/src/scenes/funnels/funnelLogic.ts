@@ -327,6 +327,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
+        isSkewed: [
+            () => [selectors.conversionMetrics],
+            (conversionMetrics: FunnelTimeConversionMetrics) => {
+                return conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9
+            },
+        ],
         apiParams: [
             (s) => [s.filters],
             (filters) => {

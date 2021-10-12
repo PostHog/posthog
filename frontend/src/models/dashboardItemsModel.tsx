@@ -7,7 +7,7 @@ import { DashboardItemType } from '~/types'
 import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from './dashboardItemsModelType'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 export const dashboardItemsModel = kea<dashboardItemsModelType>({
     actions: () => ({

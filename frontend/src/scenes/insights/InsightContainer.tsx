@@ -29,9 +29,8 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
+import { FunnelCorrelation } from './FunnelCorrelation'
 
 const VIEW_MAP = {
     [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
@@ -195,10 +194,7 @@ export function InsightContainer(): JSX.Element {
             {preflight?.is_clickhouse_enabled &&
             activeView === ViewType.FUNNELS &&
             featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
-                <>
-                    <FunnelCorrelationTable />
-                    <FunnelPropertyCorrelationTable />
-                </>
+                <FunnelCorrelation />
             ) : null}
         </>
     )
