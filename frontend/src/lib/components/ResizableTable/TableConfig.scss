@@ -17,11 +17,11 @@
     }
 }
 
-.text-blue {
-    color: $primary;
-}
-
 .column-configurator-modal {
+    .text-blue {
+        color: $primary;
+    }
+
     .column-display-item {
         cursor: pointer;
         display: flex;
