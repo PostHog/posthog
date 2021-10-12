@@ -803,7 +803,7 @@ OFFSET_REGEX = re.compile(r"([&?]offset=)(\d+)")
 LIMIT_REGEX = re.compile(r"([&?]limit=)(\d+)")
 
 
-def format_query_params_absolute_url(request: Request, offset: int = None, limit: int = None):
+def format_query_params_absolute_url(request: Request, offset: Optional[int] = None, limit: Optional[int] = None):
     url_to_format = request.get_raw_uri()
 
     if not url_to_format:

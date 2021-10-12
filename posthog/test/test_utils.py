@@ -1,3 +1,4 @@
+from typing import List, Optional, Tuple
 from unittest.mock import call, patch
 
 from django.http import HttpRequest
@@ -41,15 +42,15 @@ class TestGeneralUtils(TestCase):
         build_req = HttpRequest()
         build_req.META = {"HTTP_HOST": "www.testserver"}
 
-        test_to_expected = [
-            [None, [50], "http://www.testserver?offset=50"],
-            [None, [50, None], "http://www.testserver?offset=50"],
-            [None, [None, 50], "http://www.testserver?limit=50"],
-            [None, [50, 100], "http://www.testserver?offset=50&limit=100"],
-            [None, [], "http://www.testserver"],
-            ["http://www.testserver?offset=20", [50], "http://www.testserver?offset=50"],
-            ["http://www.testserver?limit=20", [None, 50], "http://www.testserver?limit=50"],
-            ["http://www.testserver?offset=20&limit=20", [50, 50], "http://www.testserver?offset=50&limit=50"],
+        test_to_expected: List[Tuple[Optional[str], Tuple[Optional[int], Optional[int]], str]] = [
+            (None, (50, None), "http://www.testserver?offset=50"),
+            (None, (50, None), "http://www.testserver?offset=50"),
+            (None, (None, 50), "http://www.testserver?limit=50"),
+            (None, (50, 100), "http://www.testserver?offset=50&limit=100"),
+            (None, (None, None), "http://www.testserver"),
+            ("http://www.testserver?offset=20", (50, None), "http://www.testserver?offset=50"),
+            ("http://www.testserver?limit=20", (None, 50), "http://www.testserver?limit=50"),
+            ("http://www.testserver?offset=20&limit=20", (50, 50), "http://www.testserver?offset=50&limit=50"),
         ]
 
         for start_url, params, expected in test_to_expected:

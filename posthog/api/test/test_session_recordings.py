@@ -164,14 +164,10 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                         "user", chunked_session_id, start_time + relativedelta(seconds=s), s, chunk_size
                     )
 
-                next_url = None
+                next_url = f"/api/projects/@current/session_recordings/{chunked_session_id}"
 
                 for i in range(expected_num_requests):
-                    response = self.client.get(
-                        f"/api/projects/@current/session_recordings/{chunked_session_id}"
-                        if i == 0 and next_url is None
-                        else next_url
-                    )
+                    response = self.client.get(next_url)
                     response_data = response.json()
 
                     self.assertEqual(len(response_data["result"]["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)

@@ -1,7 +1,8 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from requests import Request
+from django.db.models import QuerySet
+from rest_framework.request import Request
 
 from posthog.decorators import cached_recording
 from posthog.helpers.session_recording import decompress_chunked_snapshot_data
@@ -34,7 +35,7 @@ class SessionRecording:
         self._offset = self._filter.offset if self._filter.offset else 0
 
     @cached_recording
-    def query_recording_snapshots(self) -> List[SessionRecordingEvent]:
+    def query_recording_snapshots(self) -> Union[QuerySet, List[SessionRecordingEvent]]:
         return SessionRecordingEvent.objects.filter(team=self._team, session_id=self._session_recording_id).order_by(
             "timestamp"
         )

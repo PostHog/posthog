@@ -171,9 +171,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             except IndexError:
                 event.serialized_person = None  # type: ignore
             try:
-                event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][
-                    0
-                ]  # type: ignore
+                event.elements_group_cache = [group for group in groups if group.hash == event.elements_hash][0]
             except IndexError:
                 event.elements_group_cache = None  # type: ignore
         return events

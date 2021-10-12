@@ -1,5 +1,4 @@
-import re
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, Union
 
 from rest_framework import request, status
 from sentry_sdk import capture_exception
@@ -41,7 +40,7 @@ def format_next_url(request: request.Request, offset: int, page_size: int):
     return next_url
 
 
-def get_token(data, request) -> Tuple[Optional[str], bool]:
+def get_token(data, request) -> Optional[str]:
     token = None
     if request.method == "GET":
         if request.GET.get("token"):
