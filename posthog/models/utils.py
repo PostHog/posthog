@@ -144,7 +144,8 @@ class Percentile(models.Aggregate):
 
 class LowercaseSlugField(models.SlugField):
     def get_prep_value(self, value: Any) -> Any:
-        return super().get_prep_value(value).lower()
+        prep_value = super().get_prep_value(value)
+        return prep_value.lower() if prep_value else prep_value
 
 
 def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *args, **kwargs) -> T:
