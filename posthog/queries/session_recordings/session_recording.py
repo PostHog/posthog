@@ -55,7 +55,7 @@ class SessionRecording:
     def run(self) -> Dict[str, Any]:
         from posthog.api.person import PersonSerializer
 
-        distinct_id, start_time, duration, snapshots = self.query_recording_snapshots()
+        distinct_id, start_time, duration, snapshots = self.get_snapshot_data()
         # Apply limit and offset after decompressing to account for non-fully formed chunks.
         snapshots = list(decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, snapshots))
         snapshots_subset = snapshots[self._offset : (self._offset + self._limit)]
