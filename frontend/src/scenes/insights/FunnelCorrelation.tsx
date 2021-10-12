@@ -1,5 +1,5 @@
 import { Card } from 'antd'
-import { useValues, kea } from 'kea'
+import { useValues } from 'kea'
 import React from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
@@ -7,28 +7,11 @@ import WarningOutlined from '@ant-design/icons/lib/icons/WarningOutlined'
 
 import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
-import { FunnelTimeConversionMetrics } from '~/types'
-
-const funnelCorrelationLogic = kea({
-    connect: {
-        // pull in values from `funnelLogic`
-        values: [funnelLogic, ['conversionMetrics']],
-    },
-
-    selectors: ({ selectors }) => ({
-        isSkewed: [
-            () => [selectors.conversionMetrics],
-            (conversionMetrics: FunnelTimeConversionMetrics): boolean => {
-                return conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9
-            },
-        ],
-    }),
-})
 
 const useIsSkewed = (): boolean => {
     const { insightProps } = useValues(insightLogic)
-    const { isSkewed } = useValues(funnelCorrelationLogic(insightProps))
-    return isSkewed
+    const { conversionMetrics } = useValues(funnelLogic(insightProps))
+    return conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9
 }
 
 export const FunnelCorrelation = (): JSX.Element => {
