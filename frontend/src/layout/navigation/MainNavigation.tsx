@@ -229,7 +229,7 @@ function MenuItems(): JSX.Element {
             )}
             {featureFlags[FEATURE_FLAGS.SAVED_INSIGHTS] && (
                 <MenuItem
-                    title="Explore"
+                    title="New Insight"
                     icon={<IconExplore />}
                     identifier="insights"
                     to={urls.insightView(ViewType.TRENDS)}
