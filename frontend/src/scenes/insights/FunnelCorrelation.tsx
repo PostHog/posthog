@@ -1,5 +1,5 @@
 import { Card } from 'antd'
-import { useValues } from 'kea'
+import { useValues, kea } from 'kea'
 import React from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from './insightLogic'
@@ -7,21 +7,33 @@ import WarningOutlined from '@ant-design/icons/lib/icons/WarningOutlined'
 
 import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
+import { FunnelStep } from '~/types'
+
+const funnelCorrelationLogic = kea({
+    connect: {
+        // pull in values from `funnelLogic`
+        values: [funnelLogic, ['stepsWithCount']],
+    },
+
+    selectors: ({ selectors }) => ({
+        isSkewed: [
+            () => [selectors.stepsWithCount],
+            (stepsWithCount: FunnelStep[]) => {
+                if (stepsWithCount?.length) {
+                    const totalPeople = stepsWithCount[0].count
+                    const successfulPeople = stepsWithCount.slice(-1)[0].count
+                    return successfulPeople < totalPeople / 10 || successfulPeople > (totalPeople * 9) / 10
+                }
+                return false
+            },
+        ],
+    }),
+})
 
 const useIsSkewed = (): boolean => {
     const { insightProps } = useValues(insightLogic)
-    const { stepsWithCount } = useValues(funnelLogic(insightProps))
-
-    // If the ratio of success to failure if too great, we want to give a
-    // warning that we are unlikely to have accurate results.
-    return React.useMemo(() => {
-        if (stepsWithCount?.length) {
-            const totalPeople = stepsWithCount[0].count
-            const successfulPeople = stepsWithCount.slice(-1)[0].count
-            return successfulPeople < totalPeople / 10 || successfulPeople > (totalPeople * 9) / 10
-        }
-        return false
-    }, [stepsWithCount])
+    const { isSkewed } = useValues(funnelCorrelationLogic(insightProps))
+    return isSkewed
 }
 
 export const FunnelCorrelation = (): JSX.Element => {
