@@ -494,7 +494,10 @@ export function NewPathTab(): JSX.Element {
                                 type: 'event',
                             }))
                         }
-                        onChange={(values) => updateExclusions(values.filter((a) => !!a) as string[])}
+                        onChange={(values) => {
+                            const exclusion = values[0] ? [values[0].value] : values
+                            updateExclusions(exclusion as string[])
+                        }}
                         wildcardOptions={wildcards}
                     />
                 </Col>
