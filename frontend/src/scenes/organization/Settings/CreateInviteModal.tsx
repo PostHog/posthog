@@ -8,7 +8,7 @@ import { isEmail } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 import { UserAddOutlined } from '@ant-design/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 export function CreateInviteModalWithButton(buttonProps: ButtonProps): JSX.Element {
     const { createInvite } = useActions(invitesLogic)

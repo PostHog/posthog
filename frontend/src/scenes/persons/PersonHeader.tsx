@@ -2,8 +2,8 @@ import { PersonType } from '~/types'
 import React, { useMemo } from 'react'
 import { IconPerson } from 'lib/components/icons'
 import './PersonHeader.scss'
-import { Link } from '../../lib/components/Link'
-import { urls } from '../sceneLogic'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 export interface PersonHeader {
     person?: Partial<PersonType> | null

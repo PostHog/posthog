@@ -8,7 +8,7 @@ import { kea } from 'kea'
 import { Spin } from 'antd'
 import { EventsTable } from 'scenes/events'
 import dayjs from 'dayjs'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 
 const actionLogic = kea({

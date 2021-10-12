@@ -44,7 +44,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
