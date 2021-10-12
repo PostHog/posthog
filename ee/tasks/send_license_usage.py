@@ -44,8 +44,6 @@ def send_license_usage():
             "send license usage data",
             {
                 "date": date_from.strftime("%Y-%m-%d"),
-                "date_from": date_from.strftime("%Y-%m-%d"),
-                "date_to": date_to.strftime("%Y-%m-%d"),
                 "events_count": events_count,
                 "license_keys": get_instance_licenses(),
             },

@@ -45,13 +45,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "send license usage data",
-            {
-                "date": "2021-10-09",
-                "date_from": "2021-10-09",
-                "date_to": "2021-10-10",
-                "events_count": 3,
-                "license_keys": ["enterprise"],
-            },
+            {"date": "2021-10-09", "events_count": 3, "license_keys": ["enterprise"],},
         )
 
     @freeze_time("2021-10-10T23:01:00Z")

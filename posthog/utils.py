@@ -75,6 +75,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
 def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the week preceding to the passed date's week.
+    `at` is the datetime to use as a reference point.
     """
 
     if not at:
@@ -94,6 +95,7 @@ def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.
 def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the preceding day.
+    `at` is the datetime to use as a reference point.
     """
 
     if not at:
