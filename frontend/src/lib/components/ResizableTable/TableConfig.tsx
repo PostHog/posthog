@@ -1,4 +1,4 @@
-import { Button, Card, Col, Input, Row, Space, Tooltip } from 'antd'
+import { Button, Card, Col, Input, Row, Space } from 'antd'
 import React, { useEffect, useState } from 'react'
 import { ControlOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
@@ -10,8 +10,6 @@ import { AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
-import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import clsx from 'clsx'
 
 interface TableConfigProps {
     availableColumns: string[]
@@ -30,7 +28,7 @@ interface TableConfigProps {
  */
 export function TableConfig({ availableColumns, immutableColumns, defaultColumns }: TableConfigProps): JSX.Element {
     const { modalVisible } = useValues(tableConfigLogic)
-    const { setModalVisible } = useActions(tableConfigLogic)
+    const { showModal } = useActions(tableConfigLogic)
 
     return (
         <>
@@ -40,7 +38,7 @@ export function TableConfig({ availableColumns, immutableColumns, defaultColumns
                         <>
                             <Button
                                 data-attr="events-table-column-selector"
-                                onClick={() => setModalVisible(true)}
+                                onClick={showModal}
                                 icon={<ControlOutlined rotate={90} />}
                             >
                                 Configure Columns
@@ -89,8 +87,8 @@ function ColumnConfigurator({
 
     const selectableColumnsDisplay = searchFilteredColumns(searchTerm, selectableColumns)
 
-    const { columnConfigSaving, selectedColumns, hasColumnConfigToSave } = useValues(tableConfigLogic)
-    const { setColumnConfig, setModalVisible, saveSelectedColumns } = useActions(tableConfigLogic)
+    const { selectedColumns } = useValues(tableConfigLogic)
+    const { setSelectedColumns, hideModal } = useActions(tableConfigLogic)
 
     const currentSelection = selectedColumns === 'DEFAULT' ? defaultColumns : selectedColumns
 
@@ -118,22 +116,21 @@ function ColumnConfigurator({
     }
 
     function AvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = columnConfigSaving
         return (
             <div
-                className={`column-display-item${disabled ? ' disabled' : ''}`}
+                className={'column-display-item'}
                 style={style}
                 key={key}
-                onClick={() => !disabled && selectColumn(selectableColumnsDisplay[index])}
+                onClick={() => selectColumn(selectableColumnsDisplay[index])}
             >
-                <Checkbox style={{ marginRight: 8 }} checked={false} disabled={disabled} />
+                <Checkbox style={{ marginRight: 8 }} checked={false} />
                 {<PropertyKeyInfo value={selectableColumnsDisplay[index]} />}
             </div>
         )
     }
 
     function SelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = immutableColumns?.includes(selectedColumnsDisplay[index]) || columnConfigSaving
+        const disabled = immutableColumns?.includes(selectedColumnsDisplay[index])
 
         return (
             <div
@@ -153,38 +150,21 @@ function ColumnConfigurator({
             centered
             visible
             title="Toggle column visibility"
-            confirmLoading={columnConfigSaving}
-            onOk={() => setColumnConfig(userColumnSelection)}
+            onOk={() => setSelectedColumns(userColumnSelection)}
             width={700}
             className="column-configurator-modal"
             okButtonProps={{
                 // @ts-ignore
                 'data-attr': 'items-selector-confirm',
-                loading: columnConfigSaving,
                 icon: <SaveOutlined />,
             }}
             okText="Save preferences"
-            onCancel={() => setModalVisible(false)}
+            onCancel={hideModal}
         >
             {defaultColumns && (
                 <Row>
-                    <Col xs={24} sm={12} className="mb">
-                        <div>
-                            {hasColumnConfigToSave && (
-                                <Tooltip title="Column selections are stored in the current URL. Saving visible columns stores them against your user so that the choice will show on other computers or if they cannot be read from the URL">
-                                    <Button
-                                        type="link"
-                                        icon={<SaveOutlined />}
-                                        onClick={() => saveSelectedColumns(userColumnSelection)}
-                                    >
-                                        Save visible columns
-                                    </Button>
-                                </Tooltip>
-                            )}
-                        </div>
-                    </Col>
-                    <Col xs={24} sm={12} className="mb">
-                        <div className={clsx([!useBreakpoint().xs ? 'text-right' : ''])}>
+                    <Col xs={24} className="mb">
+                        <div className={'text-right'}>
                             <Button
                                 type="link"
                                 icon={<ClearOutlined />}
