@@ -3,11 +3,11 @@ import json
 from typing import Any, List
 
 from ee.clickhouse.client import sync_execute
-from posthog.decorators import cached_recording
 from posthog.models import SessionRecordingEvent, Team
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.queries.sessions.session_recording import SessionRecording as BaseSessionRecording
 from posthog.queries.sessions.session_recording import join_with_session_recordings as _join_with_session_recordings
+from posthog.queries.sessions.utils import cached_recording
 
 OPERATORS = {"gt": ">", "lt": "<"}
 

@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 from unittest.mock import call, patch
 
 from django.http import HttpRequest
@@ -42,7 +42,7 @@ class TestGeneralUtils(TestCase):
         build_req = HttpRequest()
         build_req.META = {"HTTP_HOST": "www.testserver"}
 
-        test_to_expected: List[Tuple[Optional[str], Tuple[Optional[int], Optional[int]], str]] = [
+        test_to_expected: List[Tuple[Optional[Sequence[Any]], Tuple[Optional[int], Optional[int]], str]] = [
             (None, (50, None), "http://www.testserver?offset=50"),
             (None, (50, None), "http://www.testserver?offset=50"),
             (None, (None, 50), "http://www.testserver?limit=50"),

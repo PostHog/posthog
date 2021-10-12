@@ -13,13 +13,13 @@ from typing import (
 from django.db import connection
 from rest_framework.request import Request
 
-from posthog.decorators import cached_recording
 from posthog.helpers.session_recording import decompress_chunked_snapshot_data
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.utils import namedtuplefetchall
+from posthog.queries.sessions.utils import cached_recording
 from posthog.utils import format_query_params_absolute_url, get_seconds_between_dates
 
 DistinctId = str

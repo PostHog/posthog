@@ -4,11 +4,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from django.db.models import QuerySet
 from rest_framework.request import Request
 
-from posthog.decorators import cached_recording
 from posthog.helpers.session_recording import decompress_chunked_snapshot_data
 from posthog.models import Person, SessionRecordingEvent, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.queries.sessions.session_recording import RECORDINGS_NUM_SNAPSHOTS_LIMIT
+from posthog.queries.sessions.utils import cached_recording
 from posthog.utils import format_query_params_absolute_url, get_seconds_between_dates
 
 DistinctId = str

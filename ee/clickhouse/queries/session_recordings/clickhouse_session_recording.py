@@ -2,9 +2,9 @@ import json
 from typing import Any, List
 
 from ee.clickhouse.client import sync_execute
-from posthog.decorators import cached_recording
 from posthog.models import SessionRecordingEvent
 from posthog.queries.session_recordings.session_recording import SessionRecording
+from posthog.queries.sessions.utils import cached_recording
 
 DistinctId = str
 Snapshots = List[Any]
