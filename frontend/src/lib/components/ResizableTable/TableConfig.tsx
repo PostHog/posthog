@@ -163,7 +163,7 @@ function ColumnConfigurator({
                 'data-attr': 'items-selector-confirm',
                 icon: <SaveOutlined />,
             }}
-            okText="Save preferences"
+            okText="Save"
             onCancel={hideModal}
         >
             {defaultColumns && (
