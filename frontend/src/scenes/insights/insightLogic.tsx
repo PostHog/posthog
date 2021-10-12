@@ -322,7 +322,6 @@ export const insightLogic = kea<insightLogicType>({
             }
 
             const changedKeysObj: Record<string, any> = extractObjectDiffKeys(previousFilters, filters)
-            actions._setAllFilters(filters)
 
             eventUsageLogic.actions.reportInsightViewed(
                 filters,
