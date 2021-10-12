@@ -144,12 +144,10 @@ function ColumnConfigurator({
                     className={clsx(['column-display-item', { selected: !disabled, disabled: disabled }])}
                     style={{ height: `${rowItemHeight}px` }}
                 >
-                    <div className={'do-not-grow'}>
-                        <Checkbox style={{ marginRight: 8 }} checked disabled={disabled} />
-                        {<PropertyKeyInfo value={selectedColumnsDisplay[index]} />}
-                    </div>
+                    <Checkbox style={{ marginRight: 8 }} checked disabled={disabled} />
+                    {<PropertyKeyInfo value={selectedColumnsDisplay[index]} />}
                     {disabled && (
-                        <div className={'text-right grow'} style={{ flex: 1 }}>
+                        <div className={'text-right'} style={{ flex: 1 }}>
                             <Tooltip title={'Reserved'}>
                                 <LockOutlined />
                             </Tooltip>
