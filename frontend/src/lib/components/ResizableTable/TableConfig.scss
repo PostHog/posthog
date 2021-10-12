@@ -17,6 +17,10 @@
     }
 }
 
+.text-blue {
+    color: $primary;
+}
+
 .column-configurator-modal {
     .column-display-item {
         cursor: pointer;
@@ -35,10 +39,19 @@
         &.disabled {
             cursor: not-allowed;
             color: $text_muted;
+            background-color: $bg_mid;
         }
 
         &.selected {
             background-color: #eef2ff;
+        }
+
+        .grow {
+            flex-grow: 1;
+        }
+
+        .do-not-grow {
+            flex-grow: 0;
         }
     }
 }
