@@ -1,11 +1,25 @@
 import React from 'react'
 import { getContext } from 'kea'
-import { loadPostHogJS } from '~/loadPostHogJS'
 import '~/styles'
+import { worker } from '../frontend/src/mocks/browser'
+import { loadPostHogJS } from '~/loadPostHogJS'
 
-loadPostHogJS()
+const setupPosthogJs = () => {
+    // Make sure we don't hit production posthog. We want to control requests to,
+    // e.g. `/decide/` for feature flags
+    window.JS_POSTHOG_HOST = 'http://localhost:6006'
+
+    // We don't be doing any authn so we can just use a fake key
+    window.JS_POSTHOG_API_KEY = 'dummy-key'
+
+    loadPostHogJS()
+}
+
+setupPosthogJs()
+
 window.getReduxState = () => getContext().store.getState()
 
+// Setup storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters
 export const parameters = {
     actions: { argTypesRegex: '^on[A-Z].*' },
     controls: {
@@ -21,7 +35,22 @@ export const parameters = {
     },
 }
 
-if (typeof global.process === 'undefined') {
-    const { worker } = require('../frontend/src/mocks/browser')
-    worker.start()
+const setupMsw = () => {
+    // Make sure the msw worker is started, if we're running in browser
+    // NOTE: we could be running in node for instance
+    if (typeof window.process === 'undefined') {
+        worker.start()
+    }
 }
+
+setupMsw()
+
+// Setup storybook global decorators. See https://storybook.js.org/docs/react/writing-stories/decorators#global-decorators
+export const decorators = [
+    // Make sure the msw service worker is started, and reset the handlers to
+    // defaults.
+    (Story) => {
+        worker.resetHandlers()
+        return <Story />
+    },
+]
