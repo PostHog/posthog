@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework.request import Request
 
-from posthog.helpers.session_recording import compress_to_string
+from posthog.helpers.session_recording import chunk_string, compress_to_string
 from posthog.models import Filter, Person, User
 from posthog.models.filters.sessions_filter import SessionsFilter
 from posthog.models.session_recording_event import SessionRecordingEvent, SessionRecordingViewed
@@ -181,6 +181,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 ).run()
                 self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
                 self.assertIsNotNone(session["next"])
+                self.assertEqual(session["duration"], 200)
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
                 self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
@@ -200,6 +201,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
                 self.assertEqual(len(session["snapshots"]), limit)
+                self.assertEqual(session["duration"], 200)
                 self.assertIsNotNone(session["next"])
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), limit)
@@ -252,6 +254,60 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                         parsed_params = parse_qs(urlparse(session["next"]).query)
                         self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT * (i + 1))
                         self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
+
+        def test_query_run_session_with_chunks_with_partial_snapshots(self):
+            chunked_session_id = "session_with_partial_chunks"
+            num_events = 100
+            duration = 200
+
+            with freeze_time("2020-09-13T12:26:40.000Z"):
+                Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
+                start_time = now()
+
+                data = [{"timestamp": start_time, "type": 2}] * num_events
+                compressed_data = compress_to_string(json.dumps(data))
+                chunks = chunk_string(compressed_data, len(compressed_data))
+
+                # Send first chunk with first part of json
+                event_factory(
+                    team_id=self.team.pk,
+                    distinct_id="user",
+                    timestamp=start_time,
+                    session_id=chunked_session_id,
+                    snapshot_data={
+                        "chunk_id": "chunky_0",
+                        "chunk_index": 0,
+                        "chunk_count": 1,
+                        "data": chunks[0],
+                        "has_full_snapshot": False,
+                    },
+                )
+
+                # Send second chunk with second and final part of json
+                event_factory(
+                    team_id=self.team.pk,
+                    distinct_id="user",
+                    timestamp=start_time + relativedelta(seconds=duration),
+                    session_id=chunked_session_id,
+                    snapshot_data={
+                        "chunk_id": "chunky_0",
+                        "chunk_index": 0,
+                        "chunk_count": 1,
+                        "data": chunks[1],
+                        "has_full_snapshot": False,
+                    },
+                )
+
+                # Do the thing
+                req, filt = create_recording_request_and_filter(chunked_session_id)
+                session = session_recording(
+                    team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
+                ).run()
+
+                # Assert that full data has been received
+                self.assertEqual(len(session["snapshots"]), num_events)
+                self.assertEqual(session["duration"], duration)
+                self.assertEqual(session["snapshots"], data)
 
         def create_snapshot(self, distinct_id, session_id, timestamp, type=2):
             event_factory(
