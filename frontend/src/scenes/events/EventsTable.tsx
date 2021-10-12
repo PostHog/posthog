@@ -317,15 +317,15 @@ export function EventsTable({ fixedFilters, filtersEnabled = true, pageKey }: Ev
                         </Tooltip>
                     )}
                 </Col>
-                <Col flex="0">
-                    {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
+                {featureFlags[FEATURE_FLAGS.EVENT_COLUMN_CONFIG] && (
+                    <Col flex="0">
                         <TableConfig
                             availableColumns={propertyNames}
                             immutableColumns={['event', 'person', 'when']}
                             defaultColumns={defaultColumns.map((e) => e.key || '')}
                         />
-                    )}
-                </Col>
+                    </Col>
+                )}
             </Row>
 
             <div>
