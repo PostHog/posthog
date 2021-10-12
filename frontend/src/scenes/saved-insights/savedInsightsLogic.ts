@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { objectsEqual, toParams } from 'lib/utils'
 import { DashboardItemType, LayoutView, SavedInsightsTabs, UserBasicType } from '~/types'
 import { savedInsightsLogicType } from './savedInsightsLogicType'
 import { prompt } from 'lib/logic/prompt'
@@ -16,13 +16,42 @@ interface InsightsResult {
     next?: string
 }
 
+interface SavedInsightFilters {
+    layoutView: LayoutView
+    order: string
+    tab: SavedInsightsTabs
+    searchTerm: string
+    insightType: string
+    createdBy: Partial<UserBasicType> | 'All users'
+    dates: {
+        dateFrom?: string | Dayjs | undefined
+        dateTo?: string | Dayjs | undefined
+    }
+}
+
+function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
+    return {
+        layoutView: values.layoutView || LayoutView.List,
+        order: values.order || '-updated_at',
+        tab: values.tab || SavedInsightsTabs.All,
+        searchTerm: values.searchTerm || '',
+        insightType: values.insightType || 'All types',
+        createdBy: values.createdBy || 'All users',
+        dates: {
+            dateFrom: values?.dates?.dateFrom || undefined,
+            dateTo: values?.dates?.dateTo || undefined,
+        },
+    }
+}
+
 export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
     actions: {
         addGraph: (type: string) => ({ type }),
         setInsightType: (type: string) => ({ type }),
+        setOrder: (order: string) => ({ order }),
         setCreatedBy: (user: Partial<UserBasicType> | 'All users') => ({ user }),
-        setLayoutView: (view: string) => ({ view }),
-        setTab: (tab: string) => ({ tab }),
+        setLayoutView: (view: LayoutView) => ({ view }),
+        setTab: (tab: SavedInsightsTabs) => ({ tab }),
         setDates: (dateFrom: string | Dayjs | undefined, dateTo: string | Dayjs | undefined) => ({
             dateFrom,
             dateTo,
@@ -33,11 +62,13 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
         addToDashboard: (item: DashboardItemType, dashboardId: number) => ({ item, dashboardId }),
         orderByUpdatedAt: true,
         orderByCreator: true,
+        loadInsights: true,
     },
     loaders: ({ values }) => ({
         insights: {
             __default: { results: [], count: 0 } as InsightsResult,
-            loadInsights: async () => {
+            loadInsights: async (_, breakpoint) => {
+                await breakpoint(10)
                 const response = await api.get(
                     'api/insight/?' +
                         toParams({
@@ -73,7 +104,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
     }),
     reducers: {
         layoutView: [
-            LayoutView.List,
+            LayoutView.List as LayoutView,
             {
                 setLayoutView: (_, { view }) => view,
             },
@@ -83,10 +114,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             {
                 orderByUpdatedAt: (state) => (state === '-updated_at' ? 'updated_at' : '-updated_at'),
                 orderByCreator: (state) => (state === 'created_by' ? '-created_by' : 'created_by'),
+                setOrder: (_, { order }) => order,
             },
         ],
         tab: [
-            SavedInsightsTabs.All,
+            SavedInsightsTabs.All as SavedInsightsTabs,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -104,7 +136,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             },
         ],
         createdBy: [
-            null as Partial<UserBasicType> | null | 'All users',
+            'All users' as Partial<UserBasicType> | 'All users',
             {
                 setCreatedBy: (_, { user }) => user,
             },
@@ -149,6 +181,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
         setCreatedBy: () => {
             actions.loadInsights()
         },
+        setOrder: () => {
+            actions.loadInsights()
+        },
         orderByUpdatedAt: () => {
             actions.loadInsights()
         },
@@ -179,9 +214,46 @@ export const savedInsightsLogic = kea<savedInsightsLogicType<InsightsResult>>({
             actions.setInsight(item)
         },
     }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadInsights()
+    actionToUrl: ({ values }) => {
+        const changeUrl = (): [string, Record<string, any>, Record<string, any>] | void => {
+            const nextValues = cleanFilters(values)
+            const urlValues = cleanFilters(router.values.searchParams)
+            if (!objectsEqual(nextValues, urlValues)) {
+                return ['/saved_insights', nextValues, {}]
+            }
+        }
+        return {
+            loadInsights: changeUrl,
+            setLayoutView: changeUrl,
+        }
+    },
+    urlToAction: ({ actions, values }) => ({
+        '/saved_insights': (_, searchParams) => {
+            const currentValues = cleanFilters(values)
+            const nextValues = cleanFilters(searchParams)
+            if (!objectsEqual(currentValues, nextValues)) {
+                if (!objectsEqual(currentValues.insightType, nextValues.insightType)) {
+                    actions.setInsightType(nextValues.insightType)
+                }
+                if (!objectsEqual(currentValues.createdBy, nextValues.createdBy)) {
+                    actions.setCreatedBy(nextValues.createdBy)
+                }
+                if (!objectsEqual(currentValues.dates, nextValues.dates)) {
+                    actions.setDates(nextValues.dates?.dateFrom, nextValues.dates?.dateTo)
+                }
+                if (!objectsEqual(currentValues.layoutView, nextValues.layoutView)) {
+                    actions.setLayoutView(nextValues.layoutView)
+                }
+                if (!objectsEqual(currentValues.searchTerm, nextValues.searchTerm)) {
+                    actions.setSearchTerm(nextValues.searchTerm)
+                }
+                if (!objectsEqual(currentValues.tab, nextValues.tab)) {
+                    actions.setTab(nextValues.tab)
+                }
+                if (!objectsEqual(currentValues.order, nextValues.order)) {
+                    actions.setOrder(nextValues.order)
+                }
+            }
         },
     }),
 })

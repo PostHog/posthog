@@ -70,6 +70,7 @@ export function SavedInsights(): JSX.Element {
         insights,
         count,
         offset,
+        tab,
         nextResult,
         previousResult,
         insightsLoading,
@@ -280,7 +281,7 @@ export function SavedInsights(): JSX.Element {
                 </Dropdown>
             </Row>
 
-            <Tabs defaultActiveKey="1" style={{ borderColor: '#D9D9D9' }} onChange={(tab) => setTab(tab)}>
+            <Tabs activeKey={tab} style={{ borderColor: '#D9D9D9' }} onChange={(t) => setTab(t as SavedInsightsTabs)}>
                 <TabPane tab="All Insights" key={SavedInsightsTabs.All} />
                 <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
                 <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
