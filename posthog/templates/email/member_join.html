@@ -1,5 +1,4 @@
-{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% load posthog_filters %} {% block heading %}{{
-invitee.first_name }} accepted their PostHog invitation{% endblock %} {% block section %}
+{% extends "email/base_transactional.html" %} {% load posthog_assets %} {% load posthog_filters %} {% block section %}
 <p>
     {{ invitee.first_name }} (<a href="mailto:{{ invitee.email }}">{{ invitee.email }}</a>) just joined you at {{
     organization.name }}.
@@ -13,4 +12,4 @@ invitee.first_name }} accepted their PostHog invitation{% endblock %} {% block s
         <a href="{% absolute_uri %}">{% absolute_uri %}</a>
     </p>
 </div>
-{% endblock %}
+{% endblock %}{% block heading %}{{ invitee.first_name }} accepted their PostHog invitation{% endblock %}
