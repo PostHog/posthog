@@ -36,7 +36,6 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
     class TestSessionRecording(BaseTest):
         maxDiff = None
-        CHUNK_SIZE = 5
 
         def test_query_run(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -64,7 +63,9 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
             req, filt = create_recording_request_and_filter("xxx")
             session = session_recording(team=self.team, session_recording_id="xxx", request=req, filter=filt).run()
-            self.assertEqual(session, {"snapshots": [], "person": None, "start_time": None, "next": None})
+            self.assertEqual(
+                session, {"snapshots": [], "person": None, "start_time": None, "next": None, "duration": None}
+            )
 
         def _test_filter_sessions(self, filter, expected):
             with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -166,49 +167,61 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
             self.assertEqual(filter_sessions(self.team, [], SessionsFilter(data={"offset": 0})), [])
 
         def test_query_run_queries_with_default_limit_and_offset(self):
+            chunked_session_id = "6"
+
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
 
                 for s in range(200):
-                    self.create_chunked_snapshot("user", "1", now() + relativedelta(seconds=s), s, self.CHUNK_SIZE)
+                    self.create_chunked_snapshot("user", chunked_session_id, now() + relativedelta(seconds=s), s)
 
-                req, filt = create_recording_request_and_filter("1")
-                session = session_recording(team=self.team, session_recording_id="1", request=req, filter=filt).run()
-                self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT * self.CHUNK_SIZE)
+                req, filt = create_recording_request_and_filter(chunked_session_id)
+                session = session_recording(
+                    team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
+                ).run()
+                self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
                 self.assertIsNotNone(session["next"])
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
                 self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
 
         def test_query_run_queries_with_specific_limit_and_offset(self):
+            chunked_session_id = "7"
             limit = 100
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
 
                 for s in range(200):
-                    self.create_chunked_snapshot("user", "1", now() + relativedelta(seconds=s), s, self.CHUNK_SIZE)
+                    self.create_chunked_snapshot("user", chunked_session_id, now() + relativedelta(seconds=s), s)
 
-                req, filt = create_recording_request_and_filter("1", limit)
-                session = session_recording(team=self.team, session_recording_id="1", request=req, filter=filt).run()
-                self.assertEqual(len(session["snapshots"]), limit * self.CHUNK_SIZE)
+                req, filt = create_recording_request_and_filter(chunked_session_id, limit)
+                session = session_recording(
+                    team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
+                ).run()
+                self.assertEqual(len(session["snapshots"]), limit)
                 self.assertIsNotNone(session["next"])
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), limit)
                 self.assertEqual(int(parsed_params["limit"][0]), limit)
 
         def test_query_run_sequential_next_urls(self):
+            chunked_session_id = "8"
             expected_num_requests = 5
+            chunk_size = 5
+            num_chunks = int(RECORDINGS_NUM_SNAPSHOTS_LIMIT / chunk_size) * expected_num_requests
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
 
-                for s in range(RECORDINGS_NUM_SNAPSHOTS_LIMIT * (expected_num_requests - 1)):
-                    self.create_chunked_snapshot("user", "1", now() + relativedelta(seconds=s), s, self.CHUNK_SIZE)
+                start_time = now()
+                for s in range(num_chunks):
+                    self.create_chunked_snapshot(
+                        "user", chunked_session_id, start_time + relativedelta(seconds=s), s, chunk_size
+                    )
 
-                # A successful single session recording query will make 200 / 50 = 4 requests
-                base_req, base_filter = create_recording_request_and_filter("1")
-
+                # A successful single session recording query will make {num_chunks} requests
+                base_req, base_filter = create_recording_request_and_filter(chunked_session_id)
                 session = None
 
                 for i in range(expected_num_requests):
@@ -226,18 +239,19 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     )
 
                     session = session_recording(
-                        team=self.team, session_recording_id="1", request=req, filter=filt
+                        team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                     ).run()
+
+                    self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
+                    self.assertEqual(session["duration"], num_chunks - 1)
 
                     if i == expected_num_requests - 1:
                         self.assertIsNone(session["next"])
-                        self.assertEqual(len(session["snapshots"]), 0)
                     else:
                         self.assertIsNotNone(session["next"])
                         parsed_params = parse_qs(urlparse(session["next"]).query)
                         self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT * (i + 1))
                         self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
-                        self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT * self.CHUNK_SIZE)
 
         def create_snapshot(self, distinct_id, session_id, timestamp, type=2):
             event_factory(

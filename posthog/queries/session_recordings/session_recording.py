@@ -46,9 +46,9 @@ class SessionRecording:
             return None, None, None, []
 
         return (
-            events[0].distinct_id,
-            events[0].timestamp,
-            get_seconds_between_dates(events[-1].timestamp, events[0].timestamp),
+            events.first().distinct_id,
+            events.first().timestamp,
+            get_seconds_between_dates(events.last().timestamp, events.first().timestamp),
             [e.snapshot_data for e in events],
         )
 
