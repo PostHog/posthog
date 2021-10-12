@@ -7,7 +7,6 @@ from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
-from django.utils.text import slugify
 from rest_framework import exceptions
 
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature

@@ -51,7 +51,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "api_token",
             "app_urls",
             "name",
-            "slug",
             "slack_incoming_webhook",
             "created_at",
             "updated_at",
@@ -70,7 +69,6 @@ class TeamSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id",
             "uuid",
-            "slug",
             "organization",
             "api_token",
             "is_demo",
@@ -79,7 +77,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "ingested_event",
             "effective_membership_level",
         )
-        extra_kwargs = {"slug": {"required": False}}  # slug is not required here as it's inferred for new projects
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         return team.get_effective_membership_level(self.context["request"].user)

@@ -1,4 +1,3 @@
-from django.utils.text import slugify
 from rest_framework import status
 
 from posthog.demo import create_demo_team
@@ -17,8 +16,6 @@ class TestTeamAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
         self.assertEqual(response_data["results"][0]["name"], self.team.name)
-        self.assertEqual(response_data["results"][0]["slug"], self.team.slug)
-        self.assertEqual(self.team.slug, slugify(self.team.name))
         self.assertNotIn("test_account_filters", response_data["results"][0])
         self.assertNotIn("data_attributes", response_data["results"][0])
 

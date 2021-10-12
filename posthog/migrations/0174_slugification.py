@@ -8,8 +8,9 @@ import posthog.models.utils
 MAX_SLUG_LENGTH = 48
 
 
-def slugify_model(model):
-    for instance in model.objects.all():
+def slugify_all(apps, schema_editor):
+    Organization = apps.get_model("posthog", "Organization")
+    for instance in Organization.objects.all():
         slugified_name = slugify(instance.name)[:MAX_SLUG_LENGTH]
         for i in range(10):
             # This retry loop handles possible duplicates by appending `-\d` to the slug in case of an IntegrityError
@@ -24,11 +25,6 @@ def slugify_model(model):
                 break
 
 
-def slugify_all(apps, schema_editor):
-    slugify_model(apps.get_model("posthog", "Organization"))
-    slugify_model(apps.get_model("posthog", "Team"))
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -41,24 +37,10 @@ class Migration(migrations.Migration):
             name="slug",
             field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, null=True, unique=True),
         ),
-        migrations.AddField(
-            model_name="team",
-            name="slug",
-            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, null=True, db_index=True),
-        ),
         migrations.RunPython(slugify_all, migrations.RunPython.noop),
         migrations.AlterField(
             model_name="organization",
             name="slug",
             field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, unique=True),
-        ),
-        migrations.AlterField(
-            model_name="team",
-            name="slug",
-            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, db_index=True),
-        ),
-        migrations.AddConstraint(
-            model_name="team",
-            constraint=models.UniqueConstraint(fields=("organization", "slug"), name="unique_slug_for_organization"),
         ),
     ]
