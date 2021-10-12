@@ -1,5 +1,5 @@
 import { Button, Card, Col, Input, Row, Space } from 'antd'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { ControlOutlined, LockOutlined, SearchOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
@@ -30,7 +30,10 @@ interface TableConfigProps {
  */
 export function TableConfig({ availableColumns, immutableColumns, defaultColumns }: TableConfigProps): JSX.Element {
     const { modalVisible } = useValues(tableConfigLogic)
-    const { showModal } = useActions(tableConfigLogic)
+    const { showModal, setDefaultColumns, setAllPossibleColumns } = useActions(tableConfigLogic)
+
+    setDefaultColumns(defaultColumns)
+    setAllPossibleColumns(availableColumns)
 
     return (
         <>
@@ -47,7 +50,6 @@ export function TableConfig({ availableColumns, immutableColumns, defaultColumns
                             </Button>
                             {modalVisible && (
                                 <ColumnConfigurator
-                                    allColumns={availableColumns}
                                     immutableColumns={immutableColumns}
                                     defaultColumns={defaultColumns}
                                 />
@@ -70,16 +72,11 @@ const searchFilteredColumns = (searchTerm: string, columns: string[]): string[] 
         : columns
 
 interface ColumnConfiguratorInterface {
-    allColumns: string[] // List of all possible columns
     immutableColumns?: string[]
     defaultColumns: string[]
 }
 
-function ColumnConfigurator({
-    allColumns,
-    immutableColumns,
-    defaultColumns,
-}: ColumnConfiguratorInterface): JSX.Element {
+function ColumnConfigurator({ immutableColumns, defaultColumns }: ColumnConfiguratorInterface): JSX.Element {
     // the virtualised list doesn't support gaps between items in the list
     // setting the container to be larger than we need
     // and adding a container with a smaller height to each row item
@@ -87,40 +84,29 @@ function ColumnConfigurator({
     const rowContainerHeight = 36
     const rowItemHeight = 32
 
-    const [selectableColumns, setSelectableColumns] = useState([] as string[]) // Stores the actual state of columns that could be selected
-    const [userColumnSelection, setUserColumnSelection] = useState([] as string[]) // Stores the actual state of columns that **are** selected
+    const { usersUnsavedSelection, selectableColumns } = useValues(tableConfigLogic)
+    const { setSelectedColumns, hideModal, setUsersUnsavedSelection } = useActions(tableConfigLogic)
+
     const [scrollSelectedToIndex, setScrollSelectedToIndex] = useState(0)
+
     const [searchTerm, setSearchTerm] = useState('')
 
-    const selectedColumnsDisplay = searchFilteredColumns(searchTerm, userColumnSelection)
+    const selectedColumnsDisplay = searchFilteredColumns(searchTerm, usersUnsavedSelection)
 
     const selectableColumnsDisplay = searchFilteredColumns(searchTerm, selectableColumns)
 
-    const { selectedColumns } = useValues(tableConfigLogic)
-    const { setSelectedColumns, hideModal } = useActions(tableConfigLogic)
-
-    const currentSelection = selectedColumns === 'DEFAULT' ? defaultColumns : selectedColumns
-
-    useEffect(() => {
-        setUserColumnSelection(currentSelection)
-        setSelectableColumns(allColumns.filter((column) => !currentSelection.includes(column)))
-    }, [currentSelection, allColumns])
-
     const selectColumn = (column: string): void => {
-        setUserColumnSelection([...userColumnSelection, column])
-        setSelectableColumns(selectableColumns.filter((item) => item != column))
-        setScrollSelectedToIndex(userColumnSelection.length)
+        setUsersUnsavedSelection([...usersUnsavedSelection, column])
+        setScrollSelectedToIndex(usersUnsavedSelection.length)
     }
 
     const unSelectColumn = (column: string): void => {
-        setUserColumnSelection(userColumnSelection.filter((item) => item != column))
-        setSelectableColumns([...selectableColumns, column])
+        setUsersUnsavedSelection(usersUnsavedSelection.filter((item) => item != column))
     }
 
     const resetColumns = (): void => {
         if (defaultColumns) {
-            setUserColumnSelection(defaultColumns)
-            setSelectableColumns(allColumns.filter((column) => !currentSelection.includes(column)))
+            setUsersUnsavedSelection(defaultColumns)
         }
     }
 
@@ -163,7 +149,7 @@ function ColumnConfigurator({
             centered
             visible
             title="Configure columns"
-            onOk={() => setSelectedColumns(userColumnSelection)}
+            onOk={() => setSelectedColumns(usersUnsavedSelection)}
             width={700}
             bodyStyle={{ padding: '16px 16px 0 16px' }}
             className="column-configurator-modal"
@@ -187,7 +173,7 @@ function ColumnConfigurator({
                         </Button>
                     </Col>
                     <Col flex={0}>
-                        <Button type="primary" onClick={() => setSelectedColumns(userColumnSelection)}>
+                        <Button type="primary" onClick={() => setSelectedColumns(usersUnsavedSelection)}>
                             Save
                         </Button>
                     </Col>

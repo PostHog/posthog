@@ -7,7 +7,10 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
     actions: {
         showModal: true,
         hideModal: false,
-        setSelectedColumns: (columnConfig: ColumnChoice) => ({ columnConfig }),
+        setSelectedColumns: (columnConfig: ColumnChoice) => ({ columnConfig }), // confirmed choice, applied to table
+        setUsersUnsavedSelection: (columns: string[]) => ({ columns }), // unsaved, user currently editing
+        setDefaultColumns: (columns: string[]) => ({ columns }),
+        setAllPossibleColumns: (columns: string[]) => ({ columns }),
     },
     reducers: {
         modalVisible: [
@@ -16,6 +19,25 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
                 showModal: () => true,
                 setSelectedColumns: () => false,
                 hideModal: () => false,
+            },
+        ],
+        allPossibleColumns: [
+            [] as string[],
+            {
+                setAllPossibleColumns: (_, { columns }) => columns,
+            },
+        ],
+        defaultColumns: [
+            [] as string[],
+            {
+                setDefaultColumns: (_, { columns }) => columns,
+            },
+        ],
+        usersUnsavedSelection: [
+            [] as string[],
+            {
+                setUsersUnsavedSelection: (_, { columns }) => columns,
+                setDefaultColumns: (state, { columns }) => (state.length ? state : columns),
             },
         ],
         selectedColumns: [
@@ -30,6 +52,12 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
             (selectors) => [selectors.selectedColumns],
             (selectedColumns: ColumnChoice): number => {
                 return selectedColumns === 'DEFAULT' ? 7 : selectedColumns.length + 1
+            },
+        ],
+        selectableColumns: [
+            (selectors) => [selectors.allPossibleColumns, selectors.usersUnsavedSelection],
+            (allPossibleColumns, currentlyEditingSelection) => {
+                return allPossibleColumns.filter((column) => !currentlyEditingSelection.includes(column))
             },
         ],
     },
