@@ -59,7 +59,7 @@ def reset_clickhouse_tables():
 
 if is_clickhouse_enabled():
 
-    @pytest.fixture(scope="package")
+    @pytest.fixture(scope="package MAKE SOME BACKEND CHANGE")
     def django_db_setup(django_db_setup, django_db_keepdb):
         database = Database(
             CLICKHOUSE_DATABASE,
