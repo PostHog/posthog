@@ -9,7 +9,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
-from posthog.constants import AvailableFeature
+from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.utils import mask_email_address
 
@@ -75,7 +75,7 @@ class Organization(UUIDModel):
         related_query_name="organization",
     )
     name: models.CharField = models.CharField(max_length=64)
-    slug = models.SlugField(unique=True, max_length=48)
+    slug = models.SlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     domain_whitelist: ArrayField = ArrayField(

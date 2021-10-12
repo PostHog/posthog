@@ -18,7 +18,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea, RestrictionScope } from '../../../lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from '../../../lib/constants'
+import { FEATURE_FLAGS, MAX_SLUG_LENGTH, OrganizationMembershipLevel } from '../../../lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
@@ -68,6 +68,46 @@ function DisplayName(): JSX.Element {
     )
 }
 
+function IdSlug(): JSX.Element {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    const [slug, setSlug] = useState(currentTeam?.slug || '')
+
+    if (currentTeam?.is_demo) {
+        return (
+            <p>
+                <i>The demo project cannot be renamed.</i>
+            </p>
+        )
+    }
+
+    return (
+        <div>
+            <Input
+                value={slug}
+                onChange={(event) => {
+                    setSlug(event.target.value)
+                }}
+                maxLength={MAX_SLUG_LENGTH}
+                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
+                disabled={currentTeamLoading}
+            />
+            <Button
+                type="primary"
+                onClick={(e) => {
+                    e.preventDefault()
+                    updateCurrentTeam({ slug })
+                }}
+                disabled={!slug || !currentTeam || slug === currentTeam.slug}
+                loading={currentTeamLoading}
+            >
+                Change Project ID Slug
+            </Button>
+        </div>
+    )
+}
+
 export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -92,6 +132,11 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                     Display Name
                 </h2>
                 {currentTeamLoading && !currentTeam ? loadingComponent : <DisplayName />}
+                <Divider />
+                <h2 id="name" className="subtitle">
+                    ID Slug
+                </h2>
+                {currentTeamLoading && !currentTeam ? loadingComponent : <IdSlug />}
                 <Divider />
                 <h2 id="snippet" className="subtitle">
                     Website Event Autocapture

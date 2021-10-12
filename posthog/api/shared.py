@@ -32,6 +32,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "organization",
             "api_token",
             "name",
+            "slug",
             "completed_snippet_onboarding",
             "ingested_event",
             "is_demo",
@@ -55,4 +56,5 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "slug",
         ]

@@ -9,7 +9,7 @@ from django.core.validators import MinLengthValidator
 from django.db import models
 from django.dispatch.dispatcher import receiver
 
-from posthog.constants import AvailableFeature
+from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
 
@@ -100,7 +100,7 @@ class Team(UUIDClassicModel):
     name: models.CharField = models.CharField(
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
-    slug = models.SlugField(unique=True, max_length=48)
+    slug = models.SlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)

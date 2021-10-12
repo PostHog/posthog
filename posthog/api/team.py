@@ -51,6 +51,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "api_token",
             "app_urls",
             "name",
+            "slug",
             "slack_incoming_webhook",
             "created_at",
             "updated_at",

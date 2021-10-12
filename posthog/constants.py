@@ -173,3 +173,6 @@ class RetentionQueryType(str, Enum):
     RETURNING = "returning"
     TARGET = "target"
     TARGET_FIRST_TIME = "target_first_time"
+
+
+MAX_SLUG_LENGTH = 48
