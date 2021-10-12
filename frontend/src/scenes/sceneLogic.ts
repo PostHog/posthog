@@ -14,7 +14,6 @@ import { afterLoginRedirect } from './authentication/loginLogic'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '../layout/ErrorProjectUnavailable'
 import { teamLogic } from './teamLogic'
 import { featureFlagLogic } from '../lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from '../lib/constants'
 import { organizationLogic } from './organizationLogic'
 
 export enum Scene {
@@ -399,12 +398,9 @@ export const sceneLogic = kea<sceneLogicType<LoadedScene, Params, Scene, SceneCo
                 teamLogic.selectors.isCurrentTeamUnavailable,
                 featureFlagLogic.selectors.featureFlags,
             ],
-            (loadingScene, scene, isCurrentTeamUnavailable, featureFlags) => {
+            (loadingScene, scene, isCurrentTeamUnavailable) => {
                 const baseActiveScene = loadingScene || scene
-                return isCurrentTeamUnavailable &&
-                    featureFlags[FEATURE_FLAGS.PROJECT_BASED_PERMISSIONING] &&
-                    baseActiveScene &&
-                    sceneConfigurations[baseActiveScene]?.projectBased
+                return isCurrentTeamUnavailable && baseActiveScene && sceneConfigurations[baseActiveScene]?.projectBased
                     ? Scene.ErrorProjectUnavailable
                     : baseActiveScene
             },
