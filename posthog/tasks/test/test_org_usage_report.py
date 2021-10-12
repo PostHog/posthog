@@ -24,6 +24,11 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
 
             self.assertEqual(all_reports[0]["posthog_version"], VERSION)
             self.assertEqual(all_reports[0]["deployment_infrastructure"], "tests")
+            self.assertIsNotNone(all_reports[0]["realm"])
+            self.assertIsNotNone(all_reports[0]["is_clickhouse_enabled"])
+            self.assertIsNotNone(all_reports[0]["site_url"])
+            self.assertGreaterEqual(len(all_reports[0]["license_keys"]), 0)
+            self.assertIsNotNone(all_reports[0]["product"])
 
         def test_event_counts(self) -> None:
             with freeze_time("2020-11-02"):
@@ -46,6 +51,9 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                     self.assertEqual(org_report["event_count_lifetime"], 5)
                     self.assertEqual(org_report["event_count_in_period"], 3)
                     self.assertEqual(org_report["event_count_in_month"], 4)
+                    self.assertIsNotNone(org_report["organization_id"])
+                    self.assertIsNotNone(org_report["organization_name"])
+                    self.assertEqual(org_report["team_count"], 1)
 
                 _test_org_report()
 
@@ -99,12 +107,12 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
     return TestOrganizationUsageReport  # type: ignore
 
 
-def create_person(distinct_id: str, team: Team) -> None:
-    Person.objects.create(team=team, distinct_ids=[distinct_id])
+def create_person(distinct_id: str, team: Team) -> Person:
+    return Person.objects.create(team=team, distinct_ids=[distinct_id])
 
 
-def create_event(distinct_id: str, event: str, lib: str, created_at: datetime, team: Team) -> None:
-    Event.objects.create(
+def create_event(distinct_id: str, event: str, lib: str, created_at: datetime, team: Team) -> Event:
+    return Event.objects.create(
         team=team,
         distinct_id=distinct_id,
         event=event,

@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Union
+from typing import Dict, List, Union
 
 from typing_extensions import TypedDict
 
@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 Period = TypedDict("Period", {"start_inclusive": str, "end_inclusive": str})
 
+OrgData = TypedDict("OrgData", {"teams": List[Union[str, int]], "name": str,},)
+
 OrgReportMetadata = TypedDict(
     "OrgReportMetadata",
     {
@@ -25,6 +27,7 @@ OrgReportMetadata = TypedDict(
         "period": Period,
         "site_url": str,
         "license_keys": List[str],
+        "product": str,
     },
 )
 
@@ -45,8 +48,11 @@ OrgReport = TypedDict(
         "event_count_lifetime": int,
         "event_count_in_period": int,
         "event_count_in_month": int,
+        "organization_id": str,
+        "organization_name": str,
+        "team_count": int,
     },
-)  # Repeating the above because mypy doesn't support sum types
+)
 
 
 def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
@@ -57,29 +63,35 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
     distinct_id = User.objects.first().distinct_id  # type: ignore
     period_start, period_end = get_previous_day()
     month_start = period_start.replace(day=1)
+    realm = get_instance_realm()
+    license_keys = get_instance_licenses()
     metadata: OrgReportMetadata = {
         "posthog_version": VERSION,
         "deployment_infrastructure": os.getenv("DEPLOYMENT", "unknown"),
-        "realm": get_instance_realm(),
+        "realm": realm,
         "is_clickhouse_enabled": is_clickhouse_enabled(),
         "period": {"start_inclusive": period_start.isoformat(), "end_inclusive": period_end.isoformat()},
         "site_url": os.getenv("SITE_URL", "unknown"),
-        "license_keys": get_instance_licenses(),
+        "license_keys": license_keys,
+        "product": get_product_name(realm, license_keys),
     }
-    org_teams: Dict[str, List[Union[str, int]]] = {}
+    org_data: Dict[str, OrgData] = {}
     org_reports: List[OrgReport] = []
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
-        org = str(team.organization.id)
-        if org in org_teams:
-            org_teams[org].append(team.id)
+        id = str(team.organization.id)
+        if id in org_data:
+            org_data[id]["teams"].append(team.id)
         else:
-            org_teams[org] = [team.id]
+            org_data[id] = {
+                "teams": [team.id],
+                "name": team.organization.name,
+            }
 
-    for org, teams in org_teams.items():
+    for id, org in org_data.items():
         usage = get_org_usage(
             distinct_id=distinct_id,
-            team_ids=teams,
+            team_ids=org["teams"],
             period_start=period_start,
             period_end=period_end,
             month_start=month_start,
@@ -87,7 +99,9 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
         report: dict = {
             **metadata,
             **usage,
-            "organization_id": org,
+            "organization_id": id,
+            "organization_name": org["name"],
+            "team_count": len(org["teams"]),
         }
         org_reports.append(report)  # type: ignore
         if not dry_run:
@@ -133,3 +147,12 @@ def get_org_usage(
         report_org_usage_failure(distinct_id, str(err))
 
     return usage
+
+
+def get_product_name(realm: str, license_keys: List[str]) -> str:
+    if realm == "cloud":
+        return "cloud"
+    elif realm in {"hosted", "hosted-clickhouse"}:
+        return "scale" if len(license_keys) else "open source"
+    else:
+        return "unknown"
