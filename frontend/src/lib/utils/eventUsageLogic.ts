@@ -143,7 +143,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             isFirstLoad: boolean,
             fromDashboard: boolean,
             delay?: number,
-            changedFilters?: Record<string, boolean>
+            changedFilters?: Record<string, any>
         ) => ({
             filters,
             isFirstLoad,

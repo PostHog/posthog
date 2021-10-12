@@ -2,6 +2,7 @@ import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
 import { insightLogic } from './insightLogic'
 import { AvailableFeature, PropertyOperator, ViewType } from '~/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 jest.mock('lib/api')
 
@@ -43,6 +44,24 @@ describe('insightLogic', () => {
 
         it('has the key set to "new"', () => {
             expect(logic.key).toEqual('new')
+        })
+    })
+
+    describe('analytics', () => {
+        initKeaTestLogic({
+            logic: insightLogic,
+            props: { dashboardItemId: undefined, filters: { insight: 'TRENDS' } },
+            onLogic: (l) => (logic = l),
+        })
+
+        it('reports insight changes on setFilter', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ insight: 'FUNNELS' })
+            }).toDispatchActions([
+                eventUsageLogic.actionCreators.reportInsightViewed({ insight: 'FUNNELS' }, true, false, 0, {
+                    changed_insight: 'TRENDS',
+                }),
+            ])
         })
     })
 
