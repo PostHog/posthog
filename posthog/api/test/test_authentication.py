@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import pytest
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from rest_framework import status
@@ -186,3 +187,51 @@ class TestPasswordResetAPI(APIBaseTest):
         # check we mention SSO providers
         self.assertIn("Google, GitHub", html_message)
         self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
+
+    def test_success_response_even_on_invalid_email(self):
+        with self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
+        ):
+            response = self.client.post("/api/reset", {"email": "i_dont_exist@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"email": "i_dont_exist@posthog.com"})
+
+        # No emails should be sent
+        self.assertEqual(len(mail.outbox), 0)
+
+    @pytest.mark.ee
+    def test_cant_reset_with_saml_enforced(self):
+        with self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True,
+            EMAIL_HOST="localhost",
+            SITE_URL="https://my.posthog.net",
+            SAML_ENTITY_ID="entityID",
+            SAML_ACS_URL="https://saml.posthog.com",
+            SAML_X509_CERT="certificate",
+            SAML_ENFORCED=True,
+        ):
+            response = self.client.post("/api/reset", {"email": "i_dont_exist@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "saml_enforced",
+                "detail": "Password reset is disabled because SAML login is enforced.",
+                "attr": None,
+            },
+        )
+
+    def test_cant_reset_if_email_is_not_configured(self):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post("/api/reset", {"email": "i_dont_exist@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "email_not_available",
+                "detail": "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
+                "attr": None,
+            },
+        )

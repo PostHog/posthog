@@ -13,7 +13,7 @@ from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.email import EmailMessage
+from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import report_user_logged_in
 from posthog.models import User
 
@@ -91,6 +91,18 @@ class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
     def create(self, validated_data):
+
+        if hasattr(settings, "SAML_ENFORCED") and settings.SAML_ENFORCED:
+            raise serializers.ValidationError(
+                "Password reset is disabled because SAML login is enforced.", code="saml_enforced"
+            )
+
+        if not is_email_available():
+            raise serializers.ValidationError(
+                "Cannot reset passwords because email is not configured for your instance. Please contact your administrator.",
+                code="email_not_available",
+            )
+
         email = validated_data.pop("email")
         try:
             user = User.objects.get(email=email)
@@ -114,6 +126,8 @@ class PasswordResetSerializer(serializers.Serializer):
             )
             message.add_recipient(email)
             message.send()
+
+        # TODO: Limit number of requests for password reset emails
 
         return {"email": email}
 
