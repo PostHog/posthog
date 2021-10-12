@@ -12,16 +12,16 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const { stepsWithCount, propertyCorrelationValues, propertyCorrelationTypes } = useValues(logic)
-    const { setCorrelationTypes, loadPropertyCorrelations } = useActions(logic)
+    const { setPropertyCorrelationTypes, loadPropertyCorrelations } = useActions(logic)
     const onClickCorrelationType = (correlationType: FunnelCorrelationType): void => {
         if (propertyCorrelationTypes) {
             if (propertyCorrelationTypes.includes(correlationType)) {
-                setCorrelationTypes(propertyCorrelationTypes.filter((types) => types !== correlationType))
+                setPropertyCorrelationTypes(propertyCorrelationTypes.filter((types) => types !== correlationType))
             } else {
-                setCorrelationTypes([...propertyCorrelationTypes, correlationType])
+                setPropertyCorrelationTypes([...propertyCorrelationTypes, correlationType])
             }
         } else {
-            setCorrelationTypes([correlationType])
+            setPropertyCorrelationTypes([correlationType])
         }
     }
     return stepsWithCount.length > 1 ? (

@@ -33,7 +33,7 @@ services:
         image: zookeeper
         restart: always
     kafka:
-        image: cfei/kafka
+        image: wurstmeister/kafka
         depends_on:
             - zookeeper
         ports:

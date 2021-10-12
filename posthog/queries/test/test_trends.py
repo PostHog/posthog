@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Tuple
 
 from freezegun import freeze_time
 
@@ -27,7 +27,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
     class TestTrends(AbstractTimerangeTest, AbstractIntervalTest, APIBaseTest):
         maxDiff = None
 
-        def _create_events(self, use_time=False):
+        def _create_events(self, use_time=False) -> Tuple[Action, Person]:
 
             person = person_factory(
                 team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
@@ -1630,7 +1630,7 @@ def trend_test_factory(trends, event_factory, person_factory, action_factory, co
                 person_factory(team_id=self.team.pk, distinct_ids=["someone_else"])
                 event_factory(team=self.team, event="sign up", distinct_id="someone_else")
 
-            calculate_action(sign_up_action.id)
+            sign_up_action.calculate_events()
 
             with freeze_time("2020-01-04"):
                 action_response = trends().run(

@@ -256,7 +256,7 @@ We now provide you with a toggle in 'Insights' to automatically filter out test 
 
 ![Webhooks](https://posthog-static-files.s3.us-east-2.amazonaws.com/Website-Assets/Array/webhooks.png)
 
-Members of our community pointed out to us that our latest release caused some issues with webhooks on self-hosted FOSS installations. Largley with help from various community members who provided us with context and feedback, we have now addressed these issues and webhooks should work as normal on 1.23.0.
+Members of our community pointed out to us that our latest release caused some issues with webhooks on self-hosted FOSS installations. Largely with help from various community members who provided us with context and feedback, we have now addressed these issues and webhooks should work as normal on 1.23.0.
 
 However, we made sure to throw in a little treat to make up for it. You can now access all event properties in your webhook messages, which opens up a whole new realm of possibilities for creating useful alerts and notifications for when certain actions are triggered in PostHog.
 

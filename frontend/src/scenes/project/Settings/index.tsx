@@ -210,45 +210,47 @@ export function ProjectSettings({ user }: { user: UserType }): JSX.Element {
                 <h2 className="subtitle">PostHog Toolbar</h2>
                 <ToolbarSettings />
                 <Divider />
-                <h2 id="session-recording" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
-                    Session Recording
+                <div id="session-recording" />
+                <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
+                    Recordings
                     <Tag color="orange" style={{ marginLeft: 8 }}>
                         BETA
                     </Tag>
                 </h2>
                 <p>
-                    Watch sessions replays to see how users interact with your app and find out what can be improved.
-                    You can watch recorded sessions in the <Link to="/sessions">sessions page</Link>. Please note{' '}
-                    <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the latest version
-                    of{' '}
+                    Watch replays to see how users interact with your app and find out what can be improved. Recordings
+                    are found in the{' '}
+                    <Link to={featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? '/recordings' : '/sessions'}>
+                        {featureFlags[FEATURE_FLAGS.REMOVE_SESSIONS] ? 'recordings' : 'sessions'} page
+                    </Link>
+                    . Please note <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the
+                    latest version of{' '}
                     <a
                         href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"
                     >
                         posthog-js
                     </a>{' '}
-                    installed.
+                    <b>directly</b> installed. For more details, check out our{' '}
+                    <a
+                        href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
+                        target="_blank"
+                    >
+                        docs
+                    </a>
+                    .
                 </p>
                 <SessionRecording />
                 <Divider />
-                {featureFlags[FEATURE_FLAGS.PROJECT_BASED_PERMISSIONING] && (
-                    <>
-                        <RestrictedArea
-                            Component={AccessControl}
-                            minimumAccessLevel={OrganizationMembershipLevel.Admin}
-                        />
-                        <Divider />
-                        {currentTeam?.access_control &&
-                            currentOrganization?.available_features.includes(
-                                AvailableFeature.PROJECT_BASED_PERMISSIONING
-                            ) && (
-                                <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
-                                    <TeamMembers user={user} team={currentTeam} />
-                                    <Divider />
-                                </BindLogic>
-                            )}
-                    </>
-                )}
+                <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
+                <Divider />
+                {currentTeam?.access_control &&
+                    currentOrganization?.available_features.includes(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
+                        <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
+                            <TeamMembers user={user} team={currentTeam} />
+                            <Divider />
+                        </BindLogic>
+                    )}
                 <RestrictedArea
                     Component={DangerZone}
                     minimumAccessLevel={OrganizationMembershipLevel.Admin}

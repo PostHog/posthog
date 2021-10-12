@@ -69,7 +69,7 @@ export function Person(): JSX.Element {
                         >
                             {showSessionRecordings ? (
                                 <TabPane
-                                    tab={<span data-attr="person-session-recordings-tab">Session recordings</span>}
+                                    tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
                                     key="sessionRecordings"
                                 />
                             ) : null}
@@ -84,13 +84,13 @@ export function Person(): JSX.Element {
                             {currentTab === PersonsTabType.SESSION_RECORDINGS ? (
                                 <>
                                     <PageHeader
-                                        title="Session recordings"
-                                        caption="Watch sessions recordings to see how this user interacts with your app."
+                                        title="Recordings"
+                                        caption="Watch recordings to see how this user interacts with your app."
                                         style={{ marginTop: 0 }}
                                     />
                                     <SessionRecordingsTable
                                         key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                                        distinctId={person.distinct_ids[0]}
+                                        personUUID={person.uuid}
                                         isPersonPage
                                     />
                                 </>

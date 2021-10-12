@@ -97,10 +97,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PLUGIN_SERVER_ACTION_MATCHING",
-                    "value": "1"
-                },
-                {
                     "name": "PERSISTED_FEATURE_FLAGS",
                     "value": "0"
                 }
