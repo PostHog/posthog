@@ -10,27 +10,36 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
     },
     actions: {
         setModalVisible: (visible: boolean) => ({ visible }),
-        setColumnConfig: (columnConfig: string[]) => ({ columnConfig }),
+        setColumnConfig: (columnConfig: string[]) => ({ columnConfig }), //saves to the URL
         setColumnConfigSaving: (saving: boolean) => ({ saving }),
-        saveSelectedColumns: (columns: string[]) => ({ columns }),
+        saveSelectedColumns: (columns: string[]) => ({ columns }), // saves to the server
     },
     reducers: {
         modalVisible: [
             false,
             {
                 setModalVisible: (_, { visible }) => visible,
+                [userLogic.actionTypes.updateUserSuccess]: () => false,
+                setColumnConfig: () => false,
             },
         ],
         columnConfigSaving: [
             false,
             {
                 setColumnConfigSaving: (_, { saving }) => saving,
+                [userLogic.actionTypes.updateUserSuccess]: () => false,
+                [userLogic.actionTypes.updateUserFailure]: () => false,
+                saveSelectedColumns: () => true,
             },
         ],
         columnConfig: [
             [],
             {
                 setColumnConfig: (_, { columnConfig }) => columnConfig,
+                [userLogic.actionTypes.updateUserSuccess]: () => {
+                    const savedValues = userLogic.values?.user?.events_column_config?.active
+                    return Array.isArray(savedValues) ? savedValues : []
+                },
             },
         ],
     },
@@ -62,21 +71,9 @@ export const tableConfigLogic = kea<tableConfigLogicType>({
             },
         ],
     },
-    listeners: ({ actions }) => ({
-        setColumnConfig: () => {
-            actions.setModalVisible(false)
-        },
+    listeners: () => ({
         saveSelectedColumns: ({ columns }) => {
             userLogic.actions.updateUser({ events_column_config: { active: columns } })
-        },
-        [userLogic.actionTypes.updateUserSuccess]: () => {
-            actions.setColumnConfigSaving(false)
-            const savedValues = userLogic.values?.user?.events_column_config?.active
-            actions.setColumnConfig(Array.isArray(savedValues) ? savedValues : [])
-            actions.setModalVisible(false)
-        },
-        [userLogic.actionTypes.updateUserFailure]: () => {
-            actions.setColumnConfigSaving(false)
         },
     }),
     urlToAction: ({ actions }) => ({
