@@ -89,7 +89,7 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
             }
 
     for id, org in org_data.items():
-        distinct_id = User.objects.filter(current_organization_id=id).first().distinct_id
+        distinct_id = User.objects.filter(current_team__in=org["teams"]).first().distinct_id
         usage = get_org_usage(
             distinct_id=distinct_id,
             team_ids=org["teams"],
