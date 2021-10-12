@@ -269,5 +269,3 @@ export const ERROR_MESSAGES: Record<string, string> = {
 // Cohort types
 export const COHORT_STATIC = 'static'
 export const COHORT_DYNAMIC = 'dynamic'
-
-export const MAX_SLUG_LENGTH = 48

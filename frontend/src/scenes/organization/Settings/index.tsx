@@ -8,7 +8,7 @@ import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
 import { DangerZone } from './DangerZone'
 import { RestrictedArea, RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
-import { MAX_SLUG_LENGTH, OrganizationMembershipLevel } from '../../../lib/constants'
+import { OrganizationMembershipLevel } from '../../../lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { IconExternalLink } from 'lib/components/icons'
 
@@ -41,47 +41,6 @@ function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
                 loading={currentOrganizationLoading}
             >
                 Rename Organization
-            </Button>
-        </div>
-    )
-}
-
-function IdSlug({ isRestricted }: RestrictedComponentProps): JSX.Element {
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { updateOrganization } = useActions(organizationLogic)
-
-    const [slug, setSlug] = useState(currentOrganization?.slug || '')
-
-    return (
-        <div>
-            <h2 id="name" className="subtitle">
-                ID Slug
-            </h2>
-            <Input
-                value={slug}
-                onChange={(event) => {
-                    setSlug(event.target.value)
-                }}
-                maxLength={MAX_SLUG_LENGTH}
-                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
-                disabled={isRestricted || currentOrganizationLoading}
-            />
-            <Button
-                type="primary"
-                onClick={(e) => {
-                    e.preventDefault()
-                    updateOrganization({ slug })
-                    setSlug(slug.toLowerCase())
-                }}
-                disabled={
-                    isRestricted ||
-                    !slug ||
-                    !currentOrganization ||
-                    slug.toLowerCase() === currentOrganization.slug.toLowerCase()
-                }
-                loading={currentOrganizationLoading}
-            >
-                Change Organization ID Slug
             </Button>
         </div>
     )
@@ -189,8 +148,6 @@ export function OrganizationSettings({ user }: { user: UserType }): JSX.Element 
             />
             <Card>
                 <RestrictedArea Component={DisplayName} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                <Divider />
-                <RestrictedArea Component={IdSlug} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <Divider />
                 {!preflight?.cloud && (
                     <>
