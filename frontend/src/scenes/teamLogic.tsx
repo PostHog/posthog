@@ -76,22 +76,26 @@ export const teamLogic = kea<teamLogicType>({
                     return patchedTeam
                 },
                 createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
-                resetToken: async () => await api.update('api/projects/@current/reset_token', {}),
+                resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
     }),
-    selectors: ({ selectors }) => ({
+    selectors: {
+        currentTeamId: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
+        ],
         isCurrentTeamUnavailable: [
-            () => [selectors.currentTeam, selectors.currentTeamLoading],
+            (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],
             // If project has been loaded and is still null, it means the user just doesn't have access.
             (currentTeam, currentTeamLoading): boolean => !currentTeam && !currentTeamLoading,
         ],
         demoOnlyProject: [
-            () => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
+            (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
             (currentTeam, currentOrganization): boolean =>
                 (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
         ],
-    }),
+    },
     listeners: ({ actions }) => ({
         deleteTeam: async ({ team }) => {
             try {

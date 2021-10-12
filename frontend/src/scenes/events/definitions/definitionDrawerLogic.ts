@@ -7,6 +7,7 @@ import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { teamLogic } from '../../teamLogic'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
     actions: () => ({
@@ -36,7 +37,9 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             null as EventOrPropType | null,
             {
                 loadDefinition: async ({ type, id }) => {
-                    const definition = await api.get(`api/projects/@current/${type}_definitions/${id}`)
+                    const definition = await api.get(
+                        `api/projects/${teamLogic.values.currentTeamId}/${type}_definitions/${id}`
+                    )
                     return definition
                 },
                 saveDefinition: async ({ definition, type }) => {
@@ -48,7 +51,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
                         definition.description = values.description
                     }
                     const updatedDefinition = await api.update(
-                        `api/projects/@current/${type}_definitions/${definition.id}`,
+                        `api/projects/${teamLogic.values.currentTeamId}/${type}_definitions/${definition.id}`,
                         definition
                     )
                     actions.saveDefinitionSuccess(updatedDefinition)
@@ -84,7 +87,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             {
                 loadEventPropertiesDefinitions: async (propertyNames) => {
                     const propertyDefinitions = await api.get(
-                        `api/projects/@current/property_definitions/?properties=${propertyNames}`
+                        `api/projects/${teamLogic.values.currentTeamId}/property_definitions/?properties=${propertyNames}`
                     )
                     return propertyDefinitions.results
                 },

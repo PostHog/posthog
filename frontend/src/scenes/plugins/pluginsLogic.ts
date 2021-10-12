@@ -15,6 +15,7 @@ import posthog from 'posthog-js'
 import { FormInstance } from 'antd/lib/form'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import { teamLogic } from '../teamLogic'
+import { organizationLogic } from '../organizationLogic'
 
 type PluginForm = FormInstance
 
@@ -82,7 +83,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const { results } = await api.get('api/organizations/@current/plugins')
+                    const { results } = await api.get(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/plugins`
+                    )
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results as PluginType[]) {
                         plugins[plugin.id] = plugin
@@ -92,7 +95,7 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                 installPlugin: async ({ pluginUrl, pluginType }) => {
                     const url = pluginType === 'local' ? `file:${pluginUrl}` : pluginUrl
                     const response = await api.create(
-                        'api/organizations/@current/plugins',
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/plugins`,
                         pluginType === 'source' ? { plugin_type: pluginType, name: url, source: '' } : { url }
                     )
                     capturePluginEvent(`plugin installed`, response, pluginType)
@@ -103,23 +106,30 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                     if (!editingPlugin) {
                         return plugins
                     }
-                    await api.delete(`api/organizations/@current/plugins/${editingPlugin.id}`)
+                    await api.delete(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/plugins/${editingPlugin.id}`
+                    )
                     capturePluginEvent(`plugin uninstalled`, editingPlugin)
                     const { [editingPlugin.id]: _discard, ...rest } = plugins // eslint-disable-line
                     return rest
                 },
                 editPluginSource: async ({ id, name, source, configSchema }) => {
                     const { plugins } = values
-                    const response = await api.update(`api/organizations/@current/plugins/${id}`, {
-                        name,
-                        source,
-                        config_schema: configSchema,
-                    })
+                    const response = await api.update(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/plugins/${id}`,
+                        {
+                            name,
+                            source,
+                            config_schema: configSchema,
+                        }
+                    )
                     capturePluginEvent(`plugin source edited`, response)
                     return { ...plugins, [id]: response }
                 },
                 updatePlugin: async ({ id }) => {
-                    const response = await api.create(`api/organizations/@current/plugins/${id}/upgrade`)
+                    const response = await api.create(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/plugins/${id}/upgrade`
+                    )
                     capturePluginEvent(`plugin updated`, response)
                     actions.pluginUpdated(id)
                     // Check if we need to update the config (e.g. new required field) and if so, open the drawer.
@@ -136,7 +146,10 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
                     return { ...values.plugins, [id]: response }
                 },
                 patchPlugin: async ({ id, pluginChanges }) => {
-                    const response = await api.update(`api/organizations/@current/plugins/${id}`, pluginChanges)
+                    const response = await api.update(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/plugins/${id}`,
+                        pluginChanges
+                    )
                     return { ...values.plugins, [id]: response }
                 },
             },
@@ -221,7 +234,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
             {} as Record<string, PluginRepositoryEntry>,
             {
                 loadRepository: async () => {
-                    const results = await api.get('api/organizations/@current/plugins/repository')
+                    const results = await api.get(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/plugins/repository`
+                    )
                     const repository: Record<string, PluginRepositoryEntry> = {}
                     for (const plugin of results as PluginRepositoryEntry[]) {
                         if (plugin.url) {
@@ -629,7 +644,9 @@ export const pluginsLogic = kea<pluginsLogicType<PluginForm, PluginSection>>({
 
             for (const plugin of pluginsToCheck) {
                 try {
-                    const updates = await api.get(`api/organizations/@current/plugins/${plugin.id}/check_for_updates`)
+                    const updates = await api.get(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/plugins/${plugin.id}/check_for_updates`
+                    )
                     actions.setUpdateStatus(plugin.id, updates.plugin.tag, updates.plugin.latest_tag)
                 } catch (e) {
                     actions.setUpdateError(plugin.id)

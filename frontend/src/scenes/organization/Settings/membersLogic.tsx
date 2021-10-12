@@ -22,10 +22,16 @@ export const membersLogic = kea<membersLogicType>({
         members: {
             __default: [] as OrganizationMemberType[],
             loadMembers: async () => {
-                return (await api.get('api/organizations/@current/members/?limit=200')).results
+                return (
+                    await api.get(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/members/?limit=200`
+                    )
+                ).results
             },
             removeMember: async (member: OrganizationMemberType) => {
-                await api.delete(`api/organizations/@current/members/${member.user.uuid}/`)
+                await api.delete(
+                    `api/organizations/${organizationLogic.values.currentOrganizationId}/members/${member.user.uuid}/`
+                )
                 toast(
                     <div>
                         <h1 className="text-success">
@@ -40,7 +46,10 @@ export const membersLogic = kea<membersLogicType>({
     }),
     listeners: ({ actions }) => ({
         changeMemberAccessLevel: async ({ member, level }) => {
-            await api.update(`api/organizations/@current/members/${member.user.uuid}/`, { level })
+            await api.update(
+                `api/organizations/${organizationLogic.values.currentOrganizationId}/members/${member.user.uuid}/`,
+                { level }
+            )
             toast(
                 <div>
                     <h1 className="text-success">

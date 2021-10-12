@@ -66,7 +66,10 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<InviteRowState>>({
                         payload.filter((invite) => !!invite.first_name).length
                     )
 
-                    return await api.create('api/organizations/@current/invites/bulk/', payload)
+                    return await api.create(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/bulk/`,
+                        payload
+                    )
                 },
             },
         ],

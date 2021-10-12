@@ -4,6 +4,7 @@ import { featureFlagsLogicType } from './featureFlagsLogicType'
 import { PostHog } from 'posthog-js'
 import { toolbarFetch } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { teamLogic } from '../../scenes/teamLogic'
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     actions: {
@@ -28,7 +29,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 },
                 setOverriddenUserFlag: async ({ flagId, overrideValue }, breakpoint) => {
                     const response = await toolbarFetch(
-                        'api/projects/@current/feature_flag_overrides/my_overrides',
+                        `api/projects/${teamLogic.values.currentTeamId}/feature_flag_overrides/my_overrides`,
                         'POST',
                         {
                             feature_flag: flagId,
@@ -50,7 +51,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 },
                 deleteOverriddenUserFlag: async ({ overrideId }, breakpoint) => {
                     const response = await toolbarFetch(
-                        `api/projects/@current/feature_flag_overrides/${overrideId}`,
+                        `api/projects/${teamLogic.values.currentTeamId}/feature_flag_overrides/${overrideId}`,
                         'DELETE'
                     )
                     breakpoint()

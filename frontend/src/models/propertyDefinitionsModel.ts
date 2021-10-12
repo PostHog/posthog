@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { PropertyDefinition, SelectOption } from '~/types'
+import { teamLogic } from '../scenes/teamLogic'
 import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 
 interface PropertySelectOption extends SelectOption {
@@ -25,7 +26,7 @@ export const propertyDefinitionsModel = kea<
             {
                 loadPropertyDefinitions: async (initial?: boolean) => {
                     const url = initial
-                        ? 'api/projects/@current/property_definitions/?limit=5000'
+                        ? `api/projects/${teamLogic.values.currentTeamId}/property_definitions/?limit=5000`
                         : values.propertyStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to propertyDefinitionsLogic.loadPropertyDefinitions')
@@ -53,15 +54,13 @@ export const propertyDefinitionsModel = kea<
         ],
     }),
     listeners: ({ actions }) => ({
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            actions.loadPropertyDefinitions(true)
+        },
         loadPropertyDefinitionsSuccess: ({ propertyStorage }) => {
             if (propertyStorage.next) {
                 actions.loadPropertyDefinitions()
             }
-        },
-    }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadPropertyDefinitions(true)
         },
     }),
     selectors: {

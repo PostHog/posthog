@@ -3,7 +3,6 @@ import { Tabs, Tag } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { groups } from 'lib/components/TaxonomicFilter/groups'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 
@@ -34,7 +33,7 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, groupTypes } = useValues(taxonomicFilterLogic)
+    const { activeTab, groups, groupTypes } = useValues(taxonomicFilterLogic)
     const { setActiveTab } = useActions(taxonomicFilterLogic)
 
     if (groupTypes.length === 1) {

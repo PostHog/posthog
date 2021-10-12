@@ -2,6 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
 import { EventDefinition, SelectOption } from '~/types'
+import { teamLogic } from '../scenes/teamLogic'
 import { eventDefinitionsModelType } from './eventDefinitionsModelType'
 import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 
@@ -27,7 +28,7 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefiniti
             {
                 loadEventDefinitions: async (initial?: boolean) => {
                     const url = initial
-                        ? 'api/projects/@current/event_definitions/?limit=5000'
+                        ? `api/projects/${teamLogic.values.currentTeamId}/event_definitions/?limit=5000`
                         : values.eventStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to eventDefinitionsModel.loadEventDefinitions')
@@ -55,23 +56,24 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefiniti
         ],
     }),
     listeners: ({ actions }) => ({
+        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
+            actions.loadEventDefinitions(true)
+        },
         loadEventDefinitionsSuccess: ({ eventStorage }) => {
             if (eventStorage.next) {
                 actions.loadEventDefinitions()
             }
         },
         updateDescription: async ({ id, description, type }) => {
-            const response = await api.update(`api/projects/@current/${type}_definitions/${id}`, { description })
+            const response = await api.update(
+                `api/projects/${teamLogic.values.currentTeamId}/${type}_definitions/${id}`,
+                { description }
+            )
             if (type === 'event') {
                 actions.updateEventDefinition(response)
             } else {
                 propertyDefinitionsModel.actions.updatePropertyDefinition(response)
             }
-        },
-    }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadEventDefinitions(true)
         },
     }),
     selectors: {

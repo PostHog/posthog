@@ -7,18 +7,23 @@ import { OrganizationInviteType } from '~/types'
 import { invitesLogicType } from './invitesLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { organizationLogic } from '../../organizationLogic'
 
 export const invitesLogic = kea<invitesLogicType>({
     loaders: ({ values }) => ({
         invites: {
             __default: [] as OrganizationInviteType[],
             loadInvites: async () => {
-                return (await api.get('api/organizations/@current/invites/')).results
+                return (await api.get(`api/organizations/${organizationLogic.values.currentOrganizationId}/invites/`))
+                    .results
             },
             createInvite: async ({ targetEmail }: { targetEmail?: string }) => {
-                const newInvite: OrganizationInviteType = await api.create('api/organizations/@current/invites/', {
-                    target_email: targetEmail,
-                })
+                const newInvite: OrganizationInviteType = await api.create(
+                    `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/`,
+                    {
+                        target_email: targetEmail,
+                    }
+                )
                 preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
 
                 if (newInvite.emailing_attempt_made) {
@@ -33,7 +38,9 @@ export const invitesLogic = kea<invitesLogicType>({
                 return [newInvite, ...values.invites]
             },
             deleteInvite: async (invite: OrganizationInviteType) => {
-                await api.delete(`api/organizations/@current/invites/${invite.id}/`)
+                await api.delete(
+                    `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
+                )
                 preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
                 toast(
                     <div className="text-success">

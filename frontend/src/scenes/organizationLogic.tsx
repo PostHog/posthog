@@ -26,8 +26,16 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
         ],
     },
     selectors: {
+        currentOrganizationSlug: [
+            (selectors) => [selectors.currentOrganization],
+            (currentOrganization): string | null => (currentOrganization ? currentOrganization.slug : null),
+        ],
+        currentOrganizationId: [
+            (selectors) => [selectors.currentOrganization],
+            (currentOrganization): string | null => (currentOrganization ? currentOrganization.id : null),
+        ],
         hasDashboardCollaboration: [
-            (s) => [s.currentOrganization],
+            (selectors) => [selectors.currentOrganization],
             (currentOrganization) =>
                 currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
         ],
@@ -49,13 +57,14 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
                         throw new Error('Current organization has not been loaded yet.')
                     }
                     const updatedOrganization = await api.update(
-                        `api/organizations/${values.currentOrganization.id}`,
+                        `api/organizations/${values.currentOrganizationId}`,
                         payload
                     )
                     userLogic.actions.loadUser()
                     return updatedOrganization
                 },
-                completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
+                completeOnboarding: async () =>
+                    await api.create(`api/organizations/${values.currentOrganizationId}/onboarding/`, {}),
             },
         ],
     }),
