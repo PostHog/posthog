@@ -50,7 +50,7 @@
     .dashboard-item-content {
         height: 100%;
         margin: 8px 15px 15px 15px;
-        overflow: hidden;
+        overflow: scroll;
         flex-grow: 1;
         position: relative;
         .graph-container {

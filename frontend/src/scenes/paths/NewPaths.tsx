@@ -282,6 +282,7 @@ export function NewPaths({ dashboardItemId = null, color = 'white' }: PathsProps
             style={{
                 position: 'relative',
                 overflowX: 'scroll',
+                overflowY: 'scroll',
             }}
             id={`'${dashboardItemId || DEFAULT_PATHS_ID}'`}
         >
