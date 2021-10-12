@@ -84,15 +84,12 @@ describe('tableConfigLogic', () => {
     })
 
     initKeaTestLogic({
-        logic: userLogic,
-        props: {},
-        onLogic: (l) => (builtUserLogic = l),
-    })
-
-    initKeaTestLogic({
         logic: tableConfigLogic,
         props: {},
-        onLogic: (l) => (logic = l),
+        onLogic: (l) => {
+            logic = l
+            builtUserLogic = userLogic()
+        },
     })
 
     it('starts with expected defaults', async () => {
