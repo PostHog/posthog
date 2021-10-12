@@ -219,11 +219,7 @@ export const insightLogic = kea<insightLogicType>({
                 return
             }
 
-            const changedKeys = extractObjectDiffKeys(values.allFilters, filters)
-            const changedKeysObj: Record<string, any> = {}
-            changedKeys.forEach((key) => {
-                changedKeysObj[`changed__${key}`] = true
-            })
+            const changedKeysObj: Record<string, any> = extractObjectDiffKeys(values.allFilters, filters)
             actions._setAllFilters(filters)
 
             const { fromDashboard } = router.values.hashParams
@@ -418,23 +414,47 @@ export const insightLogic = kea<insightLogicType>({
     }),
 })
 
-function extractObjectDiffKeys(oldObj: FilterType, newObj: FilterType): string[] {
+function extractObjectDiffKeys(oldObj: FilterType, newObj: FilterType, prefix: string = ''): Record<string, any> {
     if (Object.keys(oldObj).length === 0) {
         return []
     }
 
-    const changedKeys = []
+    let changedKeys: Record<string, any> = {}
     for (const [key, value] of Object.entries(newObj)) {
         // @ts-ignore
         if (!objectsEqual(value, oldObj[key])) {
-            if (key === 'events' && value.length === oldObj.events?.length) {
-                changedKeys.push('event_math')
-            } else if (key === 'actions' && value.length === oldObj.events?.length) {
-                changedKeys.push('action_math')
+            if (key === 'events') {
+                if (value.length !== oldObj.events?.length) {
+                    changedKeys['events_length'] = oldObj.actions?.length
+                } else {
+                    value.forEach((event: Record<string, any>, idx: number) => {
+                        // @ts-ignore
+                        const _k = extractObjectDiffKeys(event, oldObj[key][idx], `event_${idx}_`)
+                        changedKeys = {
+                            ...changedKeys,
+                            ..._k,
+                        }
+                    })
+                }
+            } else if (key === 'actions') {
+                if (value.length !== oldObj.actions?.length) {
+                    changedKeys['actions_length'] = oldObj.actions?.length
+                } else {
+                    value.forEach((action: Record<string, any>, idx: number) => {
+                        // @ts-ignore
+                        const _k = extractObjectDiffKeys(action, oldObj[key][idx], `action_${idx}_`)
+                        changedKeys = {
+                            ...changedKeys,
+                            ..._k,
+                        }
+                    })
+                }
             } else {
-                changedKeys.push(key)
+                // @ts-ignore
+                changedKeys[`changed_${prefix}${key}`] = oldObj[key]
             }
         }
     }
+
     return changedKeys
 }
