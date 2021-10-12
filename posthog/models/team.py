@@ -87,6 +87,11 @@ def get_default_data_attributes() -> Any:
 
 
 class Team(UUIDClassicModel):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "slug"], name="unique_slug_for_organization"),
+        ]
+
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
@@ -100,7 +105,7 @@ class Team(UUIDClassicModel):
     name: models.CharField = models.CharField(
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
-    slug = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
+    slug = LowercaseSlugField(db_index=True, max_length=MAX_SLUG_LENGTH)
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)

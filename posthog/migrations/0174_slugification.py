@@ -44,7 +44,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="slug",
-            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, null=True, unique=True),
+            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, null=True, db_index=True),
         ),
         migrations.RunPython(slugify_all, migrations.RunPython.noop),
         migrations.AlterField(
@@ -55,6 +55,10 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="team",
             name="slug",
-            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, unique=True),
+            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, db_index=True),
+        ),
+        migrations.AddConstraint(
+            model_name="team",
+            constraint=models.UniqueConstraint(fields=("organization", "slug"), name="unique_slug_for_organization"),
         ),
     ]
