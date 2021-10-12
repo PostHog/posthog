@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { dashboardsLogicType } from './dashboardsLogicType'
 import { DashboardType } from '~/types'
 import { uniqueBy } from 'lib/utils'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 export const dashboardsLogic = kea<dashboardsLogicType>({
     actions: {

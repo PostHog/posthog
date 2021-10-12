@@ -327,6 +327,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
+        isSkewed: [
+            () => [selectors.conversionMetrics],
+            (conversionMetrics: FunnelTimeConversionMetrics) => {
+                return conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9
+            },
+        ],
         apiParams: [
             (s) => [s.filters],
             (filters) => {
@@ -615,7 +621,10 @@ export const funnelLogic = kea<funnelLogicType>({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        loadResultsSuccess: async () => {
+        loadResultsSuccess: async ({ insight }) => {
+            if (insight.filters?.insight !== ViewType.FUNNELS) {
+                return
+            }
             // hide all but the first five breakdowns for each step
             values.steps?.forEach((step) => {
                 values.flattenedStepsByBreakdown

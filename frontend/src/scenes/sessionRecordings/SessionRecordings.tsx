@@ -5,7 +5,7 @@ import { Alert, Button, Row, Tag } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { ArrowRightOutlined } from '@ant-design/icons'
 
 export function SessionsRecordings(): JSX.Element {
