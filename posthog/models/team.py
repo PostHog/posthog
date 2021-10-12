@@ -6,15 +6,13 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
-from django.dispatch.dispatcher import receiver
-from django.utils.text import slugify
 
-from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
-from .utils import LowercaseSlugField, UUIDClassicModel, create_with_slug, generate_random_token_project, sane_repr
+from .utils import UUIDClassicModel, generate_random_token_project, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models.organization import OrganizationMembership
