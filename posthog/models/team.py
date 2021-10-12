@@ -1,13 +1,13 @@
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.core.exceptions import ObjectDoesNotExist
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.dispatch.dispatcher import receiver
+from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -174,3 +174,9 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+@receiver(models.signals.pre_save, sender=Team)
+def team_about_to_be_created(sender, instance: Team, raw, using, **kwargs):
+    if instance._state.adding:
+        instance.slug = slugify(instance.name)[:MAX_SLUG_LENGTH]

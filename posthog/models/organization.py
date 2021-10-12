@@ -7,6 +7,7 @@ from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.text import slugify
 from rest_framework import exceptions
 
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
@@ -163,6 +164,7 @@ class Organization(UUIDModel):
 @receiver(models.signals.pre_save, sender=Organization)
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
+        instance.slug = slugify(instance.name)[:MAX_SLUG_LENGTH]
         instance.update_available_features()
 
 
