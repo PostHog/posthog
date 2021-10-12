@@ -200,7 +200,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 session = session_recording(
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
-                self.assertEqual(len(session["snapshots"]), limit)
+                self.assertEqual(len(session["snapshtest_session_recordingsots"]), limit)
                 self.assertEqual(session["duration"], 200)
                 self.assertIsNotNone(session["next"])  # limit (200) is above defined limit (100)
                 parsed_params = parse_qs(urlparse(session["next"]).query)

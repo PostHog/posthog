@@ -168,7 +168,9 @@ def factory_test_session_recordings_api(session_recording_event_factory):
 
                 for i in range(expected_num_requests):
                     response = self.client.get(
-                        f"/api/projects/@current/session_recordings/{chunked_session_id}" if i == 0 else next_url
+                        f"/api/projects/@current/session_recordings/{chunked_session_id}"
+                        if i == 0 and next_url
+                        else next_url
                     )
                     response_data = response.json()
 
