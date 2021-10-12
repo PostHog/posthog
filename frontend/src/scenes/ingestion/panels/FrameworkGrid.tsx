@@ -48,7 +48,7 @@ function TabContents(frameworks: Record<string, string>, sort?: boolean): JSX.El
 
     return (
         <List
-            style={{ height: 300, maxHeight: 300, overflowY: 'scroll' }}
+            style={{ height: 300, maxHeight: 300, overflowY: 'auto' }}
             grid={{}}
             size={'large'}
             dataSource={getDataSource(frameworks, sort) as Framework[]}

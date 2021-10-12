@@ -9,7 +9,7 @@ from posthog.tasks.calculate_action import calculate_action, calculate_actions_f
 from posthog.test.base import BaseTest
 
 
-def _create_action(team, name, properties=[]):
+def _create_action(team, name, properties=[]) -> Action:
     action = Action.objects.create(team=team, name=name)
     ActionStep.objects.create(action=action, event=name, properties=properties)
     return action
@@ -140,9 +140,9 @@ def sessions_list_test_factory(sessions, event_factory, session_recording_event_
 
             self.create_test_data()
 
-            calculate_action(action1.id)
-            calculate_action(action2.id)
-            calculate_action(action3.id)
+            action1.calculate_events()
+            action2.calculate_events()
+            action3.calculate_events()
 
             self.assertLength(
                 self.run_query(

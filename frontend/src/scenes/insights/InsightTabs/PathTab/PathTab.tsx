@@ -12,6 +12,7 @@ import { GlobalFiltersTitle } from '../../common'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NewPathTab } from './NewPathTab'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function PathTab(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -20,8 +21,9 @@ export function PathTab(): JSX.Element {
 
 export function OldPathTab(): JSX.Element {
     const { customEventNames } = useValues(eventDefinitionsModel)
-    const { filter } = useValues(pathsLogic({ dashboardItemId: null }))
-    const { setFilter } = useActions(pathsLogic({ dashboardItemId: null }))
+    const { insightProps } = useValues(insightLogic)
+    const { filter } = useValues(pathsLogic(insightProps))
+    const { setFilter } = useActions(pathsLogic(insightProps))
 
     const screens = useBreakpoint()
     const isSmallScreen = screens.xs || (screens.sm && !screens.md)
@@ -36,7 +38,7 @@ export function OldPathTab(): JSX.Element {
                             value={filter?.path_type || PathType.PageView}
                             defaultValue={PathType.PageView}
                             dropdownMatchSelectWidth={false}
-                            onChange={(value): void => setFilter({ path_type: value, start_point: null })}
+                            onChange={(value): void => setFilter({ path_type: value, start_point: undefined })}
                             style={{ paddingTop: 2 }}
                         >
                             {Object.entries(pathOptionsToLabels).map(([value, name], index) => {
@@ -58,7 +60,7 @@ export function OldPathTab(): JSX.Element {
                                       }))
                                     : undefined
                             }
-                            onSet={(value: string | number): void => setFilter({ start_point: value })}
+                            onSet={(value: string): void => setFilter({ start_point: value })}
                             propertyKey={pathOptionsToProperty[filter.path_type || PathType.PageView]}
                             type="event"
                             style={{ width: 200, paddingTop: 2 }}

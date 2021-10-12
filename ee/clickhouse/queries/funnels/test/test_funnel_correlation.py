@@ -379,53 +379,71 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
             self.assertAlmostEqual(odds, expected_odds)
 
-        self.assertEqual(
-            result,
-            [
-                {
-                    "event": "$browser::Positive",
-                    "success_count": 15,
-                    "failure_count": 1,
-                    # "odds_ratio": 24,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$nice::not",
-                    "success_count": 10,
-                    "failure_count": 0,
-                    # "odds_ratio": 11,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$nice::very",
-                    "success_count": 5,
-                    "failure_count": 0,
-                    # "odds_ratio": 3.5,
-                    "correlation_type": "success",
-                },
-                {
-                    "event": "$nice::smh",
-                    "success_count": 0,
-                    "failure_count": 5,
-                    # "odds_ratio": 0.0196078431372549,
-                    "correlation_type": "failure",
-                },
-                {
-                    "event": "$browser::Negative",
-                    "success_count": 1,
-                    "failure_count": 5,
-                    # "odds_ratio": 0.041666666666666664,
-                    "correlation_type": "failure",
-                },
-                {
-                    "event": "$nice::",
-                    "success_count": 1,
-                    "failure_count": 1,
-                    # "odds_ratio": 0.375,
-                    "correlation_type": "failure",
-                },
-            ],
-        )
+        expected_result = [
+            {
+                "event": "$browser::Positive",
+                "success_count": 15,
+                "failure_count": 1,
+                # "odds_ratio": 24,
+                "correlation_type": "success",
+            },
+            {
+                "event": "$nice::not",
+                "success_count": 10,
+                "failure_count": 0,
+                # "odds_ratio": 11,
+                "correlation_type": "success",
+            },
+            {
+                "event": "$nice::very",
+                "success_count": 5,
+                "failure_count": 0,
+                # "odds_ratio": 3.5,
+                "correlation_type": "success",
+            },
+            {
+                "event": "$nice::smh",
+                "success_count": 0,
+                "failure_count": 5,
+                # "odds_ratio": 0.0196078431372549,
+                "correlation_type": "failure",
+            },
+            {
+                "event": "$browser::Negative",
+                "success_count": 1,
+                "failure_count": 5,
+                # "odds_ratio": 0.041666666666666664,
+                "correlation_type": "failure",
+            },
+            {
+                "event": "$nice::",
+                "success_count": 1,
+                "failure_count": 1,
+                # "odds_ratio": 0.375,
+                "correlation_type": "failure",
+            },
+        ]
+
+        self.assertEqual(result, expected_result)
+
+        # Run property correlation with filter on all properties
+        filter = filter.with_data({"funnel_correlation_names": ["$all"]})
+        correlation = FunnelCorrelation(filter, self.team)
+
+        new_result = correlation.run()["events"]
+
+        odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
+
+        new_expected_odds_ratios = expected_odds_ratios[:-1]
+        new_expected_result = expected_result[:-1]
+        # When querying all properties, we don't consider properties that don't exist for part of the data
+        # since users aren't explicitly asking for that property. Thus,
+        # We discard $nice:: because it's an empty result set
+
+        for odds, expected_odds in zip(odds_ratios, new_expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(new_result, new_expected_result)
 
     def test_discarding_insignificant_events(self):
         filters = {
@@ -494,6 +512,67 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         FunnelCorrelation.MIN_PERSON_COUNT = 25
         result = correlation.run()["events"]
         self.assertEqual(len(result), 2)
+
+    def test_events_within_conversion_window_for_correlation(self):
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_window_interval": "10",
+            "funnel_window_interval_unit": "minute",
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "events",
+        }
+
+        filter = Filter(data=filters)
+        correlation = FunnelCorrelation(filter, self.team)
+
+        _create_person(distinct_ids=["user_successful"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_successful", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team, event="positively_related", distinct_id="user_successful", timestamp="2020-01-02T14:02:00Z",
+        )
+        _create_event(
+            team=self.team, event="paid", distinct_id="user_successful", timestamp="2020-01-02T14:06:00Z",
+        )
+
+        _create_person(distinct_ids=["user_dropoff"], team_id=self.team.pk)
+        _create_event(
+            team=self.team, event="user signed up", distinct_id="user_dropoff", timestamp="2020-01-02T14:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="NOT_negatively_related",
+            distinct_id="user_dropoff",
+            timestamp="2020-01-02T14:15:00Z",  # event happened outside conversion window
+        )
+
+        result = correlation.run()["events"]
+        print(result)
+
+        odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+        expected_odds_ratios = [4]
+
+        for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+            self.assertAlmostEqual(odds, expected_odds)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": "positively_related",
+                    "success_count": 1,
+                    "failure_count": 0,
+                    # "odds_ratio": 4.0,
+                    "correlation_type": "success",
+                },
+            ],
+        )
 
 
 class TestCorrelationFunctions(unittest.TestCase):

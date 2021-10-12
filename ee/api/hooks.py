@@ -24,7 +24,7 @@ class HookSerializer(serializers.ModelSerializer):
 
 class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
-    Retrieve, create, update or destroy webhooks.
+    Retrieve, create, update or destroy REST hooks.
     """
 
     queryset = Hook.objects.all()

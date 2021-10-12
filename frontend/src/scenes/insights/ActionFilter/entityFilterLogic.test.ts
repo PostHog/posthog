@@ -12,25 +12,23 @@ import filtersJson from './__mocks__/filters.json'
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import { FilterType } from '~/types'
 import { actionsModel } from '~/models/actionsModel'
-import { mockAPI } from 'lib/api.mock'
+import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
 
 jest.mock('lib/api')
 
 describe('entityFilterLogic', () => {
     let logic: BuiltLogic<entityFilterLogicType<BareEntity, EntityFilterProps, LocalFilter>>
 
-    mockAPI(async ({ pathname, searchParams }) => {
+    mockAPI(async (url) => {
+        const { pathname } = url
         if (pathname === 'api/action/') {
             return {
                 results: filtersJson.actions,
             }
         } else if (pathname === 'api/projects/@current/event_definitions/') {
             return eventDefinitionsJson
-        } else if (pathname === '_preflight/') {
-            return { is_clickhouse_enabled: true }
-        } else {
-            throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
         }
+        return defaultAPIMocks(url)
     })
 
     initKeaTestLogic({

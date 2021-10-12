@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Union, cast
 import posthoganalytics
 from django.core.cache import cache
 from django.db.models import Count, Exists, OuterRef, Prefetch, QuerySet
-from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
@@ -93,9 +92,6 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
 
-    def _calculate_action(self, action: Action) -> None:
-        calculate_action.delay(action_id=action.pk)
-
     def validate(self, attrs):
         instance = cast(Action, self.instance)
         exclude_args = {}
@@ -123,7 +119,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                 action=instance, **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
             )
 
-        self._calculate_action(instance)
+        calculate_action.delay(action_id=instance.pk)
         posthoganalytics.capture(
             validated_data["created_by"].distinct_id, "action created", instance.get_analytics_metadata()
         )
@@ -152,7 +148,7 @@ class ActionSerializer(serializers.HyperlinkedModelSerializer):
                     )
 
         instance = super().update(instance, validated_data)
-        self._calculate_action(instance)
+        calculate_action.delay(action_id=instance.pk)
         instance.refresh_from_db()
         posthoganalytics.capture(
             self.context["request"].user.distinct_id,
