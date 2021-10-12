@@ -10,6 +10,7 @@ import { AutoSizer } from 'react-virtualized'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
+import clsx from 'clsx'
 
 interface TableConfigProps {
     availableColumns: string[]
@@ -78,6 +79,13 @@ function ColumnConfigurator({
     immutableColumns,
     defaultColumns,
 }: ColumnConfiguratorInterface): JSX.Element {
+    // the virtualised list doesn't support gaps between items in the list
+    // setting the container to be larger than we need
+    // and adding a container with a smaller height to each row item
+    // allows the new row item to set a margin around itself
+    const rowContainerHeight = 36
+    const rowItemHeight = 32
+
     const [selectableColumns, setSelectableColumns] = useState([] as string[]) // Stores the actual state of columns that could be selected
     const [userColumnSelection, setUserColumnSelection] = useState([] as string[]) // Stores the actual state of columns that **are** selected
     const [scrollSelectedToIndex, setScrollSelectedToIndex] = useState(0)
@@ -117,14 +125,11 @@ function ColumnConfigurator({
 
     function AvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
         return (
-            <div
-                className={'column-display-item'}
-                style={style}
-                key={key}
-                onClick={() => selectColumn(selectableColumnsDisplay[index])}
-            >
-                <Checkbox style={{ marginRight: 8 }} checked={false} />
-                {<PropertyKeyInfo value={selectableColumnsDisplay[index]} />}
+            <div style={style} key={key} onClick={() => selectColumn(selectableColumnsDisplay[index])}>
+                <div className={'column-display-item'} style={{ height: `${rowItemHeight}px` }}>
+                    <Checkbox style={{ marginRight: 8 }} checked={false} />
+                    {<PropertyKeyInfo value={selectableColumnsDisplay[index]} />}
+                </div>
             </div>
         )
     }
@@ -133,14 +138,14 @@ function ColumnConfigurator({
         const disabled = immutableColumns?.includes(selectedColumnsDisplay[index])
 
         return (
-            <div
-                className={`column-display-item${disabled ? ' disabled' : ''}`}
-                style={style}
-                key={key}
-                onClick={() => !disabled && unSelectColumn(selectedColumnsDisplay[index])}
-            >
-                <Checkbox style={{ marginRight: 8 }} checked disabled={disabled} />
-                {<PropertyKeyInfo value={selectedColumnsDisplay[index]} />}
+            <div style={style} key={key} onClick={() => !disabled && unSelectColumn(selectedColumnsDisplay[index])}>
+                <div
+                    className={clsx(['column-display-item', 'selected', { disabled: disabled }])}
+                    style={{ height: `${rowItemHeight}px` }}
+                >
+                    <Checkbox style={{ marginRight: 8 }} checked disabled={disabled} />
+                    {<PropertyKeyInfo value={selectedColumnsDisplay[index]} />}
+                </div>
             </div>
         )
     }
@@ -149,7 +154,7 @@ function ColumnConfigurator({
         <Modal
             centered
             visible
-            title="Toggle column visibility"
+            title="Configure columns"
             onOk={() => setSelectedColumns(userColumnSelection)}
             width={700}
             className="column-configurator-modal"
@@ -188,7 +193,7 @@ function ColumnConfigurator({
             <Row gutter={16} className="mt">
                 <Col xs={24} sm={11}>
                     <Card>
-                        <h3 className="l3">Available columns</h3>
+                        <h3 className="l3">Hidden columns ({selectableColumnsDisplay.length})</h3>
                         <div style={{ height: 320 }}>
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => {
@@ -197,7 +202,7 @@ function ColumnConfigurator({
                                             height={height}
                                             rowCount={selectableColumnsDisplay.length}
                                             rowRenderer={AvailableColumn}
-                                            rowHeight={32}
+                                            rowHeight={rowContainerHeight}
                                             width={width}
                                         />
                                     )
@@ -209,7 +214,7 @@ function ColumnConfigurator({
                 <Col xs={0} sm={2} />
                 <Col xs={24} sm={11}>
                     <Card>
-                        <h3 className="l3">Visible columns</h3>
+                        <h3 className="l3">Visible columns ({selectedColumnsDisplay.length})</h3>
                         <div style={{ height: 320 }}>
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => {
@@ -218,7 +223,7 @@ function ColumnConfigurator({
                                             height={height}
                                             rowCount={selectedColumnsDisplay.length}
                                             rowRenderer={SelectedColumn}
-                                            rowHeight={32}
+                                            rowHeight={rowContainerHeight}
                                             width={width}
                                             scrollToIndex={scrollSelectedToIndex}
                                         />
