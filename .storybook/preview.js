@@ -18,7 +18,7 @@ setupMsw()
 const setupPosthogJs = () => {
     // Make sure we don't hit production posthog. We want to control requests to,
     // e.g. `/decide/` for feature flags
-    window.JS_POSTHOG_HOST = 'http://localhost:6006'
+    window.JS_POSTHOG_HOST = window.location.origin
 
     // We don't be doing any authn so we can just use a fake key
     window.JS_POSTHOG_API_KEY = 'dummy-key'
