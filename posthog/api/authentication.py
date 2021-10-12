@@ -118,7 +118,7 @@ class PasswordResetSerializer(serializers.Serializer):
                 template_name="password_reset",
                 template_context={
                     "preheader": "Please follow the link inside to reset your password.",
-                    "link": f"/reset/{token}",
+                    "link": f"/reset/{user.uuid}/{token}",
                     "cloud": settings.MULTI_TENANCY,
                     "site_url": settings.SITE_URL,
                     "social_providers": list(user.social_auth.values_list("provider", flat=True)),

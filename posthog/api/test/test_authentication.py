@@ -121,6 +121,8 @@ class TestAuthenticationAPI(APIBaseTest):
 class TestPasswordResetAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
+    # Password reset request
+
     @patch("posthoganalytics.capture")
     def test_anonymous_user_can_request_password_reset(self, mock_capture):
         with self.settings(
@@ -147,7 +149,11 @@ class TestPasswordResetAPI(APIBaseTest):
         # validate reset token
         link_index = html_message.find("https://my.posthog.net/reset")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
-        default_token_generator.check_token(self.user, reset_link.replace("https://my.posthog.net/reset/", ""))
+        self.assertTrue(
+            default_token_generator.check_token(
+                self.user, reset_link.replace("https://my.posthog.net/reset/", "").replace(f"{self.user.uuid}/", "")
+            )
+        )
 
     def test_reset_with_sso_available(self):
         """
@@ -182,7 +188,11 @@ class TestPasswordResetAPI(APIBaseTest):
         # validate reset token
         link_index = html_message.find("https://my.posthog.net/reset")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
-        default_token_generator.check_token(self.user, reset_link.replace("https://my.posthog.net/reset/", ""))
+        self.assertTrue(
+            default_token_generator.check_token(
+                self.user, reset_link.replace(f"https://my.posthog.net/reset/{self.user.uuid}/", "")
+            )
+        )
 
         # check we mention SSO providers
         self.assertIn("Google, GitHub", html_message)
