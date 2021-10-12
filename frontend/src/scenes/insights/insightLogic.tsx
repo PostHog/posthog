@@ -56,7 +56,6 @@ export const insightLogic = kea<insightLogicType>({
         setActiveView: (type: ViewType) => ({ type }),
         updateActiveView: (type: ViewType) => ({ type }),
         setAllFilters: (filters) => ({ filters }),
-        _setAllFilters: (filters) => ({ filters }),
         startQuery: (queryId: string) => ({ queryId }),
         endQuery: (queryId: string, view: ViewType, lastRefresh: string | null, exception?: Record<string, any>) => ({
             queryId,
@@ -163,7 +162,7 @@ export const insightLogic = kea<insightLogicType>({
         allFilters: [
             {} as FilterType,
             {
-                _setAllFilters: (_, { filters }) => filters,
+                setAllFilters: (_, { filters }) => filters,
             },
         ],
         /*
@@ -210,21 +209,21 @@ export const insightLogic = kea<insightLogicType>({
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         insightName: [(s) => [s.insight], (insight) => insight.name],
     },
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ actions, selectors, values, props }) => ({
         updateInsightSuccess: () => {
             actions.setInsightMode(ItemMode.View, null)
         },
-        setAllFilters: async ({ filters }, breakpoint) => {
-            if (objectsEqual(values.allFilters, filters)) {
+        setAllFilters: async ({ filters }, breakpoint, _, previousState) => {
+            const previousFilters = selectors.allFilters(previousState)
+            if (objectsEqual(previousFilters, filters)) {
                 return
             }
 
-            const changedKeys = extractObjectDiffKeys(values.allFilters, filters)
+            const changedKeys = extractObjectDiffKeys(previousFilters, filters)
             const changedKeysObj: Record<string, any> = {}
             changedKeys.forEach((key) => {
                 changedKeysObj[`changed__${key}`] = true
             })
-            actions._setAllFilters(filters)
 
             const { fromDashboard } = router.values.hashParams
             eventUsageLogic.actions.reportInsightViewed(
