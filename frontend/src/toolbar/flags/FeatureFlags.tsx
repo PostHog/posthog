@@ -7,7 +7,7 @@ import { Radio, Switch, Row, Typography, List, Button } from 'antd'
 import { AnimatedCollapsible } from './AnimatedCollapsible'
 import { PostHog } from 'posthog-js'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { IconExternalLinkBold } from 'lib/components/icons'
 
 export function FeatureFlags(): JSX.Element {
