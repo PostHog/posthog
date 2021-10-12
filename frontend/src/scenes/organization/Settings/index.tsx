@@ -71,8 +71,14 @@ function IdSlug({ isRestricted }: RestrictedComponentProps): JSX.Element {
                 onClick={(e) => {
                     e.preventDefault()
                     updateOrganization({ slug })
+                    setSlug(slug.toLowerCase())
                 }}
-                disabled={isRestricted || !slug || !currentOrganization || slug === currentOrganization.slug}
+                disabled={
+                    isRestricted ||
+                    !slug ||
+                    !currentOrganization ||
+                    slug.toLowerCase() === currentOrganization.slug.toLowerCase()
+                }
                 loading={currentOrganizationLoading}
             >
                 Change Organization ID Slug

@@ -14,7 +14,7 @@ from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
 from posthog.utils import mask_email_address
 
-from .utils import UUIDModel, sane_repr
+from .utils import LowercaseSlugField, UUIDModel, sane_repr
 
 try:
     from ee.models.license import License
@@ -76,7 +76,7 @@ class Organization(UUIDModel):
         related_query_name="organization",
     )
     name: models.CharField = models.CharField(max_length=64)
-    slug = models.SlugField(unique=True, max_length=MAX_SLUG_LENGTH)
+    slug = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     domain_whitelist: ArrayField = ArrayField(
@@ -164,7 +164,6 @@ class Organization(UUIDModel):
 @receiver(models.signals.pre_save, sender=Organization)
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
-        instance.slug = slugify(instance.name)[:MAX_SLUG_LENGTH]
         instance.update_available_features()
 
 

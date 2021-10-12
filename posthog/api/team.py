@@ -78,7 +78,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "ingested_event",
             "effective_membership_level",
         )
-        extra_kwargs = {"slug": {"required": False}}
+        extra_kwargs = {"slug": {"required": False}}  # slug is not required here as it's inferred for new projects
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         return team.get_effective_membership_level(self.context["request"].user)

@@ -98,8 +98,9 @@ function IdSlug(): JSX.Element {
                 onClick={(e) => {
                     e.preventDefault()
                     updateCurrentTeam({ slug })
+                    setSlug(slug.toLowerCase())
                 }}
-                disabled={!slug || !currentTeam || slug === currentTeam.slug}
+                disabled={!slug || !currentTeam || slug.toLowerCase() === currentTeam.slug.toLowerCase()}
                 loading={currentTeamLoading}
             >
                 Change Project ID Slug

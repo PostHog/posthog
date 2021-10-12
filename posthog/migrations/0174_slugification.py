@@ -3,6 +3,8 @@
 from django.db import IntegrityError, migrations, models, transaction
 from django.utils.text import slugify
 
+import posthog.models.utils
+
 MAX_SLUG_LENGTH = 48
 
 
@@ -37,16 +39,22 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="organization",
             name="slug",
-            field=models.SlugField(max_length=MAX_SLUG_LENGTH, null=True, unique=True),
+            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, null=True, unique=True),
         ),
         migrations.AddField(
-            model_name="team", name="slug", field=models.SlugField(max_length=MAX_SLUG_LENGTH, null=True, unique=True),
+            model_name="team",
+            name="slug",
+            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, null=True, unique=True),
         ),
         migrations.RunPython(slugify_all, migrations.RunPython.noop),
         migrations.AlterField(
-            model_name="organization", name="slug", field=models.SlugField(max_length=MAX_SLUG_LENGTH, unique=True),
+            model_name="organization",
+            name="slug",
+            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, unique=True),
         ),
         migrations.AlterField(
-            model_name="team", name="slug", field=models.SlugField(max_length=MAX_SLUG_LENGTH, unique=True),
+            model_name="team",
+            name="slug",
+            field=posthog.models.utils.LowercaseSlugField(max_length=MAX_SLUG_LENGTH, unique=True),
         ),
     ]

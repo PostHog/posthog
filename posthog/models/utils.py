@@ -5,7 +5,10 @@ from collections import defaultdict, namedtuple
 from time import time
 from typing import Any, Callable, Dict, Optional
 
-from django.db import models
+from django.db import IntegrityError, models, transaction
+from django.utils.text import slugify
+
+from posthog.constants import MAX_SLUG_LENGTH
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
 
@@ -135,3 +138,23 @@ class Percentile(models.Aggregate):
 
     def __init__(self, percentile, expression, **extra):
         super().__init__(expression, percentile=percentile, **extra)
+
+
+class LowercaseSlugField(models.SlugField):
+    def get_prep_value(self, value: Any) -> Any:
+        return super().get_prep_value(value).lower()
+
+
+def save_instance_with_slug(instance):
+    slugified_name = slugify(instance.name)[:MAX_SLUG_LENGTH]
+    for i in range(10):
+        # This retry loop handles possible duplicates by appending `-\d` to the slug in case of an IntegrityError
+        slugified_name_i = slugified_name[: MAX_SLUG_LENGTH - 2] if i == 0 else f"{slugified_name}-{i}"
+        instance.slug = slugified_name_i
+        try:
+            with transaction.atomic():
+                instance.save()
+        except IntegrityError:
+            continue
+        else:
+            break

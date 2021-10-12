@@ -14,7 +14,7 @@ from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.utils import GenericEmails
 
 from .dashboard import Dashboard
-from .utils import UUIDClassicModel, generate_random_token_project, sane_repr
+from .utils import LowercaseSlugField, UUIDClassicModel, generate_random_token_project, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models.organization import OrganizationMembership
@@ -100,7 +100,7 @@ class Team(UUIDClassicModel):
     name: models.CharField = models.CharField(
         max_length=200, default="Default Project", validators=[MinLengthValidator(1, "Project must have a name!")],
     )
-    slug = models.SlugField(unique=True, max_length=MAX_SLUG_LENGTH)
+    slug = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     slack_incoming_webhook: models.CharField = models.CharField(max_length=500, null=True, blank=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
@@ -174,9 +174,3 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
-
-
-@receiver(models.signals.pre_save, sender=Team)
-def team_about_to_be_created(sender, instance: Team, raw, using, **kwargs):
-    if instance._state.adding:
-        instance.slug = slugify(instance.name)[:MAX_SLUG_LENGTH]
