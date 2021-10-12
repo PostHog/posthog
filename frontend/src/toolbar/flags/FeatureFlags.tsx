@@ -8,6 +8,7 @@ import { AnimatedCollapsible } from './AnimatedCollapsible'
 import { PostHog } from 'posthog-js'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { urls } from 'scenes/sceneLogic'
+import { IconExternalLinkBold } from 'lib/components/icons'
 
 export function FeatureFlags(): JSX.Element {
     const { userFlagsWithCalculatedInfo, showLocalFeatureFlagWarning } = useValues(featureFlagsLogic)
@@ -56,18 +57,18 @@ export function FeatureFlags(): JSX.Element {
                                     }
                                 >
                                     <Typography.Text ellipsis className="feature-flag-title">
-                                        <a
-                                            href={`${apiURL}${
-                                                feature_flag.id
-                                                    ? urls.featureFlag(feature_flag.id)
-                                                    : urls.featureFlags()
-                                            }`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                        >
-                                            {feature_flag.key}
-                                        </a>
+                                        {feature_flag.key}
                                     </Typography.Text>
+                                    <a
+                                        className="feature-flag-external-link"
+                                        href={`${apiURL}${
+                                            feature_flag.id ? urls.featureFlag(feature_flag.id) : urls.featureFlags()
+                                        }`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        <IconExternalLinkBold />
+                                    </a>
                                     <Switch
                                         checked={!!currentValue}
                                         onChange={(checked) => {
