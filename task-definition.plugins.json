@@ -69,10 +69,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PLUGIN_SERVER_ACTION_MATCHING",
-                    "value": "1"
-                },
-                {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
                     "value": "3000"
                 },

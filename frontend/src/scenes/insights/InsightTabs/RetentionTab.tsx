@@ -46,7 +46,7 @@ export function RetentionTab(): JSX.Element {
                                 hideFilter
                                 hideRename
                                 buttonCopy="Add graph series"
-                                filters={actionFilterTargetEntity} // retention filters use target and returning entity instead of events
+                                filters={actionFilterTargetEntity as FilterType} // retention filters use target and returning entity instead of events
                                 setFilters={(newFilters: FilterType) => {
                                     if (newFilters.events && newFilters.events.length > 0) {
                                         setFilters({ target_entity: newFilters.events[0] })
@@ -67,8 +67,10 @@ export function RetentionTab(): JSX.Element {
                         <Col>
                             <div style={{ display: '-webkit-inline-box', flexWrap: 'wrap' }}>
                                 <Select
-                                    value={retentionOptions[filters.retention_type]}
-                                    onChange={(value): void => setFilters({ retentionType: value as RetentionType })}
+                                    value={
+                                        filters.retention_type ? retentionOptions[filters.retention_type] : undefined
+                                    }
+                                    onChange={(value): void => setFilters({ retention_type: value as RetentionType })}
                                     dropdownMatchSelectWidth={false}
                                 >
                                     {Object.entries(retentionOptions).map(([key, value]) => (
@@ -106,7 +108,7 @@ export function RetentionTab(): JSX.Element {
                                 hideFilter
                                 hideRename
                                 buttonCopy="Add graph series"
-                                filters={actionFilterReturningEntity}
+                                filters={actionFilterReturningEntity as FilterType}
                                 setFilters={(newFilters: FilterType) => {
                                     if (newFilters.events && newFilters.events.length > 0) {
                                         setFilters({ returning_entity: newFilters.events[0] })

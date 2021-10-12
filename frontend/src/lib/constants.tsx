@@ -242,7 +242,6 @@ export const FEATURE_FLAGS = {
     DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
     NEW_PATHS_UI: 'new-paths-ui',
     NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights',
-    PROJECT_BASED_PERMISSIONING: 'project-based-permissioning',
     SPLIT_PERSON: '5898-split-persons',
     TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
     REMOVE_SESSIONS: '6050-remove-sessions',

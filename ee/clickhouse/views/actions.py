@@ -26,10 +26,6 @@ class ClickhouseActionSerializer(ActionSerializer):
     def get_is_calculating(self, action: Action) -> bool:
         return False
 
-    def _calculate_action(self, action: Action) -> None:
-        # Don't calculate actions in Clickhouse as it's on the fly
-        pass
-
 
 class ClickhouseActionsViewSet(ActionViewSet):
     serializer_class = ClickhouseActionSerializer

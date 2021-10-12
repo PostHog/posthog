@@ -14,7 +14,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsPicker } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepsPicker'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { insightProps, allFilters, activeView } = useValues(insightLogic)
+    const { insightProps, filters, activeView } = useValues(insightLogic)
     const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic)
 
@@ -23,7 +23,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
     }
 
     const labels = [
-        ...(allFilters.funnel_viz_type !== FunnelVizType.TimeToConvert
+        ...(filters.funnel_viz_type !== FunnelVizType.TimeToConvert
             ? [
                   <>
                       <span className="text-muted-alt">
@@ -32,13 +32,13 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           </Tooltip>
                           Total conversion rate{' '}
                       </span>
-                      {allFilters.funnel_viz_type === FunnelVizType.Trends && <FunnelStepsPicker />}
+                      {filters.funnel_viz_type === FunnelVizType.Trends && <FunnelStepsPicker />}
                       <span className="text-muted-alt mr-025">:</span>
                       <span className="l4">{formatDisplayPercentage(conversionMetrics.totalRate)}%</span>
                   </>,
               ]
             : []),
-        ...(allFilters.funnel_viz_type !== FunnelVizType.Trends
+        ...(filters.funnel_viz_type !== FunnelVizType.Trends
             ? [
                   <>
                       <span className="text-muted-alt">
@@ -47,13 +47,13 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           </Tooltip>
                           Average time to convert{' '}
                       </span>
-                      {allFilters.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
+                      {filters.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
                       <span className="text-muted-alt mr-025">:</span>
                       <Button
                           type="link"
                           onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
                           disabled={
-                              !clickhouseFeaturesEnabled || allFilters.funnel_viz_type === FunnelVizType.TimeToConvert
+                              !clickhouseFeaturesEnabled || filters.funnel_viz_type === FunnelVizType.TimeToConvert
                           }
                       >
                           <span className="l4">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>

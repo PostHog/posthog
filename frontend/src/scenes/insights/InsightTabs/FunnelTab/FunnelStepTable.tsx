@@ -12,7 +12,7 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils'
-import { ChartParams, FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
+import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import {
     EmptyValue,
@@ -28,8 +28,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export function FunnelStepTable({ dashboardItemId }: Omit<ChartParams, 'view'>): JSX.Element | null {
+export function FunnelStepTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
+    const dashboardItemId = insightProps.dashboardItemId || undefined
     const logic = funnelLogic(insightProps)
     const {
         stepsWithCount,

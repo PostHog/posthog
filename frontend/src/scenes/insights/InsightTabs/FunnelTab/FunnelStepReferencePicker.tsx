@@ -4,11 +4,7 @@ import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { PercentageOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
-
-export enum FunnelStepReference {
-    total = 'total',
-    previous = 'previous',
-}
+import { FunnelStepReference } from '~/types'
 
 export function FunnelStepReferencePicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

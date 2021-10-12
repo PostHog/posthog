@@ -1,5 +1,4 @@
 import { clamp, compactNumber, humanFriendlyDuration } from 'lib/utils'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
 import { getChartColors } from 'lib/colors'
 import api from 'lib/api'
 import {
@@ -13,6 +12,7 @@ import {
     BreakdownKeyType,
     FunnelsTimeConversionBins,
     FunnelAPIResponse,
+    FunnelStepReference,
 } from '~/types'
 
 const PERCENTAGE_DISPLAY_PRECISION = 1 // Number of decimals to show in percentages
@@ -245,6 +245,9 @@ export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
 
 export const isStepsEmpty = (filters: FilterType): boolean =>
     [...(filters.actions || []), ...(filters.events || [])].length === 0
+
+export const isStepsUndefined = (filters: FilterType): boolean =>
+    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
 
 export const deepCleanFunnelExclusionEvents = (filters: FilterType): FunnelStepRangeEntityFilter[] | undefined => {
     if (!filters.exclusions) {

@@ -1,5 +1,6 @@
 import apiNoMock from 'lib/api'
 import { combineUrl } from 'kea-router'
+import { AvailableFeature } from '~/types'
 
 type APIMockReturnType = {
     [K in keyof typeof apiNoMock]: jest.Mock<ReturnType<typeof apiNoMock[K]>, Parameters<typeof apiNoMock[K]>>
@@ -16,6 +17,10 @@ type APIRoute = {
     method: string
 }
 
+interface APIMockOptions {
+    availableFeatures: AvailableFeature[]
+}
+
 export const api = apiNoMock as any as APIMockReturnType
 
 export const mockAPI = (cb: (url: APIRoute) => any): void => {
@@ -27,4 +32,29 @@ export const mockAPI = (cb: (url: APIRoute) => any): void => {
             })
         }
     })
+}
+
+export function defaultAPIMocks(
+    { pathname, searchParams }: APIRoute,
+    { availableFeatures }: Partial<APIMockOptions> = {}
+): any {
+    if (pathname === '_preflight/') {
+        return { is_clickhouse_enabled: true }
+    } else if (pathname === 'api/users/@me/') {
+        return {
+            organization: { available_features: availableFeatures || [] },
+            team: { ingested_event: true, completed_snippet_onboarding: true },
+        }
+    } else if (
+        [
+            'api/action/',
+            'api/projects/@current/event_definitions/',
+            'api/dashboard',
+            'api/organizations/@current',
+            'api/projects/@current',
+        ].includes(pathname)
+    ) {
+        return { results: [] }
+    }
+    throw new Error(`Unmocked fetch to: ${pathname} with params: ${JSON.stringify(searchParams)}`)
 }

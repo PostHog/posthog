@@ -29,14 +29,8 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FunnelCorrelationTable } from './InsightTabs/FunnelTab/FunnelCorrelationTable'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPropertyCorrelationTable'
-
-interface Props {
-    loadResults: () => void
-    resultsLoading: boolean
-}
+import { FunnelCorrelation } from './FunnelCorrelation'
 
 const VIEW_MAP = {
     [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
@@ -48,7 +42,7 @@ const VIEW_MAP = {
     [`${ViewType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.Element {
+export function InsightContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -61,24 +55,29 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
         lastRefresh,
         isLoading,
         activeView,
-        allFilters,
+        loadedView,
+        filters,
         insightMode,
         showTimeoutMessage,
         showErrorMessage,
+        insightLoading,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
+        if (activeView !== loadedView) {
+            return <Loading />
+        }
         // Insight specific empty states - note order is important here
-        if (activeView === ViewType.FUNNELS) {
+        if (loadedView === ViewType.FUNNELS) {
             if (!areFiltersValid) {
                 return <FunnelInvalidFiltersEmptyState />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionFiltersEmptyState />
             }
-            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+            if (!isValidFunnel && !(insightLoading || isLoading)) {
                 return <FunnelEmptyState />
             }
         }
@@ -96,7 +95,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
 
     // Empty states that can coexist with the graph (e.g. Loading)
     const CoexistingEmptyState = (() => {
-        if (isLoading || resultsLoading) {
+        if (isLoading || insightLoading) {
             return <Loading />
         }
         return null
@@ -109,7 +108,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             !showTimeoutMessage &&
             areFiltersValid &&
             activeView === ViewType.FUNNELS &&
-            allFilters.display === FUNNEL_VIZ
+            filters?.display === FUNNEL_VIZ
         ) {
             return <People />
         }
@@ -120,14 +119,14 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             !showErrorMessage &&
             !showTimeoutMessage &&
             areFiltersValid &&
-            allFilters.funnel_viz_type === FunnelVizType.Steps &&
-            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || allFilters.layout === FunnelLayout.horizontal)
+            filters.funnel_viz_type === FunnelVizType.Steps &&
+            (!featureFlags[FEATURE_FLAGS.FUNNEL_VERTICAL_BREAKDOWN] || filters?.layout === FunnelLayout.horizontal)
         ) {
-            return <FunnelStepTable filters={allFilters} />
+            return <FunnelStepTable />
         }
         if (
-            (!allFilters.display ||
-                (allFilters.display !== ACTIONS_TABLE && allFilters.display !== ACTIONS_BAR_CHART_VALUE)) &&
+            (!filters.display ||
+                (filters?.display !== ACTIONS_TABLE && filters?.display !== ACTIONS_BAR_CHART_VALUE)) &&
             (activeView === ViewType.TRENDS || activeView === ViewType.SESSIONS)
         ) {
             /* InsightsTable is loaded for all trend views (except below), plus the sessions view.
@@ -137,10 +136,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
     */
             return (
                 <Card style={{ marginTop: 8 }}>
-                    <BindLogic
-                        logic={trendsLogic}
-                        props={{ dashboardItemId: null, view: activeView, filters: allFilters }}
-                    >
+                    <BindLogic logic={trendsLogic} props={insightProps}>
                         <h3 className="l3">Details table</h3>
                         <InsightsTable showTotalCount={activeView !== ViewType.SESSIONS} />
                     </BindLogic>
@@ -157,9 +153,9 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             <Card
                 title={
                     <InsightDisplayConfig
-                        activeView={activeView}
+                        activeView={activeView as ViewType}
                         insightMode={insightMode}
-                        allFilters={allFilters}
+                        filters={filters}
                         annotationsToCreate={annotationsToCreate}
                         clearAnnotationsToCreate={clearAnnotationsToCreate}
                     />
@@ -185,9 +181,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
                             <FunnelCanvasLabel />
                             <PathCanvasLabel />
                         </Col>
-                        {lastRefresh && (
-                            <ComputationTimeWithRefresh lastRefresh={lastRefresh} loadResults={loadResults} />
-                        )}
+                        {lastRefresh && <ComputationTimeWithRefresh />}
                     </Row>
                     {!BlockingEmptyState && CoexistingEmptyState}
                     <div style={{ display: 'block' }}>
@@ -200,10 +194,7 @@ export function InsightContainer({ loadResults, resultsLoading }: Props): JSX.El
             {preflight?.is_clickhouse_enabled &&
             activeView === ViewType.FUNNELS &&
             featureFlags[FEATURE_FLAGS.CORRELATION_ANALYSIS] ? (
-                <>
-                    <FunnelCorrelationTable />
-                    <FunnelPropertyCorrelationTable />
-                </>
+                <FunnelCorrelation />
             ) : null}
         </>
     )

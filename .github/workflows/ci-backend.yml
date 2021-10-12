@@ -1,21 +1,7 @@
 name: Backend CI
 
 on:
-    pull_request:
-        paths:
-            # Avoid running backend tests for irrelevant changes
-            # NOTE: we are at risk of missing a dependency here. We could make
-            # the dependencies more clear if we separated the backend/frontend
-            # code completely
-            - 'ee/**/*'
-            - 'posthog/**/*'
-            - requirements.txt
-            - requirements-dev.txt
-            - mypy.ini
-            - pytest.ini
-            # Make sure we run if someone is explicitly change the workflow
-            - .github/workflows/ci-backend.yml
-
+    - pull_request
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -27,7 +13,39 @@ env:
     TEST: 1
 
 jobs:
+    # JOB to decide if we should run backend ci. See
+    # https://github.com/dorny/paths-filter#conditional-execution for more
+    # details
+    changes:
+        runs-on: ubuntu-latest
+        # Set job outputs to values from filter step
+        outputs:
+            backend: ${{ steps.filter.outputs.backend }}
+        steps:
+            # For pull requests it's not necessary to checkout the code
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      backend:
+                        # Avoid running backend tests for irrelevant changes
+                        # NOTE: we are at risk of missing a dependency here. We could make
+                        # the dependencies more clear if we separated the backend/frontend
+                        # code completely
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        # Make sure we run if someone is explicitly change the workflow
+                        - .github/workflows/ci-backend.yml
+
     backend-code-quality:
+        needs: changes
+        # Make sure we only run on backend changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Code quality checks
         runs-on: ubuntu-latest
 
@@ -83,6 +101,9 @@ jobs:
                   mypy .
 
     django:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – Py ${{ matrix.python-version }}
         runs-on: ubuntu-latest
 
@@ -148,6 +169,9 @@ jobs:
                   verbose: true
 
     saml:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – with SAML
         runs-on: ubuntu-latest
         steps:
@@ -201,6 +225,9 @@ jobs:
                   pytest posthog -m "ee"
 
     cloud:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – Cloud
         runs-on: ubuntu-latest
         steps:
@@ -300,6 +327,9 @@ jobs:
                   pytest posthog -m "ee and not skip_on_multitenancy"
 
     foss:
+        needs: changes
+        if: ${{ needs.changes.outputs.backend == 'true' }}
+
         name: Django tests – FOSS
         runs-on: ubuntu-latest
 

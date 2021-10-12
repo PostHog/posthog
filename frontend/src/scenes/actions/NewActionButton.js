@@ -3,7 +3,7 @@ import { Modal, Button, Card, Row, Col } from 'antd'
 import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { SearchOutlined, EditOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 export function NewActionButton() {
     let [visible, setVisible] = useState(false)

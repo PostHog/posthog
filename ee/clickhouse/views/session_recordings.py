@@ -1,5 +1,5 @@
-from ee.clickhouse.queries.session_recordings.session_recording import ClickhouseSessionRecording
-from ee.clickhouse.queries.session_recordings.session_recording_list import ClickhouseSessionRecordingList
+from ee.clickhouse.queries.session_recordings.clickhouse_session_recording import ClickhouseSessionRecording
+from ee.clickhouse.queries.session_recordings.clickhouse_session_recording_list import ClickhouseSessionRecordingList
 from posthog.api.session_recording import SessionRecordingViewSet
 
 
