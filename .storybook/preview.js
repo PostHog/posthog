@@ -3,6 +3,7 @@ import { getContext } from 'kea'
 import '~/styles'
 import { worker } from '../frontend/src/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
+import { withApi } from './ApiSelector/withApi'
 
 const setupPosthogJs = () => {
     // Make sure we don't hit production posthog. We want to control requests to,
@@ -53,4 +54,5 @@ export const decorators = [
         worker.resetHandlers()
         return <Story />
     },
+    withApi,
 ]
