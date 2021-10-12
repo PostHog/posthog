@@ -7,16 +7,16 @@ import pytz
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
-from django.test import TestCase
 from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.email import EmailMessage, _send_email
 from posthog.models import Event, MessagingRecord, Organization, Person, Team, User
 from posthog.tasks.email import send_weekly_email_reports
+from posthog.test.base import BaseTest
 
 
-class TestEmail(TestCase):
+class TestEmail(BaseTest):
     def create_person(self, team: Team, base_distinct_id: str = "") -> Person:
         person = Person.objects.create(team=team)
         person.add_distinct_id(base_distinct_id)

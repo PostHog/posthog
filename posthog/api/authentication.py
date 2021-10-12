@@ -76,12 +76,12 @@ class CreateStandardResponseMixin:
         """
             Method `create()` is overridden to send a more appropriate HTTP status code.
             """
-        response = super().create(request, *args, **kwargs)
+        response = super().create(request, *args, **kwargs)  # type: ignore
         response.status_code = status.HTTP_200_OK
         return response
 
 
-class LoginViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet, CreateStandardResponseMixin):
+class LoginViewSet(CreateStandardResponseMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginSerializer
     permission_classes = (permissions.AllowAny,)
@@ -109,6 +109,7 @@ class PasswordResetSerializer(serializers.Serializer):
                     "link": f"/reset/{token}",
                     "cloud": settings.MULTI_TENANCY,
                     "site_url": settings.SITE_URL,
+                    "social_providers": list(user.social_auth.values_list("provider", flat=True)),
                 },
             )
             message.add_recipient(email)

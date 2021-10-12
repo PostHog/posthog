@@ -3,6 +3,7 @@ from unittest.mock import patch
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.models import User
 from posthog.test.base import APIBaseTest
@@ -142,8 +143,46 @@ class TestPasswordResetAPI(APIBaseTest):
             html_message, "https://my.posthog.net", preheader="Please follow the link inside to reset your password.",
         )
 
+        # validate reset token
         link_index = html_message.find("https://my.posthog.net/reset")
         reset_link = html_message[link_index : html_message.find('"', link_index)]
+        default_token_generator.check_token(self.user, reset_link.replace("https://my.posthog.net/reset/", ""))
+
+    def test_reset_with_sso_available(self):
+        """
+        If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
+        """
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="google-oauth2",
+            extra_data='"{"expires": 3599, "auth_time": 1633412833, "token_type": "Bearer", "access_token": "ya29"}"',
+        )
+
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            extra_data='"{"expires": 3599, "auth_time": 1633412833, "token_type": "Bearer", "access_token": "ya29"}"',
+        )
+
+        with self.settings(
+            CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
+        ):
+            response = self.client.post("/api/reset", {"email": self.CONFIG_EMAIL})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"email": self.CONFIG_EMAIL})
+
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, set([self.CONFIG_EMAIL]))
+
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        self.validate_basic_html(
+            html_message, "https://my.posthog.net", preheader="Please follow the link inside to reset your password.",
+        )
 
         # validate reset token
+        link_index = html_message.find("https://my.posthog.net/reset")
+        reset_link = html_message[link_index : html_message.find('"', link_index)]
         default_token_generator.check_token(self.user, reset_link.replace("https://my.posthog.net/reset/", ""))
+
+        # check we mention SSO providers
+        self.assertIn("Google, GitHub", html_message)
+        self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
