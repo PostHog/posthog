@@ -289,7 +289,7 @@ export const getClampedStepRangeFilter = ({
 
 export function getMeanAndStandardDeviation(values?: number[]): number[] {
     if (!values?.length) {
-        return [0, 0]
+        return [0, 100]
     }
 
     const n = values.length
