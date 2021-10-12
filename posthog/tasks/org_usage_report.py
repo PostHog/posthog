@@ -61,7 +61,6 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
     Creates and sends usage reports for all teams.
     Returns a list of all the successfully sent reports.
     """
-    distinct_id = User.objects.first().distinct_id  # type: ignore
     period_start, period_end = get_previous_day()
     month_start = period_start.replace(day=1)
     realm = get_instance_realm()
@@ -90,6 +89,7 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
             }
 
     for id, org in org_data.items():
+        distinct_id = User.objects.filter(current_organization_id=id)[0].distinct_id
         usage = get_org_usage(
             distinct_id=distinct_id,
             team_ids=org["teams"],
