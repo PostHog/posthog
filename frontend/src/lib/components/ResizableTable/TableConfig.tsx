@@ -11,6 +11,7 @@ import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import Fuse from 'fuse.js'
 import clsx from 'clsx'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface TableConfigProps {
     availableColumns: string[]
@@ -149,7 +150,9 @@ function ColumnConfigurator({
                     </div>
                     {disabled && (
                         <div className={'text-right grow'} style={{ flex: 1 }}>
-                            <LockOutlined />
+                            <Tooltip title={'Reserved'}>
+                                <LockOutlined />
+                            </Tooltip>
                         </div>
                     )}
                 </div>
@@ -196,8 +199,9 @@ function ColumnConfigurator({
             <Input
                 allowClear
                 autoFocus
-                placeholder="Search for a column ..."
-                addonAfter={<SearchOutlined />}
+                placeholder="Search"
+                prefix={<SearchOutlined />}
+                style={{ paddingLeft: '7px' }} // the prefix has 11px to the left but only 4 to the right
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
             />
