@@ -7,6 +7,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { PropertyNamesSelect } from 'lib/components/PropertyNamesSelect/PropertyNamesSelect'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -38,10 +39,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         <b>Correlation Analysis for:</b>
                     </Col>
                     <Col>
-                        <Input
-                            // Hardcoded for initial testing
-                            defaultValue="$browser, $os, $geoip_country_code"
-                            onBlur={({ target: { value } }) => loadPropertyCorrelations(value)}
+                        <PropertyNamesSelect
+                            onChange={(selectedProperties) => loadPropertyCorrelations(selectedProperties)}
                         />
                     </Col>
                     <Col

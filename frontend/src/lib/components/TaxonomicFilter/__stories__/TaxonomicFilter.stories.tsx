@@ -103,16 +103,14 @@ export const AllGroups = (): JSX.Element => {
 type GetPersonPropertyResponse = PersonProperty[]
 type GetPersonPropertyRequest = undefined
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-const mockGetPersonProperties = (
+export const mockGetPersonProperties = (
     handler: ResponseResolver<RestRequest<GetPersonPropertyRequest, any>, RestContext, GetPersonPropertyResponse>
 ) => rest.get<GetPersonPropertyRequest, GetPersonPropertyResponse>('/api/person/properties', handler)
 
 type GetPropertyDefinitionsResponse = PropertyDefinition[]
 type GetPropertyDefinitionsRequest = undefined
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-const mockGetPropertyDefinitions = (
+export const mockGetPropertyDefinitions = (
     handler: ResponseResolver<
         RestRequest<GetPropertyDefinitionsRequest, any>,
         RestContext,
@@ -127,7 +125,6 @@ const mockGetPropertyDefinitions = (
 type GetCohortsResponse = { results: CohortType[] }
 type GetCohortsRequest = undefined
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-const mockGetCohorts = (
+export const mockGetCohorts = (
     handler: ResponseResolver<RestRequest<GetCohortsRequest, any>, RestContext, GetCohortsResponse>
 ) => rest.get<GetCohortsRequest, GetCohortsResponse>('/api/cohort/', handler)

@@ -129,15 +129,13 @@ export const funnelLogic = kea<funnelLogicType>({
                 events: [],
             } as Record<'events', FunnelCorrelation[]>,
             {
-                loadPropertyCorrelations: async (propertyCorrelationName) => {
+                loadPropertyCorrelations: async (propertyNames: string[]) => {
                     return (
                         await api.create('api/insight/funnel/correlation', {
                             ...values.apiParams,
                             funnel_correlation_type: 'properties',
                             // Name is comma separated list of property names
-                            funnel_correlation_names: propertyCorrelationName
-                                .split(',')
-                                .map((name: string) => name.trim()),
+                            funnel_correlation_names: propertyNames.map((name: string) => name.trim()),
                         })
                     ).result
                 },
@@ -707,7 +705,7 @@ export const funnelLogic = kea<funnelLogicType>({
             ) {
                 actions.loadCorrelations()
                 // Hardcoded for initial testing
-                actions.loadPropertyCorrelations('$browser, $os, $geoip_country_code')
+                actions.loadPropertyCorrelations(['$browser', '$os', '$geoip_country_code'])
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {
