@@ -225,29 +225,31 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 }
 
 export const FEATURE_FLAGS = {
+    // Cloud-only
     PAPERCUPS_ENABLED: 'papercups-enabled',
-    INGESTION_GRID: 'ingestion-grid-exp-3',
-    PROJECT_HOME: 'project-home-exp-5',
-    TRAILING_WAU_MAU: '3638-trailing-wau-mau',
-    EVENT_COLUMN_CONFIG: '4141-event-columns',
-    NPS_PROMPT: '4562-nps',
-    INGESTION_TAXONOMY: '4267-event-property-taxonomy',
-    PLUGIN_METRICS: '4871-plugin-metrics',
-    INGESTION_HELP_BUTTON: '112-ingestion-help-button',
-    SAVED_INSIGHTS: '3408-saved-insights',
-    MULTIVARIATE_SUPPORT: '5440-multivariate-support',
-    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
-    PLUGINS_UI_JOBS: '5720-plugins-ui-jobs',
-    DIVE_DASHBOARDS: 'hackathon-dive-dashboards',
-    NEW_PATHS_UI: 'new-paths-ui',
-    NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights',
-    SPLIT_PERSON: '5898-split-persons',
-    TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags',
-    REMOVE_SESSIONS: '6050-remove-sessions',
-    FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown',
-    RENAME_FILTERS: '6063-rename-filters',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
-    CORRELATION_ANALYSIS: 'correlation-analysis',
+    // Experiments / beta features
+    INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
+    PROJECT_HOME: 'project-home-exp-5', // owner: @kpthatsme
+    TRAILING_WAU_MAU: '3638-trailing-wau-mau', // owner: @EDsCODE
+    EVENT_COLUMN_CONFIG: '4141-event-columns', // owner: @paolodamico
+    NPS_PROMPT: '4562-nps', // owner: @paolodamico
+    INGESTION_TAXONOMY: '4267-event-property-taxonomy', // owner: @liyiy
+    PLUGIN_METRICS: '4871-plugin-metrics', // owner: @yakkomajuri
+    INGESTION_HELP_BUTTON: '112-ingestion-help-button', // owner: @EDsCODE
+    SAVED_INSIGHTS: '3408-saved-insights', // owner: @alexkim
+    MULTIVARIATE_SUPPORT: '5440-multivariate-support', // owner: @mariusandra
+    FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim
+    PLUGINS_UI_JOBS: '5720-plugins-ui-jobs', // owner: @yakkomajuri
+    DIVE_DASHBOARDS: 'hackathon-dive-dashboards', // owner: @tiina303
+    NEW_PATHS_UI: 'new-paths-ui', // owner: @EDsCODE
+    NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
+    SPLIT_PERSON: '5898-split-persons', // owner: @timgl
+    TOOLBAR_FEATURE_FLAGS: 'posthog-toolbar-feature-flags', // owner: @mariusnadra
+    REMOVE_SESSIONS: '6050-remove-sessions', // owner: @rcmarron
+    FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown', // owner: @alexkim
+    RENAME_FILTERS: '6063-rename-filters', // owner: @alexkim
+    CORRELATION_ANALYSIS: 'correlation-analysis', // owner: @neilkakkar
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
