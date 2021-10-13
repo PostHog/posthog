@@ -12,14 +12,10 @@ export interface PersonHeader {
     withIcon?: boolean
 }
 
-let runCount = 0
-const seenKeys = new Set()
 export function PersonHeader(props: PersonHeader): JSX.Element {
     const logic = personHeaderLogic(props)
     const { withIcon, personDisplay, personLink, isIdentified } = useValues(logic)
-    runCount++
-    seenKeys.add(logic.key)
-    console.log({ key: logic.key, props, runCount, seenKeysCount: seenKeys.size, seenKeys })
+
     return (
         <Link to={personLink.length ? personLink : undefined} data-attr="goto-person-email">
             <div className={clsx('person-header', { identified: isIdentified, anonymous: !isIdentified })}>
