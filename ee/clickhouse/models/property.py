@@ -37,7 +37,7 @@ def parse_prop_clauses(
     table_name: str = "",
     allow_denormalized_props: bool = True,
     has_person_id_joined: bool = True,
-    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.INCLUDE_USING_SUBQUERY,
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}

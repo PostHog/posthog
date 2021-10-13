@@ -8,7 +8,7 @@ from django.utils import timezone
 
 
 class PersonPropertiesMode(Enum):
-    INCLUDE_USING_SUBQUERY = auto()
+    USING_SUBQUERY = auto()
     USING_PERSON_PROPERTIES_COLUMN = auto()
     # Used when person join handles these filters
     EXCLUDE = auto()

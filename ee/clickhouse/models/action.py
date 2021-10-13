@@ -15,7 +15,7 @@ def format_action_filter(
     use_loop: bool = False,
     filter_by_team=True,
     table_name: str = "",
-    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.INCLUDE_USING_SUBQUERY,
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
 ) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
