@@ -183,7 +183,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 ).run()
                 self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
                 self.assertIsNotNone(session["next"])  # limit (1001) is above RECORDINGS_NUM_SNAPSHOTS_LIMIT (1000)
-                self.assertEqual(session["duration"], num_events - 1)
+                self.assertEqual(session["duration"], (num_events - 1) * 1000)
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
                 self.assertEqual(int(parsed_params["limit"][0]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
@@ -203,7 +203,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     team=self.team, session_recording_id=chunked_session_id, request=req, filter=filt
                 ).run()
                 self.assertEqual(len(session["snapshots"]), limit)
-                self.assertEqual(session["duration"], 199)
+                self.assertEqual(session["duration"], 199 * 1000)
                 self.assertIsNotNone(session["next"])  # limit (200) is above defined limit (100)
                 parsed_params = parse_qs(urlparse(session["next"]).query)
                 self.assertEqual(int(parsed_params["offset"][0]), limit)
@@ -247,7 +247,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     ).run()
 
                     self.assertEqual(len(session["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
-                    self.assertEqual(session["duration"], num_chunks - 1)
+                    self.assertEqual(session["duration"], (num_chunks - 1) * 1000)
 
                     if i == expected_num_requests - 1:
                         self.assertIsNone(session["next"])
@@ -314,7 +314,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
                 # Assert that full data has been received
                 self.assertEqual(len(session["snapshots"]), num_events)
-                self.assertEqual(session["duration"], duration)
+                self.assertEqual(session["duration"], duration * 1000)
                 self.assertEqual(session["snapshots"], data)
 
         def create_snapshot(self, distinct_id, session_id, timestamp, type=2):
