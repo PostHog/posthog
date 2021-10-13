@@ -5,7 +5,7 @@ import React from 'react'
 export const PropertyNamesSelect = ({
     onChange,
 }: {
-    onChange: (selectedProperties: string[]) => void
+    onChange?: (selectedProperties: string[]) => void
 }): JSX.Element => {
     /*
         Provides a super simple multiselect box for selecting property names.

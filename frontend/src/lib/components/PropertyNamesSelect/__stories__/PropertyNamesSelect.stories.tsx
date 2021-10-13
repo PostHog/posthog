@@ -19,5 +19,9 @@ export const EmptyWithOptions = (): JSX.Element => {
         )
     )
 
-    return <PropertyNamesSelect />
+    return (
+        <PropertyNamesSelect
+            onChange={(selectedProperties) => console.log('Selected Properties', selectedProperties)}
+        />
+    )
 }
