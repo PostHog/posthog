@@ -82,6 +82,7 @@ if env_feature_flags != "0" and env_feature_flags.lower() != "false":
         "new-paths-ui",  # TODO: EE and Paid feature gate
         "new-paths-ui-edge-weights",  # TODO: EE and Paid feature gate
         "correlation-analysis",  # TODO: EE and Paid feature gate
+        "sigma-analysis",  # TODO: EE and Paid feature gate
     ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
