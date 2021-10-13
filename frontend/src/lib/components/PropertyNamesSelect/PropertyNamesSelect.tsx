@@ -7,6 +7,13 @@ export const PropertyNamesSelect = ({
 }: {
     onChange: (selectedProperties: string[]) => void
 }): JSX.Element => {
+    /*
+        Provides a super simple multiselect box for selecting property names.
+
+        NOTE: this handles it's own state rather than a logic to avoid
+        complexity
+    */
+
     const properties = usePersonProperies()
 
     return (
