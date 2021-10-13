@@ -142,12 +142,14 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             filters: Partial<FilterType>,
             isFirstLoad: boolean,
             fromDashboard: boolean,
-            delay?: number
+            delay?: number,
+            changedFilters?: Record<string, any>
         ) => ({
             filters,
             isFirstLoad,
             fromDashboard,
             delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            changedFilters,
         }),
         reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
             params,
@@ -308,7 +310,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay }, breakpoint) => {
+        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay, changedFilters }, breakpoint) => {
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
             }
@@ -363,8 +365,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource, Rec
             }
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
-
-            posthog.capture(eventName, properties)
+            posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
         },
         reportPersonModalViewed: async ({ params, count, hasNext }) => {
             const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params
