@@ -250,6 +250,7 @@ export const FEATURE_FLAGS = {
     FUNNEL_VERTICAL_BREAKDOWN: '5733-funnel-vertical-breakdown', // owner: @alexkim
     RENAME_FILTERS: '6063-rename-filters', // owner: @alexkim
     CORRELATION_ANALYSIS: 'correlation-analysis', // owner: @neilkakkar
+    SIGMA_ANALYSIS: 'sigma-analysis', // owner: @neilkakkar
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

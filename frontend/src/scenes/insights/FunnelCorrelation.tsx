@@ -10,9 +10,9 @@ import { FunnelPropertyCorrelationTable } from './InsightTabs/FunnelTab/FunnelPr
 
 export const FunnelCorrelation = (): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { isSkewed } = useValues(funnelLogic(insightProps))
+    const { isSkewed, stepsWithCount } = useValues(funnelLogic(insightProps))
 
-    return (
+    return stepsWithCount.length > 1 ? (
         <>
             {isSkewed ? (
                 <Card style={{ marginTop: '1em' }}>
@@ -31,5 +31,7 @@ export const FunnelCorrelation = (): JSX.Element => {
             <FunnelCorrelationTable />
             <FunnelPropertyCorrelationTable />
         </>
+    ) : (
+        <></>
     )
 }
