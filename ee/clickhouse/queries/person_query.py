@@ -83,7 +83,9 @@ class ClickhousePersonQuery:
 
     def _get_fields(self) -> List[Tuple[str, str]]:
         # :TRICKY: Figure out what fields we want to expose - minimizing this set is good for performance.
-        #   We properties from column_optimizer that are used overall in the query and remove the ones this query will use
+        #   We use the result from column_optimizer to figure out counts of all properties to be filtered and queried.
+        #   Here, we remove the ones only to be used for filtering.
+        # The same property might be present for both querying and filtering, and hence the Counter.
         properties_to_query = self._column_optimizer._used_properties_with_type("person")
         properties_to_query -= extract_tables_and_properties(self._filter.properties)
 
