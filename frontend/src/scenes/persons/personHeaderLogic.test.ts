@@ -23,7 +23,6 @@ describe('the person header', () => {
         it('has expected defaults', () => {
             expectLogic(logic).toMatchValues({
                 withIcon: false,
-                person: null,
                 personDisplay: 'Unidentified with no ids',
                 personLink: '',
                 isIdentified: false,
@@ -98,8 +97,10 @@ describe('the person header', () => {
             onLogic: (l) => (logic = l),
         })
 
-        it('to the stringified json of the props', () => {
-            expectLogic(logic).toMatchValues({ key: JSON.stringify(props) })
+        it('is a UUID regardless of props', async () => {
+            await expectLogic(logic).then(() => {
+                expect(logic.key).toEqual(JSON.stringify(props))
+            })
         })
     })
 
@@ -114,8 +115,10 @@ describe('the person header', () => {
             onLogic: (l) => (logic = l),
         })
 
-        it('to a UUID', () => {
-            expectLogic(logic).toMatchValues({ key: 'abcde' })
+        it('to a UUID', async () => {
+            await expectLogic(logic).then(() => {
+                expect(logic.key).toEqual(uuid())
+            })
         })
     })
 

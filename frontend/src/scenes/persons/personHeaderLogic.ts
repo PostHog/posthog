@@ -12,16 +12,15 @@ const toUrl = (person: Partial<PersonType> | null | undefined): string | undefin
 
 export const personHeaderLogic = kea<personHeaderLogicType>({
     props: {} as PersonHeader,
+    key: (props) => (props ? toKey(props) : uuid()),
     reducers: ({ props }) => ({
         withIcon: [props.withIcon || false],
-        person: [(props.person || null) as Partial<PersonType>],
-        key: [toKey(props)],
         personLink: [toUrl(props.person) as string],
         isIdentified: [props?.person?.is_identified || false],
     }),
     selectors: {
         personDisplay: [
-            (selectors) => [selectors.person],
+            () => [(_, props) => props.person],
             (person: Partial<PersonType>) => {
                 let display, displayId
                 const propertyIdentifier = person?.properties
