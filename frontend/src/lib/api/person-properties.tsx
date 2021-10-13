@@ -14,7 +14,7 @@ export const usePersonProperies = (): GetPersonPropertiesResponse | undefined =>
             .then((jsonResponse) => setProperties(jsonResponse))
 
         return () => ac.abort()
-    })
+    }, [])
 
     return properties
 }
