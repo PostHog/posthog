@@ -282,9 +282,14 @@ def clickhouse_send_license_usage():
 
 @app.task(ignore_result=True)
 def send_org_usage_report():
-    from posthog.tasks.org_usage_report import send_all_org_usage_reports
+    if is_clickhouse_enabled():
+        from ee.tasks.org_usage_report import send_all_org_usage_reports as send_reports_clickhouse
 
-    send_all_org_usage_reports()
+        send_reports_clickhouse()
+    else:
+        from posthog.tasks.org_usage_report import send_all_org_usage_reports as send_reports_postgres
+
+        send_reports_postgres()
 
 
 @app.task(ignore_result=True)

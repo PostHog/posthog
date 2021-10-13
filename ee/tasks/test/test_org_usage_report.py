@@ -1,13 +1,14 @@
 from typing import Callable
 from unittest.mock import patch
+from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime, now
 from freezegun import freeze_time
 
 from ee.clickhouse.models.event import create_event
+from ee.tasks.org_usage_report import send_all_org_usage_reports
 from posthog.models import Organization, Person, Team, User
-from posthog.tasks.org_usage_report import send_all_org_usage_reports
 from posthog.test.base import APIBaseTest
 from posthog.version import VERSION
 
@@ -35,7 +36,7 @@ def factory_org_usage_report(_create_person: Callable, _create_event: Callable) 
             self.assertIsNotNone(all_reports[0]["product"])
 
         def test_event_counts(self) -> None:
-            with self.settings(**{"EE_AVAILABLE": False}):
+            with self.settings(**{"EE_AVAILABLE": True}):
                 with freeze_time("2020-11-02"):
                     _create_person("old_user1", team=self.team)
                     _create_person("old_user2", team=self.team)
@@ -134,7 +135,12 @@ def create_person(distinct_id: str, team: Team) -> Person:
 
 def create_event_clickhouse(distinct_id: str, event: str, lib: str, created_at: datetime, team: Team) -> None:
     create_event(
-        team=team, distinct_id=distinct_id, event=event, timestamp=created_at, properties={"$lib": lib},
+        event_uuid=uuid4(),
+        team=team,
+        distinct_id=distinct_id,
+        event=event,
+        timestamp=created_at,
+        properties={"$lib": lib},
     )
 
 
