@@ -178,12 +178,14 @@ export const sessionsPlayLogic = kea<sessionsPlayLogicType<SessionPlayerData, Se
 
                 let response
                 if (url) {
+                    // Subsequent calls to get rest of recording
                     response = await api.get(url)
                 } else {
+                    // Very first call
                     const params = toParams({ session_recording_id: sessionRecordingId, save_view: true })
                     response = await api.get(`api/event/session_recording?${params}`)
+                    actions.reportUsage(response.result, performance.now() - startTime)
                 }
-                actions.reportUsage(response.result, performance.now() - startTime)
 
                 const currData = values.sessionPlayerData
                 return {
