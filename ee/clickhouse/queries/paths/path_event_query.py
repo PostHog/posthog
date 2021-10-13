@@ -95,7 +95,8 @@ class PathEventQuery(ClickhouseEventQuery):
     def _get_grouping_fields(self) -> Tuple[List[str], Dict[str, Any]]:
         _fields = []
         params = {}
-        if len(self._filter.path_replacements) > 0:
+
+        if self._filter.path_replacements and len(self._filter.path_replacements) > 0:
             for idx, replacement in enumerate(self._filter.path_replacements):
                 # should only be one
                 for alias, regex in replacement.items():
