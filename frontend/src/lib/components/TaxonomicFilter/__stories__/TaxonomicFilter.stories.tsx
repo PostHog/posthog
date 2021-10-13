@@ -7,7 +7,7 @@ import { initKea } from '~/initKea'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { worker } from '~/mocks/browser'
-import { DefaultRequestBody, rest } from 'msw'
+import { ResponseResolver, rest, RestContext, RestRequest } from 'msw'
 import { CohortType, PersonProperty, PropertyDefinition } from '~/types'
 
 export default {
@@ -31,55 +31,48 @@ export const AllGroups = (): JSX.Element => {
     // informed that we need to update this data as well. We should be
     // maintaining some level of backwards compatability so hopefully this isn't
     // too unnecessarily laborious
-    // TODO: abstract away the api details behind, e.g.
-    // `setupPersonPropertiesEndpoint(rest...)`. This was we can keep the urls and
-    // typings in one place, but still give the freedom to do whatever we want
-    // in the rest handlers
     worker.use(
-        rest.get<DefaultRequestBody, Array<PersonProperty>>('/api/person/properties', (_, res, ctx) => {
-            return res(
+        mockGetPersonProperties((_, res, ctx) =>
+            res(
                 ctx.json([
                     { id: 1, name: 'location', count: 1 },
                     { id: 2, name: 'role', count: 2 },
                     { id: 3, name: 'height', count: 3 },
                 ])
             )
-        }),
-        rest.get<DefaultRequestBody, PropertyDefinition[]>(
-            '/api/projects/@current/property_definitions',
-            (_, res, ctx) => {
-                return res(
-                    ctx.json([
-                        {
-                            id: 'a',
-                            name: 'signed up',
-                            description: 'signed up',
-                            volume_30_day: 10,
-                            query_usage_30_day: 5,
-                            count: 101,
-                        },
-                        {
-                            id: 'b',
-                            name: 'viewed insights',
-                            description: 'signed up',
-                            volume_30_day: 10,
-                            query_usage_30_day: 5,
-                            count: 1,
-                        },
-                        {
-                            id: 'c',
-                            name: 'logged out',
-                            description: 'signed up',
-                            volume_30_day: 10,
-                            query_usage_30_day: 5,
-                            count: 103,
-                        },
-                    ])
-                )
-            }
         ),
-        rest.get<DefaultRequestBody, { results: CohortType[] }>('/api/cohort/', (_, res, ctx) => {
-            return res(
+        mockGetPropertyDefinitions((_, res, ctx) =>
+            res(
+                ctx.json([
+                    {
+                        id: 'a',
+                        name: 'signed up',
+                        description: 'signed up',
+                        volume_30_day: 10,
+                        query_usage_30_day: 5,
+                        count: 101,
+                    },
+                    {
+                        id: 'b',
+                        name: 'viewed insights',
+                        description: 'signed up',
+                        volume_30_day: 10,
+                        query_usage_30_day: 5,
+                        count: 1,
+                    },
+                    {
+                        id: 'c',
+                        name: 'logged out',
+                        description: 'signed up',
+                        volume_30_day: 10,
+                        query_usage_30_day: 5,
+                        count: 103,
+                    },
+                ])
+            )
+        ),
+        mockGetCohorts((_, res, ctx) =>
+            res(
                 ctx.json({
                     results: [
                         {
@@ -97,7 +90,7 @@ export const AllGroups = (): JSX.Element => {
                     ],
                 })
             )
-        })
+        )
     )
 
     return (
@@ -106,3 +99,35 @@ export const AllGroups = (): JSX.Element => {
         </Provider>
     )
 }
+
+type GetPersonPropertyResponse = PersonProperty[]
+type GetPersonPropertyRequest = undefined
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const mockGetPersonProperties = (
+    handler: ResponseResolver<RestRequest<GetPersonPropertyRequest, any>, RestContext, GetPersonPropertyResponse>
+) => rest.get<GetPersonPropertyRequest, GetPersonPropertyResponse>('/api/person/properties', handler)
+
+type GetPropertyDefinitionsResponse = PropertyDefinition[]
+type GetPropertyDefinitionsRequest = undefined
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const mockGetPropertyDefinitions = (
+    handler: ResponseResolver<
+        RestRequest<GetPropertyDefinitionsRequest, any>,
+        RestContext,
+        GetPropertyDefinitionsResponse
+    >
+) =>
+    rest.get<GetPropertyDefinitionsRequest, GetPropertyDefinitionsResponse>(
+        '/api/projects/@current/property_definitions',
+        handler
+    )
+
+type GetCohortsResponse = { results: CohortType[] }
+type GetCohortsRequest = undefined
+
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+const mockGetCohorts = (
+    handler: ResponseResolver<RestRequest<GetCohortsRequest, any>, RestContext, GetCohortsResponse>
+) => rest.get<GetCohortsRequest, GetCohortsResponse>('/api/cohort/', handler)
