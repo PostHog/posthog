@@ -306,6 +306,201 @@ class TestClickhousePaths(ClickhouseTestMixin, paths_test_factory(ClickhousePath
             ],
         )
 
+    def test_path_by_grouping_replacement(self):
+        Person.objects.create(distinct_ids=[f"user_1"], team=self.team)
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_1",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$current_url": "test.com/step1"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_1",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+            properties={"$current_url": "test.com/step2"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_1",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+            properties={"$current_url": "test.com/step3?key=value1"},
+        )
+
+        Person.objects.create(distinct_ids=[f"user_2"], team=self.team)
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_2",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$current_url": "test.com/step1"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_2",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+            properties={"$current_url": "test.com/step2"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_2",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+            properties={"$current_url": "test.com/step3?key=value2"},
+        )
+
+        Person.objects.create(distinct_ids=[f"user_3"], team=self.team)
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_3",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$current_url": "test.com/step1"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_3",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+            properties={"$current_url": "test.com/step2"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_3",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+            properties={"$current_url": "test.com/step3?key=value3"},
+        )
+
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "include_event_types": ["$pageview"],
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "path_replacements": [{"?<param>": "\\?(.*)"}],  # noqa: W605
+        }
+        path_filter = PathFilter(data=data)
+        response = ClickhousePaths(team=self.team, filter=path_filter).run()
+
+        self.assertEqual(
+            response,
+            [
+                {
+                    "source": "1_test.com/step1",
+                    "target": "2_test.com/step2",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "2_test.com/step2",
+                    "target": "3_test.com/step3?<param>",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+            ],
+        )
+
+    def test_path_by_grouping_replacement_multiple(self):
+        Person.objects.create(distinct_ids=[f"user_1"], team=self.team)
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_1",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$current_url": "test.com/step1"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_1",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+            properties={"$current_url": "test.com/step2/5"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_1",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+            properties={"$current_url": "test.com/step2/5?key=value1"},
+        )
+
+        Person.objects.create(distinct_ids=[f"user_2"], team=self.team)
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_2",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$current_url": "test.com/step1"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_2",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+            properties={"$current_url": "test.com/step2/5"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_2",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+            properties={"$current_url": "test.com/step2/5?key=value2"},
+        )
+
+        Person.objects.create(distinct_ids=[f"user_3"], team=self.team)
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_3",
+            team=self.team,
+            timestamp="2021-05-01 00:00:00",
+            properties={"$current_url": "test.com/step1"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_3",
+            team=self.team,
+            timestamp="2021-05-01 00:01:00",
+            properties={"$current_url": "test.com/step2/5"},
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id=f"user_3",
+            team=self.team,
+            timestamp="2021-05-01 00:02:00",
+            properties={"$current_url": "test.com/step2/5?key=value3"},
+        )
+
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "include_event_types": ["$pageview"],
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "path_replacements": [{"?<param>": "\\?(.*)"}, {"/<id>": "/\\d+(/|\\?)?"}],
+        }
+        path_filter = PathFilter(data=data)
+        response = ClickhousePaths(team=self.team, filter=path_filter).run()
+        self.assertEqual(
+            response,
+            [
+                {
+                    "source": "1_test.com/step1",
+                    "target": "2_test.com/step2/<id>",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+                {
+                    "source": "2_test.com/step2/<id>",
+                    "target": "3_test.com/step2/<id><param>",
+                    "value": 3,
+                    "average_conversion_time": 60000.0,
+                },
+            ],
+        )
+
     def test_path_by_funnel_after_dropoff(self):
         self._create_sample_data_multiple_dropoffs()
         data = {
