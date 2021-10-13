@@ -2,8 +2,8 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { successToast } from 'lib/utils'
-import { passwordResetLogicType } from './passwordResetLogicType'
 
+import { passwordResetLogicType } from './passwordResetLogicType'
 interface ResponseType {
     success: boolean
     errorCode?: string
@@ -14,7 +14,8 @@ interface ResetResponseType extends ResponseType {
 }
 
 interface ValidatedTokenResponseType extends ResponseType {
-    token: string
+    token?: string
+    uuid?: string
 }
 
 export const passwordResetLogic = kea<
@@ -26,7 +27,7 @@ export const passwordResetLogic = kea<
             {
                 reset: async ({ email }: { email: string }) => {
                     try {
-                        await api.create('api/reset', { email })
+                        await api.create('api/reset/', { email })
                         return { success: true, email }
                     } catch (e) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
@@ -37,12 +38,10 @@ export const passwordResetLogic = kea<
         validatedResetToken: [
             null as ValidatedTokenResponseType | null,
             {
-                validateResetToken: async ({ token }: { token: string }) => {
-                    // TODO: Temp
-                    return { success: true, token }
+                validateResetToken: async ({ uuid, token }: { uuid?: string; token: string }) => {
                     try {
-                        await api.get(`api/reset/complete?token=${token}`)
-                        return { success: true, token }
+                        await api.get(`api/reset/${uuid}/?token=${token}`)
+                        return { success: true, token, uuid }
                     } catch (e) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
@@ -59,7 +58,7 @@ export const passwordResetLogic = kea<
                     password: string
                     passwordConfirm: string
                 }) => {
-                    if (!values.validatedResetToken?.token) {
+                    if (!values.validatedResetToken?.token || !values.validatedResetToken.uuid) {
                         return {
                             success: false,
                             errorCode: 'invalid_token',
@@ -74,11 +73,10 @@ export const passwordResetLogic = kea<
                         }
                     }
                     try {
-                        // TODO: await api.create('api/reset/complete', { password, token: values.validatedResetToken.token })
-                        successToast(
-                            'Password changed successfully',
-                            'Your password was successfully changed. Redirecting you...'
-                        )
+                        await api.create(`api/reset/${values.validatedResetToken.uuid}/`, {
+                            password,
+                            token: values.validatedResetToken.token,
+                        })
                         return { success: true }
                     } catch (e) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
@@ -90,15 +88,19 @@ export const passwordResetLogic = kea<
     listeners: {
         updatePasswordSuccess: async ({ newPasswordResponse }, breakpoint) => {
             if (newPasswordResponse.success) {
+                successToast(
+                    'Password changed successfully',
+                    'Your password was successfully changed. Redirecting you...'
+                )
                 await breakpoint(3000)
                 router.actions.push('/')
             }
         },
     },
     urlToAction: ({ actions }) => ({
-        '/reset/:token': ({ token }) => {
+        '/reset/:uuid/:token': ({ uuid, token }) => {
             if (token) {
-                actions.validateResetToken({ token })
+                actions.validateResetToken({ uuid, token })
             }
         },
     }),
