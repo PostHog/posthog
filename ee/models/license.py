@@ -66,7 +66,7 @@ class License(models.Model):
     ENTERPRISE_FEATURES = SCALE_FEATURES + [
         AvailableFeature.SAML,
     ]
-    PLANS = {SCALE_PLAN: SCALE_PLAN, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
+    PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
 
     @property
     def available_features(self) -> List[AvailableFeature]:
