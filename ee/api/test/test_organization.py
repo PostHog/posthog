@@ -1,4 +1,5 @@
 import datetime as dt
+import random
 from unittest.mock import Mock, patch
 
 from freezegun.api import freeze_time
@@ -24,8 +25,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             OrganizationMembership.Level.OWNER,
         )
 
-    @patch("posthog.models.utils.generate_random_short_suffix", lambda: "abcd")
     def test_create_two_similarly_named_organizations(self):
+        random.seed(0)
+
         response = self.client.post("/api/organizations/", {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertDictContainsSubset(
@@ -43,7 +45,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertDictContainsSubset(
             {
                 "name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX",
-                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-abcd",
+                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-yWAc",
             },
             response.json(),
         )
