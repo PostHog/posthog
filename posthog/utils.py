@@ -825,4 +825,4 @@ def format_query_params_absolute_url(request: Request, offset: Optional[int] = N
 
 
 def get_seconds_between_dates(d1: dt.datetime, d2: dt.datetime) -> int:
-    return abs(int((d1 - d2).total_seconds()))
+    return abs(int((d1 - d2).total_seconds() * 1000))
