@@ -11,6 +11,7 @@ export const EmptyWithOptions = (): JSX.Element => {
     worker.use(
         mockGetPersonProperties((_, res, ctx) =>
             res(
+                ctx.delay(1500),
                 ctx.json([
                     { id: 1, name: 'location', count: 10 },
                     { id: 1, name: 'age', count: 10 },
@@ -18,6 +19,16 @@ export const EmptyWithOptions = (): JSX.Element => {
             )
         )
     )
+
+    return (
+        <PropertyNamesSelect
+            onChange={(selectedProperties) => console.log('Selected Properties', selectedProperties)}
+        />
+    )
+}
+
+export const RequestFailure = (): JSX.Element => {
+    worker.use(mockGetPersonProperties((_, res, ctx) => res(ctx.delay(1500), ctx.status(500))))
 
     return (
         <PropertyNamesSelect

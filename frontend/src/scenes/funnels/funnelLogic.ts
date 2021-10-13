@@ -705,7 +705,7 @@ export const funnelLogic = kea<funnelLogicType>({
             ) {
                 actions.loadCorrelations()
                 // Hardcoded for initial testing
-                actions.loadPropertyCorrelations(['$browser', '$os', '$geoip_country_code'])
+                actions.loadPropertyCorrelations(['$all'])
             }
         },
         toggleVisibilityByBreakdown: ({ breakdownValue }) => {

@@ -14,12 +14,16 @@ export const PropertyNamesSelect = ({
         complexity
     */
 
-    const properties = usePersonProperies()
+    const { properties, error } = usePersonProperies()
 
     return (
         <Select
             mode="multiple"
-            placeholder="Select property names"
+            loading={!properties && !error}
+            defaultValue={['$all']}
+            placeholder={
+                error ? 'Failed to load properties!' : !properties ? 'Loading properties...' : 'Select property names'
+            }
             style={{ width: '100%', minWidth: '200px' }}
             onChange={onChange}
         >

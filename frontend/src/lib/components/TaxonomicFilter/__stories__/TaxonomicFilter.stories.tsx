@@ -8,7 +8,8 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { worker } from '~/mocks/browser'
 import { ResponseResolver, rest, RestContext, RestRequest } from 'msw'
-import { CohortType, PersonProperty, PropertyDefinition } from '~/types'
+import { CohortType, PropertyDefinition } from '~/types'
+import { GetPersonPropertiesRequest, GetPersonPropertiesResponse } from 'lib/api/person-properties'
 
 export default {
     title: 'PostHog/Components/TaxonomicFilter',
@@ -100,13 +101,10 @@ export const AllGroups = (): JSX.Element => {
     )
 }
 
-type GetPersonPropertyResponse = PersonProperty[]
-type GetPersonPropertyRequest = undefined
-
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types, @typescript-eslint/explicit-function-return-type
 export const mockGetPersonProperties = (
-    handler: ResponseResolver<RestRequest<GetPersonPropertyRequest, any>, RestContext, GetPersonPropertyResponse>
-) => rest.get<GetPersonPropertyRequest, GetPersonPropertyResponse>('/api/person/properties', handler)
+    handler: ResponseResolver<RestRequest<GetPersonPropertiesRequest, any>, RestContext, GetPersonPropertiesResponse>
+) => rest.get<GetPersonPropertiesRequest, GetPersonPropertiesResponse>('/api/person/properties', handler)
 
 type GetPropertyDefinitionsResponse = PropertyDefinition[]
 type GetPropertyDefinitionsRequest = undefined
