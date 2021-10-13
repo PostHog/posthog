@@ -6,10 +6,8 @@ import dayjs from 'dayjs'
 import { EventType, FilterType, ActionFilter, IntervalType, ItemMode, DashboardMode } from '~/types'
 import { tagColors } from 'lib/colors'
 import { CustomerServiceOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from './logic/featureFlagLogic'
-import { open } from '@papercups-io/chat-widget'
 import posthog from 'posthog-js'
-import { FEATURE_FLAGS, WEBHOOK_SERVICES } from 'lib/constants'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { DashboardEventSource } from './utils/eventUsageLogic'
@@ -147,13 +145,8 @@ export function errorToast(title?: string, message?: string, errorDetail?: strin
      */
 
     const handleHelp = (): void => {
-        const papercupsOn = featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PAPERCUPS_ENABLED]
-        if (papercupsOn) {
-            open()
-        } else {
-            window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
-        }
-        posthog.capture('error toast help requested', { papercups_enabled: papercupsOn }) // Can't use eventUsageLogic here, not mounted
+        window.open('https://posthog.com/support?utm_medium=in-product&utm_campaign=error-toast')
+        posthog.capture('error toast help requested') // Can't use eventUsageLogic here, not mounted
     }
 
     toast.dismiss('error') // This will ensure only the last error is shown

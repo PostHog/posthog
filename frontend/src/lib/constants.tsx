@@ -225,7 +225,7 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 }
 
 export const FEATURE_FLAGS = {
-    PAPERCUPS_ENABLED: 'papercups-enabled',
+    TEST_ENVIRONMENT: 'test-environment-3149',
     INGESTION_GRID: 'ingestion-grid-exp-3',
     PROJECT_HOME: 'project-home-exp-5',
     TRAILING_WAU_MAU: '3638-trailing-wau-mau',
