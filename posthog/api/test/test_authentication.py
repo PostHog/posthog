@@ -284,3 +284,108 @@ class TestPasswordResetAPI(APIBaseTest):
                     "attr": "token",
                 },
             )
+
+    # Password reset completion
+
+    @patch("posthoganalytics.capture")
+    def test_user_can_reset_password(self, mock_capture):
+        self.client.logout()  # extra precaution to test login
+
+        token = default_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "00112233"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # assert the user gets logged in automatically
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.CONFIG_EMAIL)
+
+        # check password was changed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("00112233"))
+        self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))
+
+        # old password is gone
+        self.client.logout()
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # new password can be used immediately
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": "00112233"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # assert events were captured
+        mock_capture.assert_any_call(self.user.distinct_id, "user logged in", properties={"social_provider": ""})
+        mock_capture.assert_any_call(self.user.distinct_id, "user password reset")
+        self.assertEqual(mock_capture.call_count, 2)
+
+    def test_cant_set_short_password(self):
+        token = default_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "123"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This password is too short. It must contain at least 8 characters.",
+                "attr": "password",
+            },
+        )
+
+        # user remains logged out
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # password was not changed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+        self.assertFalse(self.user.check_password("123"))
+
+    def test_cant_reset_password_with_no_token(self):
+        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"password": "a12345678"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "token",},
+        )
+
+        # user remains logged out
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # password was not changed
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+        self.assertFalse(self.user.check_password("a12345678"))
+
+    def test_cant_reset_password_with_invalid_token(self):
+        valid_token = default_token_generator.make_token(self.user)
+
+        with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
+            # tokens expire after one day
+            expired_token = default_token_generator.make_token(self.user)
+
+        for token in [valid_token[:-1], "not_even_trying", self.user.uuid, expired_token]:
+
+            response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "a12345678"})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "invalid_token",
+                    "detail": "This reset token is invalid or has expired.",
+                    "attr": "token",
+                },
+            )
+
+            # user remains logged out
+            response = self.client.get("/api/users/@me/")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+            # password was not changed
+            self.user.refresh_from_db()
+            self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+            self.assertFalse(self.user.check_password("a12345678"))

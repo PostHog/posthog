@@ -97,6 +97,13 @@ def report_user_updated(user: User, updated_attrs: List[str]) -> None:
     )
 
 
+def report_user_password_reset(user: User) -> None:
+    """
+    Reports a user resetting their password.
+    """
+    posthoganalytics.capture(user.distinct_id, "user password reset")
+
+
 def report_team_member_invited(
     distinct_id: str, name_provided: bool, current_invite_count: int, current_member_count: int, email_available: bool,
 ) -> None:

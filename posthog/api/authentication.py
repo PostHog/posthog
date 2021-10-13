@@ -3,7 +3,9 @@ from typing import Any, Dict, Optional, cast
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -14,7 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.email import EmailMessage, is_email_available
-from posthog.event_usage import report_user_logged_in
+from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import User
 
 
@@ -134,10 +136,37 @@ class PasswordResetSerializer(serializers.Serializer):
 
 class PasswordResetCompleteSerializer(serializers.Serializer):
     token = serializers.CharField(write_only=True)
-    uuid = serializers.CharField(write_only=True)  # user ID
-    password = serializers.CharField(write_only=True, required=False)
+    password = serializers.CharField(write_only=True)
+
+    def create(self, validated_data):
+        try:
+            user = User.objects.get(uuid=self.context["view"].kwargs["user_uuid"])
+        except User.DoesNotExist:
+            user = None
+
+        if user:
+            if not default_token_generator.check_token(user, validated_data["token"]):
+                raise serializers.ValidationError(
+                    {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
+                )
+
+            password = validated_data["password"]
+            try:
+                validate_password(password, user)
+            except ValidationError as e:
+                raise serializers.ValidationError({"password": e.messages})
+
+            user.set_password(password)
+            user.save()
+
+            login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
+            report_user_password_reset(user)
+            return {"success": True}
+
+        return {"success": False}
 
     def to_representation(self, instance: Dict[str, Any]) -> Dict[str, Any]:
+
         return instance
 
 
