@@ -35,6 +35,8 @@ export const urls = {
     systemStatusPage: (page: string) => `/instance/status/${page}`,
     // Onboarding / setup routes
     login: () => '/login',
+    passwordReset: () => '/reset',
+    passwordResetComplete: (userUuid: string, token: string) => `/reset/${userUuid}/${token}`,
     preflight: () => '/preflight',
     signup: () => '/signup',
     inviteSignup: (id: string) => `/signup/${id}`,
