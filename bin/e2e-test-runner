@@ -12,5 +12,5 @@ NO_RESTART_LOOP=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test ./bin/
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
 
 CYPRESS_BASE_URL=http://localhost:8080 npx cypress open --config-file cypress.e2e.json &
-OPT_OUT_CAPTURE=1 SECURE_COOKIES=0 DEBUG=0 TEST=1 E2E_TESTING=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test python manage.py runserver 8080
+OPT_OUT_CAPTURE=1 SECURE_COOKIES=0 DEBUG=0 TEST=1 E2E_TESTING=1 DATABASE_URL=postgres://localhost:5432/posthog_e2e_test EMAIL_HOST=email.test.posthog.net SITE_URL=test.posthog.net python manage.py runserver 8080
 yarn remove cypress cypress-terminal-report @cypress/react @cypress/webpack-preprocessor

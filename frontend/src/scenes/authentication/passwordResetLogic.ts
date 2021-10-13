@@ -38,7 +38,7 @@ export const passwordResetLogic = kea<
         validatedResetToken: [
             null as ValidatedTokenResponseType | null,
             {
-                validateResetToken: async ({ uuid, token }: { uuid?: string; token: string }) => {
+                validateResetToken: async ({ uuid, token }: { uuid: string; token: string }) => {
                     try {
                         await api.get(`api/reset/${uuid}/?token=${token}`)
                         return { success: true, token, uuid }
@@ -99,7 +99,7 @@ export const passwordResetLogic = kea<
     },
     urlToAction: ({ actions }) => ({
         '/reset/:uuid/:token': ({ uuid, token }) => {
-            if (token) {
+            if (token && uuid) {
                 actions.validateResetToken({ uuid, token })
             }
         },
