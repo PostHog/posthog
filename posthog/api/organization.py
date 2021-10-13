@@ -70,6 +70,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "slug",
             "created_at",
             "updated_at",
             "membership_level",
@@ -84,10 +85,16 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "slug",
             "created_at",
             "updated_at",
         ]
-        extra_kwargs = {"setup_section_2_completed": {"write_only": True}}  # `setup` is used for reading this attribute
+        extra_kwargs = {
+            "setup_section_2_completed": {"write_only": True},  # for reading this attribute, `setup` is used
+            "slug": {
+                "required": False
+            },  # slug is not required here as it's generated automatically for new organizations
+        }
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)

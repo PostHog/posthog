@@ -2,7 +2,6 @@ from rest_framework import status
 
 from posthog.demo import create_demo_team
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.session_recording_event import SessionRecordingEvent
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
 

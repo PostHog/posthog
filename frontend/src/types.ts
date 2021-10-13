@@ -79,6 +79,7 @@ export interface PersonalAPIKeyType {
 export interface OrganizationBasicType {
     id: string
     name: string
+    slug: string
 }
 
 export interface OrganizationType extends OrganizationBasicType {
