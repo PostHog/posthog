@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
 import { Modal, Button, Input, Skeleton } from 'antd'
-import { FilterType, PersonType, ViewType } from '~/types'
+import { FilterType, FunnelPathType, PathType, PersonType, ViewType } from '~/types'
 import { parsePeopleParams, personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { midEllipsis } from 'lib/utils'
@@ -13,6 +13,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { PersonHeader } from '../persons/PersonHeader'
+import { A, combineUrl, encodeParams } from 'kea-router'
 
 export interface PersonModalProps {
     visible: boolean
@@ -72,6 +73,48 @@ export function PersonModal({ visible, view, filters, onSaveCohort }: PersonModa
                 people.count > 0 &&
                 (isDownloadCsvAvailable || isSaveAsCohortAvailable) && (
                     <>
+                        <Button>
+                            <A
+                                href={
+                                    combineUrl(
+                                        '/insights',
+                                        encodeParams(
+                                            {
+                                                funnel_filter: { ...filters, funnel_step: 1 },
+                                                insight: ViewType.PATHS,
+                                                funnel_paths: FunnelPathType.before,
+                                                date_from: filters.date_from,
+                                                include_event_types: [PathType.PageView, PathType.CustomEvent],
+                                            },
+                                            '?'
+                                        )
+                                    ).url
+                                }
+                            >
+                                Show user paths leading to step
+                            </A>
+                        </Button>
+                        <Button>
+                            <A
+                                href={
+                                    combineUrl(
+                                        '/insights',
+                                        encodeParams(
+                                            {
+                                                funnel_filter: { ...filters, funnel_step: 1 },
+                                                insight: ViewType.PATHS,
+                                                funnel_paths: FunnelPathType.after,
+                                                date_from: filters.date_from,
+                                                include_event_types: [PathType.PageView, PathType.CustomEvent],
+                                            },
+                                            '?'
+                                        )
+                                    ).url
+                                }
+                            >
+                                Show user paths after step
+                            </A>
+                        </Button>
                         {isDownloadCsvAvailable && (
                             <Button
                                 icon={<DownloadOutlined />}
