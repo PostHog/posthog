@@ -8,6 +8,7 @@ import dayjs from 'dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { teamLogic } from '../../../scenes/teamLogic'
 
 const radioStyle: React.CSSProperties = {
     display: 'block',
@@ -34,7 +35,8 @@ export function SaveToDashboardModal({
     fromItemName,
     annotations,
 }: SaveToDashboardModalProps): JSX.Element {
-    const logic = saveToDashboardModalLogic({ fromDashboard })
+    const { currentTeamId } = useValues(teamLogic)
+    const logic = saveToDashboardModalLogic({ fromDashboard, teamId: currentTeamId })
     const { dashboards } = useValues(dashboardsModel)
     const { dashboardId } = useValues(logic)
     const { addNewDashboard, setDashboardId } = useActions(logic)

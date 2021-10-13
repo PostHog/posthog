@@ -1,5 +1,5 @@
 import React from 'react'
-import { kea, useMountedLogic, useValues } from 'kea'
+import { BindLogic, kea, useMountedLogic, useValues } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 
@@ -18,6 +18,15 @@ import { appLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
+import { teamLogic } from './teamLogic'
+import { ProjectBasedLogicProps } from '../types'
+import { actionsModel } from '../models/actionsModel'
+import { annotationsModel } from '../models/annotationsModel'
+import { cohortsModel } from '../models/cohortsModel'
+import { dashboardsModel } from '../models/dashboardsModel'
+import { eventDefinitionsModel } from '../models/eventDefinitionsModel'
+import { personPropertiesModel } from '../models/personPropertiesModel'
+import { propertyDefinitionsModel } from '../models/propertyDefinitionsModel'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -62,13 +71,27 @@ export const appLogic = kea<appLogicType>({
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     if (showApp) {
+        const projectBasedLogicProps: ProjectBasedLogicProps = { teamId: currentTeamId }
         return (
-            <>
-                {user ? <Models /> : null}
-                <AppScene />
-            </>
+            <BindLogic logic={actionsModel} props={projectBasedLogicProps}>
+                <BindLogic logic={annotationsModel} props={projectBasedLogicProps}>
+                    <BindLogic logic={cohortsModel} props={projectBasedLogicProps}>
+                        <BindLogic logic={dashboardsModel} props={projectBasedLogicProps}>
+                            <BindLogic logic={eventDefinitionsModel} props={projectBasedLogicProps}>
+                                <BindLogic logic={personPropertiesModel} props={projectBasedLogicProps}>
+                                    <BindLogic logic={propertyDefinitionsModel} props={projectBasedLogicProps}>
+                                        {user && currentTeamId ? <Models teamId={currentTeamId} /> : null}
+                                        <AppScene />
+                                    </BindLogic>
+                                </BindLogic>
+                            </BindLogic>
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </BindLogic>
         )
     }
 
@@ -76,8 +99,8 @@ export function App(): JSX.Element | null {
 }
 
 /** Loads every logic in the "src/models" folder */
-function Models(): null {
-    useMountedLogic(models)
+function Models({ teamId }: Required<ProjectBasedLogicProps>): null {
+    useMountedLogic(models({ teamId }))
     return null
 }
 

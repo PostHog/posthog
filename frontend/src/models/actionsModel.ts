@@ -1,9 +1,11 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { ActionType } from '~/types'
+import { ActionType, ProjectBasedLogicProps } from '~/types'
 import { actionsModelType } from './actionsModelType'
 
 export const actionsModel = kea<actionsModelType>({
+    props: {} as ProjectBasedLogicProps,
+    key: (props) => props.teamId || '',
     loaders: ({ props }) => ({
         actions: {
             __default: [] as ActionType[],
@@ -29,7 +31,7 @@ export const actionsModel = kea<actionsModelType>({
         ],
     }),
 
-    events: ({ actions }) => ({
-        afterMount: actions.loadActions,
+    events: ({ actions, props }) => ({
+        afterMount: () => props.teamId && actions.loadActions(),
     }),
 })

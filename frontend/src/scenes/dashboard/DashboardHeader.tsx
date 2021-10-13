@@ -24,16 +24,18 @@ import { HotkeyButton } from 'lib/components/HotkeyButton'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags'
 import { dashboardsLogic } from './dashboardsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { Description } from 'lib/components/Description/Description'
 import { userLogic } from 'scenes/userLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export function DashboardHeader(): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)
     const { addNewDashboard, triggerDashboardUpdate, setDashboardMode, addGraph, saveNewTag, deleteTag } =
         useActions(dashboardLogic)
-    const { dashboardTags } = useValues(dashboardsLogic)
+    const { dashboardTags } = useValues(dashboardsLogic({ teamId: currentTeamId }))
     const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
     const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
     const { user } = useValues(userLogic)

@@ -8,6 +8,7 @@ import { dashboardsModel } from './dashboardsModel'
 import { Link } from 'lib/components/Link'
 import { dashboardItemsModelType } from './dashboardItemsModelType'
 import { urls } from 'scenes/urls'
+import { teamLogic } from '../scenes/teamLogic'
 
 export const dashboardItemsModel = kea<dashboardItemsModelType>({
     actions: () => ({
@@ -47,14 +48,17 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
             const { id: _discard, ...rest } = item // eslint-disable-line
             const newItem = dashboardId ? { ...rest, dashboard: dashboardId, layouts } : { ...rest, layouts }
             const addedItem = await api.create('api/insight', newItem)
-
-            const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
+            if (!teamLogic.values.currentTeamId) {
+                throw new Error("Can't duplicate dashboard item before current project is known.")
+            }
+            const relevantDashboardsModel = dashboardsModel({ teamId: teamLogic.values.currentTeamId })
+            const dashboard = dashboardId ? relevantDashboardsModel.values.rawDashboards[dashboardId] : null
 
             if (move && dashboard) {
                 const deletedItem = await api.update(`api/insight/${item.id}`, {
                     deleted: true,
                 })
-                dashboardsModel.actions.updateDashboardItem(deletedItem)
+                relevantDashboardsModel.actions.updateDashboardItem(deletedItem)
 
                 const toastId = toast(
                     <div data-attr="success-toast">
@@ -74,8 +78,8 @@ export const dashboardItemsModel = kea<dashboardItemsModelType>({
                                     }),
                                 ])
                                 toast(<div>Panel move reverted!</div>)
-                                dashboardsModel.actions.updateDashboardItem(restoredItem)
-                                dashboardsModel.actions.updateDashboardItem(removedItem)
+                                relevantDashboardsModel.actions.updateDashboardItem(restoredItem)
+                                relevantDashboardsModel.actions.updateDashboardItem(removedItem)
                             }}
                         >
                             Undo

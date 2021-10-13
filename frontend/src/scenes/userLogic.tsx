@@ -14,7 +14,7 @@ export const userLogic = kea<userLogicType>({
     },
     actions: () => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
-        updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
+        updateCurrentTeam: (teamId: number) => ({ teamId }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
@@ -95,13 +95,13 @@ export const userLogic = kea<userLogicType>({
                 }
             )
         },
-        updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
+        updateCurrentTeam: async ({ teamId }, breakpoint) => {
             if (values.user?.team?.id === teamId) {
                 return
             }
             await breakpoint(10)
             await api.update('api/users/@me/', { set_current_team: teamId })
-            window.location.href = destination || '/'
+            teamLogic.actions.loadCurrentTeam(teamId)
         },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
             if (values.user?.organization?.id === organizationId) {

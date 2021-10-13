@@ -6,11 +6,13 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import React from 'react'
 import { toast } from 'react-toastify'
 import { dashboardsModelType } from './dashboardsModelType'
-import { DashboardItemType, DashboardType } from '~/types'
+import { DashboardItemType, DashboardType, ProjectBasedLogicProps } from '~/types'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 export const dashboardsModel = kea<dashboardsModelType>({
+    props: {} as ProjectBasedLogicProps,
+    key: (props) => props.teamId || '',
     actions: () => ({
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: number | null) => ({ id }),
@@ -170,8 +172,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
         pinnedDashboards: [() => [selectors.dashboards], (dashboards) => dashboards.filter((d) => d.pinned)],
     }),
 
-    events: ({ actions }) => ({
-        afterMount: () => actions.loadDashboards(),
+    events: ({ actions, props }) => ({
+        afterMount: () => props.teamId && actions.loadDashboards(),
     }),
 
     listeners: ({ actions, values }) => ({

@@ -4,11 +4,14 @@ import { prompt } from 'lib/logic/prompt'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
+import { ProjectBasedLogicProps } from '../../../types'
 
-export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
-    props: {} as {
-        fromDashboard: boolean
-    },
+interface SaveToDashboardModalLogicProps extends ProjectBasedLogicProps {
+    fromDashboard: boolean
+}
+
+export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType<SaveToDashboardModalLogicProps>>({
+    props: {} as SaveToDashboardModalLogicProps,
     actions: {
         addNewDashboard: true,
         setDashboardId: (id: number) => ({ id }),
@@ -22,8 +25,8 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
         dashboardId: [
             (s) => [
                 s._dashboardId,
-                dashboardsModel.selectors.lastDashboardId,
-                dashboardsModel.selectors.dashboards,
+                (state, props) => dashboardsModel({ teamId: props.teamId }).selectors.lastDashboardId(state),
+                (state, props) => dashboardsModel({ teamId: props.teamId }).selectors.dashboards(state),
                 (_, props) => props.fromDashboard,
             ],
             (_dashboardId, lastDashboardId, dashboards, fromDashboard) =>
@@ -31,9 +34,9 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
         ],
     },
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, props }) => ({
         setDashboardId: ({ id }) => {
-            dashboardsModel.actions.setLastDashboardId(id)
+            dashboardsModel({ teamId: props.teamId }).actions.setLastDashboardId(id)
         },
 
         addNewDashboard: async () => {
@@ -42,11 +45,11 @@ export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
                 placeholder: 'Please enter a name',
                 value: '',
                 error: 'You must enter name',
-                success: (name: string) => dashboardsModel.actions.addDashboard({ name }),
+                success: (name: string) => dashboardsModel({ teamId: props.teamId }).actions.addDashboard({ name }),
             })
         },
 
-        [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
+        [dashboardsModel({ teamId: props.teamId }).actionTypes.addDashboardSuccess]: async ({ dashboard }) => {
             eventUsageLogic.actions.reportCreatedDashboardFromModal()
             actions.setDashboardId(dashboard.id)
         },

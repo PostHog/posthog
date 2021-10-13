@@ -1,8 +1,7 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { posthogEvents } from 'lib/utils'
-import { EventDefinition, SelectOption } from '~/types'
-import { teamLogic } from '../scenes/teamLogic'
+import { EventDefinition, ProjectBasedLogicProps, SelectOption } from '~/types'
 import { eventDefinitionsModelType } from './eventDefinitionsModelType'
 import { propertyDefinitionsModel } from './propertyDefinitionsModel'
 
@@ -18,17 +17,19 @@ interface EventsGroupedInterface {
 }
 
 export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefinitionStorage, EventsGroupedInterface>>({
+    props: {} as ProjectBasedLogicProps,
+    key: (props) => props.teamId || '',
     actions: () => ({
         updateDescription: (id: string, description: string | null, type: string) => ({ id, description, type }),
         updateEventDefinition: (eventDefinition: EventDefinition) => ({ eventDefinition }),
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, props }) => ({
         eventStorage: [
             { results: [], next: null, count: 0 } as EventDefinitionStorage,
             {
                 loadEventDefinitions: async (initial?: boolean) => {
                     const url = initial
-                        ? `api/projects/${teamLogic.values.currentTeamId}/event_definitions/?limit=5000`
+                        ? `api/projects/${props.teamId}/event_definitions/?limit=5000`
                         : values.eventStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to eventDefinitionsModel.loadEventDefinitions')
@@ -55,26 +56,23 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType<EventDefiniti
             },
         ],
     }),
-    listeners: ({ actions }) => ({
-        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
-            actions.loadEventDefinitions(true)
-        },
+    listeners: ({ actions, props }) => ({
         loadEventDefinitionsSuccess: ({ eventStorage }) => {
             if (eventStorage.next) {
                 actions.loadEventDefinitions()
             }
         },
         updateDescription: async ({ id, description, type }) => {
-            const response = await api.update(
-                `api/projects/${teamLogic.values.currentTeamId}/${type}_definitions/${id}`,
-                { description }
-            )
+            const response = await api.update(`api/projects/${props.teamId}/${type}_definitions/${id}`, { description })
             if (type === 'event') {
                 actions.updateEventDefinition(response)
             } else {
                 propertyDefinitionsModel.actions.updatePropertyDefinition(response)
             }
         },
+    }),
+    events: ({ actions, props }) => ({
+        afterMount: () => props.teamId && actions.loadEventDefinitions(true),
     }),
     selectors: {
         loaded: [

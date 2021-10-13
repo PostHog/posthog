@@ -4,9 +4,11 @@ import { toParams, deleteWithUndo } from 'lib/utils'
 import dayjs, { Dayjs } from 'dayjs'
 import { getNextKey } from 'lib/components/Annotations/utils'
 import { annotationsModelType } from './annotationsModelType'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, ProjectBasedLogicProps } from '~/types'
 
 export const annotationsModel = kea<annotationsModelType>({
+    props: {} as ProjectBasedLogicProps,
+    key: (props) => props.teamId || '',
     actions: {
         createGlobalAnnotation: (content: string, date_marker: string, dashboard_item?: number) => ({
             content,
@@ -78,7 +80,7 @@ export const annotationsModel = kea<annotationsModelType>({
                 })
         },
     }),
-    events: ({ actions }) => ({
-        afterMount: actions.loadGlobalAnnotations,
+    events: ({ actions, props }) => ({
+        afterMount: () => props.teamId && actions.loadGlobalAnnotations(),
     }),
 })

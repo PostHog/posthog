@@ -1,11 +1,14 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { cohortsModelType } from './cohortsModelType'
-import { CohortType } from '~/types'
+import { CohortType, ProjectBasedLogicProps } from '~/types'
 
 const POLL_TIMEOUT = 5000
 
 export const cohortsModel = kea<cohortsModelType>({
+    props: {} as ProjectBasedLogicProps,
+    key: (props) => props.teamId || '',
+
     actions: () => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
@@ -66,8 +69,8 @@ export const cohortsModel = kea<cohortsModelType>({
         },
     }),
 
-    events: ({ actions, values }) => ({
-        afterMount: actions.loadCohorts,
+    events: ({ actions, values, props }) => ({
+        afterMount: () => props.teamId && actions.loadCohorts(),
         beforeUnmount: () => {
             clearTimeout(values.pollTimeout || undefined)
         },

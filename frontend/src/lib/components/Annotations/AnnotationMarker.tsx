@@ -93,11 +93,12 @@ export function AnnotationMarker({
     }, [visible])
 
     const { user } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamId } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const { diffType, groupedAnnotations } = useValues(
         annotationsLogic({
+            teamId: currentTeamId,
             pageKey: dashboardItemId ? dashboardItemId : null,
         })
     )

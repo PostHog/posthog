@@ -1,5 +1,5 @@
 import { LogicWrapper } from 'kea'
-import { CohortType, EventDefinition } from '~/types'
+import { CohortType, EventDefinition, ProjectBasedLogicProps } from '~/types'
 import Fuse from 'fuse.js'
 
 export interface SimpleOption {
@@ -18,7 +18,7 @@ export interface TaxonomicFilterProps {
 
 export type TaxonomicFilterValue = string | number
 
-export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
+export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps, ProjectBasedLogicProps {
     taxonomicFilterLogicKey: string
 }
 

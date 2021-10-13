@@ -1,9 +1,11 @@
 import { kea } from 'kea'
 import { personPropertiesModelType } from './personPropertiesModelType'
 import api from 'lib/api'
-import { PersonProperty } from '~/types'
+import { PersonProperty, ProjectBasedLogicProps } from '~/types'
 
 export const personPropertiesModel = kea<personPropertiesModelType>({
+    props: {} as ProjectBasedLogicProps,
+    key: (props) => props.teamId || '',
     loaders: {
         personProperties: [
             [] as Array<PersonProperty>,
@@ -12,7 +14,7 @@ export const personPropertiesModel = kea<personPropertiesModelType>({
             },
         ],
     },
-    events: ({ actions }) => ({
-        afterMount: actions.loadPersonProperties,
+    events: ({ actions, props }) => ({
+        afterMount: () => props.teamId && actions.loadPersonProperties,
     }),
 })

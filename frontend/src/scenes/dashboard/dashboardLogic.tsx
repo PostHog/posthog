@@ -8,7 +8,14 @@ import { clearDOMTextSelection, editingToast, toParams } from 'lib/utils'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { PATHS_VIZ, ACTIONS_LINE_GRAPH_LINEAR } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DashboardLayoutSize, DashboardMode, DashboardType, FilterType, ViewType } from '~/types'
+import {
+    DashboardLayoutSize,
+    DashboardMode,
+    DashboardType,
+    FilterType,
+    ProjectBasedLogicProps,
+    ViewType,
+} from '~/types'
 import { dashboardLogicType } from './dashboardLogicType'
 import React from 'react'
 import { Layout, Layouts } from 'react-grid-layout'
@@ -16,23 +23,34 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
 
-export const dashboardLogic = kea<dashboardLogicType>({
+export interface DashboardLogicProps extends ProjectBasedLogicProps {
+    id?: number
+    shareToken?: string
+    internal?: boolean
+}
+
+export const dashboardLogic = kea<dashboardLogicType<DashboardLogicProps>>({
+    props: {} as DashboardLogicProps,
+    key: (props) => (props.teamId ? `${props.id || 'generic'}` : ''),
+
     connect: [dashboardsModel, dashboardItemsModel, eventUsageLogic],
-
-    props: {} as { id?: number; shareToken?: string; internal?: boolean },
-
-    key: (props) => props.id || 'dashboardLogic',
 
     actions: {
         addNewDashboard: true,
-        loadDashboardItems: ({ refresh, dive_source_id }: { refresh?: boolean; dive_source_id?: number } = {}) => ({
+        loadDashboardItems: ({
+            refresh,
+            dive_source_id,
+        }: {
+            refresh?: boolean
+            dive_source_id?: number
+        } = {}) => ({
             refresh,
             dive_source_id,
         }),
         triggerDashboardUpdate: (payload) => ({ payload }),
-        setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }), // whether the dashboard is shared or not
+        setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }),
         // dashboardMode represents the current state in which the dashboard is being viewed (:TODO: move definitions to TS)
-        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }), // see DashboardMode
+        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         saveLayouts: true,
@@ -47,11 +65,11 @@ export const dashboardLogic = kea<dashboardLogicType>({
             dateTo,
             reloadDashboard,
         }),
-        addGraph: true, // takes the user to insights to add a graph
+        addGraph: true,
         deleteTag: (tag: string) => ({ tag }),
         saveNewTag: (tag: string) => ({ tag }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (id: number, loading = false) => ({ id, loading }), // id represents dashboardItem id's
+        setRefreshStatus: (id: number, loading = false) => ({ id, loading }),
         setRefreshError: (id: number) => ({ id }),
         setPageTitle: (title: string) => ({ title }),
     },
@@ -63,7 +81,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 loadDashboardItems: async ({
                     refresh,
                     dive_source_id,
-                }: { refresh?: boolean; dive_source_id?: number } = {}) => {
+                }: {
+                    refresh?: boolean
+                    dive_source_id?: number
+                } = {}) => {
                     if (!props.id) {
                         console.warn('Called `loadDashboardItems` but ID is not set.')
                         return
@@ -190,7 +211,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         refreshStatus: [
-            {} as Record<number, { loading?: boolean; refreshed?: boolean; error?: boolean }>,
+            {} as Record<
+                number,
+                {
+                    loading?: boolean
+                    refreshed?: boolean
+                    error?: boolean
+                }
+            >,
             {
                 setRefreshStatus: (state, { id, loading }) => ({
                     ...state,
@@ -224,14 +252,17 @@ export const dashboardLogic = kea<dashboardLogicType>({
         lastDashboardModeSource: [
             null as DashboardEventSource | null,
             {
-                setDashboardMode: (_, { source }) => source, // used to determine what input to focus on edit mode
+                setDashboardMode: (_, { source }) => source,
             },
         ],
         autoRefresh: [
             {
                 interval: AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
                 enabled: false,
-            } as { interval: number; enabled: boolean },
+            } as {
+                interval: number
+                enabled: boolean
+            },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
@@ -267,7 +298,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         dashboard: [
-            () => [dashboardsModel.selectors.sharedDashboards, dashboardsModel.selectors.dashboards],
+            () => [
+                dashboardsModel({ teamId: props.teamId }).selectors.sharedDashboards,
+                dashboardsModel({ teamId: props.teamId }).selectors.dashboards,
+            ],
             (sharedDashboards, dashboards): DashboardType | null => {
                 if (sharedDashboards && props.id && !!sharedDashboards[props.id]) {
                     return sharedDashboards[props.id]
@@ -390,7 +424,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
     }),
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
-            if (props.id) {
+            if (props.teamId && props.id) {
                 // When the scene is initially loaded, the dashboard ID is undefined
                 actions.loadDashboardItems({
                     refresh: props.internal,
@@ -428,7 +462,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 success: (name: string) => dashboardsModel.actions.addDashboard({ name }),
             })
         },
-        [dashboardsModel.actionTypes.addDashboardSuccess]: ({ dashboard }) => {
+        [dashboardsModel({ teamId: props.teamId }).actionTypes.addDashboardSuccess]: ({ dashboard }) => {
             router.actions.push(`/dashboard/${dashboard.id}`)
         },
         setIsSharedDashboard: ({ id, isShared }) => {

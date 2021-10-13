@@ -5,14 +5,19 @@ import { deleteWithUndo, determineDifferenceType, groupBy, toParams } from '~/li
 import { annotationsModel } from '~/models/annotationsModel'
 import { getNextKey } from './utils'
 import { annotationsLogicType } from './annotationsLogicType'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, ProjectBasedLogicProps } from '~/types'
 
-export const annotationsLogic = kea<annotationsLogicType>({
-    key: (props) => (props.pageKey ? `${props.pageKey}_annotations` : 'annotations_default'),
-    connect: {
-        actions: [annotationsModel, ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
-        values: [annotationsModel, ['activeGlobalAnnotations']],
-    },
+export interface AnnotationsLogicProps extends ProjectBasedLogicProps {
+    pageKey: any
+}
+
+export const annotationsLogic = kea<annotationsLogicType<AnnotationsLogicProps>>({
+    props: {} as AnnotationsLogicProps,
+    key: (props) => (props.teamId ? `${props.teamId}-${props.pageKey || 'default'}` : ''),
+    connect: ({ teamId }: AnnotationsLogicProps) => ({
+        actions: [annotationsModel({ teamId }), ['deleteGlobalAnnotation', 'createGlobalAnnotation']],
+        values: [annotationsModel({ teamId }), ['activeGlobalAnnotations']],
+    }),
     actions: () => ({
         createAnnotation: (
             content: string,
@@ -148,6 +153,6 @@ export const annotationsLogic = kea<annotationsLogicType>({
         },
     }),
     events: ({ actions, props }) => ({
-        afterMount: () => props.pageKey && actions.loadAnnotations(),
+        afterMount: () => props.teamId && props.pageKey && actions.loadAnnotations(),
     }),
 })

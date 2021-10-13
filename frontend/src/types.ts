@@ -1241,3 +1241,7 @@ export enum FunnelCorrelationType {
     Success = 'success',
     Failure = 'failure',
 }
+
+export interface ProjectBasedLogicProps {
+    teamId: TeamType['id'] | null
+}

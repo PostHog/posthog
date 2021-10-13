@@ -14,12 +14,14 @@ import { userLogic } from 'scenes/userLogic'
 import { ColumnType } from 'antd/lib/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
+import { teamLogic } from '../teamLogic'
 
 export function Dashboards(): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { deleteDashboard, unpinDashboard, pinDashboard, addDashboard } = useActions(dashboardsModel)
-    const { setNewDashboardDrawer } = useActions(dashboardsLogic)
-    const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic)
+    const { setNewDashboardDrawer } = useActions(dashboardsLogic({ teamId: currentTeamId }))
+    const { dashboards, newDashboardDrawer, dashboardTags } = useValues(dashboardsLogic({ teamId: currentTeamId }))
     const { user } = useValues(userLogic)
     const [displayedColumns, setDisplayedColumns] = useState([] as ColumnType<DashboardType>[])
 

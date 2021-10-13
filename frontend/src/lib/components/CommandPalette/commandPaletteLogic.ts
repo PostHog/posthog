@@ -123,7 +123,7 @@ export const commandPaletteLogic = kea<
 >({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
-        values: [teamLogic, ['currentTeam'], userLogic, ['user']],
+        values: [userLogic, ['user']],
         logic: [preflightLogic], // used in afterMount, which does not auto-connect
     },
     actions: {
@@ -281,8 +281,8 @@ export const commandPaletteLogic = kea<
         commandRegistrations: [
             (selectors) => [
                 selectors.rawCommandRegistrations,
-                dashboardsModel.selectors.dashboards,
-                teamLogic.selectors.currentTeam,
+                (state) =>
+                    dashboardsModel({ teamId: teamLogic.selectors.currentTeamId(state) }).selectors.dashboards(state),
             ],
             (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
                 ...rawCommandRegistrations,
@@ -694,7 +694,9 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        dashboardsModel.actions.addDashboard({ name: argument, show: true })
+                                        dashboardsModel({
+                                            teamId: teamLogic.values.currentTeamId,
+                                        }).actions.addDashboard({ name: argument, show: true })
                                     },
                                 }
                             }

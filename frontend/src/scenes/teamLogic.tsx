@@ -28,9 +28,9 @@ export const teamLogic = kea<teamLogicType>({
         currentTeam: [
             null as TeamType | null,
             {
-                loadCurrentTeam: async () => {
+                loadCurrentTeam: async (id: number | string = '@current') => {
                     try {
-                        return await api.get('api/projects/@current')
+                        return await api.get(`api/projects/${id}`)
                     } catch {
                         return null
                     }
@@ -114,6 +114,6 @@ export const teamLogic = kea<teamLogicType>({
         },
     }),
     events: ({ actions }) => ({
-        afterMount: [actions.loadCurrentTeam],
+        afterMount: actions.loadCurrentTeam,
     }),
 })

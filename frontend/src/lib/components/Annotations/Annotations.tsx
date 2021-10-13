@@ -4,6 +4,7 @@ import { annotationsLogic } from './annotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
 import { AnnotationType, AnnotationScope } from '~/types'
+import { teamLogic } from '../../../scenes/teamLogic'
 
 interface AnnotationsProps {
     dates: string[]
@@ -32,18 +33,15 @@ export function Annotations({
     graphColor,
     currentDateMarker,
 }: AnnotationsProps): JSX.Element[] {
-    const { diffType, groupedAnnotations } = useValues(
-        annotationsLogic({
-            pageKey: dashboardItemId ? dashboardItemId : null,
-        })
-    )
+    const { currentTeamId } = useValues(teamLogic)
 
+    const relevantAnnotationsLogic = annotationsLogic({
+        teamId: currentTeamId,
+        pageKey: dashboardItemId ? dashboardItemId : null,
+    })
+    const { diffType, groupedAnnotations } = useValues(relevantAnnotationsLogic)
     const { createAnnotation, createAnnotationNow, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } =
-        useActions(
-            annotationsLogic({
-                pageKey: dashboardItemId ? dashboardItemId : null,
-            })
-        )
+        useActions(relevantAnnotationsLogic)
 
     const markers: JSX.Element[] = []
     dates &&

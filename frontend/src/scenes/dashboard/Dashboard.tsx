@@ -15,6 +15,7 @@ import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { teamLogic } from '../teamLogic'
 
 interface Props {
     id?: string
@@ -23,8 +24,13 @@ interface Props {
 }
 
 export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, internal }}>
+        <BindLogic
+            logic={dashboardLogic}
+            props={{ teamId: currentTeamId, id: id ? parseInt(id) : undefined, shareToken, internal }}
+        >
             <DashboardView />
         </BindLogic>
     )

@@ -2,7 +2,14 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { definitionDrawerLogicType } from './definitionDrawerLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
-import { EventDefinition, EventOrPropType, EventType, PropertyDefinition, UserBasicType } from '~/types'
+import {
+    EventDefinition,
+    EventOrPropType,
+    EventType,
+    ProjectBasedLogicProps,
+    PropertyDefinition,
+    UserBasicType,
+} from '~/types'
 import { errorToast, toParams, uniqueBy } from 'lib/utils'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
@@ -10,6 +17,8 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { teamLogic } from '../../teamLogic'
 
 export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
+    props: {} as ProjectBasedLogicProps,
+    key: (props) => props.teamId || '',
     actions: () => ({
         openDrawer: (type: string, id: string) => ({ type, id }),
         setDrawerType: (type: string) => ({ type }),
@@ -155,9 +164,9 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             },
         ],
     }),
-    selectors: () => ({
+    selectors: ({ props }) => ({
         eventDefinitionTags: [
-            () => [eventDefinitionsModel.selectors.eventDefinitions],
+            () => [eventDefinitionsModel({ teamId: props.teamId }).selectors.eventDefinitions],
             (definitions): string[] => {
                 const allTags = definitions.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
                 return uniqueBy(allTags, (item) => item).sort()
@@ -171,7 +180,7 @@ export const definitionDrawerLogic = kea<definitionDrawerLogicType>({
             },
         ],
         propertyDefinitionTags: [
-            () => [propertyDefinitionsModel.selectors.propertyDefinitions],
+            () => [propertyDefinitionsModel({ teamId: props.teamId }).selectors.propertyDefinitions],
             (definitions): string[] => {
                 const allTags = definitions.flatMap(({ tags }) => tags).filter((a) => !!a) as string[]
                 return uniqueBy(allTags, (item) => item).sort()

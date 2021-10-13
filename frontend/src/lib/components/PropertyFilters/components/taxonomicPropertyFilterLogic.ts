@@ -4,6 +4,7 @@ import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilter
 import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 import { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
+import { teamLogic } from '../../../../scenes/teamLogic'
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>({
     props: {} as TaxonomicPropertyFilterLogicProps,
@@ -35,7 +36,10 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             (filters, filterIndex): AnyPropertyFilter | null => filters[filterIndex] || null,
         ],
         selectedCohortName: [
-            (s) => [s.filter, cohortsModel.selectors.cohorts],
+            (s) => [
+                s.filter,
+                (state) => cohortsModel({ teamId: teamLogic.selectors.currentTeamId(state) }).selectors.cohorts(state),
+            ],
             (filter, cohorts) => (filter?.type === 'cohort' ? cohorts.find((c) => c.id === filter?.value)?.name : null),
         ],
     },

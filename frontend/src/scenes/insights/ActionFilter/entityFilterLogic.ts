@@ -4,6 +4,7 @@ import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter
 import { entityFilterLogicType } from './entityFilterLogicType'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from '../../teamLogic'
 
 export type LocalFilter = EntityFilter & {
     order: number
@@ -135,7 +136,13 @@ export const entityFilterLogic = kea<entityFilterLogicType<BareEntity, EntityFil
 
     selectors: {
         entities: [
-            (s) => [eventDefinitionsModel.selectors.eventNames, s.actions],
+            (s) => [
+                (state) =>
+                    eventDefinitionsModel({ teamId: teamLogic.selectors.currentTeamId(state) }).selectors.eventNames(
+                        state
+                    ),
+                s.actions,
+            ],
             (
                 events,
                 actions

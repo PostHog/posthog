@@ -1,7 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { PropertyDefinition, SelectOption } from '~/types'
-import { teamLogic } from '../scenes/teamLogic'
+import { ProjectBasedLogicProps, PropertyDefinition, SelectOption } from '~/types'
 import { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 
 interface PropertySelectOption extends SelectOption {
@@ -17,16 +16,18 @@ interface PropertyDefinitionStorage {
 export const propertyDefinitionsModel = kea<
     propertyDefinitionsModelType<PropertyDefinitionStorage, PropertySelectOption>
 >({
+    props: {} as ProjectBasedLogicProps,
+    key: (props) => props.teamId || '',
     actions: () => ({
         updatePropertyDefinition: (property: PropertyDefinition) => ({ property }),
     }),
-    loaders: ({ values }) => ({
+    loaders: ({ values, props }) => ({
         propertyStorage: [
             { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
             {
                 loadPropertyDefinitions: async (initial?: boolean) => {
                     const url = initial
-                        ? `api/projects/${teamLogic.values.currentTeamId}/property_definitions/?limit=5000`
+                        ? `api/projects/${props.teamId}/property_definitions/?limit=5000`
                         : values.propertyStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to propertyDefinitionsLogic.loadPropertyDefinitions')
@@ -54,14 +55,14 @@ export const propertyDefinitionsModel = kea<
         ],
     }),
     listeners: ({ actions }) => ({
-        [teamLogic.actionTypes.loadCurrentTeamSuccess]: () => {
-            actions.loadPropertyDefinitions(true)
-        },
         loadPropertyDefinitionsSuccess: ({ propertyStorage }) => {
             if (propertyStorage.next) {
                 actions.loadPropertyDefinitions()
             }
         },
+    }),
+    events: ({ actions, props }) => ({
+        afterMount: () => props.teamId && actions.loadPropertyDefinitions(true),
     }),
     selectors: {
         loaded: [
