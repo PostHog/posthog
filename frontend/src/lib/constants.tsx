@@ -228,12 +228,12 @@ export const FEATURE_FLAGS = {
     // Cloud-only
     PAPERCUPS_ENABLED: 'papercups-enabled',
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
+    NPS_PROMPT: '4562-nps', // owner: @paolodamico
     // Experiments / beta features
     INGESTION_GRID: 'ingestion-grid-exp-3', // owner: @kpthatsme
     PROJECT_HOME: 'project-home-exp-5', // owner: @kpthatsme
     TRAILING_WAU_MAU: '3638-trailing-wau-mau', // owner: @EDsCODE
     EVENT_COLUMN_CONFIG: '4141-event-columns', // owner: @paolodamico
-    NPS_PROMPT: '4562-nps', // owner: @paolodamico
     INGESTION_TAXONOMY: '4267-event-property-taxonomy', // owner: @liyiy
     PLUGIN_METRICS: '4871-plugin-metrics', // owner: @yakkomajuri
     INGESTION_HELP_BUTTON: '112-ingestion-help-button', // owner: @kpthatsme
