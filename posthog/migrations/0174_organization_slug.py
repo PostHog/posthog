@@ -40,6 +40,8 @@ class Migration(migrations.Migration):
             field=LowercaseSlugField(max_length=MAX_SLUG_LENGTH, null=True, unique=True),
         ),
         migrations.RunPython(slugify_all, migrations.RunPython.noop),
+        # Make test_migrations_are_null ignore slug being an IS NOT NULL column
+        migrations.RunSQL("-- not-null-ignore"),
         migrations.AlterField(
             model_name="organization", name="slug", field=LowercaseSlugField(max_length=MAX_SLUG_LENGTH, unique=True),
         ),
