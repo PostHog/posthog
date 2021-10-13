@@ -49,6 +49,9 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
+// Chosen via heuristics by eyeballing some values
+// Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
+// which gives a ballpark of 1 highlighting every 10 breakdown values
 
 export const funnelLogic = kea<funnelLogicType>({
     props: {} as InsightLogicProps,
@@ -434,10 +437,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     return stepsWithConversionMetrics
                 }
 
-                const nestedBreakdownsWithSignificance: FunnelStepWithConversionMetrics['nested_breakdown'][] = []
-
-                // TODO: Can one step have nested breakdown and another not?
-                stepsWithConversionMetrics.forEach((step) => {
+                return stepsWithConversionMetrics.map((step) => {
                     // Per step breakdown significance
                     const [meanFromPrevious, stdDevFromPrevious] = getMeanAndStandardDeviation(
                         step.nested_breakdown?.map((item) => item.conversionRates.fromPrevious)
@@ -449,35 +449,37 @@ export const funnelLogic = kea<funnelLogicType>({
                         step.nested_breakdown?.map((item) => item.conversionRates.total)
                     )
 
+                    const isOutlier = (value: number, mean: number, stdDev: number): boolean => {
+                        return (
+                            value > mean + stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER ||
+                            value < mean - stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER
+                        )
+                    }
+
                     const nestedBreakdown = step.nested_breakdown?.map((item) => {
                         return {
                             ...item,
                             significant: {
-                                fromPrevious:
-                                    item.conversionRates.fromPrevious >
-                                        meanFromPrevious + DEVIATION_SIGNIFICANCE_MULTIPLIER * stdDevFromPrevious ||
-                                    item.conversionRates.fromPrevious <
-                                        meanFromPrevious - DEVIATION_SIGNIFICANCE_MULTIPLIER * stdDevFromPrevious,
-                                fromBasisStep:
-                                    item.conversionRates.fromBasisStep >
-                                        meanFromBasis + DEVIATION_SIGNIFICANCE_MULTIPLIER * stdDevFromBasis ||
-                                    item.conversionRates.fromBasisStep <
-                                        meanFromBasis - DEVIATION_SIGNIFICANCE_MULTIPLIER * stdDevFromBasis,
-                                total:
-                                    item.conversionRates.total >
-                                        meanTotal + DEVIATION_SIGNIFICANCE_MULTIPLIER * stdDevTotal ||
-                                    item.conversionRates.total <
-                                        meanTotal - DEVIATION_SIGNIFICANCE_MULTIPLIER * stdDevTotal,
+                                fromPrevious: isOutlier(
+                                    item.conversionRates.fromPrevious,
+                                    meanFromPrevious,
+                                    stdDevFromPrevious
+                                ),
+                                fromBasisStep: isOutlier(
+                                    item.conversionRates.fromBasisStep,
+                                    meanFromBasis,
+                                    stdDevFromBasis
+                                ),
+                                total: isOutlier(item.conversionRates.total, meanTotal, stdDevTotal),
                             },
                         }
                     })
-                    nestedBreakdownsWithSignificance.push(nestedBreakdown)
-                })
 
-                return stepsWithConversionMetrics.map((step, index) => ({
-                    ...step,
-                    nested_breakdown: nestedBreakdownsWithSignificance[index],
-                }))
+                    return {
+                        ...step,
+                        nested_breakdown: nestedBreakdown,
+                    }
+                })
             },
         ],
         hiddenLegendKeys: [
@@ -592,14 +594,9 @@ export const funnelLogic = kea<funnelLogicType>({
                                         (stepsInBreakdown[stepsInBreakdown.length - 1]?.count ?? 0) /
                                         (stepsInBreakdown[0]?.count ?? 1),
                                 },
-                                significant:
-                                    stepsInBreakdown
-                                        .map((step) =>
-                                            step.significant
-                                                ? Object.values(step.significant).filter((val) => val).length > 0
-                                                : false
-                                        )
-                                        .filter((val) => val).length > 0,
+                                significant: stepsInBreakdown.some((step) =>
+                                    step.significant ? Object.values(step.significant).some((val) => val) : false
+                                ),
                             })
                         })
                     }

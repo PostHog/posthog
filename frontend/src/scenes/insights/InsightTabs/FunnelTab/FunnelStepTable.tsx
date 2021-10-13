@@ -12,7 +12,7 @@ import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { formatDisplayPercentage, getSeriesColor, getVisibilityIndex, humanizeOrder } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/FunnelBarGraph'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils'
-import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown } from '~/types'
+import { FlattenedFunnelStep, FlattenedFunnelStepByBreakdown, FunnelStepWithConversionMetrics } from '~/types'
 import { PHCheckbox } from 'lib/components/PHCheckbox'
 import {
     EmptyValue,
@@ -27,6 +27,13 @@ import './FunnelStepTable.scss'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'
+
+function getSignificanceFromBreakdownStep(
+    breakdown: FlattenedFunnelStepByBreakdown,
+    stepOrder: number
+): FunnelStepWithConversionMetrics['significant'] {
+    return breakdown.steps?.[stepOrder].significant
+}
 
 export function FunnelStepTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -210,7 +217,7 @@ export function FunnelStepTable(): JSX.Element | null {
                             breakdown.steps?.[step.order]?.conversionRates.fromBasisStep != undefined ? (
                                 <>
                                     {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
-                                    breakdown.steps?.[step.order].significant?.fromBasisStep === true ? (
+                                    getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep ? (
                                         <Tooltip title="Significantly different from other breakdown values">
                                             <span className="table-text-highlight">
                                                 <FlagOutlined style={{ marginRight: 2 }} />{' '}
@@ -286,8 +293,8 @@ export function FunnelStepTable(): JSX.Element | null {
                                 breakdown.steps?.[step.order]?.conversionRates.fromPrevious != undefined ? (
                                     <>
                                         {featureFlags[FEATURE_FLAGS.SIGMA_ANALYSIS] &&
-                                        breakdown.steps?.[step.order].significant?.fromBasisStep === false &&
-                                        breakdown.steps?.[step.order].significant?.fromPrevious ? (
+                                        !getSignificanceFromBreakdownStep(breakdown, step.order)?.fromBasisStep &&
+                                        getSignificanceFromBreakdownStep(breakdown, step.order)?.fromPrevious ? (
                                             <Tooltip title="Significantly different from other breakdown values">
                                                 <span className="table-text-highlight">
                                                     <FlagOutlined style={{ marginRight: 2 }} />{' '}
