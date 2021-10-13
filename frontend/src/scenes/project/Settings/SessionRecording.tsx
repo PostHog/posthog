@@ -35,7 +35,7 @@ export function SessionRecording(): JSX.Element {
                 </label>
             </div>
 
-            {currentTeam?.session_recording_opt_in && !preflight?.cloud && (
+            {currentTeam?.session_recording_opt_in && !preflight?.cloud && !preflight?.is_clickhouse_enabled && (
                 <>
                     <div style={{ marginBottom: 8 }}>
                         <Switch
