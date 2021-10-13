@@ -91,7 +91,9 @@ class OrganizationSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "setup_section_2_completed": {"write_only": True},  # for reading this attribute, `setup` is used
-            "slug": {"required": False},  # slug is not required here as it's generated automatically for new organizations
+            "slug": {
+                "required": False
+            },  # slug is not required here as it's generated automatically for new organizations
         }
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:

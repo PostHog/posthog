@@ -24,18 +24,29 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             OrganizationMembership.Level.OWNER,
         )
 
-    def test_create_three_similarly_named_organizations(self):
-        response = self.client.post("/api/organizations/", {"name": "foobar"})
+    @patch("posthog.models.utils.generate_random_short_suffix", lambda: "abcd")
+    def test_create_two_similarly_named_organizations(self):
+        response = self.client.post("/api/organizations/", {"name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertDictContainsSubset({"name": "foobar", "slug": "foobar"}, response.json())
+        self.assertDictContainsSubset(
+            {
+                "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            },
+            response.json(),
+        )
 
-        response = self.client.post("/api/organizations/", {"name": "Foobar"})
+        response = self.client.post(
+            "/api/organizations/", {"name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX"}
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertDictContainsSubset({"name": "Foobar", "slug": "foobar-1"}, response.json())
-
-        response = self.client.post("/api/organizations/", {"name": "#FOOBAR"})
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertDictContainsSubset({"name": "#FOOBAR", "slug": "foobar-2"}, response.json())
+        self.assertDictContainsSubset(
+            {
+                "name": "#XXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxX",
+                "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-abcd",
+            },
+            response.json(),
+        )
 
     def test_delete_second_managed_organization(self):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
