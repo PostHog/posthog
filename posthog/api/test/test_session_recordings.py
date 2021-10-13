@@ -171,7 +171,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                     response_data = response.json()
 
                     self.assertEqual(len(response_data["result"]["snapshots"]), RECORDINGS_NUM_SNAPSHOTS_LIMIT)
-                    self.assertEqual(response_data["result"]["duration"], num_chunks - 1)
+                    self.assertEqual(response_data["result"]["duration"], (num_chunks - 1) * 1000)
 
                     if i == expected_num_requests - 1:
                         self.assertIsNone(response_data["result"]["next"])
