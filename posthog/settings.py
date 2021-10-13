@@ -71,6 +71,13 @@ PERSISTED_FEATURE_FLAGS = []
 if env_feature_flags != "0" and env_feature_flags.lower() != "false":
     PERSISTED_FEATURE_FLAGS = get_list(env_feature_flags) or [
         # Add hard-coded feature flags for static releases here
+        "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
+        "4267-event-property-taxonomy",
+        "4871-plugin-metrics",
+        "6050-remove-sessions",
+        "new-paths-ui",
+        "posthog-toolbar-feature-flags",
+        "5440-multivariate-support",
     ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
