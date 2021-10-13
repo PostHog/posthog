@@ -72,10 +72,14 @@ export function InsightsNav(): JSX.Element {
                 />
                 <TabPane
                     tab={
-                        <span data-attr="insight-path-tab">
+                         <Tooltip
+                            placement="top"
+                            title="See the paths users take inside your product."
+                            data-attr="insight-path-tab"
+                         >
                             User Paths
                             <InsightHotkey hotkey="p" />
-                        </span>
+                        </Tooltip>
                     }
                     key={ViewType.PATHS}
                 />
