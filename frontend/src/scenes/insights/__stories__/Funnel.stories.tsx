@@ -88,7 +88,9 @@ const setFeatureFlags = (featureFlags: { [flag: string]: boolean }): void => {
 // `FunnelResult` expects a `type` property, and doesn't expect
 // `median_conversion_time`, and custom_name is not `string | undefined`
 type FunnelResponse = Omit<
-    FunnelResult<(Omit<FunnelStep, 'custom_name'> & { median_conversion_time: number; custom_name: string | null })[]>,
+    FunnelResult<
+        (Omit<FunnelStep, 'custom_name'> & { median_conversion_time: number | null; custom_name: string | null })[]
+    >,
     'type'
 >
 
@@ -105,11 +107,14 @@ type FunnelCorrelationResponse = {
             failure_count: number
             correlation_type: 'success' | 'failure'
         }[]
+        skewed: boolean
     }
+    last_refresh: string
+    is_cached: boolean
 }
 
 // Sample responses used in stories
-const samplePropertyCorrelationResponse = {
+const samplePropertyCorrelationResponse: FunnelCorrelationResponse = {
     result: {
         events: [
             {
@@ -138,9 +143,9 @@ const samplePropertyCorrelationResponse = {
     },
     last_refresh: '2021-10-11T15:00:54.248787Z',
     is_cached: true,
-} as FunnelCorrelationResponse
+}
 
-const sampleEventCorrelationResponse = {
+const sampleEventCorrelationResponse: FunnelCorrelationResponse = {
     result: {
         events: [
             {
@@ -169,9 +174,9 @@ const sampleEventCorrelationResponse = {
     },
     last_refresh: '2021-10-11T15:00:54.687382Z',
     is_cached: true,
-} as FunnelCorrelationResponse
+}
 
-const sampleFunnelResponse = {
+const sampleFunnelResponse: FunnelResponse = {
     result: [
         {
             action_id: '$pageview',
@@ -209,9 +214,9 @@ const sampleFunnelResponse = {
     ],
     last_refresh: '2021-10-11T15:00:52.117340Z',
     is_cached: true,
-} as FunnelResponse
+}
 
-const sampleSkewedFunnelResponse = {
+const sampleSkewedFunnelResponse: FunnelResponse = {
     result: [
         {
             action_id: '$pageview',
@@ -249,4 +254,4 @@ const sampleSkewedFunnelResponse = {
     ],
     last_refresh: '2021-10-11T15:00:52.117340Z',
     is_cached: true,
-} as FunnelResponse
+}
