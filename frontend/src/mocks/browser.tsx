@@ -6,8 +6,8 @@ export const worker = setupWorker(
     rest.post('/e/', (_, res, ctx) => res(ctx.status(200))),
 
     // For everything else, require something explicit to be set
-    rest.get('*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered'))),
-    rest.post('*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered'))),
-    rest.put('*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered'))),
-    rest.delete('*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered')))
+    rest.get('/api/*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered'))),
+    rest.post('/api/*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered'))),
+    rest.put('/api/*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered'))),
+    rest.delete('/api/*', (_, res, ctx) => res(ctx.status(500), ctx.text('No route registered')))
 )
