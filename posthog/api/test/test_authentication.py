@@ -304,7 +304,7 @@ class TestPasswordResetAPI(APIBaseTest):
         # check password was changed
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("00112233"))
-        self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))
+        self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
 
         # old password is gone
         self.client.logout()
@@ -340,7 +340,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # password was not changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertFalse(self.user.check_password("123"))
 
     def test_cant_reset_password_with_no_token(self):
@@ -357,7 +357,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # password was not changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertFalse(self.user.check_password("a12345678"))
 
     def test_cant_reset_password_with_invalid_token(self):
@@ -387,5 +387,5 @@ class TestPasswordResetAPI(APIBaseTest):
 
             # password was not changed
             self.user.refresh_from_db()
-            self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+            self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
             self.assertFalse(self.user.check_password("a12345678"))
