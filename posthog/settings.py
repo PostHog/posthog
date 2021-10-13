@@ -490,6 +490,8 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",},
 ]
 
+PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
+
 # shell_plus settings
 # https://django-extensions.readthedocs.io/en/latest/shell_plus.html
 

@@ -132,7 +132,44 @@ class PasswordResetSerializer(serializers.Serializer):
         return {"email": email}
 
 
+class PasswordResetCompleteSerializer(serializers.Serializer):
+    token = serializers.CharField(write_only=True)
+    uuid = serializers.CharField(write_only=True)  # user ID
+    password = serializers.CharField(write_only=True, required=False)
+
+    def to_representation(self, instance: Dict[str, Any]) -> Dict[str, Any]:
+        return instance
+
+
 class PasswordResetViewSet(CreateStandardResponseMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = PasswordResetSerializer
     permission_classes = (permissions.AllowAny,)
+
+
+class PasswordResetCompleteViewSet(
+    CreateStandardResponseMixin, mixins.CreateModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
+    queryset = User.objects.none()
+    serializer_class = PasswordResetCompleteSerializer
+    permission_classes = (permissions.AllowAny,)
+
+    def get_object(self):
+
+        token = self.request.query_params.get("token")
+        user_uuid = self.kwargs.get("user_uuid")
+
+        if not token:
+            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
+
+        try:
+            user = User.objects.get(uuid=user_uuid)
+        except User.DoesNotExist:
+            user = None
+
+        if not user or not default_token_generator.check_token(user, token):
+            raise serializers.ValidationError(
+                {"token": ["This reset token is invalid or has expired."]}, code="invalid_token"
+            )
+
+        return {"success": True, "token": token}

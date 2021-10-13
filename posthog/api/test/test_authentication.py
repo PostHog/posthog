@@ -1,8 +1,11 @@
+import datetime
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.utils import timezone
+from freezegun import freeze_time
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
@@ -128,7 +131,7 @@ class TestPasswordResetAPI(APIBaseTest):
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
         ):
-            response = self.client.post("/api/reset", {"email": self.CONFIG_EMAIL})
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"email": self.CONFIG_EMAIL})
 
@@ -174,7 +177,7 @@ class TestPasswordResetAPI(APIBaseTest):
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
         ):
-            response = self.client.post("/api/reset", {"email": self.CONFIG_EMAIL})
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"email": self.CONFIG_EMAIL})
 
@@ -202,7 +205,7 @@ class TestPasswordResetAPI(APIBaseTest):
         with self.settings(
             CELERY_TASK_ALWAYS_EAGER=True, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net",
         ):
-            response = self.client.post("/api/reset", {"email": "i_dont_exist@posthog.com"})
+            response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"email": "i_dont_exist@posthog.com"})
 
@@ -220,7 +223,7 @@ class TestPasswordResetAPI(APIBaseTest):
             SAML_X509_CERT="certificate",
             SAML_ENFORCED=True,
         ):
-            response = self.client.post("/api/reset", {"email": "i_dont_exist@posthog.com"})
+            response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -234,7 +237,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
     def test_cant_reset_if_email_is_not_configured(self):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
-            response = self.client.post("/api/reset", {"email": "i_dont_exist@posthog.com"})
+            response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -245,3 +248,39 @@ class TestPasswordResetAPI(APIBaseTest):
                 "attr": None,
             },
         )
+
+    # Token validation
+
+    def test_can_validate_token(self):
+        token = default_token_generator.make_token(self.user)
+        response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "token": token})
+
+    def test_cant_validate_token_without_a_token(self):
+        response = self.client.get(f"/api/reset/{self.user.uuid}/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "token"},
+        )
+
+    def test_invalid_token_returns_error(self):
+        valid_token = default_token_generator.make_token(self.user)
+
+        with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
+            # tokens expire after one day
+            expired_token = default_token_generator.make_token(self.user)
+
+        for token in [valid_token[:-1], "not_even_trying", self.user.uuid, expired_token]:
+            response = self.client.get(f"/api/reset/{self.user.uuid}/?token={token}")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "invalid_token",
+                    "detail": "This reset token is invalid or has expired.",
+                    "attr": "token",
+                },
+            )

@@ -90,7 +90,11 @@ urlpatterns = [
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
-    opt_slash_path("api/reset", authentication.PasswordResetViewSet.as_view({"post": "create"})),
+    path("api/reset/", authentication.PasswordResetViewSet.as_view({"post": "create"})),
+    path(
+        "api/reset/<str:user_uuid>/",
+        authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:share_token>", dashboard.shared_dashboard),
