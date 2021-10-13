@@ -236,7 +236,7 @@ export const FEATURE_FLAGS = {
     NPS_PROMPT: '4562-nps', // owner: @paolodamico
     INGESTION_TAXONOMY: '4267-event-property-taxonomy', // owner: @liyiy
     PLUGIN_METRICS: '4871-plugin-metrics', // owner: @yakkomajuri
-    INGESTION_HELP_BUTTON: '112-ingestion-help-button', // owner: @EDsCODE
+    INGESTION_HELP_BUTTON: '112-ingestion-help-button', // owner: @kpthatsme
     SAVED_INSIGHTS: '3408-saved-insights', // owner: @alexkim
     MULTIVARIATE_SUPPORT: '5440-multivariate-support', // owner: @mariusandra
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui', // owner: @alexkim

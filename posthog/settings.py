@@ -74,10 +74,14 @@ if env_feature_flags != "0" and env_feature_flags.lower() != "false":
         "3638-trailing-wau-mau",  # pending UI/UX improvements; functionality ready
         "4267-event-property-taxonomy",
         "4871-plugin-metrics",
+        "5720-plugins-ui-jobs",
         "6050-remove-sessions",
-        "new-paths-ui",
-        "posthog-toolbar-feature-flags",
         "5440-multivariate-support",
+        "6063-rename-filters",
+        "5733-funnel-vertical-breakdown",
+        "new-paths-ui",  # TODO: EE and Paid feature gate
+        "new-paths-ui-edge-weights",  # TODO: EE and Paid feature gate
+        "correlation-analysis",  # TODO: EE and Paid feature gate
     ]
 
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG, type_cast=str_to_bool)
