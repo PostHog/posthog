@@ -89,22 +89,22 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
             }
 
     for id, org in org_data.items():
-        distinct_id = User.objects.filter(current_team__in=org["teams"]).first().distinct_id
-        usage = get_org_usage(
-            distinct_id=distinct_id,
-            team_ids=org["teams"],
-            period_start=period_start,
-            period_end=period_end,
-            month_start=month_start,
-        )
-        report: dict = {
-            **metadata,
-            **usage,
-            "organization_id": id,
-            "organization_name": org["name"],
-            "team_count": len(org["teams"]),
-        }
-        org_reports.append(report)  # type: ignore
+        distinct_id = User.objects.filter(current_team__id__in=org["teams"]).first().distinct_id  # type: ignore
+        try:
+            usage = get_org_usage(
+                team_ids=org["teams"], period_start=period_start, period_end=period_end, month_start=month_start,
+            )
+            report: dict = {
+                **metadata,
+                **usage,
+                "organization_id": id,
+                "organization_name": org["name"],
+                "team_count": len(org["teams"]),
+            }
+            org_reports.append(report)  # type: ignore
+        except Exception as err:
+            print(err)  # TEMP
+            report_org_usage_failure(distinct_id, str(err))
         if not dry_run:
             report_org_usage(distinct_id, report)
 
@@ -112,11 +112,7 @@ def send_all_org_usage_reports(*, dry_run: bool = False) -> List[OrgReport]:
 
 
 def get_org_usage(
-    distinct_id: str,
-    team_ids: List[Union[str, int]],
-    period_start: datetime,
-    period_end: datetime,
-    month_start: datetime,
+    team_ids: List[Union[str, int]], period_start: datetime, period_end: datetime, month_start: datetime,
 ) -> OrgUsageData:
     default_usage: OrgUsageData = {
         "event_count_lifetime": 0,
@@ -124,28 +120,20 @@ def get_org_usage(
         "event_count_in_month": 0,
     }
     usage = default_usage
-    try:
-        if is_clickhouse_enabled():
-            from ee.clickhouse.models.event import (
-                get_agg_event_count_for_teams,
-                get_agg_event_count_for_teams_and_period,
-            )
+    if is_clickhouse_enabled():
+        from ee.clickhouse.models.event import get_agg_event_count_for_teams, get_agg_event_count_for_teams_and_period
 
-            usage["event_count_lifetime"] = get_agg_event_count_for_teams(team_ids)
-            usage["event_count_in_period"] = get_agg_event_count_for_teams_and_period(
-                team_ids, period_start, period_end
-            )
-            usage["event_count_in_month"] = get_agg_event_count_for_teams_and_period(team_ids, month_start, period_end)
-        else:
-            usage["event_count_lifetime"] = Event.objects.filter(team_id__in=team_ids).count()
-            usage["event_count_in_period"] = Event.objects.filter(
-                team_id__in=team_ids, timestamp__gte=period_start, timestamp__lte=period_end,
-            ).count()
-            usage["event_count_in_month"] = Event.objects.filter(
-                team_id__in=team_ids, timestamp__gte=month_start, timestamp__lte=period_end,
-            ).count()
-    except Exception as err:
-        report_org_usage_failure(distinct_id, str(err))
+        usage["event_count_lifetime"] = get_agg_event_count_for_teams(team_ids)
+        usage["event_count_in_period"] = get_agg_event_count_for_teams_and_period(team_ids, period_start, period_end)
+        usage["event_count_in_month"] = get_agg_event_count_for_teams_and_period(team_ids, month_start, period_end)
+    else:
+        usage["event_count_lifetime"] = Event.objects.filter(team_id__in=team_ids).count()
+        usage["event_count_in_period"] = Event.objects.filter(
+            team_id__in=team_ids, timestamp__gte=period_start, timestamp__lte=period_end,
+        ).count()
+        usage["event_count_in_month"] = Event.objects.filter(
+            team_id__in=team_ids, timestamp__gte=month_start, timestamp__lte=period_end,
+        ).count()
 
     return usage
 

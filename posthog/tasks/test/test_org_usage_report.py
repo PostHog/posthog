@@ -35,12 +35,12 @@ def factory_org_usage_report(_create_event: Callable, _create_person: Callable) 
                 _create_person("old_user1", team=self.team)
                 _create_person("old_user2", team=self.team)
 
-            with freeze_time("2020-11-11 12:00:00"):
+            with freeze_time("2020-11-11 00:30:00"):
                 _create_person("new_user1", team=self.team)
                 _create_person("new_user2", team=self.team)
-                _create_event("new_user1", "$event1", "$web", now() - relativedelta(days=1, hours=2), team=self.team)
-                _create_event("new_user1", "$event2", "$web", now() - relativedelta(days=1, hours=1), team=self.team)
-                _create_event("new_user1", "$event2", "$web", now() - relativedelta(days=3, hours=1), team=self.team)
+                _create_event("new_user1", "$event1", "$web", now() - relativedelta(hours=12), team=self.team)
+                _create_event("new_user1", "$event2", "$web", now() - relativedelta(hours=11), team=self.team)
+                _create_event("new_user1", "$event2", "$web", now() - relativedelta(hours=11), team=self.team)
                 _create_event("new_user1", "$event2", "$mobile", now() - relativedelta(days=1, hours=1), team=self.team)
                 _create_event("new_user1", "$event3", "$mobile", now() - relativedelta(weeks=5), team=self.team)
 
