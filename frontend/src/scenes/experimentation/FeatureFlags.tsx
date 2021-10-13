@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Table, Switch } from 'antd'
+import { Table, Switch, Typography } from 'antd'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
@@ -54,7 +54,9 @@ export function FeatureFlags(): JSX.Element {
                                 explicitValue={featureFlag.key}
                             />
                         </div>
-                        <span style={{ marginRight: 4 }}>{featureFlag.key}</span>
+                        <Typography.Text ellipsis={true} title={featureFlag.key}>
+                            {featureFlag.key}
+                        </Typography.Text>
                     </div>
                 )
             },
@@ -71,7 +73,9 @@ export function FeatureFlags(): JSX.Element {
                             whiteSpace: 'break-spaces',
                         }}
                     >
-                        {featureFlag.name}
+                        <Typography.Text ellipsis={true} title={featureFlag.name}>
+                            {featureFlag.name}
+                        </Typography.Text>
                     </div>
                 )
             },
