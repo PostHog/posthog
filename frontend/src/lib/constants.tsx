@@ -233,7 +233,6 @@ export const FEATURE_FLAGS = {
     NPS_PROMPT: '4562-nps',
     PLUGIN_METRICS: '4871-plugin-metrics',
     SESSIONS_TABLE: '4964-sessions-table', // Expand/collapse all in sessions table (performance consideration)
-    INGESTION_HELP_BUTTON: '112-ingestion-help-button',
     SAVED_INSIGHTS: '3408-saved-insights',
     MULTIVARIATE_SUPPORT: '5440-multivariate-support',
     FUNNEL_HORIZONTAL_UI: '5730-funnel-horizontal-ui',
