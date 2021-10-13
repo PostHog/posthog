@@ -67,15 +67,21 @@ export function FeatureFlags(): JSX.Element {
                 return (
                     <div
                         style={{
+                            display: 'flex',
                             wordWrap: 'break-word',
                             maxWidth: 450,
                             width: 'auto',
                             whiteSpace: 'break-spaces',
                         }}
                     >
-                        <Typography.Text ellipsis={true} title={featureFlag.name}>
+                        <Typography.Paragraph
+                            ellipsis={{
+                                rows: 5,
+                            }}
+                            title={featureFlag.name}
+                        >
                             {featureFlag.name}
-                        </Typography.Text>
+                        </Typography.Paragraph>
                     </div>
                 )
             },
