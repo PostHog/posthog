@@ -13,7 +13,7 @@ import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export function FeatureFlags(): JSX.Element {

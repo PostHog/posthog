@@ -20,8 +20,8 @@ import trackingTeams from 'scenes/onboarding/home/static/tracking-teams.png'
 
 import { TileParams } from '~/types'
 import { GithubOutlined, SlackOutlined } from '@ant-design/icons'
-import { userLogic } from 'scenes/userLogic'
 import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
+import { teamLogic } from '../../../teamLogic'
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=project-home'
 
@@ -171,7 +171,7 @@ export function CommunityIcons(): JSX.Element {
 }
 
 export function LearnAndShare(): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { insights, insightsLoading } = useValues(insightHistoryLogic)
 
     const COMMUNITY_PANEL = 'community'
@@ -203,15 +203,14 @@ export function LearnAndShare(): JSX.Element {
         )
     }
 
-    const showNewUserPanel = !insightsLoading && (!user?.team?.ingested_event || insights.length < 1)
+    const showNewUserPanel = !insightsLoading && (!currentTeam?.ingested_event || insights.length < 1)
     return (
         <Card className="home-page section-card">
             <Title level={4} id="name" className="subtitle">
                 Learn and Share
             </Title>
             <Divider />
-            {showNewUserPanel && getShareAndLearnModule(false)}
-            {!showNewUserPanel && getShareAndLearnModule(true)}
+            {getShareAndLearnModule(!showNewUserPanel)}
         </Card>
     )
 }

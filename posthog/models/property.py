@@ -6,7 +6,7 @@ from django.db.models import Exists, OuterRef, Q
 from posthog.utils import is_valid_regex
 
 ValueT = Union[str, int, List[str]]
-PropertyType = Literal["event", "person", "cohort", "element"]
+PropertyType = Literal["event", "person", "cohort", "element", "hasdone", "static-cohort", "precalculated-cohort"]
 PropertyName = str
 TableWithProperties = Literal["events", "person"]
 OperatorType = Literal[

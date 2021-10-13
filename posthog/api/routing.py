@@ -146,7 +146,7 @@ class StructuredViewSetMixin(_GenericViewSet):
 
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
-        token, _ = get_token(None, self.request)
+        token = get_token(None, self.request)
 
         if token:
             team = Team.objects.get_team_from_token(token)

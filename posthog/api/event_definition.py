@@ -55,7 +55,7 @@ class EventDefinitionViewSet(
                     WHERE team_id = %(team_id)s {search_query}
                     ORDER BY name
                     """,
-                    params={"team_id": self.request.user.team.id, **search_kwargs},  # type: ignore
+                    params={"team_id": self.team_id, **search_kwargs},
                 )
                 return ee_event_definitions
 

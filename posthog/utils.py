@@ -37,7 +37,7 @@ from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.request import Request
-from sentry_sdk import push_scope
+from sentry_sdk import configure_scope
 
 from posthog.constants import AnalyticsDBMS, AvailableFeature
 from posthog.exceptions import RequestParsingError
@@ -390,8 +390,10 @@ def load_data_from_request(request):
         return None
 
     # add the data in sentry's scope in case there's an exception
-    with push_scope() as scope:
+    with configure_scope() as scope:
         scope.set_context("data", data)
+        scope.set_tag("origin", request.META.get("REMOTE_HOST", "unknown"))
+        scope.set_tag("referer", request.META.get("HTTP_REFERER", "unknown"))
 
     compression = (
         request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
@@ -771,7 +773,9 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 
 def should_refresh(request: Request) -> bool:
     key = "refresh"
-    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true"
+    return (request.query_params.get(key, "") or request.GET.get(key, "")).lower() == "true" or request.data.get(
+        key, False
+    ) == True
 
 
 def str_to_bool(value: Any) -> bool:

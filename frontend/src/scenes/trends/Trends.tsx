@@ -18,20 +18,18 @@ import { InsightsTable } from 'scenes/insights/InsightsTable'
 import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface Props {
     view: ViewType
 }
 
 export function TrendInsight({ view }: Props): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
-    const {
-        filters: _filters,
-        loadMoreBreakdownUrl,
-        breakdownValuesLoading,
-    } = useValues(trendsLogic({ dashboardItemId: null, filters: null }))
-    const { loadMoreBreakdownValues } = useActions(trendsLogic({ dashboardItemId: null, filters: null }))
+    const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
+    const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const { showingPeople } = useValues(personsModalLogic)
     const { saveCohortWithFilters } = useActions(personsModalLogic)
     const { reportCohortCreatedFromPersonModal } = useActions(eventUsageLogic)
@@ -42,11 +40,11 @@ export function TrendInsight({ view }: Props): JSX.Element {
             _filters.display === ACTIONS_LINE_GRAPH_CUMULATIVE ||
             _filters.display === ACTIONS_BAR_CHART
         ) {
-            return <ActionsLineGraph filters={_filters} view={view} />
+            return <ActionsLineGraph filters={_filters} />
         }
         if (_filters.display === ACTIONS_TABLE) {
             if (view === ViewType.SESSIONS && _filters.session === 'dist') {
-                return <ActionsTable filters={_filters} view={view} />
+                return <ActionsTable filters={_filters} />
             }
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
@@ -55,10 +53,10 @@ export function TrendInsight({ view }: Props): JSX.Element {
             )
         }
         if (_filters.display === ACTIONS_PIE_CHART) {
-            return <ActionsPie filters={_filters} view={view} />
+            return <ActionsPie filters={_filters} />
         }
         if (_filters.display === ACTIONS_BAR_CHART_VALUE) {
-            return <ActionsBarValueGraph filters={_filters} view={view} />
+            return <ActionsBarValueGraph filters={_filters} />
         }
     }
 

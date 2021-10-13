@@ -44,13 +44,13 @@ class TestActionApi(ClickhouseTestMixin, factory_test_action_api(_create_event))
 class TestActionPeople(
     ClickhouseTestMixin, action_people_test_factory(_create_event, _create_person, _create_action, _create_cohort)  # type: ignore
 ):
-    @patch("posthog.tasks.calculate_action.calculate_action.delay")
-    def test_is_calculating_always_false(self, patch_delay):
+    @patch("posthog.models.action.Action.calculate_events")
+    def test_is_calculating_always_false(self, calculate_events):
         create_response_wrapper = self.client.post("/api/action/", {"name": "ooh"})
         create_response = create_response_wrapper.json()
         self.assertEqual(create_response_wrapper.status_code, status.HTTP_201_CREATED)
         self.assertEqual(create_response["is_calculating"], False)
-        self.assertFalse(patch_delay.called)
+        self.assertFalse(calculate_events.called)
 
         response = self.client.get("/api/action/").json()
         self.assertEqual(response["results"][0]["is_calculating"], False)
@@ -63,7 +63,7 @@ class TestActionPeople(
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "ooh")
         self.assertEqual(response.json()["is_calculating"], False)
-        self.assertFalse(patch_delay.called)
+        self.assertFalse(calculate_events.called)
 
     def test_active_user_weekly_people(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})

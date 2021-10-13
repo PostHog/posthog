@@ -13,7 +13,7 @@ import { ObjectTags } from 'lib/components/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
 import { ColumnType } from 'antd/lib/table'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)

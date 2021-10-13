@@ -16,7 +16,7 @@ import { TeamType, UserType, FusedTeamMemberType } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { teamLogic } from '../../teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,

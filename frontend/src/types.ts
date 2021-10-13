@@ -320,6 +320,19 @@ export interface RecordingDurationFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface RecordingFilters {
+    date_from?: string | null
+    date_to?: string | null
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
+    offset?: number
+    session_recording_duration?: RecordingDurationFilter
+}
+export interface SessionRecordingsResponse {
+    results: SessionRecordingType[]
+    has_next: boolean
+}
+
 interface RecordingNotViewedFilter extends BasePropertyFilter {
     type: 'recording'
     key: 'unseen'
@@ -495,6 +508,7 @@ export interface SessionRecordingType {
     end_time: string
     distinct_id?: string
     email?: string
+    person?: PersonType
 }
 
 export interface BillingType {
@@ -543,6 +557,7 @@ export interface DashboardItemType {
     result: any | null
     updated_at: string
     tags: string[]
+    next?: string // only used in the frontend to store the next breakdown url
 }
 
 export interface DashboardType {
@@ -725,7 +740,7 @@ export interface FilterType {
     shown_as?: ShownAsType
     session?: string
     period?: string
-    retentionType?: RetentionType
+    retention_type?: RetentionType
     new_entity?: Record<string, any>[]
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
@@ -923,6 +938,11 @@ export interface LoadedRawFunnelResults {
     filters: Partial<FilterType>
 }
 
+export enum FunnelStepReference {
+    total = 'total',
+    previous = 'previous',
+}
+
 export interface FunnelStepWithConversionMetrics extends FunnelStep {
     droppedOffFromPrevious: number
     conversionRates: {
@@ -960,18 +980,22 @@ export interface ChartParams {
     inSharedMode?: boolean
     showPersonsModal?: boolean
     cachedResults?: TrendResult[]
-    view: ViewType
 }
 
-// Shared between dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
-export interface SharedInsightLogicProps {
-    // the chart is displayed on a dashboard right now, used in the key if present
+// Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
+export interface InsightLogicProps {
+    /** currently persisted insight */
     dashboardItemId?: number | null
-    // the insight is connected to a dashboard item, yet viewed on the insights scene
-    fromDashboardItemId?: number | null
+    /** enable url handling for this insight */
+    syncWithUrl?: boolean
+    /** cached results, avoid making a request */
     cachedResults?: any
+    /** cached filters, avoid making a request */
     filters?: Partial<FilterType> | null
+    /** not sure about this one */
     preventLoading?: boolean
+    /** enable this to make unsaved queries */
+    doNotPersist?: boolean
 }
 
 export interface FeatureFlagGroupType {

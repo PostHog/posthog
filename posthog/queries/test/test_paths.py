@@ -123,14 +123,14 @@ def paths_test_factory(paths, event_factory, person_factory):
                 self.assertEqual(len(response), 4)
 
                 # Test account filter
-                filter = PathFilter(data={**date_params, FILTER_TEST_ACCOUNTS: True})
+                filter = PathFilter(data={**date_params, FILTER_TEST_ACCOUNTS: True}, team=self.team)
                 response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
                 self.assertEqual(len(response), 3)
 
                 date_from = now() + relativedelta(days=7)
                 date_to = now() - relativedelta(days=7)
                 date_params = {"date_from": date_from.strftime("%Y-%m-%d"), "date_to": date_to.strftime("%Y-%m-%d")}
-                filter = PathFilter(data={**date_params})
+                filter = PathFilter(data={**date_params}, team=self.team)
                 response = paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
                 self.assertEqual(len(response), 0)
 

@@ -34,13 +34,15 @@ def get_filter(team, data: dict = {}, request: Optional[Request] = None):
     if not insight and request:
         insight = request.GET.get("insight") or request.data.get("insight")
     if insight == INSIGHT_RETENTION:
-        return RetentionFilter(data={**data, "insight": INSIGHT_RETENTION}, request=request)
+        return RetentionFilter(data={**data, "insight": INSIGHT_RETENTION}, request=request, team=team)
     elif insight == INSIGHT_SESSIONS:
-        return SessionsFilter(data={**data, "insight": INSIGHT_SESSIONS}, request=request)
+        return SessionsFilter(data={**data, "insight": INSIGHT_SESSIONS}, request=request, team=team)
     elif insight == INSIGHT_STICKINESS or (insight == INSIGHT_TRENDS and data.get("shown_as") == "Stickiness"):
         return StickinessFilter(data=data, request=request, team=team, get_earliest_timestamp=earliest_timestamp_func)
     elif insight == INSIGHT_PATHS:
-        return PathFilter(data={**data, "insight": INSIGHT_PATHS}, request=request)
+        return PathFilter(data={**data, "insight": INSIGHT_PATHS}, request=request, team=team)
     elif insight == INSIGHT_FUNNELS:
-        return Filter(data={**data, **(request.data if request else {}), "insight": INSIGHT_FUNNELS}, request=request)
-    return Filter(data=data, request=request)
+        return Filter(
+            data={**data, **(request.data if request else {}), "insight": INSIGHT_FUNNELS}, request=request, team=team
+        )
+    return Filter(data=data, request=request, team=team)

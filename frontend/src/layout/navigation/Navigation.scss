@@ -286,34 +286,6 @@
             height: 22px;
         }
     }
-
-    .global-environment-switch {
-        display: flex;
-        align-items: center;
-        label {
-            font-weight: bold;
-            color: $success;
-            padding-right: 4px;
-            a {
-                color: $text_muted;
-            }
-
-            svg {
-                margin-right: 4px;
-            }
-
-            &.test {
-                color: $warning;
-            }
-        }
-        .ant-switch:not(.ant-switch-checked) {
-            background-color: $warning;
-        }
-
-        .ant-switch.ant-switch-checked {
-            background-color: $success;
-        }
-    }
 }
 
 .navigation-spacer {

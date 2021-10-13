@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Badge } from 'lib/components/Badge'
 import { ChangelogModal } from '~/layout/ChangelogModal'
 import { router } from 'kea-router'
-import { Button, Card, Dropdown, Switch } from 'antd'
+import { Button, Card, Dropdown } from 'antd'
 import {
     ProjectOutlined,
     DownOutlined,
@@ -23,7 +23,8 @@ import {
     SmileOutlined,
     StopOutlined,
 } from '@ant-design/icons'
-import { sceneLogic, urls } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { isMobile, platformCommandControlKey } from 'lib/utils'
@@ -35,12 +36,11 @@ import { AvailableFeature, TeamBasicType, UserType } from '~/types'
 import { CreateInviteModalWithButton } from 'scenes/organization/Settings/CreateInviteModal'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { Environments, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tooltip } from 'lib/components/Tooltip'
-import { teamLogic } from '../../scenes/teamLogic'
-import { organizationLogic } from '../../scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 export function WhoAmI({ user }: { user: UserType }): JSX.Element {
     return (
@@ -106,7 +106,6 @@ export function TopNavigation(): JSX.Element {
         setMenuCollapsed,
         setChangelogModalOpen,
         setInviteMembersModalOpen,
-        setFilteredEnvironment,
         setProjectModalShown,
         setOrganizationModalShown,
     } = useActions(navigationLogic)
@@ -116,7 +115,6 @@ export function TopNavigation(): JSX.Element {
         updateAvailable,
         changelogModalOpen,
         inviteMembersModalOpen,
-        filteredEnvironment,
         projectModalShown,
         organizationModalShown,
     } = useValues(navigationLogic)
@@ -129,7 +127,6 @@ export function TopNavigation(): JSX.Element {
     const { guardAvailableFeature } = useActions(sceneLogic)
     const { sceneConfig } = useValues(sceneLogic)
     const { showPalette } = useActions(commandPaletteLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const isCurrentProjectRestricted = currentTeam && !currentTeam.effective_membership_level
     const isProjectCreationForbidden =
@@ -356,30 +353,6 @@ export function TopNavigation(): JSX.Element {
                 </div>
                 {user && (
                     <>
-                        {featureFlags[FEATURE_FLAGS.TEST_ENVIRONMENT] && (
-                            <div className="global-environment-switch">
-                                <label
-                                    htmlFor="global-environment-switch"
-                                    className={filteredEnvironment === Environments.TEST ? 'test' : ''}
-                                >
-                                    <Tooltip title="Toggle to view only test or production data everywhere. Click to learn more.">
-                                        <a href="https://posthog.com/docs" target="_blank" rel="noopener">
-                                            <InfoCircleOutlined />
-                                        </a>
-                                    </Tooltip>
-                                    {filteredEnvironment === Environments.PRODUCTION ? 'Production' : 'Test'}
-                                </label>
-                                <Switch
-                                    // @ts-expect-error - below works even if it's not defined as a prop
-                                    id="global-environment-switch"
-                                    checked={filteredEnvironment === Environments.PRODUCTION}
-                                    defaultChecked={filteredEnvironment === Environments.PRODUCTION}
-                                    onChange={(val) =>
-                                        setFilteredEnvironment(val ? Environments.PRODUCTION : Environments.TEST)
-                                    }
-                                />
-                            </div>
-                        )}
                         <Dropdown
                             overlay={whoAmIDropdown}
                             overlayClassName="navigation-top-dropdown-overlay"

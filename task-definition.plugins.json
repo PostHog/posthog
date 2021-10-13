@@ -69,10 +69,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "PLUGIN_SERVER_ACTION_MATCHING",
-                    "value": "1"
-                },
-                {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
                     "value": "3000"
                 },
@@ -140,6 +136,13 @@
                 }
             ],
             "entryPoint": ["./bin/plugin-server", "--no-restart-loop"],
+            "ulimits": [
+                {
+                    "name": "nofile",
+                    "softLimit": 1024000,
+                    "hardLimit": 1024000
+                }
+            ],
             "linuxParameters": {
                 "initProcessEnabled": true
             }

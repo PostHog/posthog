@@ -44,7 +44,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -291,7 +291,7 @@ export const commandPaletteLogic = kea<
                     resolver: dashboards.map((dashboard: DashboardType) => ({
                         key: `dashboard_${dashboard.id}`,
                         icon: LineChartOutlined,
-                        display: `Go to Dashboard ${dashboard.name}`,
+                        display: `Go to Dashboard: ${dashboard.name}`,
                         executor: () => {
                             const { push } = router.actions
                             push(urls.dashboard(dashboard.id))

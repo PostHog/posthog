@@ -20,10 +20,12 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export function NewPathTab(): JSX.Element {
-    const { filter, wildcards } = useValues(pathsLogic({ dashboardItemId: null }))
-    const { setFilter, updateExclusions } = useActions(pathsLogic({ dashboardItemId: null }))
+    const { insightProps } = useValues(insightLogic)
+    const { filter, wildcards } = useValues(pathsLogic(insightProps))
+    const { setFilter, updateExclusions } = useActions(pathsLogic(insightProps))
 
     const { showingPeople, cohortModalVisible } = useValues(personsModalLogic)
     const { setCohortModalVisible } = useActions(personsModalLogic)
@@ -492,7 +494,10 @@ export function NewPathTab(): JSX.Element {
                                 type: 'event',
                             }))
                         }
-                        onChange={updateExclusions}
+                        onChange={(values) => {
+                            const exclusion = values.length > 0 ? values.map((v) => v.value) : values
+                            updateExclusions(exclusion as string[])
+                        }}
                         wildcardOptions={wildcards}
                     />
                 </Col>

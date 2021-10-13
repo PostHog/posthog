@@ -92,7 +92,6 @@ PLUGINS_PREINSTALLED_URLS: List[str] = os.getenv(
 ).split(",") if not DISABLE_MMDB else []
 PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
-PLUGIN_SERVER_ACTION_MATCHING = get_from_env("PLUGIN_SERVER_ACTION_MATCHING", 2, type_cast=int)
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
@@ -462,17 +461,7 @@ if not REDIS_URL:
 # NB! This is set to explicitly exclude the "posthog-plugins" queue, handled by a nodejs process
 CELERY_QUEUES = (Queue("celery", Exchange("celery"), "celery"),)
 CELERY_DEFAULT_QUEUE = "celery"
-CELERY_IMPORTS = ["posthog.tasks.webhooks"]  # required to avoid circular import
-
-if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE:
-    try:
-        from ee.apps import EnterpriseConfig  # noqa: F401
-    except ImportError:
-        pass
-    else:
-        CELERY_IMPORTS.append("ee.tasks.webhooks_ee")
-        CELERY_IMPORTS.append("ee.tasks.materialized_columns")
-
+CELERY_IMPORTS = ["ee.tasks.materialized_columns"] if PRIMARY_DB == AnalyticsDBMS.CLICKHOUSE and EE_AVAILABLE else []
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events
 CELERY_RESULT_BACKEND = REDIS_URL  # stores results for lookup when processing
@@ -640,3 +629,6 @@ LOGGING = {
         "statsd": {"handlers": ["console"], "level": "WARNING", "propagate": True,},
     },
 }
+
+# keep in sync with plugin-server
+EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"

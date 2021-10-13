@@ -5,6 +5,7 @@ import { FunnelVizType } from '~/types'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 interface ToggleButtonChartFilterProps {
     onChange?: (chartFilter: FunnelVizType) => void
@@ -17,7 +18,8 @@ export function ToggleButtonChartFilter({
     onChange = noop,
     disabled = false,
 }: ToggleButtonChartFilterProps): JSX.Element | null {
-    const { clickhouseFeaturesEnabled } = useValues(funnelLogic())
+    const { insightProps } = useValues(insightLogic)
+    const { clickhouseFeaturesEnabled } = useValues(funnelLogic(insightProps))
     const { chartFilter } = useValues(chartFilterLogic)
     const { setChartFilter } = useActions(chartFilterLogic)
     const defaultDisplay = FunnelVizType.Steps

@@ -5,7 +5,7 @@ export interface PrintActionsOptions {
 }
 
 export const printActions: ExpectFunction<any> = {
-    common(logic, options: PrintActionsOptions) {
+    common(logic, options: PrintActionsOptions = {}) {
         const { recordedHistory, historyIndex } = testUtilsContext()
 
         const text = recordedHistory
