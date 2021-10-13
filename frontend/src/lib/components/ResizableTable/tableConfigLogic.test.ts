@@ -81,7 +81,7 @@ describe('tableConfigLogic', () => {
         })
     })
 
-    describe('selectable columns are any that are possible but not currently selected', async () => {
+    it('selectable columns are any that are possible but not currently selected', async () => {
         await expectLogic(logic, () => {
             logic.actions.setAllPossibleColumns(['a', 'b', 'c', 'd'])
             logic.actions.setDefaultColumns(['a', 'b'])
