@@ -9,7 +9,7 @@ from django.utils.timezone import now
 from ee.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.util import cache_for
 from posthog.models.property import PropertyName, TableWithProperties
-from posthog.models.utils import generate_short_random_suffix
+from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION, TEST
 
 ColumnName = str
@@ -141,7 +141,7 @@ def materialized_column_name(table: TableWithProperties, property: PropertyName)
     suffix = ""
 
     while f"{prefix}{property_str}{suffix}" in existing_materialized_columns:
-        suffix = "_" + generate_short_random_suffix()
+        suffix = "_" + generate_random_short_suffix()
 
     return f"{prefix}{property_str}{suffix}"
 
