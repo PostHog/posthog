@@ -160,7 +160,6 @@ export interface TeamBasicType {
     organization: string // Organization ID
     api_token: string
     name: string
-    slug: string
     completed_snippet_onboarding: boolean
     ingested_event: boolean
     is_demo: boolean
