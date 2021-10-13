@@ -1,5 +1,5 @@
 import React from 'react'
-import { Col, Input, Row, Table } from 'antd'
+import { Col, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined } from '@ant-design/icons'
