@@ -1,5 +1,14 @@
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple, cast
+from typing import (
+    Any,
+    Callable,
+    Counter,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    cast,
+)
 
 from django.utils import timezone
 from rest_framework import exceptions
@@ -11,7 +20,7 @@ from ee.clickhouse.models.cohort import (
     format_precalculated_cohort_query,
     format_static_cohort_query,
 )
-from ee.clickhouse.models.util import is_json
+from ee.clickhouse.models.util import PersonPropertiesMode, is_json
 from ee.clickhouse.sql.events import SELECT_PROP_VALUES_SQL, SELECT_PROP_VALUES_SQL_WITH_FILTER
 from ee.clickhouse.sql.person import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.cohort import Cohort
@@ -27,9 +36,8 @@ def parse_prop_clauses(
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
-    is_person_query=False,
-    person_properties_column: Optional[str] = None,
     has_person_id_joined: bool = True,
+    person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -50,16 +58,16 @@ def parse_prop_clauses(
                 final.append(
                     "AND {table_name}distinct_id IN ({clause})".format(table_name=table_name, clause=person_id_query)
                 )
-        elif prop.type == "person":
+        elif prop.type == "person" and person_properties_mode != PersonPropertiesMode.EXCLUDE:
             # :TODO: Clean this up by using ClickhousePersonQuery over GET_DISTINCT_IDS_BY_PROPERTY_SQL to have access
             #   to materialized columns
             # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
-            is_direct_query = is_person_query or person_properties_column is not None
+            is_direct_query = person_properties_mode == PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
                 idx,
                 "{}person".format(prepend),
-                prop_var=(person_properties_column or "properties") if is_direct_query else "properties",
+                prop_var="person_props" if is_direct_query else "properties",
                 allow_denormalized_props=allow_denormalized_props and is_direct_query,
             )
             if is_direct_query:
@@ -108,12 +116,24 @@ def parse_prop_clauses(
 
 
 def prop_filter_json_extract(
-    prop: Property, idx: int, prepend: str = "", prop_var: str = "properties", allow_denormalized_props: bool = False
+    prop: Property,
+    idx: int,
+    prepend: str = "",
+    prop_var: str = "properties",
+    allow_denormalized_props: bool = True,
+    transform_expression: Optional[Callable[[str], str]] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
+    if transform_expression is not None:
+        prop_var = transform_expression(prop_var)
+
     property_expr, is_denormalized = get_property_string_expr(
         property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
     )
+
+    if is_denormalized and transform_expression:
+        property_expr = transform_expression(property_expr)
+
     operator = prop.operator
     params: Dict[str, Any] = {}
 
@@ -362,5 +382,5 @@ def build_selector_regex(selector: Selector) -> str:
     return regex
 
 
-def extract_tables_and_properties(props: List[Property]) -> Set[Tuple[PropertyName, PropertyType]]:
-    return set((prop.key, prop.type) for prop in props)
+def extract_tables_and_properties(props: List[Property]) -> Counter[Tuple[PropertyName, PropertyType]]:
+    return Counter((prop.key, prop.type) for prop in props)

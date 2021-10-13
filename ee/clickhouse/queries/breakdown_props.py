@@ -4,6 +4,7 @@ from ee.clickhouse.client import sync_execute
 from ee.clickhouse.models.cohort import format_filter_query
 from ee.clickhouse.models.entity import get_entity_filtering_params
 from ee.clickhouse.models.property import get_property_string_expr, parse_prop_clauses
+from ee.clickhouse.models.util import PersonPropertiesMode
 from ee.clickhouse.queries.column_optimizer import ColumnOptimizer
 from ee.clickhouse.queries.person_query import ClickhousePersonQuery
 from ee.clickhouse.queries.util import parse_timestamps
@@ -30,17 +31,15 @@ def get_breakdown_prop_values(
 
     parsed_date_from, parsed_date_to, _ = parse_timestamps(filter=filter, team_id=team_id)
     prop_filters, prop_filter_params = parse_prop_clauses(
-        filter.properties,
+        filter.properties + entity.properties,
         team_id,
         table_name="e",
         prepend="e_brkdwn",
-        person_properties_column="person_props",
+        person_properties_mode=PersonPropertiesMode.EXCLUDE,
         allow_denormalized_props=True,
     )
 
-    entity_params, entity_format_params = get_entity_filtering_params(
-        entity, team_id, with_prop_filters=True, person_properties_column="person_props", table_name="e"
-    )
+    entity_params, entity_format_params = get_entity_filtering_params(entity, team_id, table_name="e")
 
     if filter.breakdown_type == "person":
         value_expression, _ = get_property_string_expr("person", cast(str, filter.breakdown), "%(key)s", "person_props")
@@ -48,11 +47,13 @@ def get_breakdown_prop_values(
         value_expression, _ = get_property_string_expr("events", cast(str, filter.breakdown), "%(key)s", "properties")
 
     person_join_clauses = ""
-    person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer)
+    person_join_params: Dict = {}
+    person_query = ClickhousePersonQuery(filter, team_id, column_optimizer=column_optimizer, entity=entity)
     if person_query.is_used:
+        person_subquery, person_join_params = person_query.get_query()
         person_join_clauses = f"""
             INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) AS pdi ON e.distinct_id = pdi.distinct_id
-            INNER JOIN ({person_query.get_query()}) person ON pdi.person_id = person.id
+            INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
         """
 
     elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
@@ -74,6 +75,7 @@ def get_breakdown_prop_values(
             "offset": filter.offset,
             **prop_filter_params,
             **entity_params,
+            **person_join_params,
             **extra_params,
         },
     )[0][0]

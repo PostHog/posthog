@@ -282,7 +282,7 @@ jobs:
                   cd deploy
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django syrupy
 
             - name: Link posthog-cloud at current branch
               run: |
