@@ -389,3 +389,14 @@ class TestPasswordResetAPI(APIBaseTest):
             self.user.refresh_from_db()
             self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
             self.assertFalse(self.user.check_password("a12345678"))
+
+    def test_e2e_test_special_handlers(self):
+        with self.settings(E2E_TESTING=True):
+            response = self.client.get("/api/reset/e2e_test_user/?token=e2e_test_token")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        with self.settings(E2E_TESTING=True):
+            response = self.client.post(
+                "/api/reset/e2e_test_user/", {"token": "e2e_test_token", "password": "a12345678"}
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
