@@ -17,17 +17,12 @@ const hashCode = (str: string): string => {
     return (hash >>> 0).toString()
 }
 
-const toKey = (props: PersonHeaderProps): string => (props.person ? hashCode(JSON.stringify(props)) : uuid())
-
-const toUrl = (person: Partial<PersonType> | null | undefined): string | undefined =>
-    person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : ''
-
 export const personHeaderLogic = kea<personHeaderLogicType>({
     props: {} as PersonHeaderProps,
-    key: (props) => toKey(props),
+    key: (props) => (props.person ? hashCode(JSON.stringify(props)) : uuid()),
     reducers: ({ props }) => ({
         withIcon: [props.withIcon || false],
-        personLink: [toUrl(props.person) as string],
+        personLink: [(props.person?.distinct_ids?.length ? urls.person(props.person.distinct_ids[0]) : '') as string],
         isIdentified: [props?.person?.is_identified || false],
     }),
     selectors: {
