@@ -29,7 +29,7 @@ function getPersistedFeatureFlags(): FeatureFlagsSet {
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const persistedFlags = getPersistedFeatureFlags()
-    const availableFlags = Object.keys(persistedFlags).length ? featureFlags : persistedFlags
+    const availableFlags = Object.keys(persistedFlags).length ? persistedFlags : featureFlags
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
