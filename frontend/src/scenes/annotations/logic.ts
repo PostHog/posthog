@@ -4,13 +4,18 @@ import { toParams, deleteWithUndo } from 'lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogicType } from './logicType'
 import { AnnotationType } from '~/types'
+import { ProjectBasedLogicProps, getProjectBasedLogicKeyBuilder } from 'lib/utils/logics'
 
 export const annotationsTableLogic = kea<annotationsTableLogicType>({
-    loaders: ({ actions }) => ({
+    props: {} as ProjectBasedLogicProps,
+    key: getProjectBasedLogicKeyBuilder(),
+    loaders: ({ actions, props }) => ({
         annotations: {
             __default: [],
             loadAnnotations: async () => {
-                const response = await api.get('api/annotation/?' + toParams({ order: '-updated_at' }))
+                const response = await api.get(
+                    `api/projects/${props.teamId}/annotations/?${toParams({ order: '-updated_at' })}`
+                )
                 actions.setNext(response.next)
                 return response.results
             },
@@ -42,18 +47,18 @@ export const annotationsTableLogic = kea<annotationsTableLogicType>({
         setNext: (next) => ({ next }),
         appendAnnotations: (annotations: AnnotationType[]) => ({ annotations }),
     }),
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions, values, props }) => ({
         updateAnnotation: async ({ id, content }) => {
-            await api.update(`api/annotation/${id}`, { content })
+            await api.update(`api/projects/${props.teamId}/annotations/${id}`, { content })
             actions.loadAnnotations()
         },
         restoreAnnotation: async ({ id }) => {
-            await api.update(`api/annotation/${id}`, { deleted: false })
+            await api.update(`api/projects/${props.teamId}/annotations/${id}`, { deleted: false })
             actions.loadAnnotations()
         },
         deleteAnnotation: ({ id }) => {
             deleteWithUndo({
-                endpoint: 'annotation',
+                endpoint: `projects/${props.teamId}/annotations`,
                 object: { name: 'Annotation', id },
                 callback: () => actions.loadAnnotations(),
             })
@@ -67,11 +72,11 @@ export const annotationsTableLogic = kea<annotationsTableLogicType>({
             }
             actions.appendAnnotations(results)
         },
-        [annotationsModel.actionTypes.createGlobalAnnotationSuccess]: () => {
+        [annotationsModel({ teamId: props.teamId }).actionTypes.createGlobalAnnotationSuccess]: () => {
             actions.loadAnnotations()
         },
     }),
-    events: ({ actions }) => ({
-        afterMount: actions.loadAnnotations,
+    events: ({ actions, props }) => ({
+        afterMount: () => props.teamId && actions.loadAnnotations(),
     }),
 })

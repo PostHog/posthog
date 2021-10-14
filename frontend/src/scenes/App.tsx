@@ -18,6 +18,8 @@ import { appLogicType } from './AppType'
 import { models } from '~/models'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { CloudAnnouncement } from '~/layout/navigation/CloudAnnouncement'
+import { teamLogic } from './teamLogic'
+import { ProjectBasedLogicProps } from '../lib/utils/logics'
 
 export const appLogic = kea<appLogicType>({
     actions: {
@@ -62,11 +64,12 @@ export const appLogic = kea<appLogicType>({
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     if (showApp) {
         return (
             <>
-                {user ? <Models /> : null}
+                {user && currentTeamId ? <Models teamId={currentTeamId} /> : null}
                 <AppScene />
             </>
         )
@@ -76,8 +79,8 @@ export function App(): JSX.Element | null {
 }
 
 /** Loads every logic in the "src/models" folder */
-function Models(): null {
-    useMountedLogic(models)
+function Models(props: ProjectBasedLogicProps): null {
+    useMountedLogic(models(props))
     return null
 }
 

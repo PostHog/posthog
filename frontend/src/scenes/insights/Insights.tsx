@@ -23,6 +23,7 @@ import { InsightsNav } from './InsightsNav'
 import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightMetadata } from 'scenes/insights/InsightMetadata'
+import { teamLogic } from '../teamLogic'
 
 dayjs.extend(relativeTime)
 
@@ -32,10 +33,11 @@ export function Insights(): JSX.Element {
         hashParams: { fromItem },
     } = useValues(router)
 
+    const { currentTeamId } = useValues(teamLogic)
     const logic = insightLogic({ dashboardItemId: fromItem, syncWithUrl: true })
     const { insightProps, activeView, filters, controlsCollapsed, insight, insightMode } = useValues(logic)
     const { setActiveView, toggleControlsCollapsed, setInsightMode, saveInsight } = useActions(logic)
-    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
+    const { annotationsToCreate } = useValues(annotationsLogic({ teamId: currentTeamId, pageKey: fromItem }))
     const { reportHotkeyNavigation } = useActions(eventUsageLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithFilters, setCohortModalVisible } = useActions(personsModalLogic)

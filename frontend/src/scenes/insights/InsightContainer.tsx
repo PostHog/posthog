@@ -31,6 +31,7 @@ import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { FunnelCorrelation } from './FunnelCorrelation'
+import { teamLogic } from '../teamLogic'
 
 const VIEW_MAP = {
     [`${ViewType.TRENDS}`]: <TrendInsight view={ViewType.TRENDS} />,
@@ -44,12 +45,13 @@ const VIEW_MAP = {
 
 export function InsightContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         hashParams: { fromItem },
     } = useValues(router)
-    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ pageKey: fromItem }))
-    const { annotationsToCreate } = useValues(annotationsLogic({ pageKey: fromItem }))
+    const { clearAnnotationsToCreate } = useActions(annotationsLogic({ teamId: currentTeamId, pageKey: fromItem }))
+    const { annotationsToCreate } = useValues(annotationsLogic({ teamId: currentTeamId, pageKey: fromItem }))
     const {
         insightProps,
         lastRefresh,
