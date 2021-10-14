@@ -22,7 +22,9 @@ describe('insightLogic', () => {
                     properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
                 },
             }
-        } else if (['api/insight', 'api/insight/session/', 'api/insight/trend/'].includes(pathname)) {
+        } else if (
+            ['api/insight', 'api/insight/session/', 'api/insight/trend/', 'api/insight/funnel/'].includes(pathname)
+        ) {
             return { result: ['result from api'] }
         }
         return defaultAPIMocks(url, { availableFeatures: [AvailableFeature.DASHBOARD_COLLABORATION] })
@@ -222,6 +224,32 @@ describe('insightLogic', () => {
                 .toDispatchActions([router.actionCreators.push(url2), 'setFilters'])
                 .toMatchValues({
                     filters: expect.objectContaining({ insight: 'TRENDS', interval: 'week' }),
+                })
+        })
+
+        it('takes the dashboardItemId from the URL', async () => {
+            const url = combineUrl('/insights', { insight: 'TRENDS' }, { fromItem: 42 }).url
+            router.actions.push(url)
+            await expectLogic(logic)
+                .toDispatchActions([router.actionCreators.push(url), 'loadInsight', 'loadInsightSuccess'])
+                .toNotHaveDispatchedActions(['loadResults'])
+                .toMatchValues({
+                    filters: expect.objectContaining({ insight: 'TRENDS' }),
+                    insight: expect.objectContaining({ id: 42, result: ['result from api'] }),
+                })
+
+            // changing the ID, does not query twice
+            router.actions.push(combineUrl('/insights', { insight: 'FUNNELS' }, { fromItem: 43 }).url)
+            await expectLogic(logic)
+                .toDispatchActions(['loadInsight', 'setFilters', 'loadResults', 'loadInsightSuccess'])
+                .toMatchValues({
+                    filters: expect.objectContaining({ insight: 'FUNNELS' }),
+                    insight: expect.objectContaining({ id: 43, result: null }),
+                })
+                .toNotHaveDispatchedActions(['loadResults']) // don't load twice!
+                .toDispatchActions(['loadResultsSuccess'])
+                .toMatchValues({
+                    insight: expect.objectContaining({ id: 43, result: ['result from api'] }),
                 })
         })
 

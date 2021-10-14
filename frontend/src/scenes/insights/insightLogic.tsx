@@ -77,7 +77,10 @@ export const insightLogic = kea<insightLogicType>({
         updateInsightFilters: (filters: FilterType) => ({ filters }),
         setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
-        loadInsight: (id: number) => ({ id }),
+        loadInsight: (id: number, { doNotLoadResults }: { doNotLoadResults?: boolean } = {}) => ({
+            id,
+            doNotLoadResults,
+        }),
         loadResults: (refresh = false) => ({ refresh, queryId: uuid() }),
     }),
     loaders: ({ actions, cache, values, props }) => ({
@@ -476,9 +479,9 @@ export const insightLogic = kea<insightLogicType>({
                 </div>
             )
         },
-        loadInsightSuccess: async ({ insight }) => {
+        loadInsightSuccess: async ({ payload, insight }) => {
             // loaded `/api/insight`, but it didn't have `results`, so make another query
-            if (!insight.result && values.filters) {
+            if (!insight.result && values.filters && !payload?.doNotLoadResults) {
                 actions.loadResults()
             }
         },
@@ -530,7 +533,8 @@ export const insightLogic = kea<insightLogicType>({
             if (props.syncWithUrl) {
                 if (hashParams.fromItem) {
                     if (!values.insight?.id || values.insight?.id !== hashParams.fromItem) {
-                        actions.loadInsight(hashParams.fromItem)
+                        // Do not load the result if missing, as setFilters below will do so anyway.
+                        actions.loadInsight(hashParams.fromItem, { doNotLoadResults: true })
                     }
                 } else {
                     if (values.insightMode !== ItemMode.Edit) {

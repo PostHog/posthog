@@ -8,8 +8,6 @@ export const toNotHaveDispatchedActions: ExpectFunction<ActionToDispatch[]> = {
         if (notFound.length !== actions.length) {
             throw new Error(`Found actions when we shouldn't have!`)
         }
-
-        testUtilsContext().historyIndex = testUtilsContext().recordedHistory.length
         testUtilsContext().ranActions = true
     },
 }
