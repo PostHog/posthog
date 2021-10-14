@@ -9,7 +9,8 @@ import { isMobile, triggerResize, triggerResizeAfterADelay } from 'lib/utils'
 import { DashboardItemType, DashboardMode } from '~/types'
 import { dashboardItemsModel } from '~/models/dashboardItemsModel'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import clsx from 'clsx'
 
 const ReactGridLayout = WidthProvider(Responsive)
 
@@ -33,9 +34,11 @@ export function DashboardItems(): JSX.Element {
     // can not click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
-    const className =
-        'layout' +
-        (dashboardMode === DashboardMode.Edit ? (isMobile() ? ' dragging-items wobbly' : ' dragging-items') : '')
+    const className = clsx({
+        'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
+        'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
+        wobbly: dashboardMode === DashboardMode.Edit && isMobile(),
+    })
 
     return (
         <ReactGridLayout
@@ -53,6 +56,7 @@ export function DashboardItems(): JSX.Element {
             onWidthChange={(containerWidth, _, newCols) => {
                 updateContainerWidth(containerWidth, newCols)
             }}
+            measureBeforeMount
             breakpoints={breakpoints}
             resizeHandles={['s', 'e', 'se']}
             cols={cols}
