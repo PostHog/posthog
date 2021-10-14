@@ -1,6 +1,7 @@
 import { DurationFilterLogicType } from './DurationFilterLogicType'
 import { BuiltLogic } from 'kea'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { PropertyOperator } from '~/types'
 import { DurationFilterLogic, DurationFilterProps, TimeUnit } from './DurationFilterLogic'
 

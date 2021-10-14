@@ -1,5 +1,6 @@
 import { defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { insightLogic } from './insightLogic'
 import { AvailableFeature, PropertyOperator, ViewType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
