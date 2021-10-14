@@ -3,13 +3,7 @@ import { tableConfigLogicType } from './tableConfigLogicType'
 import { router } from 'kea-router'
 import { ColumnChoice } from '~/types'
 
-export interface TableConfigLogicProps {
-    availableColumns: string[]
-    defaultColumns: string[]
-}
-
-export const tableConfigLogic = kea<tableConfigLogicType<TableConfigLogicProps>>({
-    props: { availableColumns: [], defaultColumns: [] } as TableConfigLogicProps,
+export const tableConfigLogic = kea<tableConfigLogicType>({
     actions: {
         showModal: true,
         hideModal: false,

@@ -24,10 +24,8 @@ interface TableConfigProps {
  * can use this to let the user choose which columns they see
  */
 export function TableConfig(props: TableConfigProps): JSX.Element {
-    const logic = tableConfigLogic
-    logic(props)
-    const { showModal } = useActions(logic)
-    const { modalVisible } = useValues(logic)
+    const { showModal } = useActions(tableConfigLogic)
+    const { modalVisible } = useValues(tableConfigLogic)
 
     return (
         <>
