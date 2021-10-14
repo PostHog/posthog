@@ -19,6 +19,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
 import { extractObjectDiffKeys } from './utils'
+import * as Sentry from '@sentry/browser'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -516,7 +517,17 @@ export const insightLogic = kea<insightLogicType>({
                     // - not saved if we came from a dashboard --> there's a separate "save" button for that
                     !router.values.hashParams.fromDashboard
                 ) {
-                    actions.updateInsight({ filters: insight.filters })
+                    if ('from_dashboard' in insight.filters) {
+                        Sentry.captureException(new Error(`Would save filters with "from_dashboard"`), {
+                            tags: {
+                                filters_to_save: JSON.stringify(insight.filters),
+                                insight: JSON.stringify(insight),
+                                filters: JSON.stringify(values.filters),
+                            },
+                        })
+                    } else {
+                        actions.updateInsight({ filters: insight.filters })
+                    }
                 }
             }
         },
