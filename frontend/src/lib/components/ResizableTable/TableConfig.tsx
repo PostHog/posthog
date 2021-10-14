@@ -1,5 +1,5 @@
 import { Button, Card, Col, Input, Row, Space } from 'antd'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ControlOutlined, LockOutlined, SearchOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
@@ -32,8 +32,10 @@ export function TableConfig({ availableColumns, immutableColumns, defaultColumns
     const { modalVisible } = useValues(tableConfigLogic)
     const { showModal, setDefaultColumns, setAllPossibleColumns } = useActions(tableConfigLogic)
 
-    setDefaultColumns(defaultColumns)
-    setAllPossibleColumns(availableColumns)
+    useEffect(() => {
+        setDefaultColumns(defaultColumns)
+        setAllPossibleColumns(availableColumns)
+    }, [])
 
     return (
         <>
