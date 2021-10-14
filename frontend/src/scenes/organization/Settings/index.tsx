@@ -14,7 +14,7 @@ import { IconExternalLink } from 'lib/components/icons'
 
 function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { renameCurrentOrganization } = useActions(organizationLogic)
+    const { updateOrganization } = useActions(organizationLogic)
 
     const [name, setName] = useState(currentOrganization?.name || '')
 
@@ -35,7 +35,7 @@ function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
-                    renameCurrentOrganization(name)
+                    updateOrganization({ name })
                 }}
                 disabled={isRestricted || !name || !currentOrganization || name === currentOrganization.name}
                 loading={currentOrganizationLoading}

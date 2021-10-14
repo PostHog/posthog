@@ -41,5 +41,4 @@ export const urls = {
     personalization: () => '/personalization',
     ingestion: () => '/ingestion',
     onboardingSetup: () => '/setup',
-    home: () => '/home',
 }

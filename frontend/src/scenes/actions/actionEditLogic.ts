@@ -15,7 +15,6 @@ type ActionEditType = ActionType | NewActionType
 
 interface Props {
     id: string
-    apiURL: string
     action: ActionEditType
     temporaryToken: string
     onSave: (action: ActionType, createNew: boolean) => void
@@ -74,9 +73,9 @@ export const actionEditLogic = kea<actionEditLogicType<ActionEditType, Props>>({
             try {
                 const token = props.temporaryToken ? '?temporary_token=' + props.temporaryToken : ''
                 if (action.id) {
-                    action = await api.update(props.apiURL + 'api/action/' + action.id + '/' + token, action)
+                    action = await api.update('api/action/' + action.id + '/' + token, action)
                 } else {
-                    action = await api.create(props.apiURL + 'api/action/' + token, action)
+                    action = await api.create('api/action/' + token, action)
                 }
             } catch (response) {
                 if (response.detail === 'action-exists') {

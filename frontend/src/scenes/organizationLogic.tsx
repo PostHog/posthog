@@ -44,20 +44,16 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
                     }
                 },
                 createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
-                updateOrganization: async (payload: OrganizationUpdatePayload) =>
-                    await api.update('api/organizations/@current', payload),
-                renameCurrentOrganization: async (newName: string) => {
+                updateOrganization: async (payload: OrganizationUpdatePayload) => {
                     if (!values.currentOrganization) {
-                        throw new Error('Current organization has not been loaded yet, so it cannot be renamed!')
+                        throw new Error('Current organization has not been loaded yet.')
                     }
-                    const renamedOrganization = (await api.update(
+                    const updatedOrganization = await api.update(
                         `api/organizations/${values.currentOrganization.id}`,
-                        {
-                            name: newName,
-                        }
-                    )) as OrganizationType
+                        payload
+                    )
                     userLogic.actions.loadUser()
-                    return renamedOrganization
+                    return updatedOrganization
                 },
                 completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
             },
@@ -66,9 +62,6 @@ export const organizationLogic = kea<organizationLogicType<OrganizationUpdatePay
     listeners: ({ actions }) => ({
         createOrganizationSuccess: () => {
             window.location.href = '/organization/members'
-        },
-        renameCurrentOrganizationSuccess: () => {
-            toast.success('Organization has been renamed')
         },
         updateOrganizationSuccess: () => {
             toast.success('Your configuration has been saved!')

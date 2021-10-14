@@ -17,19 +17,21 @@ class TrendsEventQuery(ClickhouseEventQuery):
     def __init__(self, entity: Entity, *args, **kwargs):
         self._entity = entity
         super().__init__(*args, **kwargs)
+        self._person_query = ClickhousePersonQuery(
+            self._filter,
+            self._team_id,
+            self._column_optimizer,
+            extra_fields=kwargs.get("extra_person_fields", []),
+            entity=entity,
+        )
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         _fields = (
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp"
             + (
-                f", {self.EVENT_TABLE_ALIAS}.properties as properties"
-                if self._column_optimizer.should_query_event_properties_column
-                else ""
-            )
-            + (
                 " ".join(
                     f", {self.EVENT_TABLE_ALIAS}.{column_name} as {column_name}"
-                    for column_name in self._column_optimizer.materialized_event_columns_to_query
+                    for column_name in self._column_optimizer.event_columns_to_query
                 )
             )
             + (f", {self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id" if self._should_join_distinct_ids else "")
@@ -56,10 +58,13 @@ class TrendsEventQuery(ClickhouseEventQuery):
         entity_query, entity_params = self._get_entity_query()
         self.params.update(entity_params)
 
+        person_query, person_params = self._get_person_query()
+        self.params.update(person_params)
+
         query = f"""
             SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_disintct_id_query()}
-            {self._get_person_query()}
+            {person_query}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}
@@ -67,14 +72,6 @@ class TrendsEventQuery(ClickhouseEventQuery):
         """
 
         return query, self.params
-
-    def _determine_should_join_persons(self) -> None:
-        super()._determine_should_join_persons()
-        for prop in self._entity.properties:
-            if prop.type == "person":
-                self._should_join_distinct_ids = True
-                self._should_join_persons = True
-                return
 
     def _determine_should_join_distinct_ids(self) -> None:
         if self._entity.math == "dau":
@@ -108,10 +105,7 @@ class TrendsEventQuery(ClickhouseEventQuery):
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
-            self._entity,
-            self._team_id,
-            table_name=self.EVENT_TABLE_ALIAS,
-            person_properties_column=ClickhousePersonQuery.PERSON_PROPERTIES_ALIAS,
+            self._entity, self._team_id, table_name=self.EVENT_TABLE_ALIAS
         )
 
         return entity_format_params["entity_query"], entity_params
