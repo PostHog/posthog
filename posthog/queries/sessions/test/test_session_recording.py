@@ -65,7 +65,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
             req, filt = create_recording_request_and_filter("xxx")
             session = session_recording(team=self.team, session_recording_id="xxx", request=req, filter=filt).run()
             self.assertEqual(
-                session, {"snapshots": [], "person": None, "start_time": None, "next": None, "duration": None}
+                session, {"snapshots": [], "person": None, "start_time": None, "next": None, "duration": 0}
             )
 
         def _test_filter_sessions(self, filter, expected):
