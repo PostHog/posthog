@@ -25,7 +25,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 session_id=session_id,
-                snapshot_data={"timestamp": timestamp.timestamp(), "type": type},
+                snapshot_data={"timestamp": timestamp.timestamp() * 1000, "type": type},
             )
 
         def create_chunked_snapshot(
@@ -41,7 +41,7 @@ def factory_test_session_recordings_api(session_recording_event_factory):
                     "chunk_index": snapshot_index,
                     "chunk_count": 1,
                     "data": compress_to_string(
-                        json.dumps([{"timestamp": timestamp.timestamp(), "type": 2}] * chunk_size)
+                        json.dumps([{"timestamp": timestamp.timestamp() * 1000, "type": 2}] * chunk_size)
                     ),
                     "has_full_snapshot": has_full_snapshot,
                 },
@@ -130,10 +130,12 @@ def factory_test_session_recordings_api(session_recording_event_factory):
             self.create_snapshot("d1", session_recording_id, base_time + relativedelta(seconds=30))
             response = self.client.get(f"/api/projects/@current/session_recordings/{session_recording_id}")
             response_data = response.json()
-            self.assertEqual(response_data["result"]["snapshots"][0], {"timestamp": base_time.timestamp(), "type": 2})
+            self.assertEqual(
+                response_data["result"]["snapshots"][0], {"timestamp": base_time.timestamp() * 1000, "type": 2}
+            )
             self.assertEqual(
                 response_data["result"]["snapshots"][1],
-                {"timestamp": (base_time + relativedelta(seconds=30)).timestamp(), "type": 2},
+                {"timestamp": (base_time + relativedelta(seconds=30)).timestamp() * 1000, "type": 2},
             )
             self.assertEqual(response_data["result"]["person"]["id"], p.pk)
             self.assertEqual(parse(response_data["result"]["start_time"]), base_time)

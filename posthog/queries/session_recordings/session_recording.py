@@ -64,8 +64,8 @@ class SessionRecording:
         duration = 0
         if len(snapshots) > 1:
             duration = get_milliseconds_between_dates(
-                datetime.fromtimestamp(snapshots[-1].get("timestamp", 0)),
-                datetime.fromtimestamp(snapshots[0].get("timestamp", 0)),
+                datetime.fromtimestamp(snapshots[-1].get("timestamp", 0) / 1000.0),
+                datetime.fromtimestamp(snapshots[0].get("timestamp", 0) / 1000.0),
             )
         has_next = len(snapshots) > (self._offset + self._limit + 1)
         next_url = (

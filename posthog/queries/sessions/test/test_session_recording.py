@@ -52,9 +52,9 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 self.assertEqual(
                     session["snapshots"],
                     [
-                        {"timestamp": 1_600_000_000, "type": 2},
-                        {"timestamp": 1_600_000_010, "type": 2},
-                        {"timestamp": 1_600_000_030, "type": 2},
+                        {"timestamp": 1_600_000_000_000, "type": 2},
+                        {"timestamp": 1_600_000_010_000, "type": 2},
+                        {"timestamp": 1_600_000_030_000, "type": 2},
                     ],
                 )
                 self.assertEqual(session["person"]["properties"], {"$some_prop": "something"})
@@ -259,8 +259,8 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
         def test_query_run_session_with_chunks_with_partial_snapshots(self):
             chunked_session_id = "session_with_partial_chunks"
-            num_events = 100
-            duration = 200
+            num_events = 50
+            duration = 100
 
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 Person.objects.create(team=self.team, distinct_ids=["user"], properties={"$some_prop": "something"})
@@ -268,11 +268,19 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
 
                 data = [
                     {
-                        "timestamp": int(round(start_time.timestamp())),
+                        "timestamp": int(start_time.timestamp() * 1000),
                         "type": 2,
                         "data": dict(map(lambda x: (x, x), "abcdefg")),
                     }
-                ] * num_events
+                ] * (num_events // 2) + [
+                    {
+                        "timestamp": int((start_time + relativedelta(seconds=duration)).timestamp() * 1000),
+                        "type": 2,
+                        "data": dict(map(lambda x: (x, x), "abcdefg")),
+                    }
+                ] * (
+                    num_events // 2
+                )
                 compressed_data = compress_to_string(json.dumps(data))
                 chunks = chunk_string(compressed_data, len(compressed_data) // 2)
 
@@ -323,7 +331,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 session_id=session_id,
-                snapshot_data={"timestamp": timestamp.timestamp(), "type": type},
+                snapshot_data={"timestamp": timestamp.timestamp() * 1000, "type": type},
             )
 
         def create_chunked_snapshot(
@@ -339,7 +347,7 @@ def session_recording_test_factory(session_recording, filter_sessions, event_fac
                     "chunk_index": snapshot_index,
                     "chunk_count": 1,
                     "data": compress_to_string(
-                        json.dumps([{"timestamp": timestamp.timestamp(), "type": 2}] * chunk_size)
+                        json.dumps([{"timestamp": timestamp.timestamp() * 1000, "type": 2}] * chunk_size)
                     ),
                     "has_full_snapshot": has_full_snapshot,
                 },
