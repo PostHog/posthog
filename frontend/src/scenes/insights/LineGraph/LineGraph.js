@@ -69,11 +69,7 @@ export function LineGraph({
     const { featureFlags } = useValues(featureFlagLogic)
 
     const annotationsCondition =
-        type === 'line' &&
-        datasets?.length > 0 &&
-        !datasets[0].compare &&
-        !inSharedMode &&
-        datasets[0].labels?.[0] !== '1 day' // stickiness graphs
+        type === 'line' && datasets?.length > 0 && !inSharedMode && datasets[0].labels?.[0] !== '1 day' // stickiness graphs
 
     const colors = getGraphColors(color === 'white')
 

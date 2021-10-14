@@ -408,13 +408,8 @@ export async function toolbarFetch(
     method: string = 'GET',
     payload?: Record<string, any>
 ): Promise<Response> {
-    const params = {
-        temporary_token: toolbarLogic.values.temporaryToken,
-    }
-    const fullUrl = `${toolbarLogic.values.apiURL}${url.startsWith('/') ? url.substring(1) : url}${encodeParams(
-        params,
-        '?'
-    )}`
+    const params = { temporary_token: toolbarLogic.values.temporaryToken }
+    const fullUrl = `${toolbarLogic.values.apiURL}${url}${encodeParams(params, '?')}`
 
     const payloadData = payload
         ? {
