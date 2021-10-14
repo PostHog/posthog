@@ -15,6 +15,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/components/Tooltip'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
@@ -54,9 +55,7 @@ export function FeatureFlags(): JSX.Element {
                                 explicitValue={featureFlag.key}
                             />
                         </div>
-                        <Typography.Text ellipsis={true} title={featureFlag.key}>
-                            {featureFlag.key}
-                        </Typography.Text>
+                        <Typography.Text title={featureFlag.key}>{stringWithWBR(featureFlag.key, 20)}</Typography.Text>
                     </div>
                 )
             },
