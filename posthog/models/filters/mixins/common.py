@@ -30,6 +30,7 @@ from posthog.constants import (
     SELECTOR,
     SESSION,
     SHOWN_AS,
+    SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
@@ -61,6 +62,25 @@ class IntervalMixin(BaseParamMixin):
     @include_dict
     def interval_to_dict(self):
         return {"interval": self.interval}
+
+
+class SmoothingIntervalsMixin(BaseParamMixin):
+    @cached_property
+    def smoothing_intervals(self) -> int:
+        interval_candidate_string = self._data.get(SMOOTHING_INTERVALS)
+        if not interval_candidate_string:
+            return 1
+        try:
+            interval_candidate = int(interval_candidate_string)
+            if interval_candidate < 1:
+                raise ValueError(f"Smoothing intervals must be a positive integer!")
+        except ValueError:
+            raise ValueError(f"Smoothing intervals must be a positive integer!")
+        return cast(int, interval_candidate)
+
+    @include_dict
+    def smoothing_intervals_to_dict(self):
+        return {"smoothing_intervals": self.smoothing_intervals}
 
 
 class SelectorMixin(BaseParamMixin):

@@ -61,7 +61,7 @@ class ClickhouseTrendsTotalVolume:
                     **content_sql_params,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
-                    **trend_event_query.active_user_params
+                    **trend_event_query.active_user_params,
                 )
             else:
                 content_sql = VOLUME_SQL.format(event_query=event_query, **content_sql_params)
@@ -70,7 +70,24 @@ class ClickhouseTrendsTotalVolume:
             params["date_from"] = format_ch_timestamp(filter.date_from or get_earliest_timestamp(team_id), filter)
             params["date_to"] = format_ch_timestamp(filter.date_to, filter)
             params["interval"] = filter.interval
-            final_query = AGGREGATE_SQL.format(null_sql=null_sql, content_sql=content_sql)
+
+            # If we have a smoothing interval > 1 then add in the sql to
+            # handling rolling average. Else just do a sum. This is possibly an
+            # nessacary optimization.
+            if filter.smoothing_intervals > 1:
+                smoothing_operation = f"""
+                    AVG(SUM(total)) 
+                    OVER (
+                        ORDER BY day_start 
+                        ROWS BETWEEN {filter.smoothing_intervals - 1} PRECEDING 
+                        AND CURRENT ROW
+                    )"""
+            else:
+                smoothing_operation = "SUM(total)"
+
+            final_query = AGGREGATE_SQL.format(
+                null_sql=null_sql, content_sql=content_sql, smoothing_operation=smoothing_operation
+            )
             return final_query, params, self._parse_total_volume_result(filter)
 
     def _parse_total_volume_result(self, filter: Filter) -> Callable:
