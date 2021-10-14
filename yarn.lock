@@ -4130,6 +4130,11 @@
   resolved "https://registry.yarnpkg.com/@types/qs/-/qs-6.9.7.tgz#63bb7d067db107cc1e457c303bc25d511febf6cb"
   integrity sha512-FGa1F62FT09qcrueBA6qYTrJPVDzah9a+493+o2PCXsesWHIn27G98TsSMs3WPNbZIEj4+VJf6saSFpvD+3Zsw==
 
+"@types/query-selector-shadow-dom@^1.0.0":
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/@types/query-selector-shadow-dom/-/query-selector-shadow-dom-1.0.0.tgz#c96baf60c2e5e648e7678dc1a9e1db10c9cbb385"
+  integrity sha512-cTGo8ZxW0WXFDV7gvL/XCq4213t6S/yWaSGqscnXUTNDWqwnsYKegB/VAzQDwzmACoLzIbGbYXdjJOgfPLu7Ig==
+
 "@types/raf-schd@^4.0.0":
   version "4.0.1"
   resolved "https://registry.yarnpkg.com/@types/raf-schd/-/raf-schd-4.0.1.tgz#1f9e03736f277fe9c7b82102bf18570a6ee19f82"
@@ -10877,10 +10882,10 @@ kea-waitfor@^0.2.0:
   resolved "https://registry.yarnpkg.com/kea-waitfor/-/kea-waitfor-0.2.0.tgz#8de370a8160f9cfddf9897598deb1aaf3aa20f9e"
   integrity sha512-lR+q/sw+OtURQuXsiHDHJXLMUv+hJLjTNoZeAZucO+JC1ul2VbbhqFQSD8VXea3bpAaK5BL4t/QucoY00IpXMQ==
 
-kea-window-values@^0.0.1:
-  version "0.0.1"
-  resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.0.1.tgz#918eee6647507e2d3d5d19466b9561261e7bc8d7"
-  integrity sha512-60SfOqHrmnCC8hSD2LALMJemYcohQ8tGcTHlA5u4rQy0l0wFFE4gqH1WbKd+73j9m4f6zdoOk07rwJf+P8maiQ==
+kea-window-values@^0.1.0:
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/kea-window-values/-/kea-window-values-0.1.0.tgz#d6e2045c14521082d9fd88f4e4a5e2c596ac4d0e"
+  integrity sha512-4OsoHaVU4+KFyfL4ZWKB5lVQbx6A7Azc2SVraGrzIglS/3DN/97WZ6RrDMHuitu02o9cm/CRmMsNB8FXSD5xdQ==
 
 kea@^2.5.1:
   version "2.5.1"
