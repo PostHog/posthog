@@ -15,7 +15,6 @@ import { useLongPress } from 'lib/hooks/useLongPress'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import { getLogicFromInsight } from 'scenes/insights/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { SaveModal } from 'scenes/insights/SaveModal'
@@ -38,15 +37,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkButton } from 'lib/components/LinkButton'
 import { DiveIcon } from 'lib/components/icons'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 dayjs.extend(relativeTime)
 
 interface Props {
     item: DashboardItemType
     dashboardId?: number
-    updateItemColor?: (id: number, itemClassName: string) => void
-    setDiveDashboard?: (id: number, dashboardId: number | null) => void
-    loadDashboardItems?: () => void
     isDraggingRef?: RefObject<boolean>
     isReloading?: boolean
     dashboardMode: DashboardMode | null
@@ -59,7 +56,6 @@ interface Props {
     preventLoading?: boolean
     moveDashboardItem?: (it: DashboardItemType, dashboardId: number) => void
     saveDashboardItem?: (it: DashboardItemType) => void
-    duplicateDashboardItem?: (it: DashboardItemType, dashboardId?: number) => void
     isHighlighted?: boolean
 }
 
@@ -172,9 +168,6 @@ const dashboardDiveLink = (dive_dashboard: number, dive_source_id: number): stri
 export function DashboardItem({
     item,
     dashboardId,
-    updateItemColor,
-    setDiveDashboard,
-    loadDashboardItems,
     isDraggingRef,
     isReloading,
     dashboardMode,
@@ -187,14 +180,28 @@ export function DashboardItem({
     preventLoading,
     moveDashboardItem,
     saveDashboardItem,
-    duplicateDashboardItem,
     isHighlighted = false,
 }: Props): JSX.Element {
     const [initialLoaded, setInitialLoaded] = useState(false)
     const [showSaveModal, setShowSaveModal] = useState(false)
     const { dashboards } = useValues(dashboardsModel)
-    const { renameDashboardItem } = useActions(dashboardItemsModel)
+    const { renameDashboardItem, duplicateDashboardItem } = useActions(dashboardItemsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { loadDashboardItems, setDiveDashboard, refreshAllDashboardItems, updateItemColor } =
+        useActions(dashboardLogic)
+
+    const filters = { ...item.filters, from_dashboard: item.id }
+    const logicProps = {
+        dashboardItemId: item.id,
+        filters: filters,
+        cachedResults: (item as any).result,
+        preventLoading,
+    }
+    const { insightProps, showTimeoutMessage, showErrorMessage, insight, insightLoading, isLoading } = useValues(
+        insightLogic(logicProps)
+    )
+    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     const _type = getDisplayedType(item.filters)
 
@@ -216,7 +223,7 @@ export function DashboardItem({
     const viewText = displayMap[_type].viewText
     const link = displayMap[_type].link(item)
     const color = item.color || 'white'
-    const otherDashboards: DashboardType[] = dashboards.filter((d: DashboardType) => d.id !== dashboardId)
+    const otherDashboards = dashboards.filter((d) => d.id !== dashboardId)
     const getDashboard = (id: number): DashboardType | undefined => dashboards.find((d) => d.id === id)
 
     const longPressProps = useLongPress(setEditMode, {
@@ -226,29 +233,15 @@ export function DashboardItem({
         exclude: 'table, table *',
     })
 
-    const filters = { ...item.filters, from_dashboard: item.id }
-    const logicProps = {
-        dashboardItemId: item.id,
-        filters: filters,
-        cachedResults: (item as any).result,
-        preventLoading,
-    }
-    const { insightProps, showTimeoutMessage, showErrorMessage } = useValues(insightLogic(logicProps))
-
-    const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const activeInsightLogic = getLogicFromInsight(item.filters.insight, insightProps)
-    const { loadResults } = useActions(activeInsightLogic)
-    const { results, resultsLoading, isLoading } = useValues(activeInsightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
-    const previousLoading = usePrevious(resultsLoading)
+    const previousLoading = usePrevious(insightLoading)
     const diveDashboard = item.dive_dashboard ? getDashboard(item.dive_dashboard) : null
 
     // if a load is performed and returns that is not the initial load, we refresh dashboard item to update timestamp
     useEffect(() => {
-        if (previousLoading && !resultsLoading && !initialLoaded) {
+        if (previousLoading && !insightLoading && !initialLoaded) {
             setInitialLoaded(true)
         }
-    }, [resultsLoading])
+    }, [insightLoading])
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -260,7 +253,7 @@ export function DashboardItem({
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionFiltersEmptyState />
             }
-            if (!isValidFunnel && !(resultsLoading || isLoading)) {
+            if (!isValidFunnel && !(insightLoading || isLoading)) {
                 return <FunnelEmptyState />
             }
         }
@@ -278,7 +271,7 @@ export function DashboardItem({
 
     // Empty states that can coexist with the graph (e.g. Loading)
     const CoexistingEmptyState = (() => {
-        if (isLoading || resultsLoading) {
+        if (isLoading || insightLoading) {
             return <Loading />
         }
         return null
@@ -397,7 +390,7 @@ export function DashboardItem({
                                                 <Menu.Item
                                                     data-attr={'dashboard-item-' + index + '-dropdown-refresh'}
                                                     onClick={() => {
-                                                        loadResults(true)
+                                                        refreshAllDashboardItems([item])
                                                         reportDashboardItemRefreshed(item)
                                                     }}
                                                 >
@@ -599,7 +592,9 @@ export function DashboardItem({
                         BlockingEmptyState
                     ) : (
                         <Alert.ErrorBoundary message="Error rendering graph!">
-                            {(dashboardMode === DashboardMode.Public || preventLoading) && !results && !item.result ? (
+                            {(dashboardMode === DashboardMode.Public || preventLoading) &&
+                            !insight.result &&
+                            !item.result ? (
                                 <Skeleton />
                             ) : (
                                 <Element

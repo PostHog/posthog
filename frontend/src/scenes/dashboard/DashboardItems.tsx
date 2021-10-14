@@ -17,14 +17,7 @@ const ReactGridLayout = WidthProvider(Responsive)
 export function DashboardItems(): JSX.Element {
     const { dashboard, items, layouts, layoutForItem, breakpoints, cols, dashboardMode, isRefreshing } =
         useValues(dashboardLogic)
-    const {
-        loadDashboardItems,
-        updateLayouts,
-        updateContainerWidth,
-        updateItemColor,
-        setDashboardMode,
-        setDiveDashboard,
-    } = useActions(dashboardLogic)
+    const { updateLayouts, updateContainerWidth, setDashboardMode } = useActions(dashboardLogic)
     const { duplicateDashboardItem } = useActions(dashboardItemsModel)
 
     // make sure the dashboard takes up the right size
@@ -103,13 +96,9 @@ export function DashboardItems(): JSX.Element {
                             resizingItem?.i?.toString() === item.id.toString() ? resizingItem : layoutForItem[item.id]
                         }
                         isReloading={isRefreshing(item.id)}
-                        loadDashboardItems={loadDashboardItems}
-                        setDiveDashboard={setDiveDashboard}
-                        duplicateDashboardItem={duplicateDashboardItem}
                         moveDashboardItem={(it: DashboardItemType, dashboardId: number) =>
                             duplicateDashboardItem(it, dashboardId, true)
                         }
-                        updateItemColor={updateItemColor}
                         isDraggingRef={isDragging}
                         dashboardMode={dashboardMode}
                         isHighlighted={
