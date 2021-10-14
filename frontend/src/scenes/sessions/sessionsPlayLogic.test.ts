@@ -1,6 +1,7 @@
 import { sessionsPlayLogic } from 'scenes/sessions/sessionsPlayLogic'
 import { api, defaultAPIMocks, mockAPI } from 'lib/api.mock'
-import { expectLogic, initKeaTestLogic } from 'kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import { sessionsTableLogic } from 'scenes/sessions/sessionsTableLogic'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import recordingJson from './__mocks__/recording.json'
