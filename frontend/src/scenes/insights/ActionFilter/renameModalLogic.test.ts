@@ -5,7 +5,8 @@ import {
     EntityFilterProps,
     LocalFilter,
 } from 'scenes/insights/ActionFilter/entityFilterLogic'
-import { expectLogic, initKeaTestLogic } from '~/test/kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
+import { initKeaTestLogic } from '~/test/init'
 import filtersJson from './__mocks__/filters.json'
 import { EntityFilter } from '~/types'
 import { renameModalLogicType } from 'scenes/insights/ActionFilter/renameModalLogicType'

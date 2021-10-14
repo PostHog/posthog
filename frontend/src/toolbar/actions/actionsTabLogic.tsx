@@ -8,11 +8,11 @@ import { toast } from 'react-toastify'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionType } from '~/types'
-import { ActionForm, AntdFieldData } from '~/toolbar/types'
+import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/es/form'
 import { posthog } from '~/toolbar/posthog'
 
-function newAction(element: HTMLElement | null, dataAttributes: string[]): Partial<ActionType> {
+function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
     return {
         name: '',
         steps: [element ? actionStepToAntdForm(elementToActionStep(element, dataAttributes), true) : {}],
@@ -99,7 +99,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
     selectors: {
         selectedAction: [
             (s) => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
-            (selectedActionId, newActionForElement, allActions): Partial<ActionType> | null => {
+            (selectedActionId, newActionForElement, allActions): ActionType | ActionDraftType | null => {
                 if (selectedActionId === 'new') {
                     return newAction(newActionForElement, [])
                 }
@@ -114,7 +114,7 @@ export const actionsTabLogic = kea<actionsTabLogicType<ActionFormInstance>>({
                           ...selectedAction,
                           steps: selectedAction.steps?.map((step) => actionStepToAntdForm(step)) || [],
                       }
-                    : { steps: [] },
+                    : { name: '', steps: [] },
         ],
         selectedEditedAction: [
             // `editingFields` don't update on values.form.setFields(fields), so reloading by tagging a few other selectors
