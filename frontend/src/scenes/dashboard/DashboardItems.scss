@@ -175,6 +175,11 @@
     position: relative;
     transition: height 200ms ease;
     margin-bottom: 50px;
+
+    /* remove initial loading animation, animations are only needed in edit mode */
+    &.dashboard-view-mode .react-grid-item {
+        transition: none;
+    }
 }
 .react-grid-item {
     transition: all 200ms ease;
@@ -237,7 +242,7 @@
         cursor: ns-resize;
     }
 }
-.react-grid-layout.layout.dragging-items.wobbly .react-grid-item {
+.react-grid-layout.layout.dashboard-edit-mode.wobbly .react-grid-item {
     & > .react-resizable-handle {
         width: 40px;
         height: 40px;
@@ -253,12 +258,12 @@
         width: auto;
     }
 }
-.react-grid-layout.layout.dragging-items .dashboard-item {
+.react-grid-layout.layout.dashboard-edit-mode .dashboard-item {
     table {
         cursor: auto;
     }
 }
-.react-grid-layout.layout.dragging-items.wobbly {
+.react-grid-layout.layout.dashboard-edit-mode.wobbly {
     margin-bottom: 200px;
     will-change: transform;
 

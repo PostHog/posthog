@@ -14,7 +14,7 @@ export const actionsLogic = kea<actionsLogicType>({
                     const params = {
                         temporary_token: toolbarLogic.values.temporaryToken,
                     }
-                    const url = `${toolbarLogic.values.apiURL}api/action/${encodeParams(params, '?')}`
+                    const url = `${toolbarLogic.values.apiURL}/api/action/${encodeParams(params, '?')}`
                     const response = await fetch(url)
                     const results = await response.json()
 
