@@ -35,6 +35,7 @@ import {
     formatDisplayPercentage,
     getClampedStepRangeFilter,
     getLastFilledStep,
+    getMeanAndStandardDeviation,
     getReferenceStep,
     getVisibilityIndex,
     isBreakdownFunnelResults,
@@ -46,6 +47,11 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
+// Chosen via heuristics by eyeballing some values
+// Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
+// which gives a ballpark of 1 highlighting every 10 breakdown values
 
 export const funnelLogic = kea<funnelLogicType>({
     props: {} as InsightLogicProps,
@@ -327,6 +333,12 @@ export const funnelLogic = kea<funnelLogicType>({
                 }
             },
         ],
+        isSkewed: [
+            () => [selectors.conversionMetrics],
+            (conversionMetrics: FunnelTimeConversionMetrics) => {
+                return conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9
+            },
+        ],
         apiParams: [
             (s) => [s.filters],
             (filters) => {
@@ -376,9 +388,10 @@ export const funnelLogic = kea<funnelLogicType>({
         stepsWithConversionMetrics: [
             () => [selectors.steps, selectors.stepReference],
             (steps, stepReference): FunnelStepWithConversionMetrics[] => {
-                return steps.map((step, i) => {
+                const stepsWithConversionMetrics = steps.map((step, i) => {
                     const previousCount = i > 0 ? steps[i - 1].count : step.count // previous is faked for the first step
                     const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
+
                     const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
                         const previousBreakdownCount =
                             (i > 0 && steps[i - 1].nested_breakdown?.[breakdownIndex].count) || 0
@@ -417,6 +430,54 @@ export const funnelLogic = kea<funnelLogicType>({
                                         : conversionRates.fromPrevious
                                     : conversionRates.total,
                         },
+                    }
+                })
+
+                if (!stepsWithConversionMetrics.length || !stepsWithConversionMetrics[0].nested_breakdown) {
+                    return stepsWithConversionMetrics
+                }
+
+                return stepsWithConversionMetrics.map((step) => {
+                    // Per step breakdown significance
+                    const [meanFromPrevious, stdDevFromPrevious] = getMeanAndStandardDeviation(
+                        step.nested_breakdown?.map((item) => item.conversionRates.fromPrevious)
+                    )
+                    const [meanFromBasis, stdDevFromBasis] = getMeanAndStandardDeviation(
+                        step.nested_breakdown?.map((item) => item.conversionRates.fromBasisStep)
+                    )
+                    const [meanTotal, stdDevTotal] = getMeanAndStandardDeviation(
+                        step.nested_breakdown?.map((item) => item.conversionRates.total)
+                    )
+
+                    const isOutlier = (value: number, mean: number, stdDev: number): boolean => {
+                        return (
+                            value > mean + stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER ||
+                            value < mean - stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER
+                        )
+                    }
+
+                    const nestedBreakdown = step.nested_breakdown?.map((item) => {
+                        return {
+                            ...item,
+                            significant: {
+                                fromPrevious: isOutlier(
+                                    item.conversionRates.fromPrevious,
+                                    meanFromPrevious,
+                                    stdDevFromPrevious
+                                ),
+                                fromBasisStep: isOutlier(
+                                    item.conversionRates.fromBasisStep,
+                                    meanFromBasis,
+                                    stdDevFromBasis
+                                ),
+                                total: isOutlier(item.conversionRates.total, meanTotal, stdDevTotal),
+                            },
+                        }
+                    })
+
+                    return {
+                        ...step,
+                        nested_breakdown: nestedBreakdown,
                     }
                 })
             },
@@ -533,6 +594,9 @@ export const funnelLogic = kea<funnelLogicType>({
                                         (stepsInBreakdown[stepsInBreakdown.length - 1]?.count ?? 0) /
                                         (stepsInBreakdown[0]?.count ?? 1),
                                 },
+                                significant: stepsInBreakdown.some((step) =>
+                                    step.significant ? Object.values(step.significant).some((val) => val) : false
+                                ),
                             })
                         })
                     }
@@ -615,7 +679,10 @@ export const funnelLogic = kea<funnelLogicType>({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        loadResultsSuccess: async () => {
+        loadResultsSuccess: async ({ insight }) => {
+            if (insight.filters?.insight !== ViewType.FUNNELS) {
+                return
+            }
             // hide all but the first five breakdowns for each step
             values.steps?.forEach((step) => {
                 values.flattenedStepsByBreakdown

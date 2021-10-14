@@ -23,7 +23,8 @@ import {
     SmileOutlined,
     StopOutlined,
 } from '@ant-design/icons'
-import { sceneLogic, urls } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { isMobile, platformCommandControlKey } from 'lib/utils'

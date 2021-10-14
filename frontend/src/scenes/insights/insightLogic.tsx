@@ -18,6 +18,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { extractObjectDiffKeys } from './utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -325,10 +326,23 @@ export const insightLogic = kea<insightLogicType>({
             (preflight) => !!preflight?.is_clickhouse_enabled,
         ],
     },
-    listeners: ({ actions, values, props }) => ({
-        setFilters: async ({ filters }, breakpoint) => {
+    listeners: ({ actions, selectors, values, props }) => ({
+        setFilters: async ({ filters }, breakpoint, _, previousState) => {
             const { fromDashboard } = router.values.hashParams
-            eventUsageLogic.actions.reportInsightViewed(filters, values.isFirstLoad, Boolean(fromDashboard))
+            const previousFilters = selectors.filters(previousState)
+            if (objectsEqual(previousFilters, filters)) {
+                return
+            }
+
+            const changedKeysObj: Record<string, any> = extractObjectDiffKeys(previousFilters, filters)
+
+            eventUsageLogic.actions.reportInsightViewed(
+                filters,
+                values.isFirstLoad,
+                Boolean(fromDashboard),
+                0,
+                changedKeysObj
+            )
             actions.setNotFirstLoad()
 
             const filterLength = (filter?: Partial<FilterType>): number =>
@@ -357,7 +371,13 @@ export const insightLogic = kea<insightLogicType>({
 
             // tests will wait for all breakpoints to finish
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
-            eventUsageLogic.actions.reportInsightViewed(filters, values.isFirstLoad, Boolean(fromDashboard), 10)
+            eventUsageLogic.actions.reportInsightViewed(
+                filters,
+                values.isFirstLoad,
+                Boolean(fromDashboard),
+                10,
+                changedKeysObj
+            )
         },
         startQuery: () => {
             actions.setShowTimeoutMessage(false)

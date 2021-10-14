@@ -7,7 +7,8 @@ import React from 'react'
 import { toast } from 'react-toastify'
 import { dashboardsModelType } from './dashboardsModelType'
 import { DashboardItemType, DashboardType } from '~/types'
-import { sceneLogic, urls } from 'scenes/sceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     actions: () => ({

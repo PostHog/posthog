@@ -90,7 +90,7 @@ export function Person(): JSX.Element {
                                     />
                                     <SessionRecordingsTable
                                         key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                                        distinctId={person.distinct_ids[0]}
+                                        personUUID={person.uuid}
                                         isPersonPage
                                     />
                                 </>

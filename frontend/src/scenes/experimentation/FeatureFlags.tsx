@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { Table, Switch } from 'antd'
+import { Table, Switch, Typography } from 'antd'
 import { Link } from 'lib/components/Link'
 import { DeleteWithUndo } from 'lib/utils'
 import { ExportOutlined, PlusOutlined, DeleteOutlined, EditOutlined, DisconnectOutlined } from '@ant-design/icons'
@@ -13,8 +13,9 @@ import { router } from 'kea-router'
 import { LinkButton } from 'lib/components/LinkButton'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { normalizeColumnTitle, useIsTableScrolling } from 'lib/components/Table/utils'
-import { urls } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/components/Tooltip'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 
 export function FeatureFlags(): JSX.Element {
     const { featureFlags, featureFlagsLoading } = useValues(featureFlagsLogic)
@@ -54,7 +55,7 @@ export function FeatureFlags(): JSX.Element {
                                 explicitValue={featureFlag.key}
                             />
                         </div>
-                        <span style={{ marginRight: 4 }}>{featureFlag.key}</span>
+                        <Typography.Text title={featureFlag.key}>{stringWithWBR(featureFlag.key, 17)}</Typography.Text>
                     </div>
                 )
             },
@@ -65,13 +66,21 @@ export function FeatureFlags(): JSX.Element {
                 return (
                     <div
                         style={{
+                            display: 'flex',
                             wordWrap: 'break-word',
                             maxWidth: 450,
                             width: 'auto',
                             whiteSpace: 'break-spaces',
                         }}
                     >
-                        {featureFlag.name}
+                        <Typography.Paragraph
+                            ellipsis={{
+                                rows: 5,
+                            }}
+                            title={featureFlag.name}
+                        >
+                            {featureFlag.name}
+                        </Typography.Paragraph>
                     </div>
                 )
             },
